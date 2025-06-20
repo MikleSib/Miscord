@@ -5,10 +5,9 @@ WORKDIR /app
 # Копируем package.json
 COPY package.json ./
 
-# Очищаем кеш и устанавливаем зависимости с агрессивными флагами
+# Очищаем кеш и устанавливаем зависимости
 RUN npm cache clean --force && \
-    npm install --legacy-peer-deps --force --no-optional --production=false && \
-    npm audit fix --force
+    npm install --legacy-peer-deps --force --no-optional --production=false
 
 # Копируем остальные файлы
 COPY . .
@@ -21,5 +20,6 @@ ENV WDS_SOCKET_PORT=0
 ENV CHOKIDAR_USEPOLLING=true
 ENV NODE_ENV=development
 ENV GENERATE_SOURCEMAP=false
+ENV BROWSER=none
 
 CMD ["npm", "start"]
