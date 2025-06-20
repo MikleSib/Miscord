@@ -1,13 +1,13 @@
-FROM node:16-alpine
+FROM node:18-alpine
 
 WORKDIR /app
 
-# Копируем package.json
-COPY package.json ./
+# Копируем package.json и package-lock.json (если есть)
+COPY package*.json ./
 
 # Очищаем кеш и устанавливаем зависимости
 RUN npm cache clean --force && \
-    npm install --legacy-peer-deps --force --no-optional --production=false
+    npm install --legacy-peer-deps
 
 # Копируем остальные файлы
 COPY . .
