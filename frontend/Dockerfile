@@ -1,21 +1,24 @@
-FROM node:18-alpine
+FROM node:16-alpine
 
 WORKDIR /app
 
-# Копируем package.json и package-lock.json
-COPY package*.json ./
+# Установка yarn
+RUN npm install -g yarn
 
-# Очищаем npm кеш и устанавливаем зависимости
-RUN npm cache clean --force && \
-    npm install --legacy-peer-deps --force
+# Копируем package.json
+COPY package.json ./
+
+# Устанавливаем зависимости через yarn
+RUN yarn install --frozen-lockfile
 
 # Копируем остальные файлы
 COPY . .
 
 EXPOSE 3000
 
-# Устанавливаем переменную окружения для React
+# Переменные окружения
 ENV CI=false
 ENV WDS_SOCKET_PORT=0
+ENV CHOKIDAR_USEPOLLING=true
 
-CMD ["npm", "start"]
+CMD ["yarn", "start"]
