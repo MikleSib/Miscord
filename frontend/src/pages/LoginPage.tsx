@@ -40,7 +40,7 @@ const LoginPage: React.FC = () => {
       
       // Временная заглушка для демонстрации
       const mockUser = {
-        id: '1',
+        id: 1,
         username: formData.username,
         email: 'user@example.com',
       };
