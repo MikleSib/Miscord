@@ -1,3 +1,5 @@
+const path = require('path');
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
@@ -14,6 +16,7 @@ const nextConfig = {
   },
 
   webpack: (config) => {
+    config.resolve.alias['@'] = path.resolve(__dirname, 'src');
     config.externals.push({
       'bufferutil': 'bufferutil',
       'utf-8-validate': 'utf-8-validate',
