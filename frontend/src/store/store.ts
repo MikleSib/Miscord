@@ -1,17 +1,15 @@
-import { configureStore } from '@reduxjs/toolkit';
-import authReducer from './slices/authSlice';
-import channelReducer from './slices/channelSlice';
-import chatReducer from './slices/chatSlice';
-import voiceReducer from './slices/voiceSlice';
+import { configureStore } from '@reduxjs/toolkit'
+import authReducer from './slices/authSlice'
+import chatReducer from './slices/chatSlice'
+import channelReducer from './slices/channelSlice'
 
 export const store = configureStore({
   reducer: {
     auth: authReducer,
-    channels: channelReducer,
     chat: chatReducer,
-    voice: voiceReducer,
+    channel: channelReducer,
   },
-});
+})
 
-export type RootState = ReturnType<typeof store.getState>;
-export type AppDispatch = typeof store.dispatch;
+export type RootState = ReturnType<typeof store.getState>
+export type AppDispatch = typeof store.dispatch 

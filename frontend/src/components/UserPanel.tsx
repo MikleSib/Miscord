@@ -1,151 +1,74 @@
-import React from 'react';
-import {
-  Box,
-  Avatar,
-  Typography,
-  IconButton,
-  styled,
-  Tooltip,
-} from '@mui/material';
-import MicIcon from '@mui/icons-material/Mic';
-import MicOffIcon from '@mui/icons-material/MicOff';
-import HeadsetIcon from '@mui/icons-material/Headset';
-import HeadsetOffIcon from '@mui/icons-material/HeadsetOff';
-import SettingsIcon from '@mui/icons-material/Settings';
-import LogoutIcon from '@mui/icons-material/Logout';
-import { useAppSelector, useAppDispatch } from '../hooks/redux';
-import { logout } from '../store/slices/authSlice';
-import { toggleMute, toggleDeafen, disconnectFromVoiceChannel } from '../store/slices/voiceSlice';
-import { useNavigate } from 'react-router-dom';
+'use client'
 
-const UserPanelContainer = styled(Box)({
-  height: '52px',
-  backgroundColor: '#292b2f',
-  padding: '0 8px',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-});
+import { useDispatch } from 'react-redux'
+import { AppDispatch } from '@/store/store'
+import { logout } from '@/store/slices/authSlice'
+import { ArrowRightOnRectangleIcon } from '@heroicons/react/24/outline'
 
-const UserInfo = styled(Box)({
-  display: 'flex',
-  alignItems: 'center',
-  gap: '8px',
-  minWidth: 0,
-});
+interface User {
+  id: number
+  username: string
+  email: string
+}
 
-const UserControls = styled(Box)({
-  display: 'flex',
-  alignItems: 'center',
-  gap: '4px',
-});
+interface UserPanelProps {
+  user: User | null
+}
 
-const ControlButton = styled(IconButton)({
-  color: '#b9bbbe',
-  padding: '4px',
-  '&:hover': {
-    color: '#dcddde',
-    backgroundColor: '#383a40',
-  },
-});
-
-const UserPanel: React.FC = () => {
-  const dispatch = useAppDispatch();
-  const navigate = useNavigate();
-  const { user } = useAppSelector((state) => state.auth);
-  const { isConnected, isMuted, isDeafened } = useAppSelector((state) => state.voice);
+export default function UserPanel({ user }: UserPanelProps) {
+  const dispatch = useDispatch<AppDispatch>()
 
   const handleLogout = () => {
-    if (isConnected) {
-      dispatch(disconnectFromVoiceChannel());
-    }
-    dispatch(logout());
-    navigate('/login');
-  };
-
-  const handleToggleMute = () => {
-    if (isConnected) {
-      dispatch(toggleMute());
-    }
-  };
-
-  const handleToggleDeafen = () => {
-    if (isConnected) {
-      dispatch(toggleDeafen());
-    }
-  };
-
-  if (!user) return null;
+    dispatch(logout())
+  }
 
   return (
-    <UserPanelContainer>
-      <UserInfo>
-        <Avatar sx={{ width: 32, height: 32 }}>
-          {user.username[0].toUpperCase()}
-        </Avatar>
-        <Box sx={{ minWidth: 0 }}>
-          <Typography
-            variant="body2"
-            sx={{
-              color: '#ffffff',
-              fontWeight: 600,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {user.username}
-          </Typography>
-          <Typography
-            variant="caption"
-            sx={{
-              color: '#b9bbbe',
-              fontSize: '11px',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            #{user.id.toString().padStart(4, '0')}
-          </Typography>
-        </Box>
-      </UserInfo>
+    <div className="h-full flex flex-col">
+      {/* Заголовок */}
+      <div className="p-4 border-b border-gray-700">
+        <h3 className="text-white font-semibold">Пользователи онлайн</h3>
+      </div>
 
-      <UserControls>
-        <Tooltip title={isMuted ? 'Включить микрофон' : 'Выключить микрофон'}>
-          <ControlButton
-            onClick={handleToggleMute}
-            disabled={!isConnected}
-            sx={{ color: isMuted ? '#f04747' : '#b9bbbe' }}
-          >
-            {isMuted ? <MicOffIcon fontSize="small" /> : <MicIcon fontSize="small" />}
-          </ControlButton>
-        </Tooltip>
+      {/* Список пользователей */}
+      <div className="flex-1 overflow-y-auto p-2">
+        <div className="space-y-2">
+          {user && (
+            <div className="flex items-center space-x-2 p-2 rounded bg-gray-700">
+              <div className="w-8 h-8 bg-discord-600 rounded-full flex items-center justify-center text-white text-sm font-semibold">
+                {user.username.charAt(0).toUpperCase()}
+              </div>
+              <div className="flex-1">
+                <p className="text-white text-sm font-medium">{user.username}</p>
+                <p className="text-gray-400 text-xs">В сети</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
 
-        <Tooltip title={isDeafened ? 'Включить звук' : 'Выключить звук'}>
-          <ControlButton
-            onClick={handleToggleDeafen}
-            disabled={!isConnected}
-            sx={{ color: isDeafened ? '#f04747' : '#b9bbbe' }}
-          >
-            {isDeafened ? <HeadsetOffIcon fontSize="small" /> : <HeadsetIcon fontSize="small" />}
-          </ControlButton>
-        </Tooltip>
-
-        <Tooltip title="Настройки">
-          <ControlButton>
-            <SettingsIcon fontSize="small" />
-          </ControlButton>
-        </Tooltip>
-
-        <Tooltip title="Выйти">
-          <ControlButton onClick={handleLogout}>
-            <LogoutIcon fontSize="small" />
-          </ControlButton>
-        </Tooltip>
-      </UserControls>
-    </UserPanelContainer>
-  );
-};
-
-export default UserPanel;
+      {/* Панель текущего пользователя */}
+      <div className="p-4 border-t border-gray-700">
+        {user && (
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 bg-discord-600 rounded-full flex items-center justify-center text-white text-sm font-semibold">
+                {user.username.charAt(0).toUpperCase()}
+              </div>
+              <div>
+                <p className="text-white text-sm font-medium">{user.username}</p>
+                <p className="text-gray-400 text-xs">{user.email}</p>
+              </div>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="text-gray-400 hover:text-white transition-colors"
+              title="Выйти"
+            >
+              <ArrowRightOnRectangleIcon className="w-5 h-5" />
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+} 
