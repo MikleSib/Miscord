@@ -1,175 +1,101 @@
-import React from 'react';
-import {
-  Box,
-  Typography,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  styled,
-  IconButton,
-} from '@mui/material';
-import TagIcon from '@mui/icons-material/Tag';
-import VolumeUpIcon from '@mui/icons-material/VolumeUp';
-import AddIcon from '@mui/icons-material/Add';
-import { Channel, TextChannel, VoiceChannel } from '../types';
-import { useAppDispatch, useAppSelector } from '../hooks/redux';
-import { setCurrentTextChannel, setCurrentVoiceChannel } from '../store/slices/channelSlice';
-import { connectToVoiceChannel } from '../store/slices/voiceSlice';
+'use client'
 
-const SidebarContainer = styled(Box)({
-  width: '240px',
-  backgroundColor: '#2f3136',
-  display: 'flex',
-  flexDirection: 'column',
-});
+import { Hash, Volume2, ChevronDown, Settings, Plus } from 'lucide-react'
+import { useStore } from '@/lib/store'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 
-const ChannelHeader = styled(Box)({
-  height: '48px',
-  padding: '0 16px',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  borderBottom: '1px solid #202225',
-  cursor: 'pointer',
-  '&:hover': {
-    backgroundColor: '#34373c',
-  },
-});
+export function ChannelSidebar() {
+  const { currentServer, currentChannel, selectChannel } = useStore()
 
-const ChannelSection = styled(Box)({
-  padding: '16px 8px 0',
-});
+  if (!currentServer) {
+    return (
+      <div className="w-60 bg-secondary flex flex-col">
+        <div className="h-12 px-4 flex items-center border-b border-border">
+          <span className="font-semibold">Выберите сервер</span>
+        </div>
+      </div>
+    )
+  }
 
-const ChannelSectionHeader = styled(Box)({
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  padding: '0 8px',
-  marginBottom: '4px',
-});
-
-const ChannelList = styled(List)({
-  padding: 0,
-});
-
-const ChannelListItem = styled(ListItem)({
-  padding: '1px 0',
-});
-
-const ChannelButton = styled(ListItemButton)<{ active?: boolean }>(({ active }) => ({
-  borderRadius: '4px',
-  padding: '6px 8px',
-  backgroundColor: active ? '#393c43' : 'transparent',
-  '&:hover': {
-    backgroundColor: active ? '#393c43' : '#34373c',
-  },
-}));
-
-interface ChannelSidebarProps {
-  channel: Channel;
-}
-
-const ChannelSidebar: React.FC<ChannelSidebarProps> = ({ channel }) => {
-  const dispatch = useAppDispatch();
-  const { currentTextChannel, currentVoiceChannel } = useAppSelector(state => state.channels);
-  const { isConnected, currentVoiceChannelId } = useAppSelector(state => state.voice);
-
-  const handleTextChannelClick = (textChannel: TextChannel) => {
-    dispatch(setCurrentTextChannel(textChannel));
-  };
-
-  const handleVoiceChannelClick = async (voiceChannel: VoiceChannel) => {
-    if (!isConnected || currentVoiceChannelId !== voiceChannel.id) {
-      dispatch(setCurrentVoiceChannel(voiceChannel));
-      dispatch(connectToVoiceChannel(voiceChannel.id));
-    }
-  };
+  const textChannels = currentServer.channels.filter(c => c.type === 'text')
+  const voiceChannels = currentServer.channels.filter(c => c.type === 'voice')
 
   return (
-    <SidebarContainer>
-      <ChannelHeader>
-        <Typography variant="h6" sx={{ color: '#ffffff', fontWeight: 600 }}>
-          {channel.name}
-        </Typography>
-      </ChannelHeader>
+    <div className="w-60 bg-secondary flex flex-col">
+      {/* Server Header */}
+      <div className="h-12 px-4 flex items-center justify-between border-b border-border cursor-pointer hover:bg-accent/50">
+        <span className="font-semibold">{currentServer.name}</span>
+        <ChevronDown className="w-4 h-4" />
+      </div>
 
-      <Box sx={{ flex: 1, overflowY: 'auto' }}>
-        {/* Текстовые каналы */}
-        <ChannelSection>
-          <ChannelSectionHeader>
-            <Typography
-              variant="caption"
-              sx={{ color: '#96989d', fontWeight: 600, textTransform: 'uppercase' }}
-            >
-              Текстовые каналы
-            </Typography>
-            <IconButton size="small" sx={{ color: '#96989d' }}>
-              <AddIcon fontSize="small" />
-            </IconButton>
-          </ChannelSectionHeader>
-          <ChannelList>
-            {channel.text_channels.map((textChannel) => (
-              <ChannelListItem key={textChannel.id}>
-                <ChannelButton
-                  active={currentTextChannel?.id === textChannel.id}
-                  onClick={() => handleTextChannelClick(textChannel)}
+      {/* Channels List */}
+      <div className="flex-1 overflow-y-auto scrollbar-thin">
+        {/* Text Channels */}
+        {textChannels.length > 0 && (
+          <div className="pt-4">
+            <div className="px-2 mb-1">
+              <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground uppercase">
+                <span>Текстовые каналы</span>
+                <Plus className="w-4 h-4 cursor-pointer hover:text-foreground" />
+              </div>
+            </div>
+            <div className="px-2 space-y-0.5">
+              {textChannels.map((channel) => (
+                <Button
+                  key={channel.id}
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "w-full justify-start gap-1.5 h-8 px-2",
+                    currentChannel?.id === channel.id && "bg-accent"
+                  )}
+                  onClick={() => selectChannel(channel.id)}
                 >
-                  <ListItemIcon sx={{ minWidth: 24 }}>
-                    <TagIcon sx={{ fontSize: 20, color: '#96989d' }} />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary={textChannel.name}
-                    primaryTypographyProps={{
-                      variant: 'body2',
-                      sx: { color: currentTextChannel?.id === textChannel.id ? '#ffffff' : '#96989d' },
-                    }}
-                  />
-                </ChannelButton>
-              </ChannelListItem>
-            ))}
-          </ChannelList>
-        </ChannelSection>
+                  <Hash className="w-4 h-4" />
+                  <span>{channel.name}</span>
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
 
-        {/* Голосовые каналы */}
-        <ChannelSection>
-          <ChannelSectionHeader>
-            <Typography
-              variant="caption"
-              sx={{ color: '#96989d', fontWeight: 600, textTransform: 'uppercase' }}
-            >
-              Голосовые каналы
-            </Typography>
-            <IconButton size="small" sx={{ color: '#96989d' }}>
-              <AddIcon fontSize="small" />
-            </IconButton>
-          </ChannelSectionHeader>
-          <ChannelList>
-            {channel.voice_channels.map((voiceChannel) => (
-              <ChannelListItem key={voiceChannel.id}>
-                <ChannelButton
-                  active={currentVoiceChannelId === voiceChannel.id}
-                  onClick={() => handleVoiceChannelClick(voiceChannel)}
+        {/* Voice Channels */}
+        {voiceChannels.length > 0 && (
+          <div className="pt-4">
+            <div className="px-2 mb-1">
+              <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground uppercase">
+                <span>Голосовые каналы</span>
+                <Plus className="w-4 h-4 cursor-pointer hover:text-foreground" />
+              </div>
+            </div>
+            <div className="px-2 space-y-0.5">
+              {voiceChannels.map((channel) => (
+                <Button
+                  key={channel.id}
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "w-full justify-start gap-1.5 h-8 px-2",
+                    currentChannel?.id === channel.id && "bg-accent"
+                  )}
+                  onClick={() => selectChannel(channel.id)}
                 >
-                  <ListItemIcon sx={{ minWidth: 24 }}>
-                    <VolumeUpIcon sx={{ fontSize: 20, color: '#96989d' }} />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary={voiceChannel.name}
-                    primaryTypographyProps={{
-                      variant: 'body2',
-                      sx: { color: currentVoiceChannelId === voiceChannel.id ? '#ffffff' : '#96989d' },
-                    }}
-                  />
-                </ChannelButton>
-              </ChannelListItem>
-            ))}
-          </ChannelList>
-        </ChannelSection>
-      </Box>
-    </SidebarContainer>
-  );
-};
+                  <Volume2 className="w-4 h-4" />
+                  <span>{channel.name}</span>
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
 
-export default ChannelSidebar;
+      {/* User Panel */}
+      <div className="h-[52px] bg-background/50 px-2 flex items-center justify-between">
+        <Button variant="ghost" size="icon" className="h-8 w-8">
+          <Settings className="w-4 h-4" />
+        </Button>
+      </div>
+    </div>
+  )
+}
