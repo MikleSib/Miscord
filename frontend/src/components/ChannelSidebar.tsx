@@ -1,9 +1,9 @@
 'use client'
 
 import { Hash, Volume2, ChevronDown, Settings, Plus } from 'lucide-react'
-import { useStore } from '@/lib/store'
-import { cn } from '@/lib/utils'
-import { Button } from '@/components/ui/button'
+import { useStore } from '../lib/store'
+import { cn } from '../lib/utils'
+import { Button } from './ui/button'
 
 export function ChannelSidebar() {
   const { currentServer, currentChannel, selectChannel } = useStore()

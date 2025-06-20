@@ -2,9 +2,9 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { Send, Hash } from 'lucide-react'
-import { useStore } from '@/lib/store'
-import { formatDate } from '@/lib/utils'
-import { Button } from '@/components/ui/button'
+import { useStore } from '../lib/store'
+import { formatDate } from '../lib/utils'
+import { Button } from './ui/button'
 
 export function ChatArea() {
   const { currentChannel, messages, sendMessage, user } = useStore()

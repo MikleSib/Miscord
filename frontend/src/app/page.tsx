@@ -1,16 +1,17 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { ServerList } from '@/components/ServerList'
-import { ChannelSidebar } from '@/components/ChannelSidebar'
-import { ChatArea } from '@/components/ChatArea'
-import { UserPanel } from '@/components/UserPanel'
-import { LoginDialog } from '@/components/LoginDialog'
-import { useStore } from '@/lib/store'
+import { ServerList } from '../components/ServerList'
+import { ChannelSidebar } from '../components/ChannelSidebar'
+import { ChatArea } from '../components/ChatArea'
+import { UserPanel } from '../components/UserPanel'
+import { LoginDialog } from '../components/LoginDialog'
+import { useStore } from '../lib/store'
 
 export default function Home() {
   const [mounted, setMounted] = useState(false)
-  const { user, isAuthenticated } = useStore()
+  const { user } = useStore()
+  const isAuthenticated = !!user
 
   useEffect(() => {
     setMounted(true)

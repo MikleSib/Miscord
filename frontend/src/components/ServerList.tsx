@@ -1,9 +1,9 @@
 'use client'
 
 import { Plus, Home } from 'lucide-react'
-import { useStore } from '@/lib/store'
-import { cn } from '@/lib/utils'
-import { Button } from '@/components/ui/button'
+import { useStore } from '../lib/store'
+import { cn } from '../lib/utils'
+import { Button } from './ui/button'
 
 export function ServerList() {
   const { servers, currentServer, selectServer } = useStore()

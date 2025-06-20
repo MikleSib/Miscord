@@ -1,46 +1,55 @@
 'use client'
 
-import { Settings, LogOut, Mic, Headphones } from 'lucide-react'
-import { useStore } from '@/lib/store'
-import { Button } from '@/components/ui/button'
+import React from 'react';
+import { Avatar, Box, Typography, IconButton } from '@mui/material';
+import { Settings, LogOut } from 'lucide-react';
+import { useStore } from '../lib/store';
 
 export function UserPanel() {
-  const { user, logout } = useStore()
+  const { user, logout } = useStore();
 
-  if (!user) return null
+  if (!user) {
+    return null;
+  }
 
   return (
-    <div className="absolute bottom-0 left-[72px] w-60 h-[52px] bg-card border-t border-border px-2 flex items-center justify-between">
-      <div className="flex items-center gap-2">
-        <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+    <Box
+      sx={{
+        height: '52px',
+        backgroundColor: 'rgba(0, 0, 0, 0.2)',
+        borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '0 8px',
+      }}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Avatar sx={{ width: 32, height: 32, fontSize: '14px' }}>
           {user.avatar ? (
-            <img src={user.avatar} alt="" className="w-full h-full rounded-full" />
+            <img src={user.avatar} alt={user.username} />
           ) : (
-            <span className="text-xs font-semibold">
-              {user.username[0].toUpperCase()}
-            </span>
+            user.username[0].toUpperCase()
           )}
-        </div>
-        <div className="flex flex-col">
-          <span className="text-sm font-semibold">{user.username}</span>
-          <span className="text-xs text-muted-foreground">#{user.id.slice(0, 4)}</span>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-1">
-        <Button variant="ghost" size="icon" className="h-8 w-8">
-          <Mic className="w-4 h-4" />
-        </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8">
-          <Headphones className="w-4 h-4" />
-        </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8">
-          <Settings className="w-4 h-4" />
-        </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={logout}>
-          <LogOut className="w-4 h-4" />
-        </Button>
-      </div>
-    </div>
-  )
+        </Avatar>
+        <Box>
+          <Typography variant="body2" sx={{ fontWeight: 600, color: '#dcddde' }}>
+            {user.username}
+          </Typography>
+          <Typography variant="caption" sx={{ color: '#72767d' }}>
+            Онлайн
+          </Typography>
+        </Box>
+      </Box>
+      
+      <Box sx={{ display: 'flex', gap: 0.5 }}>
+        <IconButton size="small" sx={{ color: '#b9bbbe' }}>
+          <Settings size={16} />
+        </IconButton>
+        <IconButton size="small" onClick={logout} sx={{ color: '#b9bbbe' }}>
+          <LogOut size={16} />
+        </IconButton>
+      </Box>
+    </Box>
+  );
 }
