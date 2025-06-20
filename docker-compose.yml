@@ -25,7 +25,7 @@ services:
       DATABASE_URL: postgresql://miscord_user:miscord_password@postgres:5432/miscord
       REDIS_URL: redis://redis:6379
       SECRET_KEY: your-secret-key-here-change-in-production
-      CORS_ORIGINS: "*"
+      CORS_ORIGINS: '["http://localhost:3000", "http://frontend:3000"]'
     ports:
       - "8000:8000"
     depends_on:
