@@ -1,25 +1,42 @@
 'use client'
 
-import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { useSelector } from 'react-redux'
-import { RootState } from '@/store/store'
-import LoginForm from '@/components/LoginForm'
-import ChatInterface from '@/components/ChatInterface'
+import { useState, useEffect } from 'react'
+import { ServerList } from '@/components/ServerList'
+import { ChannelSidebar } from '@/components/ChannelSidebar'
+import { ChatArea } from '@/components/ChatArea'
+import { UserPanel } from '@/components/UserPanel'
+import { LoginDialog } from '@/components/LoginDialog'
+import { useStore } from '@/lib/store'
 
 export default function Home() {
-  const router = useRouter()
-  const isAuthenticated = useSelector((state: RootState) => state.auth.isAuthenticated)
+  const [mounted, setMounted] = useState(false)
+  const { user, isAuthenticated } = useStore()
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      router.push('/login')
-    }
-  }, [isAuthenticated, router])
+    setMounted(true)
+  }, [])
 
-  if (!isAuthenticated) {
-    return <LoginForm />
+  if (!mounted) {
+    return null
   }
 
-  return <ChatInterface />
-} 
+  if (!isAuthenticated) {
+    return <LoginDialog />
+  }
+
+  return (
+    <div className="flex h-screen">
+      {/* Server List */}
+      <ServerList />
+      
+      {/* Channel Sidebar */}
+      <ChannelSidebar />
+      
+      {/* Main Chat Area */}
+      <ChatArea />
+      
+      {/* User Panel */}
+      <UserPanel />
+    </div>
+  )
+}
