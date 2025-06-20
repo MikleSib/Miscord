@@ -12,8 +12,8 @@ import {
 import CloseIcon from '@mui/icons-material/Close';
 import MicIcon from '@mui/icons-material/Mic';
 import MicOffIcon from '@mui/icons-material/MicOff';
-import { useAppSelector, useAppDispatch } from '../hooks/redux';
-import { disconnectFromVoiceChannel } from '../store/slices/voiceSlice';
+import { useVoiceStore } from '../store/slices/voiceSlice';
+import { useStore } from '../lib/store';
 
 const OverlayContainer = styled(Paper)({
   position: 'fixed',
@@ -49,33 +49,36 @@ const ParticipantItem = styled(ListItem)({
 });
 
 const VoiceOverlay: React.FC = () => {
-  const dispatch = useAppDispatch();
-  const { currentVoiceChannel } = useAppSelector((state) => state.channels);
-  const { participants, isMuted, isDeafened } = useAppSelector((state) => state.voice);
-  const { user } = useAppSelector((state) => state.auth);
+  const { currentChannel, user } = useStore();
+  const { 
+    participants, 
+    isMuted, 
+    isDeafened, 
+    disconnectFromVoiceChannel 
+  } = useVoiceStore();
 
   const handleDisconnect = () => {
-    dispatch(disconnectFromVoiceChannel());
+    disconnectFromVoiceChannel();
   };
 
-  if (!currentVoiceChannel || !user) return null;
+  if (!currentChannel || currentChannel.type !== 'voice' || !user) return null;
 
   // Добавляем текущего пользователя в список участников
   const allParticipants = [
     {
-      user_id: user.id,
+      user_id: parseInt(user.id),
       username: user.username,
       is_muted: isMuted,
       is_deafened: isDeafened,
     },
-    ...participants.filter(p => p.user_id !== user.id),
+    ...participants.filter(p => p.user_id !== parseInt(user.id)),
   ];
 
   return (
     <OverlayContainer elevation={3}>
       <OverlayHeader>
         <Typography variant="subtitle1" sx={{ color: '#ffffff', fontWeight: 600 }}>
-          {currentVoiceChannel.name}
+          {currentChannel.name}
         </Typography>
         <IconButton size="small" onClick={handleDisconnect} sx={{ color: '#b9bbbe' }}>
           <CloseIcon fontSize="small" />
@@ -98,7 +101,7 @@ const VoiceOverlay: React.FC = () => {
                 }}
               >
                 {participant.username}
-                {participant.user_id === user.id && ' (Вы)'}
+                {participant.user_id === parseInt(user.id) && ' (Вы)'}
               </Typography>
               {participant.is_muted && (
                 <MicOffIcon sx={{ fontSize: 16, color: '#f04747' }} />

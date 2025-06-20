@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Link as RouterLink, useNavigate } from 'react-router-dom';
+import Link from 'next/link';
+import { useRouter } from 'next/router';
 import {
   Container,
   Paper,
@@ -7,16 +8,13 @@ import {
   Button,
   Typography,
   Box,
-  Link,
   Alert,
 } from '@mui/material';
-import { useAppDispatch, useAppSelector } from '../hooks/redux';
-import { login, clearError } from '../store/slices/authSlice';
+import { useAuthStore } from '../store/store';
 
 const LoginPage: React.FC = () => {
-  const navigate = useNavigate();
-  const dispatch = useAppDispatch();
-  const { isLoading, error } = useAppSelector((state) => state.auth);
+  const router = useRouter();
+  const { isLoading, error, loginStart, loginSuccess, loginFailure, clearError } = useAuthStore();
   
   const [formData, setFormData] = useState({
     username: '',
@@ -32,17 +30,33 @@ const LoginPage: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const result = await dispatch(login(formData));
-    if (login.fulfilled.match(result)) {
-      navigate('/');
+    loginStart();
+    
+    try {
+      // Здесь будет вызов API для входа
+      // const response = await authService.login(formData);
+      // loginSuccess(response.user, response.token);
+      // router.push('/');
+      
+      // Временная заглушка для демонстрации
+      const mockUser = {
+        id: '1',
+        username: formData.username,
+        email: 'user@example.com',
+      };
+      const mockToken = 'mock-token';
+      loginSuccess(mockUser, mockToken);
+      router.push('/');
+    } catch (err) {
+      loginFailure(err instanceof Error ? err.message : 'Ошибка входа');
     }
   };
 
   React.useEffect(() => {
     return () => {
-      dispatch(clearError());
+      clearError();
     };
-  }, [dispatch]);
+  }, [clearError]);
 
   return (
     <Container component="main" maxWidth="xs">
@@ -100,8 +114,10 @@ const LoginPage: React.FC = () => {
               {isLoading ? 'Вход...' : 'Войти'}
             </Button>
             <Box textAlign="center">
-              <Link component={RouterLink} to="/register" variant="body2">
-                Нет аккаунта? Зарегистрироваться
+              <Link href="/register" style={{ textDecoration: 'none' }}>
+                <Typography variant="body2" color="primary" sx={{ cursor: 'pointer' }}>
+                  Нет аккаунта? Зарегистрироваться
+                </Typography>
               </Link>
             </Box>
           </Box>
