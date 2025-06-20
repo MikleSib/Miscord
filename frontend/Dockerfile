@@ -2,9 +2,6 @@ FROM node:16-alpine
 
 WORKDIR /app
 
-# Установка yarn
-RUN npm install -g yarn
-
 # Копируем package.json
 COPY package.json ./
 
