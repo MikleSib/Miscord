@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: miscord
+      POSTGRES_USER: miscord_user
+      POSTGRES_PASSWORD: miscord_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - miscord_network
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - miscord_network
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql://miscord_user:miscord_password@postgres:5432/miscord
+      REDIS_URL: redis://redis:6379
+      SECRET_KEY: your-secret-key-here-change-in-production
+      CORS_ORIGINS: "*"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./backend:/app
+    networks:
+      - miscord_network
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend-simple:
+    image: nginx:alpine
+    ports:
+      - "3000:80"
+    volumes:
+      - ./frontend/public:/usr/share/nginx/html
+    networks:
+      - miscord_network
+
+volumes:
+  postgres_data:
+
+networks:
+  miscord_network:
+    driver: bridge 
