@@ -1,74 +1,46 @@
 'use client'
 
-import { useDispatch } from 'react-redux'
-import { AppDispatch } from '@/store/store'
-import { logout } from '@/store/slices/authSlice'
-import { ArrowRightOnRectangleIcon } from '@heroicons/react/24/outline'
+import { Settings, LogOut, Mic, Headphones } from 'lucide-react'
+import { useStore } from '@/lib/store'
+import { Button } from '@/components/ui/button'
 
-interface User {
-  id: number
-  username: string
-  email: string
-}
+export function UserPanel() {
+  const { user, logout } = useStore()
 
-interface UserPanelProps {
-  user: User | null
-}
-
-export default function UserPanel({ user }: UserPanelProps) {
-  const dispatch = useDispatch<AppDispatch>()
-
-  const handleLogout = () => {
-    dispatch(logout())
-  }
+  if (!user) return null
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Заголовок */}
-      <div className="p-4 border-b border-gray-700">
-        <h3 className="text-white font-semibold">Пользователи онлайн</h3>
-      </div>
-
-      {/* Список пользователей */}
-      <div className="flex-1 overflow-y-auto p-2">
-        <div className="space-y-2">
-          {user && (
-            <div className="flex items-center space-x-2 p-2 rounded bg-gray-700">
-              <div className="w-8 h-8 bg-discord-600 rounded-full flex items-center justify-center text-white text-sm font-semibold">
-                {user.username.charAt(0).toUpperCase()}
-              </div>
-              <div className="flex-1">
-                <p className="text-white text-sm font-medium">{user.username}</p>
-                <p className="text-gray-400 text-xs">В сети</p>
-              </div>
-            </div>
+    <div className="absolute bottom-0 left-[72px] w-60 h-[52px] bg-card border-t border-border px-2 flex items-center justify-between">
+      <div className="flex items-center gap-2">
+        <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+          {user.avatar ? (
+            <img src={user.avatar} alt="" className="w-full h-full rounded-full" />
+          ) : (
+            <span className="text-xs font-semibold">
+              {user.username[0].toUpperCase()}
+            </span>
           )}
+        </div>
+        <div className="flex flex-col">
+          <span className="text-sm font-semibold">{user.username}</span>
+          <span className="text-xs text-muted-foreground">#{user.id.slice(0, 4)}</span>
         </div>
       </div>
 
-      {/* Панель текущего пользователя */}
-      <div className="p-4 border-t border-gray-700">
-        {user && (
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-discord-600 rounded-full flex items-center justify-center text-white text-sm font-semibold">
-                {user.username.charAt(0).toUpperCase()}
-              </div>
-              <div>
-                <p className="text-white text-sm font-medium">{user.username}</p>
-                <p className="text-gray-400 text-xs">{user.email}</p>
-              </div>
-            </div>
-            <button
-              onClick={handleLogout}
-              className="text-gray-400 hover:text-white transition-colors"
-              title="Выйти"
-            >
-              <ArrowRightOnRectangleIcon className="w-5 h-5" />
-            </button>
-          </div>
-        )}
+      <div className="flex items-center gap-1">
+        <Button variant="ghost" size="icon" className="h-8 w-8">
+          <Mic className="w-4 h-4" />
+        </Button>
+        <Button variant="ghost" size="icon" className="h-8 w-8">
+          <Headphones className="w-4 h-4" />
+        </Button>
+        <Button variant="ghost" size="icon" className="h-8 w-8">
+          <Settings className="w-4 h-4" />
+        </Button>
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={logout}>
+          <LogOut className="w-4 h-4" />
+        </Button>
       </div>
     </div>
   )
-} 
+}
