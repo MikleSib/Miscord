@@ -1,5 +1,8 @@
-import { useDispatch, useSelector, TypedUseSelectorHook } from 'react-redux';
-import type { RootState, AppDispatch } from '../store/store';
+// Zustand stores are used instead of Redux
+// Import stores directly in components:
+// import { useAuthStore } from '../store/store';
+// import { useChannelStore } from '../store/channelStore';
+// import { useChatStore } from '../store/chatStore';
+// import { useVoiceStore } from '../store/slices/voiceSlice';
 
-export const useAppDispatch = () => useDispatch<AppDispatch>();
-export const useAppSelector: TypedUseSelectorHook<RootState> = useSelector;
+export {};

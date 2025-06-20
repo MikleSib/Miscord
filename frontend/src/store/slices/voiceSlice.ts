@@ -1,4 +1,4 @@
-import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { create } from 'zustand';
 import { VoiceUser } from '../../types';
 
 interface VoiceState {
@@ -9,9 +9,19 @@ interface VoiceState {
   isMuted: boolean;
   isDeafened: boolean;
   error: string | null;
+  connectToVoiceChannel: (channelId: number) => void;
+  disconnectFromVoiceChannel: () => void;
+  setParticipants: (participants: VoiceUser[]) => void;
+  addParticipant: (participant: VoiceUser) => void;
+  removeParticipant: (userId: number) => void;
+  updateParticipant: (participant: VoiceUser) => void;
+  setLocalStream: (stream: MediaStream | null) => void;
+  toggleMute: () => void;
+  toggleDeafen: () => void;
+  setError: (error: string | null) => void;
 }
 
-const initialState: VoiceState = {
+export const useVoiceStore = create<VoiceState>((set, get) => ({
   isConnected: false,
   currentVoiceChannelId: null,
   participants: [],
@@ -19,71 +29,52 @@ const initialState: VoiceState = {
   isMuted: false,
   isDeafened: false,
   error: null,
-};
-
-const voiceSlice = createSlice({
-  name: 'voice',
-  initialState,
-  reducers: {
-    connectToVoiceChannel: (state, action: PayloadAction<number>) => {
-      state.currentVoiceChannelId = action.payload;
-      state.isConnected = true;
-      state.error = null;
-    },
-    disconnectFromVoiceChannel: (state) => {
-      state.isConnected = false;
-      state.currentVoiceChannelId = null;
-      state.participants = [];
-      state.localStream = null;
-      state.isMuted = false;
-      state.isDeafened = false;
-    },
-    setParticipants: (state, action: PayloadAction<VoiceUser[]>) => {
-      state.participants = action.payload;
-    },
-    addParticipant: (state, action: PayloadAction<VoiceUser>) => {
-      if (!state.participants.find(p => p.user_id === action.payload.user_id)) {
-        state.participants.push(action.payload);
-      }
-    },
-    removeParticipant: (state, action: PayloadAction<number>) => {
-      state.participants = state.participants.filter(p => p.user_id !== action.payload);
-    },
-    updateParticipant: (state, action: PayloadAction<VoiceUser>) => {
-      const index = state.participants.findIndex(p => p.user_id === action.payload.user_id);
-      if (index !== -1) {
-        state.participants[index] = action.payload;
-      }
-    },
-    setLocalStream: (state, action: PayloadAction<MediaStream | null>) => {
-      state.localStream = action.payload;
-    },
-    toggleMute: (state) => {
-      state.isMuted = !state.isMuted;
-    },
-    toggleDeafen: (state) => {
-      state.isDeafened = !state.isDeafened;
-      if (state.isDeafened) {
-        state.isMuted = true;
-      }
-    },
-    setError: (state, action: PayloadAction<string | null>) => {
-      state.error = action.payload;
-    },
-  },
-});
-
-export const {
-  connectToVoiceChannel,
-  disconnectFromVoiceChannel,
-  setParticipants,
-  addParticipant,
-  removeParticipant,
-  updateParticipant,
-  setLocalStream,
-  toggleMute,
-  toggleDeafen,
-  setError,
-} = voiceSlice.actions;
-
-export default voiceSlice.reducer;
+  
+  connectToVoiceChannel: (channelId) => set({
+    currentVoiceChannelId: channelId,
+    isConnected: true,
+    error: null,
+  }),
+  
+  disconnectFromVoiceChannel: () => set({
+    isConnected: false,
+    currentVoiceChannelId: null,
+    participants: [],
+    localStream: null,
+    isMuted: false,
+    isDeafened: false,
+  }),
+  
+  setParticipants: (participants) => set({ participants }),
+  
+  addParticipant: (participant) => set((state) => ({
+    participants: state.participants.find(p => p.user_id === participant.user_id)
+      ? state.participants
+      : [...state.participants, participant],
+  })),
+  
+  removeParticipant: (userId) => set((state) => ({
+    participants: state.participants.filter(p => p.user_id !== userId),
+  })),
+  
+  updateParticipant: (participant) => set((state) => {
+    const index = state.participants.findIndex(p => p.user_id === participant.user_id);
+    if (index !== -1) {
+      const newParticipants = [...state.participants];
+      newParticipants[index] = participant;
+      return { participants: newParticipants };
+    }
+    return state;
+  }),
+  
+  setLocalStream: (stream) => set({ localStream: stream }),
+  
+  toggleMute: () => set((state) => ({ isMuted: !state.isMuted })),
+  
+  toggleDeafen: () => set((state) => ({
+    isDeafened: !state.isDeafened,
+    isMuted: !state.isDeafened ? true : state.isMuted,
+  })),
+  
+  setError: (error) => set({ error }),
+}));
