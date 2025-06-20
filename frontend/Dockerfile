@@ -5,8 +5,9 @@ WORKDIR /app
 # Копируем package.json
 COPY package.json ./
 
-# Устанавливаем зависимости через yarn
-RUN yarn install --frozen-lockfile
+# Очищаем кеш и устанавливаем зависимости с флагами
+RUN npm cache clean --force && \
+    npm install --legacy-peer-deps --force --no-optional
 
 # Копируем остальные файлы
 COPY . .
@@ -17,5 +18,6 @@ EXPOSE 3000
 ENV CI=false
 ENV WDS_SOCKET_PORT=0
 ENV CHOKIDAR_USEPOLLING=true
+ENV NODE_ENV=development
 
-CMD ["yarn", "start"]
+CMD ["npm", "start"]
