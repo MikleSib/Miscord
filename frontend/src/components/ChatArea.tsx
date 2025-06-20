@@ -6,10 +6,11 @@ import { useStore } from '../lib/store'
 import { useAuthStore } from '../store/store'
 import { formatDate } from '../lib/utils'
 import { Button } from './ui/button'
+import websocketService from '../services/websocketService'
 
 export function ChatArea() {
-  const { currentChannel, messages, sendMessage } = useStore()
-  const { user } = useAuthStore()
+  const { currentChannel, messages, sendMessage, addMessage } = useStore()
+  const { user, token } = useAuthStore()
   const [messageInput, setMessageInput] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -19,10 +20,50 @@ export function ChatArea() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [channelMessages])
 
+  // WebSocket connection
+  useEffect(() => {
+    if (currentChannel && currentChannel.type === 'text' && token) {
+      websocketService.connect(currentChannel.id, token)
+
+      // Listen for new messages
+      const handleNewMessage = (data: any) => {
+        if (data.message && data.message.content) {
+          const newMessage = {
+            id: data.message.id || Date.now(),
+            content: data.message.content,
+            user: data.message.author || { id: data.message.author_id, username: 'Unknown' },
+            timestamp: data.message.created_at || new Date().toISOString(),
+            channelId: currentChannel.id,
+          }
+          addMessage(currentChannel.id, newMessage)
+        }
+      }
+
+      websocketService.on('new_message', handleNewMessage)
+
+      return () => {
+        websocketService.off('new_message', handleNewMessage)
+        websocketService.disconnect()
+      }
+    }
+  }, [currentChannel, token, addMessage])
+
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault()
-    if (messageInput.trim() && currentChannel && user) {
-      sendMessage(messageInput)
+    if (messageInput.trim() && currentChannel && user && currentChannel.type === 'text') {
+      // Send via WebSocket for real-time
+      websocketService.sendMessage(currentChannel.id, messageInput)
+      
+      // Also add to local store for immediate UI update
+      const localMessage = {
+        id: Date.now(),
+        content: messageInput,
+        user: user,
+        timestamp: new Date().toISOString(),
+        channelId: currentChannel.id,
+      }
+      addMessage(currentChannel.id, localMessage)
+      
       setMessageInput('')
     }
   }
@@ -78,26 +119,36 @@ export function ChatArea() {
       </div>
 
       {/* Message Input */}
-      <form onSubmit={handleSendMessage} className="p-4">
-        <div className="bg-secondary rounded-lg flex items-center px-4">
-          <input
-            type="text"
-            value={messageInput}
-            onChange={(e) => setMessageInput(e.target.value)}
-            placeholder={`Написать в #${currentChannel.name}`}
-            className="flex-1 bg-transparent py-3 outline-none text-sm"
-          />
-          <Button
-            type="submit"
-            size="icon"
-            variant="ghost"
-            className="h-8 w-8"
-            disabled={!messageInput.trim()}
-          >
-            <Send className="w-4 h-4" />
-          </Button>
+      {currentChannel.type === 'text' && (
+        <form onSubmit={handleSendMessage} className="p-4">
+          <div className="bg-secondary rounded-lg flex items-center px-4">
+            <input
+              type="text"
+              value={messageInput}
+              onChange={(e) => setMessageInput(e.target.value)}
+              placeholder={`Написать в #${currentChannel.name}`}
+              className="flex-1 bg-transparent py-3 outline-none text-sm"
+            />
+            <Button
+              type="submit"
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8"
+              disabled={!messageInput.trim()}
+            >
+              <Send className="w-4 h-4" />
+            </Button>
+          </div>
+        </form>
+      )}
+
+      {/* Voice Channel Info */}
+      {currentChannel.type === 'voice' && (
+        <div className="p-4 text-center text-muted-foreground">
+          <p>Голосовой канал: {currentChannel.name}</p>
+          <p className="text-sm">Нажмите на канал для подключения к голосовому чату</p>
         </div>
-      </form>
+      )}
     </div>
   )
 }

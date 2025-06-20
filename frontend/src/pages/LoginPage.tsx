@@ -11,6 +11,7 @@ import {
   Alert,
 } from '@mui/material';
 import { useAuthStore } from '../store/store';
+import authService from '../services/authService';
 
 const LoginPage: React.FC = () => {
   const router = useRouter();
@@ -33,22 +34,13 @@ const LoginPage: React.FC = () => {
     loginStart();
     
     try {
-      // Здесь будет вызов API для входа
-      // const response = await authService.login(formData);
-      // loginSuccess(response.user, response.token);
-      // router.push('/');
-      
-      // Временная заглушка для демонстрации
-      const mockUser = {
-        id: 1,
-        username: formData.username,
-        email: 'user@example.com',
-      };
-      const mockToken = 'mock-token';
-      loginSuccess(mockUser, mockToken);
+      const { access_token } = await authService.login(formData);
+      const user = await authService.getCurrentUser();
+      loginSuccess(user, access_token);
       router.push('/');
-    } catch (err) {
-      loginFailure(err instanceof Error ? err.message : 'Ошибка входа');
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.detail || 'Ошибка входа';
+      loginFailure(errorMessage);
     }
   };
 

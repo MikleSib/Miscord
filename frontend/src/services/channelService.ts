@@ -40,12 +40,19 @@ class ChannelService {
     return response.data;
   }
 
-  async createTextChannel(channelId: number, data: CreateTextChannelData): Promise<TextChannel> {
+  async createTextChannel(channelId: number, data: {
+    name: string;
+    position: number;
+  }): Promise<TextChannel> {
     const response = await api.post<TextChannel>(`/api/channels/${channelId}/text-channels`, data);
     return response.data;
   }
 
-  async createVoiceChannel(channelId: number, data: CreateVoiceChannelData): Promise<VoiceChannel> {
+  async createVoiceChannel(channelId: number, data: {
+    name: string;
+    position: number;
+    max_users: number;
+  }): Promise<VoiceChannel> {
     const response = await api.post<VoiceChannel>(`/api/channels/${channelId}/voice-channels`, data);
     return response.data;
   }
