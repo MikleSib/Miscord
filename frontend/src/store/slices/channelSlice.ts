@@ -1,47 +1,121 @@
-import { createSlice, PayloadAction } from '@reduxjs/toolkit'
-
-interface Channel {
-  id: number
-  name: string
-  type: 'text' | 'voice'
-  server_id: number
-}
+import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
+import channelService from '../../services/channelService';
+import { Channel, TextChannel, VoiceChannel } from '../../types';
 
 interface ChannelState {
-  channels: Channel[]
-  currentChannel: Channel | null
-  loading: boolean
-  error: string | null
+  channels: Channel[];
+  currentChannel: Channel | null;
+  currentTextChannel: TextChannel | null;
+  currentVoiceChannel: VoiceChannel | null;
+  isLoading: boolean;
+  error: string | null;
 }
 
 const initialState: ChannelState = {
   channels: [],
   currentChannel: null,
-  loading: false,
+  currentTextChannel: null,
+  currentVoiceChannel: null,
+  isLoading: false,
   error: null,
-}
+};
+
+export const fetchChannels = createAsyncThunk(
+  'channels/fetchChannels',
+  async () => {
+    const channels = await channelService.getMyChannels();
+    return channels;
+  }
+);
+
+export const fetchChannel = createAsyncThunk(
+  'channels/fetchChannel',
+  async (channelId: number) => {
+    const channel = await channelService.getChannel(channelId);
+    return channel;
+  }
+);
+
+export const createChannel = createAsyncThunk(
+  'channels/createChannel',
+  async (data: { name: string; description?: string }) => {
+    const channel = await channelService.createChannel(data);
+    return channel;
+  }
+);
+
+export const joinChannel = createAsyncThunk(
+  'channels/joinChannel',
+  async (channelId: number) => {
+    await channelService.joinChannel(channelId);
+    const channel = await channelService.getChannel(channelId);
+    return channel;
+  }
+);
 
 const channelSlice = createSlice({
-  name: 'channel',
+  name: 'channels',
   initialState,
   reducers: {
-    setChannels: (state, action: PayloadAction<Channel[]>) => {
-      state.channels = action.payload
+    setCurrentChannel: (state, action: PayloadAction<Channel | null>) => {
+      state.currentChannel = action.payload;
+      if (action.payload && action.payload.text_channels.length > 0) {
+        state.currentTextChannel = action.payload.text_channels[0];
+      } else {
+        state.currentTextChannel = null;
+      }
     },
-    setCurrentChannel: (state, action: PayloadAction<Channel>) => {
-      state.currentChannel = action.payload
+    setCurrentTextChannel: (state, action: PayloadAction<TextChannel | null>) => {
+      state.currentTextChannel = action.payload;
     },
-    addChannel: (state, action: PayloadAction<Channel>) => {
-      state.channels.push(action.payload)
+    setCurrentVoiceChannel: (state, action: PayloadAction<VoiceChannel | null>) => {
+      state.currentVoiceChannel = action.payload;
     },
-    setLoading: (state, action: PayloadAction<boolean>) => {
-      state.loading = action.payload
-    },
-    setError: (state, action: PayloadAction<string | null>) => {
-      state.error = action.payload
+    clearError: (state) => {
+      state.error = null;
     },
   },
-})
+  extraReducers: (builder) => {
+    builder
+      // Fetch channels
+      .addCase(fetchChannels.pending, (state) => {
+        state.isLoading = true;
+        state.error = null;
+      })
+      .addCase(fetchChannels.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.channels = action.payload;
+      })
+      .addCase(fetchChannels.rejected, (state, action) => {
+        state.isLoading = false;
+        state.error = action.error.message || 'Failed to fetch channels';
+      })
+      // Fetch channel
+      .addCase(fetchChannel.pending, (state) => {
+        state.isLoading = true;
+        state.error = null;
+      })
+      .addCase(fetchChannel.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.currentChannel = action.payload;
+        if (action.payload.text_channels.length > 0) {
+          state.currentTextChannel = action.payload.text_channels[0];
+        }
+      })
+      .addCase(fetchChannel.rejected, (state, action) => {
+        state.isLoading = false;
+        state.error = action.error.message || 'Failed to fetch channel';
+      })
+      // Create channel
+      .addCase(createChannel.fulfilled, (state, action) => {
+        state.channels.push(action.payload);
+      })
+      // Join channel
+      .addCase(joinChannel.fulfilled, (state, action) => {
+        state.channels.push(action.payload);
+      });
+  },
+});
 
-export const { setChannels, setCurrentChannel, addChannel, setLoading, setError } = channelSlice.actions
-export default channelSlice.reducer 
+export const { setCurrentChannel, setCurrentTextChannel, setCurrentVoiceChannel, clearError } = channelSlice.actions;
+export default channelSlice.reducer;
