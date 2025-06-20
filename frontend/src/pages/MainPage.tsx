@@ -1,7 +1,9 @@
 import React, { useEffect } from 'react';
-import { Box, styled } from '@mui/material';
+import { Box, styled, CircularProgress, Alert } from '@mui/material';
+import { useRouter } from 'next/router';
 import { useStore } from '../lib/store';
 import { useVoiceStore } from '../store/slices/voiceSlice';
+import { useAuthStore } from '../store/store';
 import { ServerList } from '../components/ServerList';
 import { ChannelSidebar } from '../components/ChannelSidebar';
 import { ChatArea } from '../components/ChatArea';
@@ -16,13 +18,67 @@ const MainContainer = styled(Box)({
 });
 
 const MainPage: React.FC = () => {
-  const { currentChannel } = useStore();
+  const router = useRouter();
+  const { currentChannel, isLoading, error, loadChannels, setUser } = useStore();
   const { isConnected } = useVoiceStore();
+  const { isAuthenticated, user } = useAuthStore();
 
   useEffect(() => {
-    // Здесь будет загрузка каналов
-    // fetchChannels();
-  }, []);
+    // Проверяем аутентификацию
+    if (!isAuthenticated || !user) {
+      router.push('/login');
+      return;
+    }
+    
+    // Устанавливаем пользователя в store
+    setUser(user);
+    
+    // Загружаем каналы
+    loadChannels();
+  }, [isAuthenticated, user, router, loadChannels, setUser]);
+
+  // Показываем загрузку пока проверяем аутентификацию
+  if (!isAuthenticated || !user) {
+    return null;
+  }
+
+  // Показываем загрузку каналов
+  if (isLoading) {
+    return (
+      <MainContainer>
+        <Box sx={{ 
+          flex: 1, 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'center',
+          flexDirection: 'column',
+          gap: 2
+        }}>
+          <CircularProgress />
+          <Box sx={{ color: '#72767d' }}>Загрузка каналов...</Box>
+        </Box>
+      </MainContainer>
+    );
+  }
+
+  // Показываем ошибку
+  if (error) {
+    return (
+      <MainContainer>
+        <Box sx={{ 
+          flex: 1, 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'center',
+          padding: 2
+        }}>
+          <Alert severity="error" sx={{ maxWidth: 400 }}>
+            {error}
+          </Alert>
+        </Box>
+      </MainContainer>
+    );
+  }
 
   return (
     <MainContainer>

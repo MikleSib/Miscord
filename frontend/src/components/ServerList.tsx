@@ -18,7 +18,7 @@ export function ServerList() {
           "w-12 h-12 rounded-full transition-all",
           !currentServer && "bg-primary text-primary-foreground"
         )}
-        onClick={() => selectServer('')}
+        onClick={() => selectServer(0)}
       >
         <Home className="w-5 h-5" />
       </Button>

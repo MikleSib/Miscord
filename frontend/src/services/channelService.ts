@@ -18,8 +18,8 @@ interface CreateVoiceChannelData {
 }
 
 class ChannelService {
-  async getMyChannels(): Promise<Channel[]> {
-    const response = await api.get<Channel[]>('/api/channels');
+  async getUserChannels(): Promise<Channel[]> {
+    const response = await api.get<Channel[]>('/api/channels/');
     return response.data;
   }
 
@@ -28,13 +28,16 @@ class ChannelService {
     return response.data;
   }
 
-  async createChannel(data: CreateChannelData): Promise<Channel> {
-    const response = await api.post<Channel>('/api/channels', data);
-    return response.data;
-  }
-
   async joinChannel(channelId: number): Promise<void> {
     await api.post(`/api/channels/${channelId}/join`);
+  }
+
+  async createChannel(channelData: {
+    name: string;
+    description?: string;
+  }): Promise<Channel> {
+    const response = await api.post<Channel>('/api/channels/', channelData);
+    return response.data;
   }
 
   async createTextChannel(channelId: number, data: CreateTextChannelData): Promise<TextChannel> {

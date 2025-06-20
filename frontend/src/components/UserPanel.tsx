@@ -3,14 +3,21 @@
 import React from 'react';
 import { Avatar, Box, Typography, IconButton } from '@mui/material';
 import { Settings, LogOut } from 'lucide-react';
-import { useStore } from '../lib/store';
+import { useAuthStore } from '../store/store';
+import { useRouter } from 'next/router';
 
 export function UserPanel() {
-  const { user, logout } = useStore();
+  const { user, logout } = useAuthStore();
+  const router = useRouter();
 
   if (!user) {
     return null;
   }
+
+  const handleLogout = () => {
+    logout();
+    router.push('/login');
+  };
 
   return (
     <Box
@@ -46,7 +53,7 @@ export function UserPanel() {
         <IconButton size="small" sx={{ color: '#b9bbbe' }}>
           <Settings size={16} />
         </IconButton>
-        <IconButton size="small" onClick={logout} sx={{ color: '#b9bbbe' }}>
+        <IconButton size="small" onClick={handleLogout} sx={{ color: '#b9bbbe' }}>
           <LogOut size={16} />
         </IconButton>
       </Box>

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import channelService from '../services/channelService';
 
 interface User {
   id: number;
@@ -7,41 +8,46 @@ interface User {
 }
 
 interface Server {
-  id: string;
+  id: number;
   name: string;
   icon?: string;
   channels: Channel[];
 }
 
 interface Channel {
-  id: string;
+  id: number;
   name: string;
   type: 'text' | 'voice';
-  serverId: string;
+  serverId: number;
 }
 
 interface Message {
-  id: string;
+  id: number;
   content: string;
   user: User;
   timestamp: string;
-  channelId: string;
+  channelId: number;
 }
 
 interface AppState {
   servers: Server[];
   currentServer: Server | null;
   currentChannel: Channel | null;
-  messages: Record<string, Message[]>;
+  messages: Record<number, Message[]>;
   user: User | null;
-  selectServer: (serverId: string) => void;
-  selectChannel: (channelId: string) => void;
+  isLoading: boolean;
+  error: string | null;
+  selectServer: (serverId: number) => void;
+  selectChannel: (channelId: number) => void;
   addServer: (server: Server) => void;
-  addChannel: (serverId: string, channel: Channel) => void;
+  addChannel: (serverId: number, channel: Channel) => void;
   sendMessage: (content: string) => void;
-  addMessage: (channelId: string, message: Message) => void;
+  addMessage: (channelId: number, message: Message) => void;
   setUser: (user: User) => void;
   logout: () => void;
+  loadChannels: () => Promise<void>;
+  setLoading: (loading: boolean) => void;
+  setError: (error: string | null) => void;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -50,6 +56,8 @@ export const useStore = create<AppState>((set, get) => ({
   currentChannel: null,
   messages: {},
   user: null,
+  isLoading: false,
+  error: null,
   
   selectServer: (serverId) => {
     const server = get().servers.find(s => s.id === serverId);
@@ -84,7 +92,7 @@ export const useStore = create<AppState>((set, get) => ({
     const { currentChannel, user } = get();
     if (currentChannel && user) {
       const message: Message = {
-        id: Date.now().toString(),
+        id: Date.now(),
         content,
         user,
         timestamp: new Date().toISOString(),
@@ -110,4 +118,43 @@ export const useStore = create<AppState>((set, get) => ({
   logout: () => {
     set({ user: null, currentServer: null, currentChannel: null, messages: {} });
   },
+
+  loadChannels: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const channels = await channelService.getUserChannels();
+      
+      // Преобразуем каналы в формат серверов
+      const servers: Server[] = channels.map(channel => ({
+        id: channel.id,
+        name: channel.name,
+        icon: undefined, // Пока нет иконок
+        channels: [
+          ...channel.text_channels.map(tc => ({
+            id: tc.id,
+            name: tc.name,
+            type: 'text' as const,
+            serverId: channel.id,
+          })),
+          ...channel.voice_channels.map(vc => ({
+            id: vc.id,
+            name: vc.name,
+            type: 'voice' as const,
+            serverId: channel.id,
+          })),
+        ],
+      }));
+      
+      set({ servers, isLoading: false });
+    } catch (error: any) {
+      set({ 
+        error: error.response?.data?.detail || 'Ошибка загрузки каналов', 
+        isLoading: false 
+      });
+    }
+  },
+
+  setLoading: (loading) => set({ isLoading: loading }),
+  
+  setError: (error) => set({ error }),
 })); 

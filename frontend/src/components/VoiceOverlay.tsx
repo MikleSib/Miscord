@@ -14,6 +14,7 @@ import MicIcon from '@mui/icons-material/Mic';
 import MicOffIcon from '@mui/icons-material/MicOff';
 import { useVoiceStore } from '../store/slices/voiceSlice';
 import { useStore } from '../lib/store';
+import { useAuthStore } from '../store/store';
 
 const OverlayContainer = styled(Paper)({
   position: 'fixed',
@@ -49,7 +50,8 @@ const ParticipantItem = styled(ListItem)({
 });
 
 const VoiceOverlay: React.FC = () => {
-  const { currentChannel, user } = useStore();
+  const { currentChannel } = useStore();
+  const { user } = useAuthStore();
   const { 
     participants, 
     isMuted, 
@@ -66,12 +68,12 @@ const VoiceOverlay: React.FC = () => {
   // Добавляем текущего пользователя в список участников
   const allParticipants = [
     {
-      user_id: parseInt(user.id),
+      user_id: user.id,
       username: user.username,
       is_muted: isMuted,
       is_deafened: isDeafened,
     },
-    ...participants.filter(p => p.user_id !== parseInt(user.id)),
+    ...participants.filter(p => p.user_id !== user.id),
   ];
 
   return (
@@ -101,7 +103,7 @@ const VoiceOverlay: React.FC = () => {
                 }}
               >
                 {participant.username}
-                {participant.user_id === parseInt(user.id) && ' (Вы)'}
+                {participant.user_id === user.id && ' (Вы)'}
               </Typography>
               {participant.is_muted && (
                 <MicOffIcon sx={{ fontSize: 16, color: '#f04747' }} />

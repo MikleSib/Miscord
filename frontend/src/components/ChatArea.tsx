@@ -3,11 +3,13 @@
 import { useState, useRef, useEffect } from 'react'
 import { Send, Hash } from 'lucide-react'
 import { useStore } from '../lib/store'
+import { useAuthStore } from '../store/store'
 import { formatDate } from '../lib/utils'
 import { Button } from './ui/button'
 
 export function ChatArea() {
-  const { currentChannel, messages, sendMessage, user } = useStore()
+  const { currentChannel, messages, sendMessage } = useStore()
+  const { user } = useAuthStore()
   const [messageInput, setMessageInput] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -19,7 +21,7 @@ export function ChatArea() {
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault()
-    if (messageInput.trim() && currentChannel) {
+    if (messageInput.trim() && currentChannel && user) {
       sendMessage(messageInput)
       setMessageInput('')
     }
