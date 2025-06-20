@@ -1,11 +1,11 @@
 import React, { useEffect } from 'react';
 import { Box, styled } from '@mui/material';
-import { useAppDispatch, useAppSelector } from '../hooks/redux';
-import { fetchChannels } from '../store/slices/channelSlice';
-import ServerList from '../components/ServerList';
-import ChannelSidebar from '../components/ChannelSidebar';
-import ChatArea from '../components/ChatArea';
-import UserPanel from '../components/UserPanel';
+import { useStore } from '../lib/store';
+import { useVoiceStore } from '../store/slices/voiceSlice';
+import { ServerList } from '../components/ServerList';
+import { ChannelSidebar } from '../components/ChannelSidebar';
+import { ChatArea } from '../components/ChatArea';
+import { UserPanel } from '../components/UserPanel';
 import VoiceOverlay from '../components/VoiceOverlay';
 
 const MainContainer = styled(Box)({
@@ -16,13 +16,13 @@ const MainContainer = styled(Box)({
 });
 
 const MainPage: React.FC = () => {
-  const dispatch = useAppDispatch();
-  const { currentChannel } = useAppSelector(state => state.channels);
-  const { isConnected } = useAppSelector(state => state.voice);
+  const { currentChannel } = useStore();
+  const { isConnected } = useVoiceStore();
 
   useEffect(() => {
-    dispatch(fetchChannels());
-  }, [dispatch]);
+    // Здесь будет загрузка каналов
+    // fetchChannels();
+  }, []);
 
   return (
     <MainContainer>
@@ -30,9 +30,7 @@ const MainPage: React.FC = () => {
       <ServerList />
       
       {/* Боковая панель с каналами */}
-      {currentChannel && (
-        <ChannelSidebar channel={currentChannel} />
-      )}
+      <ChannelSidebar />
       
       {/* Основная область чата */}
       <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>

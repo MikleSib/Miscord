@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Link as RouterLink, useNavigate } from 'react-router-dom';
+import Link from 'next/link';
+import { useRouter } from 'next/router';
 import {
   Container,
   Paper,
@@ -7,16 +8,13 @@ import {
   Button,
   Typography,
   Box,
-  Link,
   Alert,
 } from '@mui/material';
-import { useAppDispatch, useAppSelector } from '../hooks/redux';
-import { register, clearError } from '../store/slices/authSlice';
+import { useAuthStore } from '../store/store';
 
 const RegisterPage: React.FC = () => {
-  const navigate = useNavigate();
-  const dispatch = useAppDispatch();
-  const { isLoading, error } = useAppSelector((state) => state.auth);
+  const router = useRouter();
+  const { isLoading, error, clearError } = useAuthStore();
   
   const [formData, setFormData] = useState({
     username: '',
@@ -44,18 +42,25 @@ const RegisterPage: React.FC = () => {
     }
 
     const { confirmPassword, ...registerData } = formData;
-    const result = await dispatch(register(registerData));
     
-    if (register.fulfilled.match(result)) {
-      navigate('/login');
+    try {
+      // Здесь будет вызов API для регистрации
+      // const response = await authService.register(registerData);
+      // router.push('/login');
+      
+      // Временная заглушка для демонстрации
+      console.log('Регистрация:', registerData);
+      router.push('/login');
+    } catch (err) {
+      setValidationError(err instanceof Error ? err.message : 'Ошибка регистрации');
     }
   };
 
   React.useEffect(() => {
     return () => {
-      dispatch(clearError());
+      clearError();
     };
-  }, [dispatch]);
+  }, [clearError]);
 
   return (
     <Container component="main" maxWidth="xs">
@@ -137,8 +142,10 @@ const RegisterPage: React.FC = () => {
               {isLoading ? 'Регистрация...' : 'Зарегистрироваться'}
             </Button>
             <Box textAlign="center">
-              <Link component={RouterLink} to="/login" variant="body2">
-                Уже есть аккаунт? Войти
+              <Link href="/login" style={{ textDecoration: 'none' }}>
+                <Typography variant="body2" color="primary" sx={{ cursor: 'pointer' }}>
+                  Уже есть аккаунт? Войти
+                </Typography>
               </Link>
             </Box>
           </Box>
