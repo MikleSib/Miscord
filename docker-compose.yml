@@ -27,7 +27,7 @@ services:
       DATABASE_URL: postgresql://miscord_user:miscord_password@postgres:5432/miscord
       REDIS_URL: redis://redis:6379
       SECRET_KEY: your-secret-key-here-change-in-production
-      CORS_ORIGINS: http://localhost:3000
+      CORS_ORIGINS: http://localhost:3000,http://195.19.93.203:3000
     ports:
       - "8000:8000"
     depends_on:
@@ -51,8 +51,8 @@ services:
     networks:
       - miscord_network
     environment:
-      - REACT_APP_API_URL=http://localhost:8000
-      - REACT_APP_WS_URL=ws://localhost:8000
+      - REACT_APP_API_URL=http://195.19.93.203:8000
+      - REACT_APP_WS_URL=ws://195.19.93.203:8000
     command: npm start
 
 volumes:
