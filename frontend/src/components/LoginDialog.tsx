@@ -11,9 +11,18 @@ import {
   Alert,
 } from '@mui/material';
 import { useAuthStore } from '../store/store';
+import authService from '../services/authService';
 
 export function LoginDialog() {
-  const { isLoading, error, loginStart, loginSuccess, loginFailure, clearError } = useAuthStore();
+  const { 
+    isLoading, 
+    error, 
+    loginStart, 
+    loginSuccess, 
+    loginFailure, 
+    clearError, 
+    setUser
+  } = useAuthStore();
   
   const [formData, setFormData] = useState({
     username: '',
@@ -32,16 +41,13 @@ export function LoginDialog() {
     loginStart();
     
     try {
-      // Временная заглушка для демонстрации
-      const mockUser = {
-        id: '1',
-        username: formData.username,
-        email: 'user@example.com',
-      };
-      const mockToken = 'mock-token';
-      loginSuccess(mockUser, mockToken);
-    } catch (err) {
-      loginFailure(err instanceof Error ? err.message : 'Ошибка входа');
+      const { access_token } = await authService.login(formData);
+      const user = await authService.getCurrentUser();
+      loginSuccess(user, access_token);
+      setUser(user);
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.detail || 'Ошибка входа';
+      loginFailure(errorMessage);
     }
   };
 

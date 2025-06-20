@@ -7,21 +7,42 @@ import { ChatArea } from '../components/ChatArea'
 import { UserPanel } from '../components/UserPanel'
 import { LoginDialog } from '../components/LoginDialog'
 import { useStore } from '../lib/store'
+import { useAuthStore } from '../store/store'
+import authService from '../services/authService'
+import { CircularProgress, Box } from '@mui/material'
 
 export default function Home() {
-  const [mounted, setMounted] = useState(false)
-  const { user } = useStore()
-  const isAuthenticated = !!user
+  const { user, setUser } = useStore()
+  const { token, setToken, logout } = useAuthStore()
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    setMounted(true)
-  }, [])
+    const checkUser = async () => {
+      const storedToken = authService.getToken()
+      if (storedToken) {
+        setToken(storedToken)
+        try {
+          const currentUser = await authService.getCurrentUser()
+          setUser(currentUser)
+        } catch (error) {
+          logout()
+        }
+      }
+      setLoading(false)
+    }
 
-  if (!mounted) {
-    return null
+    checkUser()
+  }, [setToken, setUser, logout])
+
+  if (loading) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" height="100vh">
+        <CircularProgress />
+      </Box>
+    )
   }
 
-  if (!isAuthenticated) {
+  if (!user) {
     return <LoginDialog />
   }
 

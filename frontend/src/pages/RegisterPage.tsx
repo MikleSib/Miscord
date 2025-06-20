@@ -11,10 +11,12 @@ import {
   Alert,
 } from '@mui/material';
 import { useAuthStore } from '../store/store';
+import authService from '../services/authService';
+import { RegisterData } from '../types';
 
 const RegisterPage: React.FC = () => {
   const router = useRouter();
-  const { isLoading, error, clearError } = useAuthStore();
+  const { isLoading, error, registerStart, registerSuccess, registerFailure, clearError } = useAuthStore();
   
   const [formData, setFormData] = useState({
     username: '',
@@ -43,16 +45,15 @@ const RegisterPage: React.FC = () => {
 
     const { confirmPassword, ...registerData } = formData;
     
+    registerStart();
     try {
-      // Здесь будет вызов API для регистрации
-      // const response = await authService.register(registerData);
-      // router.push('/login');
-      
-      // Временная заглушка для демонстрации
-      console.log('Регистрация:', registerData);
+      await authService.register(registerData as RegisterData);
+      registerSuccess();
+      // Можно добавить сообщение об успехе перед редиректом
       router.push('/login');
-    } catch (err) {
-      setValidationError(err instanceof Error ? err.message : 'Ошибка регистрации');
+    } catch (err: any) {
+        const errorMessage = err.response?.data?.detail || err.message || 'Ошибка регистрации';
+        registerFailure(errorMessage);
     }
   };
 
@@ -78,7 +79,7 @@ const RegisterPage: React.FC = () => {
           </Typography>
           
           {(error || validationError) && (
-            <Alert severity="error" sx={{ mb: 2 }}>
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => validationError ? setValidationError('') : clearError()}>
               {error || validationError}
             </Alert>
           )}
