@@ -12,7 +12,7 @@ import { useVoiceStore } from '../store/slices/voiceSlice'
 
 export default function HomePage() {
   const router = useRouter()
-  const { user, token, checkAuth } = useAuthStore()
+  const { user, token, isAuthenticated } = useAuthStore()
   const { 
     servers, 
     currentServer, 
@@ -33,8 +33,6 @@ export default function HomePage() {
 
     const initializeApp = async () => {
       // Проверяем аутентификацию
-      const isAuthenticated = await checkAuth()
-      
       if (!isAuthenticated || !token) {
         router.push('/login')
         return
@@ -58,13 +56,13 @@ export default function HomePage() {
     return () => {
       disconnectWebSocket()
     }
-  }, [isMounted, token, checkAuth, router, initializeWebSocket, loadServers, disconnectWebSocket])
+  }, [isMounted, token, isAuthenticated, router, initializeWebSocket, loadServers, disconnectWebSocket])
 
   if (!isMounted) {
     return null // Предотвращаем гидратацию
   }
 
-  if (!user || !token) {
+  if (!isAuthenticated || !user || !token) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
