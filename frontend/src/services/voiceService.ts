@@ -420,10 +420,11 @@ class VoiceService {
       const source = this.audioContext.createMediaStreamSource(this.localStream);
       this.analyser = this.audioContext.createAnalyser();
       
-      this.analyser.fftSize = 512;
-      this.analyser.minDecibels = -90;
+      // Настройки для максимальной чувствительности
+      this.analyser.fftSize = 1024; // Увеличиваем для лучшего разрешения
+      this.analyser.minDecibels = -100; // Понижаем для захвата тихих звуков
       this.analyser.maxDecibels = -10;
-      this.analyser.smoothingTimeConstant = 0.85;
+      this.analyser.smoothingTimeConstant = 0.3; // Уменьшаем для более быстрой реакции
       
       source.connect(this.analyser);
       
@@ -447,19 +448,47 @@ class VoiceService {
       try {
         this.analyser.getByteFrequencyData(dataArray);
         
-        // Вычисляем среднюю громкость
-        let sum = 0;
-        for (let i = 0; i < bufferLength; i++) {
-          sum += dataArray[i];
-        }
-        const average = sum / bufferLength;
+        // Анализируем разные частотные диапазоны
+        const lowFreqEnd = Math.floor(bufferLength * 0.1); // 0-10% частот (низкие)
+        const midFreqStart = lowFreqEnd;
+        const midFreqEnd = Math.floor(bufferLength * 0.4); // 10-40% частот (средние - человеческая речь)
+        const highFreqStart = midFreqEnd;
         
-        // Порог для определения речи (понижен для более чувствительного определения)
-        const threshold = 15;
-        const currentlySpeaking = average > threshold;
+        // Вычисляем энергию в разных диапазонах
+        let lowSum = 0, midSum = 0, highSum = 0, totalSum = 0, maxValue = 0;
+        
+        for (let i = 0; i < bufferLength; i++) {
+          const value = dataArray[i];
+          totalSum += value;
+          maxValue = Math.max(maxValue, value);
+          
+          if (i < lowFreqEnd) {
+            lowSum += value;
+          } else if (i < midFreqEnd) {
+            midSum += value;
+          } else {
+            highSum += value;
+          }
+        }
+        
+        const totalAverage = totalSum / bufferLength;
+        const midAverage = midSum / (midFreqEnd - midFreqStart);
+        
+        // Очень низкие пороги для максимальной чувствительности
+        const totalThreshold = 3; // Общий порог
+        const midThreshold = 5; // Порог для средних частот (речь)
+        const maxThreshold = 8; // Порог для пиковых значений
+        
+        // Считаем что говорим если превышен любой из порогов
+        const currentlySpeaking = 
+          totalAverage > totalThreshold || 
+          midAverage > midThreshold || 
+          maxValue > maxThreshold;
         
         if (currentlySpeaking !== this.isSpeaking) {
           this.isSpeaking = currentlySpeaking;
+          
+          console.log(`🎙️ Голосовая активность: ${currentlySpeaking ? 'ГОВОРИТ' : 'молчит'} (total: ${totalAverage.toFixed(1)}, mid: ${midAverage.toFixed(1)}, max: ${maxValue})`);
           
           // Отправляем информацию о голосовой активности
           this.sendMessage({
@@ -479,7 +508,7 @@ class VoiceService {
       } catch (error) {
         console.error('🎙️ Ошибка при анализе голосовой активности:', error);
       }
-    }, 100); // Проверяем каждые 100мс
+    }, 50); // Проверяем каждые 50мс (было 100мс) для более быстрой реакции
   }
 
   private getCurrentUserId(): number | null {
