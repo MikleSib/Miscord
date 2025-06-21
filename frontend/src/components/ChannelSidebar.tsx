@@ -31,10 +31,11 @@ import channelService from '../services/channelService'
 interface SpeakingAvatarProps {
   username: string;
   isSpeaking: boolean;
+  isScreenSharing?: boolean;
   size?: number;
 }
 
-function SpeakingAvatar({ username, isSpeaking, size = 20 }: SpeakingAvatarProps) {
+function SpeakingAvatar({ username, isSpeaking, isScreenSharing, size = 20 }: SpeakingAvatarProps) {
   return (
     <Box
       sx={{
@@ -42,8 +43,8 @@ function SpeakingAvatar({ username, isSpeaking, size = 20 }: SpeakingAvatarProps
         display: 'inline-block',
       }}
     >
-      {/* Анимированная обводка */}
-      {isSpeaking && (
+      {/* Анимированная обводка для разговора */}
+      {isSpeaking && !isScreenSharing && (
         <Box
           sx={{
             position: 'absolute',
@@ -71,6 +72,37 @@ function SpeakingAvatar({ username, isSpeaking, size = 20 }: SpeakingAvatarProps
           }}
         />
       )}
+
+      {/* Рамка для демонстрации экрана */}
+      {isScreenSharing && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: -3,
+            left: -3,
+            width: size + 6,
+            height: size + 6,
+            borderRadius: '50%',
+            border: '2px solid #22c55e',
+            background: 'linear-gradient(45deg, #22c55e, #16a34a)',
+            animation: 'screen-share-pulse 2s ease-in-out infinite',
+            '@keyframes screen-share-pulse': {
+              '0%': {
+                transform: 'scale(1)',
+                opacity: 0.9,
+              },
+              '50%': {
+                transform: 'scale(1.05)',
+                opacity: 1,
+              },
+              '100%': {
+                transform: 'scale(1)',
+                opacity: 0.9,
+              },
+            },
+          }}
+        />
+      )}
       
       {/* Основная аватарка */}
       <Avatar 
@@ -78,12 +110,12 @@ function SpeakingAvatar({ username, isSpeaking, size = 20 }: SpeakingAvatarProps
           width: size, 
           height: size, 
           fontSize: `${size * 0.4}px`,
-          backgroundColor: isSpeaking ? '#00ff88' : '#5865f2',
+          backgroundColor: isScreenSharing ? '#22c55e' : (isSpeaking ? '#00ff88' : '#5865f2'),
           color: 'white',
           fontWeight: 600,
           zIndex: 1,
           position: 'relative',
-          border: isSpeaking ? '1px solid #00ff88' : '1px solid transparent',
+          border: isScreenSharing ? '2px solid #16a34a' : (isSpeaking ? '1px solid #00ff88' : '1px solid transparent'),
           transition: 'all 0.2s ease-in-out',
         }}
       >
@@ -579,7 +611,7 @@ export function ChannelSidebar() {
                               className="flex items-center gap-2 px-2 py-1 rounded hover:bg-accent/50 transition-colors cursor-pointer"
                               onContextMenu={(e) => handleParticipantContextMenu(e, participant)}
                             >
-                              <SpeakingAvatar username={participant.username} isSpeaking={speakingUsers.has(participant.user_id)} />
+                              <SpeakingAvatar username={participant.username} isSpeaking={speakingUsers.has(participant.user_id)} isScreenSharing={isScreenSharing} />
                               <Typography
                                 variant="caption"
                                 className={cn(
@@ -589,25 +621,36 @@ export function ChannelSidebar() {
                               >
                                 {participant.username}
                                 {participant.user_id === user?.id && " (Вы)"}
+                                {isScreenSharing && (
+                                  <span className="text-green-400 font-medium ml-1">
+                                    • показывает экран
+                                  </span>
+                                )}
                               </Typography>
                               
                               {/* Индикатор демонстрации экрана */}
                               {isScreenSharing && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="w-6 h-6 p-0 text-green-400 hover:text-green-300 hover:bg-green-400/20"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const event = new CustomEvent('open_screen_share', {
-                                      detail: { userId: participant.user_id, username: participant.username }
-                                    });
-                                    window.dispatchEvent(event);
-                                  }}
-                                  title={`${participant.username} демонстрирует экран - нажмите для просмотра`}
-                                >
-                                  <Monitor className="w-3 h-3" />
-                                </Button>
+                                <div className="flex items-center gap-1">
+                                  {/* Анимированная точка */}
+                                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                                  
+                                  {/* Кнопка для просмотра */}
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="w-7 h-7 p-0 text-green-400 hover:text-green-300 hover:bg-green-400/20 border border-green-400/30 hover:border-green-400/50 transition-all duration-200"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const event = new CustomEvent('open_screen_share', {
+                                        detail: { userId: participant.user_id, username: participant.username }
+                                      });
+                                      window.dispatchEvent(event);
+                                    }}
+                                    title={`${participant.username} демонстрирует экран - нажмите для просмотра`}
+                                  >
+                                    <Monitor className="w-3.5 h-3.5" />
+                                  </Button>
+                                </div>
                               )}
                               
                               <div className="flex gap-1">
