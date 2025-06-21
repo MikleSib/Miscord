@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Plus, Home } from 'lucide-react'
+import { Plus, Home, UserPlus } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { cn } from '../lib/utils'
 import { Button } from './ui/button'
@@ -11,55 +11,70 @@ import {
   DialogTitle,
   TextField,
   Box,
+  IconButton,
+  Tooltip
 } from '@mui/material'
 import channelService from '../services/channelService'
 
 export function ServerList() {
   const { servers, currentServer, selectServer, addServer } = useStore()
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
-  const [newChannelName, setNewChannelName] = useState('')
-  const [newChannelDescription, setNewChannelDescription] = useState('')
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false)
+  const [newServerName, setNewServerName] = useState('')
+  const [inviteUsername, setInviteUsername] = useState('')
   const [isCreating, setIsCreating] = useState(false)
+  const [isInviting, setIsInviting] = useState(false)
+  const [inviteError, setInviteError] = useState('')
 
-  const handleCreateChannel = async () => {
-    if (!newChannelName.trim()) return
+  const handleCreateServer = async () => {
+    if (!newServerName.trim()) return
 
     setIsCreating(true)
     try {
-      const newChannel = await channelService.createChannel({
-        name: newChannelName,
-        description: newChannelDescription || undefined,
+      const newServer = await channelService.createServer({
+        name: newServerName,
+        description: `Сервер ${newServerName}`
       })
 
-      // Преобразуем канал в формат сервера
-      const newServer = {
-        id: newChannel.id,
-        name: newChannel.name,
-        icon: undefined,
+      addServer({
+        id: newServer.id,
+        name: newServer.name,
+        description: newServer.description,
         channels: [
-          ...newChannel.text_channels.map(tc => ({
-            id: tc.id,
-            name: tc.name,
-            type: 'text' as const,
-            serverId: newChannel.id,
-          })),
-          ...newChannel.voice_channels.map(vc => ({
-            id: vc.id,
-            name: vc.name,
-            type: 'voice' as const,
-            serverId: newChannel.id,
-          })),
-        ],
-      }
+          { id: 1, name: 'general', type: 'text', serverId: newServer.id },
+          { id: 2, name: 'General', type: 'voice', serverId: newServer.id }
+        ]
+      })
 
-      addServer(newServer)
       setIsCreateModalOpen(false)
-      setNewChannelName('')
-      setNewChannelDescription('')
+      setNewServerName('')
     } catch (error) {
-      console.error('Ошибка создания канала:', error)
+      console.error('Ошибка создания сервера:', error)
     } finally {
       setIsCreating(false)
+    }
+  }
+
+  const handleInviteUser = async () => {
+    if (!inviteUsername.trim() || !currentServer) return
+
+    setIsInviting(true)
+    setInviteError('')
+    
+    try {
+      await channelService.inviteUserToServer(currentServer.id, inviteUsername)
+      setIsInviteModalOpen(false)
+      setInviteUsername('')
+      // Можно добавить уведомление об успешном приглашении
+    } catch (error: any) {
+      console.error('Ошибка приглашения пользователя:', error)
+      if (error.response?.data?.detail) {
+        setInviteError(error.response.data.detail)
+      } else {
+        setInviteError('Не удалось пригласить пользователя')
+      }
+    } finally {
+      setIsInviting(false)
     }
   }
 
@@ -84,24 +99,53 @@ export function ServerList() {
         {/* Server Icons */}
         <div className="flex flex-col gap-2">
           {servers.map((server) => (
-            <Button
-              key={server.id}
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "w-12 h-12 rounded-full transition-all hover:rounded-2xl",
-                currentServer?.id === server.id && "bg-primary text-primary-foreground rounded-2xl"
-              )}
-              onClick={() => selectServer(server.id)}
-            >
-              {server.icon ? (
-                <img src={server.icon} alt={server.name} className="w-full h-full rounded-full" />
-              ) : (
-                <span className="text-xs font-semibold">
-                  {server.name.substring(0, 2).toUpperCase()}
+            <div key={server.id} className="relative group">
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "w-12 h-12 rounded-2xl bg-secondary hover:bg-accent transition-all duration-200",
+                  currentServer?.id === server.id && "bg-primary text-primary-foreground hover:bg-primary/90",
+                  "hover:rounded-xl"
+                )}
+                onClick={() => selectServer(server.id)}
+              >
+                <span className="font-semibold text-lg">
+                  {server.name.slice(0, 2).toUpperCase()}
                 </span>
+              </Button>
+              
+              {/* Индикатор активного сервера */}
+              {currentServer?.id === server.id && (
+                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary rounded-r-full -ml-2" />
               )}
-            </Button>
+              
+              {/* Кнопка приглашения при наведении на активный сервер */}
+              {currentServer?.id === server.id && (
+                <div className="absolute -right-1 top-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Tooltip title="Пригласить пользователя">
+                    <IconButton
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setIsInviteModalOpen(true)
+                      }}
+                      sx={{
+                        backgroundColor: 'rgba(67, 181, 129, 0.1)',
+                        color: '#43b581',
+                        width: 24,
+                        height: 24,
+                        '&:hover': {
+                          backgroundColor: 'rgba(67, 181, 129, 0.2)',
+                        }
+                      }}
+                    >
+                      <UserPlus size={14} />
+                    </IconButton>
+                  </Tooltip>
+                </div>
+              )}
+            </div>
           ))}
         </div>
 
@@ -118,25 +162,17 @@ export function ServerList() {
         </Button>
       </div>
 
-      {/* Create Channel Modal */}
+      {/* Create Server Modal */}
       <Dialog open={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)}>
         <DialogContent>
-          <DialogTitle>Создать новый канал</DialogTitle>
+          <DialogTitle>Создать сервер</DialogTitle>
           <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
             <TextField
-              label="Название канала"
-              value={newChannelName}
-              onChange={(e) => setNewChannelName(e.target.value)}
+              label="Название сервера"
+              value={newServerName}
+              onChange={(e) => setNewServerName(e.target.value)}
               fullWidth
               required
-            />
-            <TextField
-              label="Описание (необязательно)"
-              value={newChannelDescription}
-              onChange={(e) => setNewChannelDescription(e.target.value)}
-              fullWidth
-              multiline
-              rows={3}
             />
             <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', mt: 2 }}>
               <Button
@@ -147,10 +183,47 @@ export function ServerList() {
                 Отмена
               </Button>
               <Button
-                onClick={handleCreateChannel}
-                disabled={!newChannelName.trim() || isCreating}
+                onClick={handleCreateServer}
+                disabled={!newServerName.trim() || isCreating}
               >
                 {isCreating ? 'Создание...' : 'Создать'}
+              </Button>
+            </Box>
+          </Box>
+        </DialogContent>
+      </Dialog>
+
+      {/* Invite User Modal */}
+      <Dialog open={isInviteModalOpen} onClose={() => setIsInviteModalOpen(false)}>
+        <DialogContent>
+          <DialogTitle>Пригласить пользователя</DialogTitle>
+          <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <TextField
+              label="Имя пользователя"
+              value={inviteUsername}
+              onChange={(e) => setInviteUsername(e.target.value)}
+              fullWidth
+              required
+              error={!!inviteError}
+              helperText={inviteError}
+            />
+            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', mt: 2 }}>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setIsInviteModalOpen(false)
+                  setInviteError('')
+                  setInviteUsername('')
+                }}
+                disabled={isInviting}
+              >
+                Отмена
+              </Button>
+              <Button
+                onClick={handleInviteUser}
+                disabled={!inviteUsername.trim() || isInviting}
+              >
+                {isInviting ? 'Приглашение...' : 'Пригласить'}
               </Button>
             </Box>
           </Box>

@@ -1,6 +1,6 @@
 import { Message } from '../types';
 
-const WS_URL = process.env.REACT_APP_WS_URL || 'ws://localhost:8000';
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://195.19.93.203:8000';
 
 interface WebSocketMessage {
   type: string;
@@ -11,110 +11,99 @@ type MessageHandler = (message: WebSocketMessage) => void;
 
 class WebSocketService {
   private ws: WebSocket | null = null;
-  private messageHandlers: Map<string, MessageHandler[]> = new Map();
-  private reconnectTimer: NodeJS.Timeout | null = null;
-  private channelId: number | null = null;
-  private token: string | null = null;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+  private reconnectDelay = 1000;
+  private messageHandlers: { [key: string]: (data: any) => void } = {};
 
-  connect(channelId: number, token: string): void {
+  connect(token: string) {
     if (this.ws?.readyState === WebSocket.OPEN) {
-      this.disconnect();
+      return;
     }
 
-    this.channelId = channelId;
-    this.token = token;
+    try {
+      this.ws = new WebSocket(`${WS_URL}/ws/notifications?token=${token}`);
+      
+      this.ws.onopen = () => {
+        console.log('🔔 WebSocket уведомлений подключен');
+        this.reconnectAttempts = 0;
+      };
 
-    const wsUrl = `${WS_URL}/ws/chat/${channelId}?token=${token}`;
-    this.ws = new WebSocket(wsUrl);
+      this.ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('🔔 Получено уведомление:', data);
+          
+          // Вызываем соответствующий обработчик
+          if (data.type && this.messageHandlers[data.type]) {
+            this.messageHandlers[data.type](data);
+          }
+        } catch (error) {
+          console.error('Ошибка обработки WebSocket сообщения:', error);
+        }
+      };
 
-    this.ws.onopen = () => {
-      console.log('WebSocket connected');
-      if (this.reconnectTimer) {
-        clearTimeout(this.reconnectTimer);
-        this.reconnectTimer = null;
-      }
-    };
+      this.ws.onclose = () => {
+        console.log('🔔 WebSocket уведомлений отключен');
+        this.handleReconnect(token);
+      };
 
-    this.ws.onmessage = (event) => {
-      try {
-        const message: WebSocketMessage = JSON.parse(event.data);
-        this.handleMessage(message);
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
-      }
-    };
-
-    this.ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-    };
-
-    this.ws.onclose = () => {
-      console.log('WebSocket disconnected');
-      this.scheduleReconnect();
-    };
+      this.ws.onerror = (error) => {
+        console.error('🔔 Ошибка WebSocket уведомлений:', error);
+      };
+    } catch (error) {
+      console.error('Ошибка подключения WebSocket уведомлений:', error);
+    }
   }
 
-  disconnect(): void {
+  private handleReconnect(token: string) {
+    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+      this.reconnectAttempts++;
+      console.log(`🔔 Попытка переподключения ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
+      
+      setTimeout(() => {
+        this.connect(token);
+      }, this.reconnectDelay * this.reconnectAttempts);
+    }
+  }
+
+  // Регистрация обработчиков сообщений
+  onChannelInvitation(handler: (data: { channel_id: number; channel_name: string; invited_by: string }) => void) {
+    this.messageHandlers['channel_invitation'] = handler;
+  }
+
+  onUserJoinedChannel(handler: (data: { user_id: number; username: string; channel_id: number }) => void) {
+    this.messageHandlers['user_joined_channel'] = handler;
+  }
+
+  onUserLeftChannel(handler: (data: { user_id: number; channel_id: number }) => void) {
+    this.messageHandlers['user_left_channel'] = handler;
+  }
+
+  onChannelUpdated(handler: (data: { channel_id: number; changes: any }) => void) {
+    this.messageHandlers['channel_updated'] = handler;
+  }
+
+  // Отправка сообщения
+  send(data: any) {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(data));
+    }
+  }
+
+  // Отключение
+  disconnect() {
     if (this.ws) {
       this.ws.close();
       this.ws = null;
     }
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-    this.channelId = null;
-    this.token = null;
+    this.messageHandlers = {};
+    this.reconnectAttempts = 0;
   }
 
-  private scheduleReconnect(): void {
-    if (this.channelId && this.token && !this.reconnectTimer) {
-      this.reconnectTimer = setTimeout(() => {
-        console.log('Attempting to reconnect WebSocket...');
-        this.connect(this.channelId!, this.token!);
-      }, 3000);
-    }
-  }
-
-  private handleMessage(message: WebSocketMessage): void {
-    const handlers = this.messageHandlers.get(message.type) || [];
-    handlers.forEach(handler => handler(message));
-  }
-
-  on(messageType: string, handler: MessageHandler): void {
-    if (!this.messageHandlers.has(messageType)) {
-      this.messageHandlers.set(messageType, []);
-    }
-    this.messageHandlers.get(messageType)!.push(handler);
-  }
-
-  off(messageType: string, handler: MessageHandler): void {
-    const handlers = this.messageHandlers.get(messageType);
-    if (handlers) {
-      const index = handlers.indexOf(handler);
-      if (index > -1) {
-        handlers.splice(index, 1);
-      }
-    }
-  }
-
-  sendMessage(textChannelId: number, content: string): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({
-        type: 'message',
-        text_channel_id: textChannelId,
-        content: content
-      }));
-    }
-  }
-
-  sendTyping(textChannelId: number): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({
-        type: 'typing',
-        text_channel_id: textChannelId
-      }));
-    }
+  // Проверка состояния подключения
+  isConnected(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN;
   }
 }
 

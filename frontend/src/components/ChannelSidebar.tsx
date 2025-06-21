@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Hash, Volume2, ChevronDown, Settings, Plus, Mic, MicOff, Headphones } from 'lucide-react'
+import { Hash, Volume2, ChevronDown, Settings, Plus, Mic, MicOff, Headphones, PhoneOff, VolumeX, Monitor } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { useVoiceStore } from '../store/slices/voiceSlice'
 import { useAuthStore } from '../store/store'
@@ -20,7 +20,17 @@ import channelService from '../services/channelService'
 
 export function ChannelSidebar() {
   const { currentServer, currentChannel, selectChannel, addChannel } = useStore()
-  const { connectToVoiceChannel, currentVoiceChannelId, participants } = useVoiceStore()
+  const { 
+    connectToVoiceChannel, 
+    currentVoiceChannelId, 
+    participants, 
+    disconnectFromVoiceChannel, 
+    isMuted, 
+    isDeafened,
+    isConnected,
+    toggleMute,
+    toggleDeafen
+  } = useVoiceStore()
   const { user } = useAuthStore()
   const [isCreateTextModalOpen, setIsCreateTextModalOpen] = useState(false)
   const [isCreateVoiceModalOpen, setIsCreateVoiceModalOpen] = useState(false)
@@ -264,15 +274,77 @@ export function ChannelSidebar() {
           </div>
         </div>
 
-        {/* User Panel */}
-        <div className="h-[52px] bg-background/50 px-2 flex items-center justify-between">
-          <Button variant="ghost" size="icon" className="h-8 w-8">
-            <Settings className="w-4 h-4" />
-          </Button>
-        </div>
+        {/* Панель управления голосом в самом низу */}
+        {isConnected && currentVoiceChannelId && (
+          <div className="mt-auto border-t border-border/50 bg-accent/10 p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-medium text-green-400 truncate">
+                  Голосовое подключение
+                </div>
+                <div className="text-xs text-muted-foreground truncate">
+                  {currentServer?.channels.find(c => c.id === currentVoiceChannelId)?.name || 'Голосовой канал'}
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-5 w-5 p-0 text-muted-foreground hover:text-red-400"
+                onClick={() => {
+                  disconnectFromVoiceChannel();
+                }}
+                title="Отключиться"
+              >
+                <PhoneOff className="w-3 h-3" />
+              </Button>
+            </div>
+            
+            <div className="flex gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  "h-7 w-7 p-0",
+                  isMuted 
+                    ? "bg-red-500/20 text-red-400 hover:bg-red-500/30" 
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                )}
+                onClick={toggleMute}
+                title={isMuted ? 'Включить микрофон' : 'Отключить микрофон'}
+              >
+                {isMuted ? <MicOff className="w-3 h-3" /> : <Mic className="w-3 h-3" />}
+              </Button>
+              
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  "h-7 w-7 p-0",
+                  isDeafened 
+                    ? "bg-red-500/20 text-red-400 hover:bg-red-500/30" 
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                )}
+                onClick={toggleDeafen}
+                title={isDeafened ? 'Включить звук' : 'Отключить звук'}
+              >
+                {isDeafened ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+              </Button>
+
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                title="Демонстрация экрана"
+              >
+                <Monitor className="w-3 h-3" />
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Create Text Channel Modal */}
+      {/* Модальное окно создания текстового канала */}
       <Dialog open={isCreateTextModalOpen} onClose={() => setIsCreateTextModalOpen(false)}>
         <DialogContent>
           <DialogTitle>Создать текстовый канал</DialogTitle>

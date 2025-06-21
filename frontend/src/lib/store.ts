@@ -1,170 +1,285 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+import { Server, Channel, Message, User } from '../types';
 import channelService from '../services/channelService';
-
-interface User {
-  id: number;
-  username: string;
-  avatar?: string;
-}
-
-interface Server {
-  id: number;
-  name: string;
-  icon?: string;
-  channels: Channel[];
-}
-
-interface Channel {
-  id: number;
-  name: string;
-  type: 'text' | 'voice';
-  serverId: number;
-}
-
-interface Message {
-  id: number;
-  content: string;
-  user: User;
-  timestamp: string;
-  channelId: number;
-}
+import websocketService from '../services/websocketService';
 
 interface AppState {
+  // Данные
   servers: Server[];
   currentServer: Server | null;
   currentChannel: Channel | null;
-  messages: Record<number, Message[]>;
+  messages: { [channelId: number]: Message[] };
   user: User | null;
   isLoading: boolean;
   error: string | null;
-  selectServer: (serverId: number) => void;
+
+  // Действия для серверов
+  selectServer: (serverId: number) => Promise<void>;
   selectChannel: (channelId: number) => void;
   addServer: (server: Server) => void;
+  updateServer: (serverId: number, updates: Partial<Server>) => void;
+
+  // Действия для каналов
   addChannel: (serverId: number, channel: Channel) => void;
+
+  // Сообщения
   sendMessage: (content: string) => void;
   addMessage: (channelId: number, message: Message) => void;
-  setUser: (user: User) => void;
+
+  // Пользователь
+  setUser: (user: User | null) => void;
   logout: () => void;
-  loadChannels: () => Promise<void>;
+
+  // Загрузка данных
+  loadServers: () => Promise<void>;
+  loadServerDetails: (serverId: number) => Promise<void>;
+
+  // Состояние
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
+
+  // WebSocket
+  initializeWebSocket: (token: string) => void;
+  disconnectWebSocket: () => void;
 }
 
-export const useStore = create<AppState>((set, get) => ({
-  servers: [],
-  currentServer: null,
-  currentChannel: null,
-  messages: {},
-  user: null,
-  isLoading: false,
-  error: null,
-  
-  selectServer: (serverId) => {
-    const server = get().servers.find(s => s.id === serverId);
-    set({ currentServer: server || null, currentChannel: null });
-  },
-  
-  selectChannel: (channelId) => {
-    const { currentServer } = get();
-    if (currentServer) {
-      const channel = currentServer.channels.find(c => c.id === channelId);
-      set({ currentChannel: channel || null });
-    }
-  },
-  
-  addServer: (server) => {
-    set((state) => ({
-      servers: [...state.servers, server],
-    }));
-  },
-  
-  addChannel: (serverId, channel) => {
-    set((state) => {
-      const updatedServers = state.servers.map(server => 
-        server.id === serverId 
-          ? { ...server, channels: [...server.channels, channel] }
-          : server
-      );
-      
-      // Также обновляем currentServer, если канал добавляется в текущий сервер
-      const updatedCurrentServer = state.currentServer?.id === serverId 
-        ? updatedServers.find(s => s.id === serverId) || state.currentServer
-        : state.currentServer;
-      
-      return {
-        servers: updatedServers,
-        currentServer: updatedCurrentServer,
-      };
-    });
-  },
-  
-  sendMessage: (content) => {
-    const { currentChannel, user } = get();
-    if (currentChannel && user) {
-      const message: Message = {
-        id: Date.now(),
-        content,
-        user,
-        timestamp: new Date().toISOString(),
-        channelId: currentChannel.id,
-      };
-      get().addMessage(currentChannel.id, message);
-    }
-  },
-  
-  addMessage: (channelId, message) => {
-    set((state) => ({
-      messages: {
-        ...state.messages,
-        [channelId]: [...(state.messages[channelId] || []), message],
+export const useStore = create<AppState>()(
+  persist(
+    (set, get) => ({
+      // Начальное состояние
+      servers: [],
+      currentServer: null,
+      currentChannel: null,
+      messages: {},
+      user: null,
+      isLoading: false,
+      error: null,
+
+      // Выбор сервера
+      selectServer: async (serverId: number) => {
+        const { servers, loadServerDetails } = get();
+        const server = servers.find(s => s.id === serverId);
+        
+        if (server) {
+          set({ currentServer: server, currentChannel: null });
+          await loadServerDetails(serverId);
+        }
       },
-    }));
-  },
-  
-  setUser: (user) => {
-    set({ user });
-  },
-  
-  logout: () => {
-    set({ user: null, currentServer: null, currentChannel: null, messages: {} });
-  },
 
-  loadChannels: async () => {
-    set({ isLoading: true, error: null });
-    try {
-      const channels = await channelService.getUserChannels();
-      
-      // Преобразуем каналы в формат серверов
-      const servers: Server[] = channels.map(channel => ({
-        id: channel.id,
-        name: channel.name,
-        icon: undefined, // Пока нет иконок
-        channels: [
-          ...channel.text_channels.map(tc => ({
-            id: tc.id,
-            name: tc.name,
-            type: 'text' as const,
-            serverId: channel.id,
-          })),
-          ...channel.voice_channels.map(vc => ({
-            id: vc.id,
-            name: vc.name,
-            type: 'voice' as const,
-            serverId: channel.id,
-          })),
-        ],
-      }));
-      
-      set({ servers, isLoading: false });
-    } catch (error: any) {
-      set({ 
-        error: error.response?.data?.detail || 'Ошибка загрузки каналов', 
-        isLoading: false 
-      });
+      // Выбор канала
+      selectChannel: (channelId: number) => {
+        const { currentServer } = get();
+        if (currentServer) {
+          const channel = currentServer.channels.find(c => c.id === channelId);
+          if (channel) {
+            set({ currentChannel: channel });
+          }
+        }
+      },
+
+      // Добавление сервера
+      addServer: (server: Server) => {
+        set((state) => ({
+          servers: [...state.servers, server]
+        }));
+      },
+
+      // Обновление сервера
+      updateServer: (serverId: number, updates: Partial<Server>) => {
+        set((state) => ({
+          servers: state.servers.map(server =>
+            server.id === serverId ? { ...server, ...updates } : server
+          ),
+          currentServer: state.currentServer?.id === serverId 
+            ? { ...state.currentServer, ...updates }
+            : state.currentServer
+        }));
+      },
+
+      // Добавление канала
+      addChannel: (serverId: number, channel: Channel) => {
+        set((state) => ({
+          servers: state.servers.map(server =>
+            server.id === serverId
+              ? { ...server, channels: [...server.channels, channel] }
+              : server
+          ),
+          currentServer: state.currentServer?.id === serverId
+            ? { ...state.currentServer, channels: [...state.currentServer.channels, channel] }
+            : state.currentServer
+        }));
+      },
+
+      // Отправка сообщения
+      sendMessage: (content: string) => {
+        const { currentChannel, user } = get();
+        if (currentChannel && user) {
+          const message: Message = {
+            id: Date.now(),
+            content,
+            author: user,
+            timestamp: new Date().toISOString(),
+            channelId: currentChannel.id,
+          };
+          get().addMessage(currentChannel.id, message);
+        }
+      },
+
+      // Добавление сообщения
+      addMessage: (channelId: number, message: Message) => {
+        set((state) => ({
+          messages: {
+            ...state.messages,
+            [channelId]: [...(state.messages[channelId] || []), message],
+          },
+        }));
+      },
+
+      // Установка пользователя
+      setUser: (user: User | null) => {
+        set({ user });
+      },
+
+      // Выход
+      logout: () => {
+        get().disconnectWebSocket();
+        set({ 
+          user: null, 
+          currentServer: null, 
+          currentChannel: null, 
+          messages: {},
+          servers: []
+        });
+      },
+
+      // Загрузка серверов
+      loadServers: async () => {
+        set({ isLoading: true, error: null });
+        try {
+          const channels = await channelService.getChannels();
+          
+          const servers: Server[] = channels.map((channel: any) => ({
+            id: channel.id,
+            name: channel.name,
+            description: channel.description,
+            channels: []
+          }));
+          
+          set({ servers, isLoading: false });
+        } catch (error: any) {
+          console.error('Ошибка загрузки серверов:', error);
+          set({ 
+            error: error.response?.data?.detail || 'Ошибка загрузки серверов', 
+            isLoading: false 
+          });
+        }
+      },
+
+      // Загрузка деталей сервера
+      loadServerDetails: async (serverId: number) => {
+        try {
+          const serverDetails = await channelService.getChannelDetails(serverId);
+          
+          const channels: Channel[] = serverDetails.channels.map((ch: any) => ({
+            id: ch.id,
+            name: ch.name,
+            type: ch.type,
+            serverId: serverId
+          }));
+          
+          const updatedServer: Server = {
+            id: serverDetails.id,
+            name: serverDetails.name,
+            description: serverDetails.description,
+            channels
+          };
+          
+          set((state) => ({
+            servers: state.servers.map(server =>
+              server.id === serverId ? updatedServer : server
+            ),
+            currentServer: updatedServer
+          }));
+        } catch (error) {
+          console.error('Ошибка загрузки деталей сервера:', error);
+        }
+      },
+
+      // Установка загрузки
+      setLoading: (loading: boolean) => {
+        set({ isLoading: loading });
+      },
+
+      // Установка ошибки
+      setError: (error: string | null) => {
+        set({ error });
+      },
+
+      // Инициализация WebSocket
+      initializeWebSocket: (token: string) => {
+        websocketService.connect(token);
+        
+        // Обработка приглашения в канал
+        websocketService.onChannelInvitation((data) => {
+          console.log('Получено приглашение в канал:', data);
+          
+          // Показываем уведомление
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification(`Приглашение в канал`, {
+              body: `${data.invited_by} пригласил вас в канал "${data.channel_name}"`,
+              icon: '/favicon.ico'
+            });
+          }
+          
+          // Перезагружаем список серверов
+          get().loadServers();
+        });
+        
+        // Обработка присоединения пользователя
+        websocketService.onUserJoinedChannel((data) => {
+          console.log('Пользователь присоединился к каналу:', data);
+          
+          const { currentServer } = get();
+          if (currentServer?.id === data.channel_id) {
+            get().loadServerDetails(data.channel_id);
+          }
+        });
+        
+        // Обработка выхода пользователя
+        websocketService.onUserLeftChannel((data) => {
+          console.log('Пользователь покинул канал:', data);
+          
+          const { currentServer } = get();
+          if (currentServer?.id === data.channel_id) {
+            get().loadServerDetails(data.channel_id);
+          }
+        });
+        
+        // Обработка обновления канала
+        websocketService.onChannelUpdated((data) => {
+          console.log('Канал обновлен:', data);
+          
+          const { currentServer } = get();
+          if (currentServer?.id === data.channel_id) {
+            get().loadServerDetails(data.channel_id);
+          }
+        });
+      },
+
+      // Отключение WebSocket
+      disconnectWebSocket: () => {
+        websocketService.disconnect();
+      }
+    }),
+    {
+      name: 'miscord-store',
+      partialize: (state) => ({
+        servers: state.servers,
+        currentServer: state.currentServer,
+        currentChannel: state.currentChannel,
+        user: state.user
+      })
     }
-  },
-
-  setLoading: (loading) => set({ isLoading: loading }),
-  
-  setError: (error) => set({ error }),
-})); 
+  )
+); 

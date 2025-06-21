@@ -1,16 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, and_
 from sqlalchemy.orm import selectinload
 from typing import List
 from app.db.database import get_db
-from app.models import Channel, ChannelMember, TextChannel, VoiceChannel, User
+from app.models import Channel, ChannelMember, TextChannel, VoiceChannel, User, ChannelType
 from app.schemas.channel import (
     ChannelCreate, Channel as ChannelSchema, ChannelUpdate,
     TextChannelCreate, TextChannel as TextChannelSchema,
     VoiceChannelCreate, VoiceChannel as VoiceChannelSchema
 )
-from app.core.dependencies import get_current_active_user
+from app.schemas.user import UserResponse
+from app.core.dependencies import get_current_active_user, get_current_user
+from app.websocket.connection_manager import manager
 
 router = APIRouter()
 
@@ -21,50 +23,45 @@ async def create_channel(
     db: AsyncSession = Depends(get_db)
 ):
     """Создание нового канала (сервера)"""
-    # Создание канала
-    new_channel = Channel(
+    # Создаем основной канал
+    db_channel = Channel(
         name=channel_data.name,
         description=channel_data.description,
-        owner_id=current_user.id
+        owner_id=current_user.id,
+        type=ChannelType.SERVER
     )
-    db.add(new_channel)
-    await db.flush()
+    db.add(db_channel)
+    await db.commit()
+    await db.refresh(db_channel)
     
-    # Добавление владельца как участника
+    # Автоматически добавляем создателя как участника
     member = ChannelMember(
-        channel_id=new_channel.id,
-        user_id=current_user.id
+        channel_id=db_channel.id,
+        user_id=current_user.id,
+        role="admin"
     )
     db.add(member)
     
-    # Создание стандартных каналов
-    general_text = TextChannel(
+    # Создаем дефолтный текстовый канал "general"
+    default_text = TextChannel(
         name="general",
-        channel_id=new_channel.id,
+        channel_id=db_channel.id,
         position=0
     )
-    general_voice = VoiceChannel(
+    db.add(default_text)
+    
+    # Создаем дефолтный голосовой канал "General"
+    default_voice = VoiceChannel(
         name="General",
-        channel_id=new_channel.id,
-        position=0
+        channel_id=db_channel.id,
+        position=0,
+        max_users=10
     )
-    db.add(general_text)
-    db.add(general_voice)
+    db.add(default_voice)
     
     await db.commit()
-    await db.refresh(new_channel)
     
-    # Загрузка связанных данных
-    result = await db.execute(
-        select(Channel)
-        .where(Channel.id == new_channel.id)
-        .options(
-            selectinload(Channel.owner),
-            selectinload(Channel.text_channels),
-            selectinload(Channel.voice_channels)
-        )
-    )
-    return result.scalar_one()
+    return db_channel
 
 @router.get("/", response_model=List[ChannelSchema])
 async def get_user_channels(
@@ -247,3 +244,129 @@ async def create_voice_channel(
     await db.refresh(new_voice_channel)
     
     return new_voice_channel
+
+# Новые эндпоинты для приглашений
+@router.post("/{channel_id}/invite")
+async def invite_user_to_channel(
+    channel_id: int,
+    username: str,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Приглашение пользователя в канал (сервер)"""
+    # Проверяем, что текущий пользователь является участником канала
+    member_result = await db.execute(
+        select(ChannelMember).where(
+            and_(
+                ChannelMember.channel_id == channel_id,
+                ChannelMember.user_id == current_user.id
+            )
+        )
+    )
+    if not member_result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not a member of this channel"
+        )
+    
+    # Находим пользователя по username
+    user_result = await db.execute(
+        select(User).where(User.username == username)
+    )
+    target_user = user_result.scalar_one_or_none()
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Проверяем, не является ли пользователь уже участником
+    existing_member = await db.execute(
+        select(ChannelMember).where(
+            and_(
+                ChannelMember.channel_id == channel_id,
+                ChannelMember.user_id == target_user.id
+            )
+        )
+    )
+    if existing_member.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User is already a member of this channel"
+        )
+    
+    # Добавляем пользователя как участника
+    new_member = ChannelMember(
+        channel_id=channel_id,
+        user_id=target_user.id,
+        role="member"
+    )
+    db.add(new_member)
+    await db.commit()
+    
+    # Получаем информацию о канале для уведомления
+    channel_result = await db.execute(
+        select(Channel).where(Channel.id == channel_id)
+    )
+    channel = channel_result.scalar_one()
+    
+    # Отправляем WebSocket уведомление приглашенному пользователю
+    await manager.send_to_user(target_user.id, {
+        "type": "channel_invitation",
+        "channel_id": channel_id,
+        "channel_name": channel.name,
+        "invited_by": current_user.username
+    })
+    
+    # Уведомляем всех участников канала о новом участнике
+    await manager.send_to_channel(channel_id, {
+        "type": "user_joined_channel",
+        "user_id": target_user.id,
+        "username": target_user.username,
+        "channel_id": channel_id
+    })
+    
+    return {
+        "message": f"User {username} successfully invited to channel",
+        "user_id": target_user.id,
+        "username": target_user.username
+    }
+
+@router.get("/{channel_id}/members", response_model=List[UserResponse])
+async def get_channel_members(
+    channel_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Получение списка участников канала"""
+    # Проверяем членство
+    member_result = await db.execute(
+        select(ChannelMember).where(
+            and_(
+                ChannelMember.channel_id == channel_id,
+                ChannelMember.user_id == current_user.id
+            )
+        )
+    )
+    if not member_result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not a member of this channel"
+        )
+    
+    # Получаем всех участников
+    result = await db.execute(
+        select(User).join(ChannelMember).where(
+            ChannelMember.channel_id == channel_id
+        )
+    )
+    members = result.scalars().all()
+    
+    return [
+        UserResponse(
+            id=member.id,
+            username=member.username,
+            email=member.email
+        )
+        for member in members
+    ]
