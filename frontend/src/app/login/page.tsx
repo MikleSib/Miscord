@@ -1,6 +1,8 @@
-'use client'
+'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   Container,
   Paper,
@@ -10,19 +12,12 @@ import {
   Box,
   Alert,
 } from '@mui/material';
-import { useAuthStore } from '../store/store';
-import authService from '../services/authService';
+import { useAuthStore } from '../../store/store';
+import authService from '../../services/authService';
 
-export function LoginDialog() {
-  const { 
-    isLoading, 
-    error, 
-    loginStart, 
-    loginSuccess, 
-    loginFailure, 
-    clearError, 
-    setUser
-  } = useAuthStore();
+const LoginPage: React.FC = () => {
+  const router = useRouter();
+  const { user, isAuthenticated, isLoading, error, loginStart, loginSuccess, loginFailure, clearError } = useAuthStore();
   
   const [formData, setFormData] = useState({
     username: '',
@@ -42,14 +37,27 @@ export function LoginDialog() {
     
     try {
       const { access_token } = await authService.login(formData);
+      
+      // Сначала сохраняем токен в хранилище
+      useAuthStore.getState().setToken(access_token);
+
+      // Теперь делаем запрос с уже установленным токеном
       const user = await authService.getCurrentUser();
+      
       loginSuccess(user, access_token);
-      setUser(user);
     } catch (err: any) {
       const errorMessage = err.response?.data?.detail || 'Ошибка входа';
       loginFailure(errorMessage);
     }
   };
+
+  React.useEffect(() => {
+    // Этот эффект будет следить за состоянием аутентификации
+    // и выполнять перенаправление после успешного входа.
+    if (isAuthenticated && user) {
+      router.push('/');
+    }
+  }, [isAuthenticated, user, router]);
 
   React.useEffect(() => {
     return () => {
@@ -112,9 +120,18 @@ export function LoginDialog() {
             >
               {isLoading ? 'Вход...' : 'Войти'}
             </Button>
+            <Box textAlign="center">
+              <Link href="/register" style={{ textDecoration: 'none' }}>
+                <Typography variant="body2" color="primary" sx={{ cursor: 'pointer' }}>
+                  Нет аккаунта? Зарегистрироваться
+                </Typography>
+              </Link>
+            </Box>
           </Box>
         </Paper>
       </Box>
     </Container>
   );
-}
+};
+
+export default LoginPage; 

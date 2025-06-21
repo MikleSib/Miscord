@@ -1,6 +1,8 @@
+'use client';
+
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/router';
+import { useRouter } from 'next/navigation';
 import {
   Container,
   Paper,
@@ -10,37 +12,49 @@ import {
   Box,
   Alert,
 } from '@mui/material';
-import { useAuthStore } from '../store/store';
-import authService from '../services/authService';
+import { useAuthStore } from '../../store/store';
+import authService from '../../services/authService';
+import { RegisterData } from '../../types';
 
-const LoginPage: React.FC = () => {
+const RegisterPage: React.FC = () => {
   const router = useRouter();
-  const { isLoading, error, loginStart, loginSuccess, loginFailure, clearError } = useAuthStore();
+  const { isLoading, error, registerStart, registerSuccess, registerFailure, clearError } = useAuthStore();
   
   const [formData, setFormData] = useState({
     username: '',
+    email: '',
     password: '',
+    confirmPassword: '',
   });
+
+  const [validationError, setValidationError] = useState('');
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
       ...formData,
       [e.target.name]: e.target.value,
     });
+    setValidationError('');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    loginStart();
     
+    if (formData.password !== formData.confirmPassword) {
+      setValidationError('Пароли не совпадают');
+      return;
+    }
+
+    const { confirmPassword, ...registerData } = formData;
+    
+    registerStart();
     try {
-      const { access_token } = await authService.login(formData);
-      const user = await authService.getCurrentUser();
-      loginSuccess(user, access_token);
-      router.push('/');
+      await authService.register(registerData as RegisterData);
+      registerSuccess();
+      router.push('/login');
     } catch (err: any) {
-      const errorMessage = err.response?.data?.detail || 'Ошибка входа';
-      loginFailure(errorMessage);
+        const errorMessage = err.response?.data?.detail || err.message || 'Ошибка регистрации';
+        registerFailure(errorMessage);
     }
   };
 
@@ -62,12 +76,12 @@ const LoginPage: React.FC = () => {
       >
         <Paper elevation={3} sx={{ padding: 4, width: '100%' }}>
           <Typography component="h1" variant="h4" align="center" gutterBottom>
-            Войти в Miscord
+            Регистрация в Miscord
           </Typography>
           
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
+          {(error || validationError) && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => validationError ? setValidationError('') : clearError()}>
+              {error || validationError}
             </Alert>
           )}
           
@@ -88,12 +102,36 @@ const LoginPage: React.FC = () => {
               margin="normal"
               required
               fullWidth
+              id="email"
+              label="Email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              value={formData.email}
+              onChange={handleChange}
+            />
+            <TextField
+              margin="normal"
+              required
+              fullWidth
               name="password"
               label="Пароль"
               type="password"
               id="password"
-              autoComplete="current-password"
+              autoComplete="new-password"
               value={formData.password}
+              onChange={handleChange}
+            />
+            <TextField
+              margin="normal"
+              required
+              fullWidth
+              name="confirmPassword"
+              label="Подтвердите пароль"
+              type="password"
+              id="confirmPassword"
+              autoComplete="new-password"
+              value={formData.confirmPassword}
               onChange={handleChange}
             />
             <Button
@@ -103,12 +141,12 @@ const LoginPage: React.FC = () => {
               sx={{ mt: 3, mb: 2 }}
               disabled={isLoading}
             >
-              {isLoading ? 'Вход...' : 'Войти'}
+              {isLoading ? 'Регистрация...' : 'Зарегистрироваться'}
             </Button>
             <Box textAlign="center">
-              <Link href="/register" style={{ textDecoration: 'none' }}>
+              <Link href="/login" style={{ textDecoration: 'none' }}>
                 <Typography variant="body2" color="primary" sx={{ cursor: 'pointer' }}>
-                  Нет аккаунта? Зарегистрироваться
+                  Уже есть аккаунт? Войти
                 </Typography>
               </Link>
             </Box>
@@ -119,4 +157,4 @@ const LoginPage: React.FC = () => {
   );
 };
 
-export default LoginPage;
+export default RegisterPage; 
