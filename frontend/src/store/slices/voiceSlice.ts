@@ -10,6 +10,7 @@ interface VoiceState {
   localStream: MediaStream | null;
   isMuted: boolean;
   isDeafened: boolean;
+  wasMutedBeforeDeafen: boolean;
   error: string | null;
   speakingUsers: Set<number>;
   connectToVoiceChannel: (channelId: number) => Promise<void>;
@@ -32,6 +33,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   localStream: null,
   isMuted: false,
   isDeafened: false,
+  wasMutedBeforeDeafen: false,
   error: null,
   speakingUsers: new Set(),
   
@@ -126,6 +128,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       localStream: null,
       isMuted: false,
       isDeafened: false,
+      wasMutedBeforeDeafen: false,
       speakingUsers: new Set(),
     });
   },
@@ -155,9 +158,22 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   setLocalStream: (stream) => set({ localStream: stream }),
   
   toggleMute: () => {
-    const newMuted = !get().isMuted;
+    const currentState = get();
+    const newMuted = !currentState.isMuted;
+    
+    // Если включаем микрофон (newMuted = false) и наушники включены, то выключаем наушники
+    let newDeafened = currentState.isDeafened;
+    if (!newMuted && currentState.isDeafened) {
+      newDeafened = false;
+      voiceService.setDeafened(false);
+    }
+    
     voiceService.setMuted(newMuted);
-    set({ isMuted: newMuted });
+    
+    set({ 
+      isMuted: newMuted,
+      isDeafened: newDeafened,
+    });
     
     // Обновляем состояние текущего пользователя в списке участников
     const currentUser = useAuthStore.getState().user;
@@ -166,18 +182,35 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         user_id: currentUser.id,
         username: currentUser.username,
         is_muted: newMuted,
-        is_deafened: get().isDeafened,
+        is_deafened: newDeafened,
       });
     }
   },
   
   toggleDeafen: () => {
-    const newDeafened = !get().isDeafened;
+    const currentState = get();
+    const newDeafened = !currentState.isDeafened;
+    
+    let newMuted = currentState.isMuted;
+    let newWasMutedBeforeDeafen = currentState.wasMutedBeforeDeafen;
+    
+    if (newDeafened) {
+      // Включаем deafen - запоминаем текущее состояние микрофона и выключаем его
+      newWasMutedBeforeDeafen = currentState.isMuted;
+      newMuted = true;
+    } else {
+      // Выключаем deafen - возвращаем предыдущее состояние микрофона
+      newMuted = currentState.wasMutedBeforeDeafen;
+    }
+    
     voiceService.setDeafened(newDeafened);
-    set((state) => ({
+    voiceService.setMuted(newMuted);
+    
+    set({
       isDeafened: newDeafened,
-      isMuted: newDeafened ? true : state.isMuted,
-    }));
+      isMuted: newMuted,
+      wasMutedBeforeDeafen: newWasMutedBeforeDeafen,
+    });
     
     // Обновляем состояние текущего пользователя в списке участников
     const currentUser = useAuthStore.getState().user;
@@ -185,7 +218,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       get().updateParticipant({
         user_id: currentUser.id,
         username: currentUser.username,
-        is_muted: newDeafened ? true : get().isMuted,
+        is_muted: newMuted,
         is_deafened: newDeafened,
       });
     }

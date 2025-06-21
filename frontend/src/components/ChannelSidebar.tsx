@@ -291,11 +291,13 @@ export function ChannelSidebar() {
   };
 
   const handleMuteToggle = () => {
-    voiceService.setMuted(!isMuted);
+    console.log('🎙️ Переключение микрофона, текущее состояние:', isMuted);
+    toggleMute();
   };
 
   const handleDeafenToggle = () => {
-    voiceService.setDeafened(!isDeafened);
+    console.log('🎙️ Переключение наушников, текущее состояние:', isDeafened);
+    toggleDeafen();
   };
 
   const handleDisconnect = () => {
@@ -326,12 +328,31 @@ export function ChannelSidebar() {
     console.log('🔄 Клик по каналу:', channel.name, 'тип:', channel.type, 'ID:', channel.id);
     
     if (channel.type === 'voice') {
+      // Проверяем, не подключены ли мы уже к этому каналу
+      if (currentVoiceChannelId === channel.id) {
+        console.log('🎙️ Уже подключены к этому голосовому каналу, игнорируем клик');
+        // Просто выбираем канал в UI, но не переподключаемся
+        selectChannel(channel.id);
+        return;
+      }
+
+      // Если подключены к другому голосовому каналу, сначала отключаемся
+      if (currentVoiceChannelId && currentVoiceChannelId !== channel.id) {
+        console.log(`🎙️ Отключаемся от текущего канала ${currentVoiceChannelId} перед подключением к ${channel.id}`);
+        try {
+          await disconnectFromVoiceChannel();
+          console.log('🎙️ Отключение от предыдущего канала завершено');
+        } catch (error) {
+          console.error('🎙️ Ошибка отключения от предыдущего канала:', error);
+        }
+      }
+
       // Обновляем список участников перед подключением
       await loadVoiceChannelMembers(channel.id);
       
-      // Подключаемся к голосовому каналу
+      // Подключаемся к новому голосовому каналу
       try {
-        console.log('🎙️ Начинаем подключение к голосовому каналу');
+        console.log(`🎙️ Начинаем подключение к голосовому каналу ${channel.id}`);
         await connectToVoiceChannel(channel.id);
         selectChannel(channel.id);
         console.log('🎙️ Подключение завершено успешно');
@@ -623,7 +644,7 @@ export function ChannelSidebar() {
                                 {participant.user_id === user?.id && " (Вы)"}
                                 {isScreenSharing && (
                                   <span className="text-green-400 font-medium ml-1">
-                                    • показывает экран
+                                    • Стримит
                                   </span>
                                 )}
                               </Typography>

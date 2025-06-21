@@ -31,6 +31,18 @@ class VoiceService {
   async connect(voiceChannelId: number, token: string) {
     console.log('🎙️ VoiceService.connect вызван с параметрами:', { voiceChannelId, token: token ? 'есть' : 'нет' });
     
+    // Проверяем, не подключены ли мы уже к этому каналу
+    if (this.voiceChannelId === voiceChannelId && this.ws && this.ws.readyState === WebSocket.OPEN) {
+      console.log('🎙️ Уже подключены к этому каналу, пропускаем переподключение');
+      return;
+    }
+    
+    // Если подключены к другому каналу или соединение закрыто, сначала очищаем
+    if (this.ws || this.voiceChannelId) {
+      console.log('🎙️ Очищаем предыдущее соединение перед новым подключением');
+      this.cleanup();
+    }
+    
     this.voiceChannelId = voiceChannelId;
     this.token = token;
 
@@ -280,26 +292,49 @@ class VoiceService {
             remoteVideo.autoplay = true;
             remoteVideo.controls = false;
             remoteVideo.muted = true; // Видео всегда без звука, звук идет через аудио элемент
+            remoteVideo.style.position = 'absolute';
+            remoteVideo.style.top = '0';
+            remoteVideo.style.left = '0';
             remoteVideo.style.width = '100%';
             remoteVideo.style.height = '100%';
             remoteVideo.style.objectFit = 'contain';
             remoteVideo.style.backgroundColor = '#000';
             
-            // Добавляем в контейнер в ChatArea
-            const videoContainer = document.getElementById('screen-share-container-chat');
-            if (videoContainer) {
-              // Очищаем контейнер от предыдущего содержимого
-              videoContainer.innerHTML = '';
-              videoContainer.appendChild(remoteVideo);
-            } else {
-              // Если контейнер не найден, пробуем старый контейнер
-              const fallbackContainer = document.getElementById('screen-share-container');
-              if (fallbackContainer) {
-                fallbackContainer.appendChild(remoteVideo);
+            // Добавляем обработчик загрузки видео
+            remoteVideo.addEventListener('loadeddata', () => {
+              console.log(`🖥️ Видео загружено для пользователя ${userId}`);
+            });
+            
+            remoteVideo.addEventListener('error', (e) => {
+              console.error(`🖥️ Ошибка загрузки видео для пользователя ${userId}:`, e);
+            });
+            
+            // Ждем появления контейнера в ChatArea для удалённого видео
+            const waitForRemoteContainer = (attempts = 0): void => {
+              const videoContainer = document.getElementById('screen-share-container-chat');
+              
+              if (videoContainer) {
+                // Контейнер найден, добавляем видео
+                videoContainer.innerHTML = '';
+                videoContainer.appendChild(remoteVideo);
+                console.log(`🖥️ Видео элемент добавлен в ChatArea для пользователя ${userId}. Контейнер размеры:`, {
+                  width: videoContainer.offsetWidth,
+                  height: videoContainer.offsetHeight,
+                  style: videoContainer.style.cssText
+                });
+              } else if (attempts < 50) { // Максимум 5 секунд
+                // Контейнер ещё не создан, ждем
+                console.log(`🖥️ Ожидание контейнера для пользователя ${userId} (попытка ${attempts + 1}/50)`);
+                setTimeout(() => waitForRemoteContainer(attempts + 1), 100);
               } else {
-                document.body.appendChild(remoteVideo);
+                // Превышено время ожидания
+                console.error(`🖥️ Превышено время ожидания контейнера для пользователя ${userId}`);
+                remoteVideo.remove();
+                return;
               }
-            }
+            };
+            
+            waitForRemoteContainer();
           }
           
           remoteVideo.srcObject = new MediaStream(videoTracks);
@@ -498,8 +533,34 @@ class VoiceService {
       if (audioElement) {
         audioElement.remove();
       }
+      // Удаляем соответствующий видео элемент
+      const videoElement = document.getElementById(`remote-video-${userId}`);
+      if (videoElement) {
+        videoElement.remove();
+        console.log(`🖥️ Удален видео элемент для пользователя ${userId} при cleanup`);
+      }
     });
     this.peerConnections.clear();
+
+    // Останавливаем потоки демонстрации экрана
+    if (this.screenStream) {
+      this.screenStream.getTracks().forEach(track => track.stop());
+      this.screenStream = null;
+    }
+    this.isScreenSharing = false;
+
+    // Очищаем все видео элементы из контейнера
+    const videoContainer = document.getElementById('screen-share-container-chat');
+    if (videoContainer) {
+      videoContainer.innerHTML = '';
+      console.log('🖥️ Очищен контейнер screen-share-container-chat');
+    }
+
+    // Удаляем все возможные видео элементы которые могли остаться
+    document.querySelectorAll('video[id^="remote-video-"]').forEach(video => {
+      video.remove();
+      console.log('🖥️ Удален остаточный видео элемент:', video.id);
+    });
 
     // Останавливаем локальный поток
     if (this.localStream) {
@@ -509,6 +570,12 @@ class VoiceService {
 
     // Очищаем VAD
     this.cleanupVoiceActivityDetection();
+
+    // Закрываем WebSocket если открыт
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
 
     this.voiceChannelId = null;
     this.token = null;
@@ -737,12 +804,39 @@ class VoiceService {
         }
       });
 
+      // Создаем локальный видео элемент для стримера
+      this.createLocalScreenShareVideo();
+
       this.isScreenSharing = true;
       
       // Уведомляем сервер о начале демонстрации экрана
       this.sendMessage({ 
         type: 'screen_share_start'
       });
+
+      // Отправляем локальное событие для обновления UI
+      const currentUserId = this.getCurrentUserId();
+      if (currentUserId) {
+        // Получаем имя пользователя из токена или используем "Вы"
+        let username = 'Вы';
+        try {
+          if (this.token) {
+            const payload = JSON.parse(atob(this.token.split('.')[1]));
+            username = payload.username || 'Вы';
+          }
+        } catch (error) {
+          console.warn('Не удалось получить имя пользователя из токена:', error);
+        }
+        
+        const event = new CustomEvent('screen_share_start', {
+          detail: { 
+            user_id: currentUserId,
+            username: username
+          }
+        });
+        window.dispatchEvent(event);
+        console.log('🖥️ Отправлено локальное событие screen_share_start для пользователя:', currentUserId);
+      }
 
       console.log('🖥️ Демонстрация экрана успешно начата');
       return true;
@@ -756,6 +850,18 @@ class VoiceService {
     if (!this.screenStream) return;
 
     console.log('🖥️ Останавливаем демонстрацию экрана');
+
+    // Отправляем локальное событие для немедленного обновления UI
+    const userId = this.getCurrentUserId();
+    if (userId) {
+      const event = new CustomEvent('screen_share_stop', {
+        detail: { 
+          user_id: userId
+        }
+      });
+      window.dispatchEvent(event);
+      console.log('🖥️ Отправлено локальное событие screen_share_stop для пользователя:', userId);
+    }
 
     // Останавливаем все треки
     this.screenStream.getTracks().forEach(track => {
@@ -800,6 +906,29 @@ class VoiceService {
     this.screenStream = null;
     this.isScreenSharing = false;
 
+    // Удаляем локальный видео элемент
+    const currentUserId = this.getCurrentUserId();
+    if (currentUserId) {
+      const localVideo = document.getElementById(`remote-video-${currentUserId}`) as HTMLVideoElement;
+      if (localVideo) {
+        localVideo.remove();
+        console.log('🖥️ Локальный видео элемент удален');
+      }
+
+      // Уведомляем об остановке демонстрации экрана для локального пользователя
+      if (this.onScreenShareChanged) {
+        this.onScreenShareChanged(currentUserId, false);
+      }
+
+      // Отправляем глобальное событие
+      const event = new CustomEvent('screen_share_stop', {
+        detail: { 
+          user_id: currentUserId
+        }
+      });
+      window.dispatchEvent(event);
+    }
+
     // Уведомляем сервер об остановке демонстрации экрана
     this.sendMessage({ 
       type: 'screen_share_stop'
@@ -814,6 +943,95 @@ class VoiceService {
 
   onScreenShareChange(callback: (userId: number, isSharing: boolean) => void) {
     this.onScreenShareChanged = callback;
+  }
+
+  private createLocalScreenShareVideo() {
+    if (!this.screenStream) return;
+
+    console.log('🖥️ Создаем локальный видео элемент для стримера');
+
+    // Получаем текущего пользователя
+    const currentUserId = this.getCurrentUserId();
+    if (!currentUserId) return;
+
+    // Удаляем существующий локальный видео элемент если есть
+    const existingVideo = document.getElementById(`remote-video-${currentUserId}`) as HTMLVideoElement;
+    if (existingVideo) {
+      existingVideo.remove();
+    }
+
+    // Создаем новый видео элемент
+    const localVideo = document.createElement('video');
+    localVideo.id = `remote-video-${currentUserId}`;
+    localVideo.autoplay = true;
+    localVideo.controls = false;
+    localVideo.muted = true; // Заглушаем чтобы избежать эха
+    localVideo.style.position = 'absolute';
+    localVideo.style.top = '0';
+    localVideo.style.left = '0';
+    localVideo.style.width = '100%';
+    localVideo.style.height = '100%';
+    localVideo.style.objectFit = 'contain';
+    localVideo.style.backgroundColor = '#000';
+    
+    // Добавляем обработчики событий
+    localVideo.addEventListener('loadeddata', () => {
+      console.log('🖥️ Локальное видео загружено');
+    });
+    
+    localVideo.addEventListener('error', (e) => {
+      console.error('🖥️ Ошибка загрузки локального видео:', e);
+    });
+    
+    // Устанавливаем поток
+    localVideo.srcObject = this.screenStream;
+    
+    // Ждем появления контейнера в ChatArea (максимум 5 секунд)
+    const waitForContainer = (attempts = 0): void => {
+      const videoContainer = document.getElementById('screen-share-container-chat');
+      
+      if (videoContainer) {
+        // Контейнер найден, добавляем видео
+        videoContainer.innerHTML = '';
+        videoContainer.appendChild(localVideo);
+        console.log('🖥️ Локальный видео элемент добавлен в ChatArea. Контейнер размеры:', {
+          width: videoContainer.offsetWidth,
+          height: videoContainer.offsetHeight,
+          style: videoContainer.style.cssText,
+          videoSrc: localVideo.srcObject ? 'есть' : 'нет'
+        });
+        
+        // Проверяем, что видео элемент действительно добавлен
+        setTimeout(() => {
+          const addedVideo = document.getElementById(`remote-video-${currentUserId}`);
+          if (addedVideo) {
+            console.log('🖥️ Видео элемент найден в DOM через 1 секунду:', {
+              width: addedVideo.offsetWidth,
+              height: addedVideo.offsetHeight,
+              readyState: (addedVideo as HTMLVideoElement).readyState,
+              videoWidth: (addedVideo as HTMLVideoElement).videoWidth,
+              videoHeight: (addedVideo as HTMLVideoElement).videoHeight
+            });
+          }
+        }, 1000);
+      } else if (attempts < 50) { // Максимум 5 секунд (50 * 100ms)
+        // Контейнер ещё не создан, ждем
+        console.log(`🖥️ Ожидание контейнера screen-share-container-chat (попытка ${attempts + 1}/50)`);
+        setTimeout(() => waitForContainer(attempts + 1), 100);
+      } else {
+        // Превышено время ожидания
+        console.error('🖥️ Превышено время ожидания контейнера screen-share-container-chat');
+        localVideo.remove();
+        return;
+      }
+    };
+    
+    waitForContainer();
+
+    // Уведомляем о начале демонстрации экрана для локального пользователя
+    if (this.onScreenShareChanged) {
+      this.onScreenShareChanged(currentUserId, true);
+    }
   }
 }
 

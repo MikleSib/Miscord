@@ -7,6 +7,7 @@ import { useAuthStore } from '../store/store'
 import { formatDate } from '../lib/utils'
 import { Button } from './ui/button'
 import voiceService from '../services/voiceService'
+import { cn } from '../lib/utils'
 
 export function ChatArea() {
   const { currentChannel, messages, sendMessage, addMessage } = useStore()
@@ -62,6 +63,12 @@ export function ChatArea() {
           } else {
             setIsScreenShareVisible(false);
             setSelectedUser(null);
+            // Очищаем контейнер когда никого не осталось
+            const videoContainer = document.getElementById('screen-share-container-chat');
+            if (videoContainer) {
+              videoContainer.innerHTML = '';
+              console.log('🖥️ Очищен контейнер - никого не осталось');
+            }
           }
         }
         return newUsers;
@@ -127,7 +134,25 @@ export function ChatArea() {
 
   const closeScreenShare = () => {
     setIsScreenShareVisible(false);
+    
+    // Дополнительная очистка контейнера
+    const videoContainer = document.getElementById('screen-share-container-chat');
+    if (videoContainer) {
+      videoContainer.innerHTML = '';
+      console.log('🖥️ Очищен контейнер при закрытии демонстрации');
+    }
   };
+
+  // Отладка состояния (только при изменениях)
+  useEffect(() => {
+    console.log('🖥️ ChatArea состояние изменилось:', {
+      isScreenShareVisible,
+      sharingUsersLength: sharingUsers.length,
+      sharingUsers,
+      selectedUser,
+      shouldShowScreenShare: isScreenShareVisible && sharingUsers.length > 0
+    });
+  }, [isScreenShareVisible, sharingUsers.length, selectedUser]);
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault()
@@ -157,30 +182,40 @@ export function ChatArea() {
         <span className="font-semibold">{currentChannel.name}</span>
       </div>
 
-      {/* Screen Share Area */}
+      {/* Screen Share Area - занимает всё пространство чата */}
       {isScreenShareVisible && sharingUsers.length > 0 && (
-        <div className="bg-black border-b border-border">
+        <div className="flex-1 bg-gray-900 flex flex-col">
           {/* Заголовок демонстрации */}
-          <div className="flex items-center justify-between p-3 bg-gray-900/80 backdrop-blur-sm">
+          <div className="flex items-center justify-between px-4 py-2 bg-gray-800/90 backdrop-blur-sm border-b border-gray-700 flex-shrink-0">
             <div className="flex items-center gap-3 min-w-0 flex-1">
-              <Monitor className="w-5 h-5 text-green-400 flex-shrink-0" />
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                <span className="text-red-400 font-semibold text-sm uppercase tracking-wide">В ЭФИРЕ</span>
+              </div>
+              <div className="w-px h-4 bg-gray-600" />
+              <Monitor className="w-4 h-4 text-green-400 flex-shrink-0" />
               <span className="text-white font-medium text-sm truncate">
-                {sharingUsers.find(u => u.userId === selectedUser)?.username} демонстрирует экран
+                {sharingUsers.find(u => u.userId === selectedUser)?.username === 'Вы' 
+                  ? 'Вы демонстрируете экран' 
+                  : `${sharingUsers.find(u => u.userId === selectedUser)?.username} демонстрирует экран`}
               </span>
             </div>
             
             <div className="flex items-center gap-2">
               {/* Переключение между пользователями */}
               {sharingUsers.length > 1 && (
-                <select 
-                  value={selectedUser || ''} 
-                  onChange={(e) => setSelectedUser(Number(e.target.value))}
-                  className="bg-gray-800 text-white px-2 py-1 rounded border border-gray-600 text-sm"
-                >
-                  {sharingUsers.map(({ userId, username }) => (
-                    <option key={userId} value={userId}>{username}</option>
-                  ))}
-                </select>
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 text-xs">Просмотр:</span>
+                  <select 
+                    value={selectedUser || ''} 
+                    onChange={(e) => setSelectedUser(Number(e.target.value))}
+                    className="bg-gray-700 text-white px-3 py-1 rounded-md border border-gray-600 text-sm hover:bg-gray-600 transition-colors"
+                  >
+                    {sharingUsers.map(({ userId, username }) => (
+                      <option key={userId} value={userId}>{username}</option>
+                    ))}
+                  </select>
+                </div>
               )}
               
               {/* Кнопка звука */}
@@ -188,7 +223,12 @@ export function ChatArea() {
                 variant="ghost"
                 size="sm"
                 onClick={toggleMute}
-                className="text-white hover:bg-gray-700 w-8 h-8 p-0"
+                className={cn(
+                  "w-8 h-8 p-0 transition-all duration-200",
+                  isMuted 
+                    ? "text-red-400 hover:text-red-300 hover:bg-red-400/20" 
+                    : "text-gray-300 hover:text-white hover:bg-gray-700"
+                )}
                 title={isMuted ? 'Включить звук' : 'Отключить звук'}
               >
                 {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
@@ -197,32 +237,42 @@ export function ChatArea() {
               {/* Кнопка начать/остановить демонстрацию */}
               {isScreenSharing ? (
                 <Button
-                  variant="destructive"
+                  variant="ghost"
                   size="sm"
                   onClick={stopScreenShare}
-                  className="flex items-center gap-2 text-sm px-3 py-1"
+                  className="flex items-center gap-2 text-sm px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-md transition-colors"
                 >
                   <MonitorOff className="w-4 h-4" />
                   Остановить
                 </Button>
               ) : (
                 <Button
-                  variant="default"
+                  variant="ghost"
                   size="sm"
                   onClick={startScreenShare}
-                  className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-sm px-3 py-1"
+                  className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white text-sm px-3 py-1 rounded-md transition-colors"
                 >
                   <Monitor className="w-4 h-4" />
                   Поделиться
                 </Button>
               )}
               
+              {/* Кнопка развернуть */}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-8 h-8 p-0 text-gray-300 hover:text-white hover:bg-gray-700 transition-colors"
+                title="Развернуть"
+              >
+                <Maximize2 className="w-4 h-4" />
+              </Button>
+              
               {/* Кнопка закрытия */}
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={closeScreenShare}
-                className="text-white hover:bg-gray-700 w-8 h-8 p-0"
+                className="w-8 h-8 p-0 text-gray-300 hover:text-white hover:bg-gray-700 transition-colors"
                 title="Закрыть демонстрацию"
               >
                 <X className="w-4 h-4" />
@@ -230,69 +280,103 @@ export function ChatArea() {
             </div>
           </div>
 
-          {/* Область для видео */}
-          <div 
-            id="screen-share-container-chat" 
-            className="relative bg-black flex items-center justify-center"
-            style={{ height: '300px' }}
-          >
-            {sharingUsers.length === 0 ? (
-              <div className="text-center text-gray-400">
-                <Monitor className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                <p className="text-lg mb-2">Никто не демонстрирует экран</p>
-              </div>
-            ) : (
-              <div className="w-full h-full flex items-center justify-center">
-                {/* Видео элементы будут добавлены сюда через VoiceService */}
-                <div className="text-center text-gray-400">
-                  <p>Загрузка видео потока...</p>
+          {/* Область для видео - занимает всё оставшееся пространство */}
+          <div className="flex-1 relative bg-black">
+            <div 
+              id="screen-share-container-chat" 
+              className="absolute inset-0 bg-black"
+            >
+              {/* Видео элементы будут добавлены сюда через VoiceService */}
+            </div>
+
+            {/* Информационная панель внизу */}
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4 pointer-events-none">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center">
+                      <span className="text-white text-sm font-semibold">
+                        {sharingUsers.find(u => u.userId === selectedUser)?.username[0].toUpperCase()}
+                      </span>
+                    </div>
+                    <div>
+                      <div className="text-white font-medium text-sm">
+                        {sharingUsers.find(u => u.userId === selectedUser)?.username === 'Вы' 
+                          ? 'Вы' 
+                          : sharingUsers.find(u => u.userId === selectedUser)?.username}
+                      </div>
+                      <div className="text-gray-400 text-xs flex items-center gap-1">
+                        <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                        {sharingUsers.find(u => u.userId === selectedUser)?.username === 'Вы' 
+                          ? 'Демонстрируете экран' 
+                          : 'Демонстрирует экран'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-2">
+                  {/* Счетчик зрителей */}
+                  <div className="flex items-center gap-1 bg-black/40 px-2 py-1 rounded-md">
+                    <div className="w-2 h-2 bg-gray-400 rounded-full" />
+                    <span className="text-gray-300 text-xs">
+                      {sharingUsers.length} {sharingUsers.length === 1 ? 'стример' : 'стримера'}
+                    </span>
+                  </div>
+                  
+                  {/* Качество */}
+                  <div className="bg-black/40 px-2 py-1 rounded-md">
+                    <span className="text-gray-300 text-xs">HD</span>
+                  </div>
                 </div>
               </div>
-            )}
+            </div>
           </div>
         </div>
       )}
 
-      {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin">
-        <div className="p-4 space-y-4">
-          {channelMessages.length === 0 ? (
-            <div className="text-center text-muted-foreground py-8">
-              <p>Пока что здесь нет сообщений</p>
-              <p className="text-sm">Начните общение в канале #{currentChannel.name}</p>
-            </div>
-          ) : (
-            channelMessages.map((message) => (
-              <div key={message.id} className="flex gap-3 hover:bg-accent/5 px-2 py-1 rounded">
-                <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
-                  {message.author.avatar ? (
-                    <img src={message.author.avatar} alt="" className="w-full h-full rounded-full" />
-                  ) : (
-                    <span className="text-sm font-semibold">
-                      {message.author.username[0].toUpperCase()}
-                    </span>
-                  )}
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-baseline gap-2">
-                    <span className="font-semibold text-sm">
-                      {message.author.username}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {formatDate(message.timestamp)}
-                    </span>
-                  </div>
-                  <p className="text-sm mt-0.5">{message.content}</p>
-                </div>
+      {/* Messages Area - скрываем когда показывается демонстрация экрана */}
+      {!(isScreenShareVisible && sharingUsers.length > 0) && (
+        <div className="flex-1 overflow-y-auto scrollbar-thin">
+          <div className="p-4 space-y-4">
+            {channelMessages.length === 0 ? (
+              <div className="text-center text-muted-foreground py-8">
+                <p>Пока что здесь нет сообщений</p>
+                <p className="text-sm">Начните общение в канале #{currentChannel.name}</p>
               </div>
-            ))
-          )}
-          <div ref={messagesEndRef} />
+            ) : (
+              channelMessages.map((message) => (
+                <div key={message.id} className="flex gap-3 hover:bg-accent/5 px-2 py-1 rounded">
+                  <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
+                    {message.author.avatar ? (
+                      <img src={message.author.avatar} alt="" className="w-full h-full rounded-full" />
+                    ) : (
+                      <span className="text-sm font-semibold">
+                        {message.author.username[0].toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-baseline gap-2">
+                      <span className="font-semibold text-sm">
+                        {message.author.username}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {formatDate(message.timestamp)}
+                      </span>
+                    </div>
+                    <p className="text-sm mt-0.5">{message.content}</p>
+                  </div>
+                </div>
+              ))
+            )}
+            <div ref={messagesEndRef} />
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Message Input */}
-      {currentChannel.type === 'text' && (
+      {/* Message Input - скрываем когда показывается демонстрация экрана */}
+      {currentChannel.type === 'text' && !(isScreenShareVisible && sharingUsers.length > 0) && (
         <form onSubmit={handleSendMessage} className="p-4">
           <div className="bg-secondary rounded-lg flex items-center px-4">
             <input
