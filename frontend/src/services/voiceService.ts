@@ -16,6 +16,12 @@ class VoiceService {
   private token: string | null = null;
   private onParticipantJoined: ((userId: number, username: string) => void) | null = null;
   private onParticipantLeft: ((userId: number) => void) | null = null;
+  private onSpeakingChanged: ((userId: number, isSpeaking: boolean) => void) | null = null;
+  private audioContext: AudioContext | null = null;
+  private analyser: AnalyserNode | null = null;
+  private vadInterval: number | null = null;
+  private isSpeaking: boolean = false;
+  private speakingUsers: Set<number> = new Set();
 
   async connect(voiceChannelId: number, token: string) {
     console.log('🎙️ VoiceService.connect вызван с параметрами:', { voiceChannelId, token: token ? 'есть' : 'нет' });
@@ -35,6 +41,9 @@ class VoiceService {
         video: false,
       });
       console.log('🎙️ Доступ к микрофону получен');
+      
+      // Инициализируем детекцию голосовой активности
+      this.initVoiceActivityDetection();
     } catch (error) {
       console.error('🎙️ Ошибка доступа к микрофону:', error);
       throw new Error('Не удалось получить доступ к микрофону');
@@ -103,6 +112,13 @@ class VoiceService {
 
       case 'ice_candidate':
         await this.handleIceCandidate(data.from_id, data.candidate);
+        break;
+        
+      case 'user_speaking':
+        // Обработка информации о том, что пользователь говорит
+        if (this.onSpeakingChanged) {
+          this.onSpeakingChanged(data.user_id, data.is_speaking);
+        }
         break;
     }
   }
@@ -239,8 +255,105 @@ class VoiceService {
       this.localStream = null;
     }
 
+    // Очищаем VAD
+    this.cleanupVoiceActivityDetection();
+
     this.voiceChannelId = null;
     this.token = null;
+  }
+
+  // Методы для детекции голосовой активности
+  private initVoiceActivityDetection() {
+    if (!this.localStream) return;
+
+    try {
+      this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const source = this.audioContext.createMediaStreamSource(this.localStream);
+      this.analyser = this.audioContext.createAnalyser();
+      
+      this.analyser.fftSize = 512;
+      this.analyser.minDecibels = -90;
+      this.analyser.maxDecibels = -10;
+      this.analyser.smoothingTimeConstant = 0.85;
+      
+      source.connect(this.analyser);
+      
+      this.startVoiceActivityDetection();
+    } catch (error) {
+      console.error('🎙️ Ошибка инициализации VAD:', error);
+    }
+  }
+
+  private startVoiceActivityDetection() {
+    if (!this.analyser) return;
+
+    const bufferLength = this.analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+
+    this.vadInterval = window.setInterval(() => {
+      this.analyser!.getByteFrequencyData(dataArray);
+      
+      // Вычисляем среднюю громкость
+      let sum = 0;
+      for (let i = 0; i < bufferLength; i++) {
+        sum += dataArray[i];
+      }
+      const average = sum / bufferLength;
+      
+      // Порог для определения речи (можно настроить)
+      const threshold = 30;
+      const currentlySpeaking = average > threshold;
+      
+      if (currentlySpeaking !== this.isSpeaking) {
+        this.isSpeaking = currentlySpeaking;
+        
+        // Отправляем информацию о голосовой активности
+        this.sendMessage({
+          type: 'speaking',
+          is_speaking: currentlySpeaking
+        });
+        
+        // Уведомляем UI
+        if (this.onSpeakingChanged) {
+          // Для локального пользователя используем ID из токена
+          const currentUserId = this.getCurrentUserId();
+          if (currentUserId) {
+            this.onSpeakingChanged(currentUserId, currentlySpeaking);
+          }
+        }
+      }
+    }, 100); // Проверяем каждые 100мс
+  }
+
+  private getCurrentUserId(): number | null {
+    if (!this.token) return null;
+    
+    try {
+      const payload = JSON.parse(atob(this.token.split('.')[1]));
+      return parseInt(payload.sub);
+    } catch {
+      return null;
+    }
+  }
+
+  private cleanupVoiceActivityDetection() {
+    if (this.vadInterval) {
+      clearInterval(this.vadInterval);
+      this.vadInterval = null;
+    }
+    
+    if (this.audioContext) {
+      this.audioContext.close();
+      this.audioContext = null;
+    }
+    
+    this.analyser = null;
+    this.isSpeaking = false;
+    this.speakingUsers.clear();
+  }
+
+  onSpeakingChange(callback: (userId: number, isSpeaking: boolean) => void) {
+    this.onSpeakingChanged = callback;
   }
 }
 

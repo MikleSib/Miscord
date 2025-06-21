@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Hash, Volume2, ChevronDown, Settings, Plus, Mic, MicOff, Headphones, PhoneOff, VolumeX, Monitor } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { useVoiceStore } from '../store/slices/voiceSlice'
@@ -18,8 +18,74 @@ import {
 } from '@mui/material'
 import channelService from '../services/channelService'
 
+// Компонент для аватарки с анимацией при разговоре
+interface SpeakingAvatarProps {
+  username: string;
+  isSpeaking: boolean;
+  size?: number;
+}
+
+function SpeakingAvatar({ username, isSpeaking, size = 20 }: SpeakingAvatarProps) {
+  return (
+    <Box
+      sx={{
+        position: 'relative',
+        display: 'inline-block',
+      }}
+    >
+      {/* Анимированная обводка */}
+      {isSpeaking && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: -2,
+            left: -2,
+            width: size + 4,
+            height: size + 4,
+            borderRadius: '50%',
+            background: 'linear-gradient(45deg, #00ff88, #00cc6a)',
+            animation: 'speaking-pulse 1.5s ease-in-out infinite',
+            '@keyframes speaking-pulse': {
+              '0%': {
+                transform: 'scale(1)',
+                opacity: 0.8,
+              },
+              '50%': {
+                transform: 'scale(1.1)',
+                opacity: 1,
+              },
+              '100%': {
+                transform: 'scale(1)',
+                opacity: 0.8,
+              },
+            },
+          }}
+        />
+      )}
+      
+      {/* Основная аватарка */}
+      <Avatar 
+        sx={{ 
+          width: size, 
+          height: size, 
+          fontSize: `${size * 0.4}px`,
+          backgroundColor: isSpeaking ? '#00ff88' : '#5865f2',
+          color: 'white',
+          fontWeight: 600,
+          zIndex: 1,
+          position: 'relative',
+          border: isSpeaking ? '1px solid #00ff88' : '1px solid transparent',
+          transition: 'all 0.2s ease-in-out',
+        }}
+      >
+        {username[0].toUpperCase()}
+      </Avatar>
+    </Box>
+  );
+}
+
 export function ChannelSidebar() {
-  const { currentServer, currentChannel, selectChannel, addChannel } = useStore()
+  const { currentServer, currentChannel, selectChannel, addChannel, loadServers } = useStore()
   const { 
     connectToVoiceChannel, 
     currentVoiceChannelId, 
@@ -29,7 +95,8 @@ export function ChannelSidebar() {
     isDeafened,
     isConnected,
     toggleMute,
-    toggleDeafen
+    toggleDeafen,
+    speakingUsers
   } = useVoiceStore()
   const { user } = useAuthStore()
   const [isCreateTextModalOpen, setIsCreateTextModalOpen] = useState(false)
@@ -237,9 +304,7 @@ export function ChannelSidebar() {
                             key={participant.user_id}
                             className="flex items-center gap-2 px-2 py-1 rounded hover:bg-accent/50 transition-colors"
                           >
-                            <Avatar sx={{ width: 20, height: 20, fontSize: '10px' }}>
-                              {participant.username[0].toUpperCase()}
-                            </Avatar>
+                            <SpeakingAvatar username={participant.username} isSpeaking={speakingUsers.has(participant.user_id)} />
                             <Typography
                               variant="caption"
                               className={cn(

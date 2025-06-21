@@ -11,6 +11,7 @@ interface VoiceState {
   isMuted: boolean;
   isDeafened: boolean;
   error: string | null;
+  speakingUsers: Set<number>;
   connectToVoiceChannel: (channelId: number) => Promise<void>;
   disconnectFromVoiceChannel: () => void;
   setParticipants: (participants: VoiceUser[]) => void;
@@ -21,6 +22,7 @@ interface VoiceState {
   toggleMute: () => void;
   toggleDeafen: () => void;
   setError: (error: string | null) => void;
+  setSpeaking: (userId: number, isSpeaking: boolean) => void;
 }
 
 export const useVoiceStore = create<VoiceState>((set, get) => ({
@@ -31,6 +33,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   isMuted: false,
   isDeafened: false,
   error: null,
+  speakingUsers: new Set(),
   
   connectToVoiceChannel: async (channelId) => {
     try {
@@ -61,6 +64,12 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       });
 
       console.log('🎙️ Подключаемся к голосовому каналу через voiceService');
+      
+      // Обработчик изменения голосовой активности
+      voiceService.onSpeakingChange((userId, isSpeaking) => {
+        console.log('🎙️ Изменение голосовой активности:', userId, isSpeaking);
+        get().setSpeaking(userId, isSpeaking);
+      });
       
       // Подключаемся к голосовому каналу
       await voiceService.connect(channelId, token);
@@ -96,6 +105,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       localStream: null,
       isMuted: false,
       isDeafened: false,
+      speakingUsers: new Set(),
     });
   },
   
@@ -161,4 +171,12 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   },
   
   setError: (error) => set({ error }),
+  
+  setSpeaking: (userId, isSpeaking) => {
+    if (isSpeaking) {
+      get().speakingUsers.add(userId);
+    } else {
+      get().speakingUsers.delete(userId);
+    }
+  },
 }));

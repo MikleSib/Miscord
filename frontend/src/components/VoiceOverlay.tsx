@@ -6,12 +6,79 @@ import { useVoiceStore } from '../store/slices/voiceSlice';
 import { useAuthStore } from '../store/store';
 import { useStore } from '../lib/store';
 
+// Компонент для аватарки с анимацией при разговоре
+interface SpeakingAvatarProps {
+  username: string;
+  isSpeaking: boolean;
+  size?: number;
+}
+
+function SpeakingAvatar({ username, isSpeaking, size = 24 }: SpeakingAvatarProps) {
+  return (
+    <Box
+      sx={{
+        position: 'relative',
+        display: 'inline-block',
+      }}
+    >
+      {/* Анимированная обводка */}
+      {isSpeaking && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: -3,
+            left: -3,
+            width: size + 6,
+            height: size + 6,
+            borderRadius: '50%',
+            background: 'linear-gradient(45deg, #00ff88, #00cc6a)',
+            animation: 'speaking-pulse 1.5s ease-in-out infinite',
+            '@keyframes speaking-pulse': {
+              '0%': {
+                transform: 'scale(1)',
+                opacity: 0.8,
+              },
+              '50%': {
+                transform: 'scale(1.1)',
+                opacity: 1,
+              },
+              '100%': {
+                transform: 'scale(1)',
+                opacity: 0.8,
+              },
+            },
+          }}
+        />
+      )}
+      
+      {/* Основная аватарка */}
+      <Avatar 
+        sx={{ 
+          width: size, 
+          height: size, 
+          fontSize: `${size * 0.4}px`,
+          backgroundColor: isSpeaking ? '#00ff88' : '#5865f2',
+          color: 'white',
+          fontWeight: 600,
+          zIndex: 1,
+          position: 'relative',
+          border: isSpeaking ? '2px solid #00ff88' : '2px solid transparent',
+          transition: 'all 0.2s ease-in-out',
+        }}
+      >
+        {username[0].toUpperCase()}
+      </Avatar>
+    </Box>
+  );
+}
+
 export function VoiceOverlay() {
   const { 
     isConnected, 
     participants, 
     currentVoiceChannelId,
-    disconnectFromVoiceChannel 
+    disconnectFromVoiceChannel,
+    speakingUsers
   } = useVoiceStore();
   const { user } = useAuthStore();
   const { currentServer } = useStore();
@@ -79,44 +146,54 @@ export function VoiceOverlay() {
       </Box>
 
       {/* Участники */}
-      <Box sx={{ padding: '8px 0', maxHeight: 300, overflowY: 'auto' }}>
-        {allParticipants.map((participant) => (
-          <Box
-            key={participant.user_id}
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 2,
-              padding: '6px 16px',
-              '&:hover': {
-                backgroundColor: 'rgba(79, 84, 92, 0.16)',
-              },
-            }}
-          >
-            <Avatar sx={{ width: 24, height: 24, fontSize: '12px' }}>
-              {participant.username[0].toUpperCase()}
-            </Avatar>
-            <Typography
-              variant="body2"
+      <Box>
+        {allParticipants.map((participant) => {
+          const isSpeaking = speakingUsers.has(participant.user_id);
+          
+          return (
+            <Box
+              key={participant.user_id}
               sx={{
-                color: '#dcddde',
-                flex: 1,
-                fontSize: '14px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 2,
+                padding: '6px 16px',
+                backgroundColor: isSpeaking ? 'rgba(0, 255, 136, 0.1)' : 'transparent',
+                '&:hover': {
+                  backgroundColor: isSpeaking ? 'rgba(0, 255, 136, 0.2)' : 'rgba(79, 84, 92, 0.16)',
+                },
+                transition: 'background-color 0.2s ease-in-out',
               }}
             >
-              {participant.username}
-              {participant.user_id === user?.id && (
-                <Typography
-                  component="span"
-                  variant="caption"
-                  sx={{ color: '#72767d', ml: 1 }}
-                >
-                  (Вы)
-                </Typography>
-              )}
-            </Typography>
-          </Box>
-        ))}
+              <SpeakingAvatar 
+                username={participant.username} 
+                isSpeaking={isSpeaking}
+                size={24}
+              />
+              <Typography
+                variant="body2"
+                sx={{
+                  color: isSpeaking ? '#00ff88' : '#dcddde',
+                  flex: 1,
+                  fontSize: '14px',
+                  fontWeight: isSpeaking ? 600 : 400,
+                  transition: 'all 0.2s ease-in-out',
+                }}
+              >
+                {participant.username}
+                {participant.user_id === user?.id && (
+                  <Typography
+                    component="span"
+                    variant="caption"
+                    sx={{ color: '#72767d', ml: 1 }}
+                  >
+                    (Вы)
+                  </Typography>
+                )}
+              </Typography>
+            </Box>
+          );
+        })}
         
         {allParticipants.length === 0 && (
           <Box sx={{ padding: '16px', textAlign: 'center' }}>
@@ -130,42 +207,21 @@ export function VoiceOverlay() {
       {/* Дополнительные действия */}
       <Box
         sx={{
-          padding: '8px 16px 12px',
+          padding: '12px 16px',
           borderTop: '1px solid rgba(255, 255, 255, 0.1)',
           display: 'flex',
           gap: 1,
         }}
       >
-        <IconButton
-          size="small"
-          sx={{
-            color: '#b9bbbe',
-            backgroundColor: 'rgba(79, 84, 92, 0.4)',
-            borderRadius: '4px',
-            width: 32,
-            height: 32,
-            '&:hover': {
-              backgroundColor: 'rgba(79, 84, 92, 0.6)',
-            }
-          }}
-          title="Демонстрация экрана"
+        <IconButton 
+          size="small" 
+          sx={{ color: '#b9bbbe', '&:hover': { color: '#dcddde' } }}
         >
           <Monitor size={16} />
         </IconButton>
-        
-        <IconButton
-          size="small"
-          sx={{
-            color: '#b9bbbe',
-            backgroundColor: 'rgba(79, 84, 92, 0.4)',
-            borderRadius: '4px',
-            width: 32,
-            height: 32,
-            '&:hover': {
-              backgroundColor: 'rgba(79, 84, 92, 0.6)',
-            }
-          }}
-          title="Пригласить пользователя"
+        <IconButton 
+          size="small" 
+          sx={{ color: '#b9bbbe', '&:hover': { color: '#dcddde' } }}
         >
           <UserPlus size={16} />
         </IconButton>

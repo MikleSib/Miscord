@@ -225,6 +225,24 @@ async def websocket_voice_endpoint(
                                 await conn_info["websocket"].send_json(deafen_message)
                             except:
                                 pass
+                
+                elif data["type"] == "speaking":
+                    # Обработка информации о голосовой активности
+                    is_speaking = data.get("is_speaking", False)
+                    
+                    # Уведомление других участников о голосовой активности
+                    speaking_message = {
+                        "type": "user_speaking",
+                        "user_id": user.id,
+                        "is_speaking": is_speaking
+                    }
+                    
+                    for uid, conn_info in voice_connections[voice_channel_id].items():
+                        if uid != user.id:
+                            try:
+                                await conn_info["websocket"].send_json(speaking_message)
+                            except:
+                                pass
         
         except WebSocketDisconnect:
             pass
