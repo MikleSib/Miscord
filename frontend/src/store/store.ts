@@ -1,12 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-
-interface User {
-  id: number;
-  username: string;
-  email: string;
-  avatar?: string;
-}
+import { Server, Channel, User } from '../types';
+import websocketService from '../services/websocketService';
 
 interface AuthState {
   user: User | null;
@@ -24,6 +19,20 @@ interface AuthState {
   setUser: (user: User) => void;
   clearError: () => void;
   setToken: (token: string) => void;
+}
+
+interface StoreState {
+  servers: Server[];
+  currentServer: Server | null;
+  currentChannel: Channel | null;
+  voiceChannelUsers: { [channelId: number]: Array<{ user_id: number; username: string }> };
+  setServers: (servers: Server[]) => void;
+  selectServer: (serverId: number) => void;
+  selectChannel: (channelId: number) => void;
+  addChannel: (serverId: number, channel: Channel) => void;
+  loadServers: () => Promise<void>;
+  addUserToVoiceChannel: (channelId: number, user: { user_id: number; username: string }) => void;
+  removeUserFromVoiceChannel: (channelId: number, userId: number) => void;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -61,4 +70,66 @@ export const useAuthStore = create<AuthState>()(
       partialize: (state) => ({ token: state.token }),
     }
   )
-); 
+);
+
+export const useStore = create<StoreState>((set, get) => ({
+  servers: [],
+  currentServer: null,
+  currentChannel: null,
+  voiceChannelUsers: {},
+  
+  setServers: (servers) => set({ servers }),
+  
+  selectServer: (serverId) => {
+    const server = get().servers.find(s => s.id === serverId);
+    if (server) {
+      set({ currentServer: server, currentChannel: null });
+    }
+  },
+  
+  selectChannel: (channelId) => {
+    const currentServer = get().currentServer;
+    if (currentServer) {
+      const channel = currentServer.channels.find(c => c.id === channelId);
+      if (channel) {
+        set({ currentChannel: channel });
+      }
+    }
+  },
+  
+  addChannel: (serverId, channel) => {
+    set((state) => ({
+      servers: state.servers.map(server =>
+        server.id === serverId
+          ? { ...server, channels: [...server.channels, channel] }
+          : server
+      )
+    }));
+  },
+  
+  loadServers: async () => {
+    // Реализация загрузки серверов
+    // Пока оставим пустой
+  },
+  
+  addUserToVoiceChannel: (channelId, user) => {
+    set((state) => ({
+      voiceChannelUsers: {
+        ...state.voiceChannelUsers,
+        [channelId]: [
+          ...(state.voiceChannelUsers[channelId] || []).filter(u => u.user_id !== user.user_id),
+          user
+        ]
+      }
+    }));
+  },
+  
+  removeUserFromVoiceChannel: (channelId, userId) => {
+    set((state) => ({
+      voiceChannelUsers: {
+        ...state.voiceChannelUsers,
+        [channelId]: (state.voiceChannelUsers[channelId] || []).filter(u => u.user_id !== userId)
+      }
+    }));
+  },
+})); 

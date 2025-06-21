@@ -1,6 +1,6 @@
 from fastapi import WebSocket, WebSocketDisconnect, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, delete
 import json
 import asyncio
 from typing import Dict
@@ -138,6 +138,16 @@ async def websocket_voice_endpoint(
                     except:
                         pass
             
+            # Глобальное уведомление всем онлайн пользователям
+            global_join_message = {
+                "type": "voice_channel_join",
+                "user_id": user.id,
+                "username": user.username,
+                "voice_channel_id": voice_channel_id,
+                "voice_channel_name": voice_channel.name
+            }
+            await manager.broadcast_to_all(global_join_message)
+            
             # Обработка сообщений WebRTC
             while True:
                 data = await websocket.receive_json()
@@ -178,7 +188,7 @@ async def websocket_voice_endpoint(
                     voice_connections[voice_channel_id][user.id]["is_muted"] = is_muted
                     
                     # Обновление в БД
-                    await db.execute(
+                    voice_user_result = await db.execute(
                         select(VoiceChannelUser).where(
                             and_(
                                 VoiceChannelUser.voice_channel_id == voice_channel_id,
@@ -186,8 +196,10 @@ async def websocket_voice_endpoint(
                             )
                         )
                     )
-                    voice_user.is_muted = is_muted
-                    await db.commit()
+                    voice_user_db = voice_user_result.scalar_one_or_none()
+                    if voice_user_db:
+                        voice_user_db.is_muted = is_muted
+                        await db.commit()
                     
                     # Уведомление других участников
                     mute_message = {
@@ -209,8 +221,18 @@ async def websocket_voice_endpoint(
                     voice_connections[voice_channel_id][user.id]["is_deafened"] = is_deafened
                     
                     # Обновление в БД
-                    voice_user.is_deafened = is_deafened
-                    await db.commit()
+                    voice_user_result = await db.execute(
+                        select(VoiceChannelUser).where(
+                            and_(
+                                VoiceChannelUser.voice_channel_id == voice_channel_id,
+                                VoiceChannelUser.user_id == user.id
+                            )
+                        )
+                    )
+                    voice_user_db = voice_user_result.scalar_one_or_none()
+                    if voice_user_db:
+                        voice_user_db.is_deafened = is_deafened
+                        await db.commit()
                     
                     # Уведомление других участников
                     deafen_message = {
@@ -259,12 +281,12 @@ async def websocket_voice_endpoint(
             
             # Удаление из БД
             await db.execute(
-                select(VoiceChannelUser).where(
+                delete(VoiceChannelUser).where(
                     and_(
                         VoiceChannelUser.voice_channel_id == voice_channel_id,
                         VoiceChannelUser.user_id == user.id
                     )
-                ).delete()
+                )
             )
             await db.commit()
             
@@ -280,3 +302,12 @@ async def websocket_voice_endpoint(
                         await conn_info["websocket"].send_json(leave_message)
                     except:
                         pass
+            
+            # Глобальное уведомление всем онлайн пользователям
+            global_leave_message = {
+                "type": "voice_channel_leave",
+                "user_id": user.id,
+                "username": user.username,
+                "voice_channel_id": voice_channel_id
+            }
+            await manager.broadcast_to_all(global_leave_message)

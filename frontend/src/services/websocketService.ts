@@ -84,6 +84,15 @@ class WebSocketService {
     this.messageHandlers['channel_updated'] = handler;
   }
 
+  // Голосовые уведомления
+  onVoiceChannelJoin(handler: (data: { user_id: number; username: string; voice_channel_id: number; voice_channel_name: string }) => void) {
+    this.messageHandlers['voice_channel_join'] = handler;
+  }
+
+  onVoiceChannelLeave(handler: (data: { user_id: number; username: string; voice_channel_id: number }) => void) {
+    this.messageHandlers['voice_channel_leave'] = handler;
+  }
+
   // Отправка сообщения
   send(data: any) {
     if (this.ws?.readyState === WebSocket.OPEN) {

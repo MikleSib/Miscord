@@ -307,43 +307,50 @@ class VoiceService {
   }
 
   private startVoiceActivityDetection() {
-    if (!this.analyser) return;
+    if (!this.analyser || !this.audioContext) return;
 
     const bufferLength = this.analyser.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
 
     this.vadInterval = window.setInterval(() => {
-      if (!this.analyser) return;
-      this.analyser.getByteFrequencyData(dataArray);
-      
-      // Вычисляем среднюю громкость
-      let sum = 0;
-      for (let i = 0; i < bufferLength; i++) {
-        sum += dataArray[i];
+      if (!this.analyser || !this.audioContext || this.audioContext.state === 'closed') {
+        return;
       }
-      const average = sum / bufferLength;
       
-      // Порог для определения речи (можно настроить)
-      const threshold = 30;
-      const currentlySpeaking = average > threshold;
-      
-      if (currentlySpeaking !== this.isSpeaking) {
-        this.isSpeaking = currentlySpeaking;
+      try {
+        this.analyser.getByteFrequencyData(dataArray);
         
-        // Отправляем информацию о голосовой активности
-        this.sendMessage({
-          type: 'speaking',
-          is_speaking: currentlySpeaking
-        });
+        // Вычисляем среднюю громкость
+        let sum = 0;
+        for (let i = 0; i < bufferLength; i++) {
+          sum += dataArray[i];
+        }
+        const average = sum / bufferLength;
         
-        // Уведомляем UI
-        if (this.onSpeakingChanged) {
-          // Для локального пользователя используем ID из токена
-          const currentUserId = this.getCurrentUserId();
-          if (currentUserId) {
-            this.onSpeakingChanged(currentUserId, currentlySpeaking);
+        // Порог для определения речи (можно настроить)
+        const threshold = 30;
+        const currentlySpeaking = average > threshold;
+        
+        if (currentlySpeaking !== this.isSpeaking) {
+          this.isSpeaking = currentlySpeaking;
+          
+          // Отправляем информацию о голосовой активности
+          this.sendMessage({
+            type: 'speaking',
+            is_speaking: currentlySpeaking
+          });
+          
+          // Уведомляем UI
+          if (this.onSpeakingChanged) {
+            // Для локального пользователя используем ID из токена
+            const currentUserId = this.getCurrentUserId();
+            if (currentUserId) {
+              this.onSpeakingChanged(currentUserId, currentlySpeaking);
+            }
           }
         }
+      } catch (error) {
+        console.error('🎙️ Ошибка при анализе голосовой активности:', error);
       }
     }, 100); // Проверяем каждые 100мс
   }

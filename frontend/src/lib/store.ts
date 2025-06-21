@@ -265,6 +265,32 @@ export const useStore = create<AppState>()(
             get().loadServerDetails(data.channel_id);
           }
         });
+        
+        // Обработка присоединения к голосовому каналу
+        websocketService.onVoiceChannelJoin((data) => {
+          console.log('Пользователь присоединился к голосовому каналу:', data);
+          
+          // Показываем уведомление
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification(`Голосовой канал`, {
+              body: `${data.username} присоединился к каналу "${data.voice_channel_name}"`,
+              icon: '/favicon.ico'
+            });
+          }
+        });
+        
+        // Обработка выхода из голосового канала
+        websocketService.onVoiceChannelLeave((data) => {
+          console.log('Пользователь покинул голосовой канал:', data);
+          
+          // Показываем уведомление
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification(`Голосовой канал`, {
+              body: `${data.username} покинул голосовой канал`,
+              icon: '/favicon.ico'
+            });
+          }
+        });
       },
 
       // Отключение WebSocket
