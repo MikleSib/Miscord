@@ -1,4 +1,5 @@
 import noiseSuppressionService from './noiseSuppressionService';
+import { useNoiseSuppressionStore } from '@/store/noiseSuppressionStore';
 import { useAuthStore } from '../store/store'
 import { useRouter } from 'next/navigation'
 import { cn } from '../lib/utils'
@@ -8,7 +9,6 @@ import {
   Paper,
 } from '@mui/material'
 import channelService from '../services/channelService'
-import { useNoiseSuppressionStore } from '@/store/noiseSuppressionStore'
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://miscord.ru';
 
@@ -43,13 +43,11 @@ class VoiceService {
   async connect(voiceChannelId: number, token: string) {
     console.log('🎙️ VoiceService.connect вызван с параметрами:', { voiceChannelId, token: token ? 'есть' : 'нет' });
     
-    // Проверяем, не подключены ли мы уже к этому каналу
     if (this.voiceChannelId === voiceChannelId && this.ws && this.ws.readyState === WebSocket.OPEN) {
       console.log('🎙️ Уже подключены к этому каналу, пропускаем переподключение');
       return;
     }
     
-    // Если подключены к другому каналу или соединение закрыто, сначала очищаем
     if (this.ws || this.voiceChannelId) {
       console.log('🎙️ Очищаем предыдущее соединение перед новым подключением');
       this.cleanup();
@@ -58,52 +56,44 @@ class VoiceService {
     this.voiceChannelId = voiceChannelId;
     this.token = token;
 
-    // Получаем доступ к микрофону
     try {
       console.log('🎙️ Запрашиваем доступ к микрофону...');
       const rawStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
-          noiseSuppression: true, // Базовое подавление шума браузера
+          noiseSuppression: true, 
           autoGainControl: true,
-          sampleRate: 48000, // Оптимальная частота для RNNoise
+          sampleRate: 48000, 
         },
         video: false,
       });
       console.log('🎙️ Доступ к микрофону получен');
       
-      // Сначала создаем AudioContext для шумодава
       if (!this.audioContext) {
         this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
         console.log('🔇 AudioContext создан для шумодава');
       }
       
-      // Инициализируем сервис шумодава
       await noiseSuppressionService.initialize(this.audioContext);
       
-      // Проверяем настройки шумодава
       const noiseSettings = noiseSuppressionService.getSettings();
       console.log('🔇 Настройки шумодава после инициализации:', noiseSettings);
       
-      // Обрабатываем поток через сервис шумодава
       this.localStream = await noiseSuppressionService.processStream(rawStream);
       console.log('🔇 Поток обработан через сервис шумодава');
       
-      // Проверяем, что поток действительно обработан
       if (this.localStream !== rawStream) {
         console.log('🔇 ✅ Шумодав успешно применен к потоку');
       } else {
         console.warn('🔇 ⚠️ Шумодав не был применен, используется оригинальный поток');
       }
       
-      // Инициализируем детекцию голосовой активности (использует уже созданный audioContext)
       this.initVoiceActivityDetection();
     } catch (error) {
       console.error('🎙️ Ошибка доступа к микрофону:', error);
       throw new Error('Не удалось получить доступ к микрофону');
     }
 
-    // Подключаемся к WebSocket
     const wsUrl = `${WS_URL}/ws/voice/${voiceChannelId}?token=${token}`;
     console.log('🎙️ Подключаемся к WebSocket:', wsUrl);
     this.ws = new WebSocket(wsUrl);
@@ -140,17 +130,14 @@ class VoiceService {
         this.iceServers = data.ice_servers;
         console.log('🔊 ICE серверы:', this.iceServers);
         
-        // Передаем список участников в store
         if (this.onParticipantsReceivedCallback) {
           this.onParticipantsReceivedCallback(data.participants);
         }
         
-        // Создаем соединения с существующими участниками (кроме себя)
         const currentUserId = this.getCurrentUserId();
         for (const participant of data.participants) {
           if (participant.user_id !== currentUserId) {
             console.log('🔊 Создаем peer connection с участником:', participant.user_id, participant.username);
-            // Создаем offer только если наш ID меньше
             const shouldCreateOffer = currentUserId !== null && currentUserId < participant.user_id;
             await this.createPeerConnection(participant.user_id, shouldCreateOffer);
           }
@@ -162,10 +149,8 @@ class VoiceService {
         if (this.onParticipantJoined) {
           this.onParticipantJoined(data.user_id, data.username);
         }
-        // Создаем соединение только если это не мы сами
         const currentUserId2 = this.getCurrentUserId();
         if (data.user_id !== currentUserId2) {
-          // Создаем offer только если наш ID меньше (существующий пользователь создает offer для нового)
           const shouldCreateOffer = currentUserId2 !== null && currentUserId2 < data.user_id;
           await this.createPeerConnection(data.user_id, shouldCreateOffer);
         }
@@ -195,21 +180,18 @@ class VoiceService {
         break;
         
       case 'user_speaking':
-        // Обработка информации о том, что пользователь говорит
         if (this.onSpeakingChanged) {
           this.onSpeakingChanged(data.user_id, data.is_speaking);
         }
         break;
         
       case 'user_muted':
-        // Обработка изменения статуса микрофона
         if (this.onParticipantStatusChangedCallback) {
           this.onParticipantStatusChangedCallback(data.user_id, { is_muted: data.is_muted });
         }
         break;
         
       case 'user_deafened':
-        // Обработка изменения статуса наушников
         if (this.onParticipantStatusChangedCallback) {
           this.onParticipantStatusChangedCallback(data.user_id, { is_deafened: data.is_deafened });
         }
@@ -227,7 +209,6 @@ class VoiceService {
         if (this.onScreenShareChanged) {
           this.onScreenShareChanged(data.user_id, true);
         }
-        // Генерируем глобальное событие для обновления UI
         window.dispatchEvent(new CustomEvent('screen_share_start', { 
           detail: { 
             user_id: data.user_id, 
@@ -238,11 +219,9 @@ class VoiceService {
 
       case 'screen_share_stopped':
         console.log('🖥️ Пользователь остановил демонстрацию экрана:', data.user_id);
-        // НЕ удаляем видео элемент сразу - позволяем ChatArea управлять этим
         if (this.onScreenShareChanged) {
           this.onScreenShareChanged(data.user_id, false);
         }
-        // Генерируем глобальное событие для обновления UI
         window.dispatchEvent(new CustomEvent('screen_share_stop', { 
           detail: { 
             user_id: data.user_id, 
@@ -263,7 +242,6 @@ class VoiceService {
       iceServers: this.iceServers,
     });
 
-    // Добавляем локальный поток
     if (this.localStream) {
       this.localStream.getTracks().forEach(track => {
         console.log(`🔊 Добавляем трек ${track.kind} в peer connection для пользователя ${userId}`);
@@ -271,7 +249,6 @@ class VoiceService {
       });
     }
 
-    // Обработка входящего потока
     pc.ontrack = (event) => {
       console.log('🔊 Получен удаленный поток от пользователя', userId, {
         streams: event.streams,
@@ -294,7 +271,6 @@ class VoiceService {
           videoTrackIds: videoTracks.map(t => ({ id: t.id, label: t.label, readyState: t.readyState }))
         });
 
-        // Обрабатываем аудио треки
         if (audioTracks.length > 0) {
           const remoteAudio = new Audio();
           remoteAudio.srcObject = new MediaStream(audioTracks);
@@ -307,7 +283,6 @@ class VoiceService {
           remoteAudio.style.display = 'none';
           document.body.appendChild(remoteAudio);
           
-          // Применяем сохраненную громкость если есть
           setTimeout(() => {
             const savedVolume = localStorage.getItem(`voice-volume-${userId}`);
             if (savedVolume) {
@@ -317,7 +292,6 @@ class VoiceService {
             }
           }, 100);
           
-          // Пытаемся воспроизвести аудио
           const playPromise = remoteAudio.play();
           if (playPromise !== undefined) {
             playPromise.then(() => {
@@ -341,18 +315,16 @@ class VoiceService {
           }
         }
 
-        // Обрабатываем видео треки (демонстрация экрана)
         if (videoTracks.length > 0) {
           console.log('🖥️ Получен видео поток от пользователя', userId);
           
-          // Создаем или обновляем видео элемент
           let remoteVideo = document.getElementById(`remote-video-${userId}`) as HTMLVideoElement;
           if (!remoteVideo) {
             remoteVideo = document.createElement('video');
             remoteVideo.id = `remote-video-${userId}`;
             remoteVideo.autoplay = true;
             remoteVideo.controls = false;
-            remoteVideo.muted = true; // Видео всегда без звука, звук идет через аудио элемент
+            remoteVideo.muted = true;
             remoteVideo.style.position = 'absolute';
             remoteVideo.style.top = '0';
             remoteVideo.style.left = '0';
@@ -361,7 +333,6 @@ class VoiceService {
             remoteVideo.style.objectFit = 'contain';
             remoteVideo.style.backgroundColor = '#000';
             
-            // Добавляем обработчик загрузки видео
             remoteVideo.addEventListener('loadeddata', () => {
               console.log(`🖥️ Видео загружено для пользователя ${userId}`);
             });
@@ -370,21 +341,17 @@ class VoiceService {
               console.error(`🖥️ Ошибка загрузки видео для пользователя ${userId}:`, e);
             });
             
-            // Ждем появления контейнера в ChatArea для удалённого видео
             const waitForRemoteContainer = (attempts = 0): void => {
               const videoContainer = document.getElementById('screen-share-container-chat');
               
               if (videoContainer) {
-                // Контейнер найден, проверяем есть ли уже видео этого пользователя
                 const existingVideo = document.getElementById(`remote-video-${userId}`);
                 if (existingVideo && existingVideo !== remoteVideo) {
                   existingVideo.remove();
                   console.log(`🖥️ Удален старый видео элемент для пользователя ${userId}`);
                 }
                 
-                // Добавляем видео только если его нет в контейнере
                 if (!videoContainer.contains(remoteVideo)) {
-                  // НЕ очищаем весь контейнер, просто добавляем новое видео
                   videoContainer.appendChild(remoteVideo);
                   console.log(`🖥️ Видео элемент добавлен в ChatArea для пользователя ${userId}. Контейнер размеры:`, {
                     width: videoContainer.offsetWidth,
@@ -393,12 +360,10 @@ class VoiceService {
                     childrenCount: videoContainer.children.length
                   });
                 }
-              } else if (attempts < 50) { // Максимум 5 секунд
-                // Контейнер ещё не создан, ждем
+              } else if (attempts < 50) {
                 console.log(`🖥️ Ожидание контейнера для пользователя ${userId} (попытка ${attempts + 1}/50)`);
                 setTimeout(() => waitForRemoteContainer(attempts + 1), 100);
               } else {
-                // Превышено время ожидания
                 console.error(`🖥️ Превышено время ожидания контейнера для пользователя ${userId}`);
                 remoteVideo.remove();
                 return;
@@ -410,7 +375,6 @@ class VoiceService {
           
           remoteVideo.srcObject = new MediaStream(videoTracks);
           
-          // Добавляем обработчик для проверки готовности видео
           remoteVideo.addEventListener('loadedmetadata', () => {
             console.log(`🖥️ Метаданные видео загружены для пользователя ${userId}`, {
               videoWidth: remoteVideo.videoWidth,
@@ -423,7 +387,6 @@ class VoiceService {
             console.log(`🖥️ Видео готово к воспроизведению для пользователя ${userId}`);
           });
           
-          // Уведомляем о начале демонстрации экрана
           if (this.onScreenShareChanged) {
             this.onScreenShareChanged(userId, true);
           }
@@ -437,7 +400,6 @@ class VoiceService {
       }
     };
 
-    // Обработка ICE кандидатов
     pc.onicecandidate = (event) => {
       if (event.candidate) {
         console.log(`🔊 Отправляем ICE candidate пользователю ${userId}:`, event.candidate);
@@ -449,28 +411,23 @@ class VoiceService {
       }
     };
 
-    // Обработка состояния соединения
     pc.onconnectionstatechange = () => {
       console.log(`🔊 Состояние соединения с пользователем ${userId}: ${pc.connectionState}`);
       
-      // Если соединение закрылось или не удалось
       if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
         console.log(`🔊 Соединение с пользователем ${userId} потеряно (${pc.connectionState})`);
         
-        // Удаляем аудио элемент
         const audioElement = document.getElementById(`remote-audio-${userId}`);
         if (audioElement) {
           audioElement.remove();
           console.log(`🔊 Удален аудио элемент для пользователя ${userId}`);
         }
         
-        // Удаляем видео элемент
         const videoElement = document.getElementById(`remote-video-${userId}`);
         if (videoElement) {
           videoElement.remove();
           console.log(`🖥️ Удален видео элемент для пользователя ${userId}`);
           
-          // Генерируем событие остановки демонстрации экрана
           window.dispatchEvent(new CustomEvent('screen_share_stop', { 
             detail: { 
               user_id: userId, 
@@ -479,7 +436,6 @@ class VoiceService {
           }));
         }
         
-        // Удаляем peer connection
         this.removePeerConnection(userId);
       }
       console.log(`🔊 Состояние соединения с пользователем ${userId}:`, pc.connectionState);
@@ -575,20 +531,17 @@ class VoiceService {
       this.peerConnections.delete(userId);
     }
     
-    // Удаляем аудио элемент из DOM
     const audioElement = document.getElementById(`remote-audio-${userId}`);
     if (audioElement) {
       audioElement.remove();
       console.log(`🔊 Удален аудио элемент для пользователя ${userId}`);
     }
 
-    // Удаляем видео элемент из DOM
     const videoElement = document.getElementById(`remote-video-${userId}`);
     if (videoElement) {
       videoElement.remove();
       console.log(`🖥️ Удален видео элемент для пользователя ${userId}`);
       
-      // Уведомляем об остановке демонстрации экрана
       if (this.onScreenShareChanged) {
         this.onScreenShareChanged(userId, false);
       }
@@ -613,7 +566,6 @@ class VoiceService {
   setDeafened(deafened: boolean) {
     console.log(`🔊 Установка deafened: ${deafened}`);
     
-    // Заглушаем/включаем все удаленные аудио элементы
     this.peerConnections.forEach(({ userId }) => {
       const audioElement = document.getElementById(`remote-audio-${userId}`) as HTMLAudioElement;
       if (audioElement) {
@@ -622,7 +574,6 @@ class VoiceService {
       }
     });
     
-    // Отправляем статус на сервер
     this.sendMessage({ type: 'deafen', is_deafened: deafened });
   }
 
@@ -644,15 +595,12 @@ class VoiceService {
   private cleanup() {
     console.log('🔊 Очистка VoiceService');
     
-    // Закрываем все peer connections
     this.peerConnections.forEach(({ pc, userId }) => {
       pc.close();
-      // Удаляем соответствующий аудио элемент
       const audioElement = document.getElementById(`remote-audio-${userId}`);
       if (audioElement) {
         audioElement.remove();
       }
-      // Удаляем соответствующий видео элемент
       const videoElement = document.getElementById(`remote-video-${userId}`);
       if (videoElement) {
         videoElement.remove();
@@ -661,39 +609,32 @@ class VoiceService {
     });
     this.peerConnections.clear();
 
-    // Останавливаем потоки демонстрации экрана
     if (this.screenStream) {
       this.screenStream.getTracks().forEach(track => track.stop());
       this.screenStream = null;
     }
     this.isScreenSharing = false;
 
-    // Очищаем все видео элементы из контейнера
     const videoContainer = document.getElementById('screen-share-container-chat');
     if (videoContainer) {
       videoContainer.innerHTML = '';
       console.log('🖥️ Очищен контейнер screen-share-container-chat');
     }
 
-    // Удаляем все возможные видео элементы которые могли остаться
     document.querySelectorAll('video[id^="remote-video-"]').forEach(video => {
       video.remove();
       console.log('🖥️ Удален остаточный видео элемент:', video.id);
     });
 
-    // Останавливаем локальный поток
     if (this.localStream) {
       this.localStream.getTracks().forEach(track => track.stop());
       this.localStream = null;
     }
 
-    // Очищаем VAD
     this.cleanupVoiceActivityDetection();
 
-    // Очищаем сервис шумодава
     noiseSuppressionService.cleanup();
 
-    // Закрываем WebSocket если открыт
     if (this.ws) {
       this.ws.close();
       this.ws = null;
@@ -703,20 +644,17 @@ class VoiceService {
     this.token = null;
   }
 
-  // Методы для детекции голосовой активности
   private initVoiceActivityDetection() {
     if (!this.localStream || !this.audioContext) return;
 
     try {
-      // Используем уже созданный AudioContext
       const source = this.audioContext.createMediaStreamSource(this.localStream);
       this.analyser = this.audioContext.createAnalyser();
       
-      // Настройки для максимальной чувствительности
-      this.analyser.fftSize = 1024; // Увеличиваем для лучшего разрешения
-      this.analyser.minDecibels = -100; // Понижаем для захвата тихих звуков
+      this.analyser.fftSize = 1024; 
+      this.analyser.minDecibels = -100;
       this.analyser.maxDecibels = -10;
-      this.analyser.smoothingTimeConstant = 0.3; // Уменьшаем для более быстрой реакции
+      this.analyser.smoothingTimeConstant = 0.3; 
       
       source.connect(this.analyser);
       
@@ -740,7 +678,6 @@ class VoiceService {
       try {
         this.analyser.getByteFrequencyData(dataArray);
         
-        // Используем данные из нового noiseSuppressionStore
         const { settings, setMicLevel } = useNoiseSuppressionStore.getState();
 
         if (!settings.vadEnabled) {
@@ -752,32 +689,27 @@ class VoiceService {
               this.onSpeakingChanged(currentUserId, true);
             }
           }
-          // При выключенном VAD уровень микрофона все равно показываем
           const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
           const micLevelDb = 20 * Math.log10(average / 255);
           setMicLevel(isFinite(micLevelDb) ? micLevelDb : -100);
           return;
         }
 
-        const dbThreshold = settings.vadThreshold; // Используем порог из store
+        const dbThreshold = settings.vadThreshold;
         const linearThreshold = Math.pow(10, dbThreshold / 20) * 255;
 
-        // Конвертация уровня громкости в дБ и обновление store
         const totalAverage = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
         const micLevelDb = 20 * Math.log10(totalAverage / 255);
         setMicLevel(isFinite(micLevelDb) ? micLevelDb : -100);
         
-        // Анализ для VAD
         const midFrequencyData = dataArray.slice(dataArray.length / 4, dataArray.length / 2);
         const midAverage = midFrequencyData.reduce((a, b) => a + b, 0) / midFrequencyData.length;
         const maxValue = Math.max(...Array.from(dataArray));
         
-        // Адаптивные пороги на основе настройки VAD
         const totalThreshold = Math.max(1, linearThreshold * 0.1);
         const midThreshold = Math.max(2, linearThreshold * 0.2); 
         const maxThreshold = Math.max(3, linearThreshold * 0.3);
         
-        // Считаем что говорим если превышен любой из порогов
         const currentlySpeaking = 
           totalAverage > totalThreshold || 
           midAverage > midThreshold || 
@@ -788,15 +720,12 @@ class VoiceService {
           
           console.log(`🎙️ Голосовая активность: ${currentlySpeaking ? 'ГОВОРИТ' : 'молчит'} (total: ${totalAverage.toFixed(1)}, mid: ${midAverage.toFixed(1)}, max: ${maxValue}) [пороги: total=${totalThreshold.toFixed(1)}, mid=${midThreshold.toFixed(1)}, max=${maxThreshold.toFixed(1)}, VAD=${dbThreshold}дБ]`);
           
-          // Отправляем информацию о голосовой активности
           this.sendMessage({
             type: 'speaking',
             is_speaking: currentlySpeaking
           });
           
-          // Уведомляем UI
           if (this.onSpeakingChanged) {
-            // Для локального пользователя используем ID из токена
             const currentUserId = this.getCurrentUserId();
             if (currentUserId) {
               this.onSpeakingChanged(currentUserId, currentlySpeaking);
@@ -806,7 +735,7 @@ class VoiceService {
       } catch (error) {
         console.error('🎙️ Ошибка при анализе голосовой активности:', error);
       }
-    }, 50); // Проверяем каждые 50мс (было 100мс) для более быстрой реакции
+    }, 50);
   }
 
   private getCurrentUserId(): number | null {
@@ -848,28 +777,24 @@ class VoiceService {
     this.onParticipantStatusChangedCallback = callback;
   }
 
-  // Демонстрация экрана
   async startScreenShare(): Promise<boolean> {
     try {
       console.log('🖥️ Начинаем демонстрацию экрана');
       
-      // Получаем поток экрана
       this.screenStream = await navigator.mediaDevices.getDisplayMedia({
         video: {
           width: { ideal: 1920 },
           height: { ideal: 1080 },
           frameRate: { ideal: 30 }
         },
-        audio: true // Включаем звук системы если доступен
+        audio: true
       });
 
-      // Обрабатываем событие остановки демонстрации экрана
       this.screenStream.getVideoTracks()[0].addEventListener('ended', () => {
         console.log('🖥️ Демонстрация экрана остановлена пользователем');
         this.stopScreenShare();
       });
 
-      // Обрабатываем событие остановки аудио трека
       const audioTracks = this.screenStream.getAudioTracks();
       if (audioTracks.length > 0) {
         audioTracks[0].addEventListener('ended', () => {
@@ -877,7 +802,6 @@ class VoiceService {
         });
       }
 
-      // Добавляем видео трек ко всем существующим peer connections
       console.log(`🖥️ Начинаем добавление видео треков к ${this.peerConnections.size} peer connections`);
       this.peerConnections.forEach(async ({ pc }, userId) => {
         try {
@@ -891,7 +815,6 @@ class VoiceService {
               enabled: videoTrack.enabled
             });
             
-            // Проверяем, есть ли уже видео трек
             const senders = pc.getSenders();
             const existingVideoSender = senders.find(sender => 
               sender.track && sender.track.kind === 'video'
@@ -904,11 +827,9 @@ class VoiceService {
             })));
 
             if (existingVideoSender) {
-              // Заменяем существующий видео трек
               await existingVideoSender.replaceTrack(videoTrack);
               console.log(`🖥️ Заменен видео трек для пользователя ${userId}`);
             } else {
-              // Добавляем новый видео трек
               pc.addTrack(videoTrack, this.screenStream!);
               console.log(`🖥️ Добавлен видео трек для пользователя ${userId}`);
             }
@@ -916,14 +837,12 @@ class VoiceService {
             console.error(`🖥️ Видео трек не найден в screenStream!`);
           }
 
-          // Добавляем аудио трек системы если есть
           const audioTracks = this.screenStream!.getAudioTracks();
           if (audioTracks.length > 0) {
             const existingAudioSenders = pc.getSenders().filter(sender => 
               sender.track && sender.track.kind === 'audio'
             );
             
-            // Добавляем только если это не микрофонный трек
             const isSystemAudio = audioTracks[0].label.includes('System') || 
                                  audioTracks[0].label.includes('Desktop') ||
                                  audioTracks[0].getSettings().deviceId !== 'default';
@@ -934,7 +853,6 @@ class VoiceService {
             }
           }
 
-          // Создаем новый offer только если connection state позволяет
           if (pc.connectionState === 'connected' || pc.connectionState === 'new') {
             console.log(`🖥️ Создаем offer для пользователя ${userId} с видео треком`);
             const offer = await pc.createOffer();
@@ -957,20 +875,16 @@ class VoiceService {
         }
       });
 
-      // Создаем локальный видео элемент для стримера
       this.createLocalScreenShareVideo();
 
       this.isScreenSharing = true;
       
-      // Уведомляем сервер о начале демонстрации экрана
       this.sendMessage({ 
         type: 'screen_share_start'
       });
 
-      // Отправляем локальное событие для обновления UI
       const currentUserId = this.getCurrentUserId();
       if (currentUserId) {
-        // Получаем имя пользователя из токена или используем "Вы"
         let username = 'Вы';
         try {
           if (this.token) {
@@ -1006,29 +920,24 @@ class VoiceService {
 
     const currentUserId = this.getCurrentUserId();
     
-    // Останавливаем все треки
     this.screenStream.getTracks().forEach(track => {
       track.stop();
     });
 
-    // Удаляем видео треки из всех peer connections
     this.peerConnections.forEach(({ pc }, userId) => {
       try {
         const senders = pc.getSenders();
         senders.forEach((sender: RTCRtpSender) => {
           if (sender.track && sender.track.kind === 'video') {
-            // Заменяем видео трек на null вместо удаления
             sender.replaceTrack(null).then(() => {
               console.log(`🖥️ Видео трек остановлен для пользователя ${userId}`);
             }).catch(error => {
               console.error(`🖥️ Ошибка остановки видео трека для пользователя ${userId}:`, error);
-              // Если replaceTrack не работает, удаляем трек
               pc.removeTrack(sender);
             });
           }
         });
 
-        // Создаем новый offer без видео только если connection активно
         if (pc.connectionState === 'connected') {
           pc.createOffer().then((offer: RTCSessionDescriptionInit) => {
             pc.setLocalDescription(offer);
@@ -1046,21 +955,17 @@ class VoiceService {
       }
     });
 
-    // Обновляем внутреннее состояние
     this.screenStream = null;
     this.isScreenSharing = false;
 
-    // Уведомляем об остановке демонстрации экрана для локального пользователя
     if (currentUserId && this.onScreenShareChanged) {
       this.onScreenShareChanged(currentUserId, false);
     }
 
-    // Уведомляем сервер об остановке демонстрации экрана
     this.sendMessage({ 
       type: 'screen_share_stop'
     });
 
-    // Отправляем глобальное событие ОДИН РАЗ
     if (currentUserId) {
       const event = new CustomEvent('screen_share_stop', {
         detail: { 
@@ -1087,22 +992,19 @@ class VoiceService {
 
     console.log('🖥️ Создаем локальный видео элемент для стримера');
 
-    // Получаем текущего пользователя
     const currentUserId = this.getCurrentUserId();
     if (!currentUserId) return;
 
-    // Удаляем существующий локальный видео элемент если есть
     const existingVideo = document.getElementById(`remote-video-${currentUserId}`) as HTMLVideoElement;
     if (existingVideo) {
       existingVideo.remove();
     }
 
-    // Создаем новый видео элемент
     const localVideo = document.createElement('video');
     localVideo.id = `remote-video-${currentUserId}`;
     localVideo.autoplay = true;
     localVideo.controls = false;
-    localVideo.muted = true; // Заглушаем чтобы избежать эха
+    localVideo.muted = true;
     localVideo.style.position = 'absolute';
     localVideo.style.top = '0';
     localVideo.style.left = '0';
@@ -1111,7 +1013,6 @@ class VoiceService {
     localVideo.style.objectFit = 'contain';
     localVideo.style.backgroundColor = '#000';
     
-    // Добавляем обработчики событий
     localVideo.addEventListener('loadeddata', () => {
       console.log('🖥️ Локальное видео загружено');
     });
@@ -1120,16 +1021,12 @@ class VoiceService {
       console.error('🖥️ Ошибка загрузки локального видео:', e);
     });
     
-    // Устанавливаем поток
     localVideo.srcObject = this.screenStream;
     
-    // Ждем появления контейнера в ChatArea (максимум 5 секунд)
     const waitForContainer = (attempts = 0): void => {
       const videoContainer = document.getElementById('screen-share-container-chat');
       
       if (videoContainer) {
-        // Контейнер найден, добавляем видео БЕЗ очистки контейнера
-        // НЕ очищаем весь контейнер, чтобы не удалить видео других пользователей
         videoContainer.appendChild(localVideo);
         console.log('🖥️ Локальный видео элемент добавлен в ChatArea. Контейнер размеры:', {
           width: videoContainer.offsetWidth,
@@ -1139,7 +1036,6 @@ class VoiceService {
           childrenCount: videoContainer.children.length
         });
         
-        // Проверяем, что видео элемент действительно добавлен
         setTimeout(() => {
           const addedVideo = document.getElementById(`remote-video-${currentUserId}`);
           if (addedVideo) {
@@ -1152,12 +1048,10 @@ class VoiceService {
             });
           }
         }, 1000);
-      } else if (attempts < 50) { // Максимум 5 секунд (50 * 100ms)
-        // Контейнер ещё не создан, ждем
+      } else if (attempts < 50) {
         console.log(`🖥️ Ожидание контейнера screen-share-container-chat (попытка ${attempts + 1}/50)`);
         setTimeout(() => waitForContainer(attempts + 1), 100);
       } else {
-        // Превышено время ожидания
         console.error('🖥️ Превышено время ожидания контейнера screen-share-container-chat');
         localVideo.remove();
         return;
@@ -1166,13 +1060,11 @@ class VoiceService {
     
     waitForContainer();
 
-    // Уведомляем о начале демонстрации экрана для локального пользователя
     if (this.onScreenShareChanged) {
       this.onScreenShareChanged(currentUserId, true);
     }
   }
 
-  // Метод для получения отладочной информации
   getDebugInfo() {
     return {
       hasLocalStream: !!this.localStream,
