@@ -1,3 +1,5 @@
+import noiseSuppressionService from './noiseSuppressionService';
+
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://miscord.ru';
 
 console.log('🎙️ VoiceService инициализирован с WS_URL:', WS_URL);
@@ -49,11 +51,12 @@ class VoiceService {
     // Получаем доступ к микрофону
     try {
       console.log('🎙️ Запрашиваем доступ к микрофону...');
-      this.localStream = await navigator.mediaDevices.getUserMedia({
+      const rawStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
-          noiseSuppression: true,
+          noiseSuppression: true, // Базовое подавление шума браузера
           autoGainControl: true,
+          sampleRate: 48000, // Оптимальная частота для RNNoise
         },
         video: false,
       });
@@ -61,6 +64,17 @@ class VoiceService {
       
       // Инициализируем детекцию голосовой активности
       this.initVoiceActivityDetection();
+      
+      // Инициализируем сервис шумодава
+      if (this.audioContext) {
+        await noiseSuppressionService.initialize(this.audioContext);
+        
+        // Обрабатываем поток через сервис шумодава
+        this.localStream = await noiseSuppressionService.processStream(rawStream);
+        console.log('🔇 Поток обработан через сервис шумодава');
+      } else {
+        this.localStream = rawStream;
+      }
     } catch (error) {
       console.error('🎙️ Ошибка доступа к микрофону:', error);
       throw new Error('Не удалось получить доступ к микрофону');
@@ -190,18 +204,28 @@ class VoiceService {
         if (this.onScreenShareChanged) {
           this.onScreenShareChanged(data.user_id, true);
         }
+        // Генерируем глобальное событие для обновления UI
+        window.dispatchEvent(new CustomEvent('screen_share_start', { 
+          detail: { 
+            user_id: data.user_id, 
+            username: data.username || `User ${data.user_id}` 
+          } 
+        }));
         break;
 
       case 'screen_share_stopped':
         console.log('🖥️ Пользователь остановил демонстрацию экрана:', data.user_id);
-        // Удаляем видео элемент
-        const videoElement = document.getElementById(`remote-video-${data.user_id}`);
-        if (videoElement) {
-          videoElement.remove();
-        }
+        // НЕ удаляем видео элемент сразу - позволяем ChatArea управлять этим
         if (this.onScreenShareChanged) {
           this.onScreenShareChanged(data.user_id, false);
         }
+        // Генерируем глобальное событие для обновления UI
+        window.dispatchEvent(new CustomEvent('screen_share_stop', { 
+          detail: { 
+            user_id: data.user_id, 
+            username: data.username || `User ${data.user_id}` 
+          } 
+        }));
         break;
 
       default:
@@ -226,12 +250,26 @@ class VoiceService {
 
     // Обработка входящего потока
     pc.ontrack = (event) => {
-      console.log('🔊 Получен удаленный поток от пользователя', userId, event.streams);
+      console.log('🔊 Получен удаленный поток от пользователя', userId, {
+        streams: event.streams,
+        track: event.track,
+        trackKind: event.track?.kind,
+        trackId: event.track?.id,
+        trackLabel: event.track?.label
+      });
       
       if (event.streams && event.streams[0]) {
         const stream = event.streams[0];
         const audioTracks = stream.getAudioTracks();
         const videoTracks = stream.getVideoTracks();
+        
+        console.log(`🔊 Анализ потока от пользователя ${userId}:`, {
+          totalTracks: stream.getTracks().length,
+          audioTracks: audioTracks.length,
+          videoTracks: videoTracks.length,
+          audioTrackIds: audioTracks.map(t => ({ id: t.id, label: t.label, readyState: t.readyState })),
+          videoTrackIds: videoTracks.map(t => ({ id: t.id, label: t.label, readyState: t.readyState }))
+        });
 
         // Обрабатываем аудио треки
         if (audioTracks.length > 0) {
@@ -251,7 +289,7 @@ class VoiceService {
             const savedVolume = localStorage.getItem(`voice-volume-${userId}`);
             if (savedVolume) {
               const volume = parseInt(savedVolume);
-              remoteAudio.volume = Math.min(volume / 100, 3.0);
+              remoteAudio.volume = Math.min(volume / 100, 1.0);
               console.log(`🔊 Применена сохраненная громкость ${volume}% для пользователя ${userId}`);
             }
           }, 100);
@@ -314,14 +352,24 @@ class VoiceService {
               const videoContainer = document.getElementById('screen-share-container-chat');
               
               if (videoContainer) {
-                // Контейнер найден, добавляем видео
-                videoContainer.innerHTML = '';
-                videoContainer.appendChild(remoteVideo);
-                console.log(`🖥️ Видео элемент добавлен в ChatArea для пользователя ${userId}. Контейнер размеры:`, {
-                  width: videoContainer.offsetWidth,
-                  height: videoContainer.offsetHeight,
-                  style: videoContainer.style.cssText
-                });
+                // Контейнер найден, проверяем есть ли уже видео этого пользователя
+                const existingVideo = document.getElementById(`remote-video-${userId}`);
+                if (existingVideo && existingVideo !== remoteVideo) {
+                  existingVideo.remove();
+                  console.log(`🖥️ Удален старый видео элемент для пользователя ${userId}`);
+                }
+                
+                // Добавляем видео только если его нет в контейнере
+                if (!videoContainer.contains(remoteVideo)) {
+                  // НЕ очищаем весь контейнер, просто добавляем новое видео
+                  videoContainer.appendChild(remoteVideo);
+                  console.log(`🖥️ Видео элемент добавлен в ChatArea для пользователя ${userId}. Контейнер размеры:`, {
+                    width: videoContainer.offsetWidth,
+                    height: videoContainer.offsetHeight,
+                    style: videoContainer.style.cssText,
+                    childrenCount: videoContainer.children.length
+                  });
+                }
               } else if (attempts < 50) { // Максимум 5 секунд
                 // Контейнер ещё не создан, ждем
                 console.log(`🖥️ Ожидание контейнера для пользователя ${userId} (попытка ${attempts + 1}/50)`);
@@ -339,12 +387,29 @@ class VoiceService {
           
           remoteVideo.srcObject = new MediaStream(videoTracks);
           
+          // Добавляем обработчик для проверки готовности видео
+          remoteVideo.addEventListener('loadedmetadata', () => {
+            console.log(`🖥️ Метаданные видео загружены для пользователя ${userId}`, {
+              videoWidth: remoteVideo.videoWidth,
+              videoHeight: remoteVideo.videoHeight,
+              readyState: remoteVideo.readyState
+            });
+          });
+          
+          remoteVideo.addEventListener('canplay', () => {
+            console.log(`🖥️ Видео готово к воспроизведению для пользователя ${userId}`);
+          });
+          
           // Уведомляем о начале демонстрации экрана
           if (this.onScreenShareChanged) {
             this.onScreenShareChanged(userId, true);
           }
           
-          console.log('🖥️ Видео элемент создан для пользователя', userId);
+          console.log('🖥️ Видео элемент создан для пользователя', userId, {
+            id: remoteVideo.id,
+            srcObject: !!remoteVideo.srcObject,
+            tracks: videoTracks.length
+          });
         }
       }
     };
@@ -363,6 +428,37 @@ class VoiceService {
 
     // Обработка состояния соединения
     pc.onconnectionstatechange = () => {
+      console.log(`🔊 Состояние соединения с пользователем ${userId}: ${pc.connectionState}`);
+      
+      // Если соединение закрылось или не удалось
+      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+        console.log(`🔊 Соединение с пользователем ${userId} потеряно (${pc.connectionState})`);
+        
+        // Удаляем аудио элемент
+        const audioElement = document.getElementById(`remote-audio-${userId}`);
+        if (audioElement) {
+          audioElement.remove();
+          console.log(`🔊 Удален аудио элемент для пользователя ${userId}`);
+        }
+        
+        // Удаляем видео элемент
+        const videoElement = document.getElementById(`remote-video-${userId}`);
+        if (videoElement) {
+          videoElement.remove();
+          console.log(`🖥️ Удален видео элемент для пользователя ${userId}`);
+          
+          // Генерируем событие остановки демонстрации экрана
+          window.dispatchEvent(new CustomEvent('screen_share_stop', { 
+            detail: { 
+              user_id: userId, 
+              username: `User ${userId}` 
+            } 
+          }));
+        }
+        
+        // Удаляем peer connection
+        this.removePeerConnection(userId);
+      }
       console.log(`🔊 Состояние соединения с пользователем ${userId}:`, pc.connectionState);
     };
 
@@ -571,6 +667,9 @@ class VoiceService {
     // Очищаем VAD
     this.cleanupVoiceActivityDetection();
 
+    // Очищаем сервис шумодава
+    noiseSuppressionService.cleanup();
+
     // Закрываем WebSocket если открыт
     if (this.ws) {
       this.ws.close();
@@ -750,15 +849,30 @@ class VoiceService {
       }
 
       // Добавляем видео трек ко всем существующим peer connections
+      console.log(`🖥️ Начинаем добавление видео треков к ${this.peerConnections.size} peer connections`);
       this.peerConnections.forEach(async ({ pc }, userId) => {
         try {
+          console.log(`🖥️ Обрабатываем peer connection для пользователя ${userId}, состояние: ${pc.connectionState}`);
           const videoTrack = this.screenStream!.getVideoTracks()[0];
           if (videoTrack) {
+            console.log(`🖥️ Видео трек найден:`, {
+              id: videoTrack.id,
+              label: videoTrack.label,
+              readyState: videoTrack.readyState,
+              enabled: videoTrack.enabled
+            });
+            
             // Проверяем, есть ли уже видео трек
             const senders = pc.getSenders();
             const existingVideoSender = senders.find(sender => 
               sender.track && sender.track.kind === 'video'
             );
+
+            console.log(`🖥️ Существующие senders для пользователя ${userId}:`, senders.map(s => ({
+              trackKind: s.track?.kind,
+              trackId: s.track?.id,
+              trackLabel: s.track?.label
+            })));
 
             if (existingVideoSender) {
               // Заменяем существующий видео трек
@@ -769,6 +883,8 @@ class VoiceService {
               pc.addTrack(videoTrack, this.screenStream!);
               console.log(`🖥️ Добавлен видео трек для пользователя ${userId}`);
             }
+          } else {
+            console.error(`🖥️ Видео трек не найден в screenStream!`);
           }
 
           // Добавляем аудио трек системы если есть
@@ -791,13 +907,21 @@ class VoiceService {
 
           // Создаем новый offer только если connection state позволяет
           if (pc.connectionState === 'connected' || pc.connectionState === 'new') {
+            console.log(`🖥️ Создаем offer для пользователя ${userId} с видео треком`);
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
+            console.log(`🖥️ Offer создан и отправлен пользователю ${userId}:`, {
+              sdpLength: offer.sdp?.length,
+              hasVideo: offer.sdp?.includes('m=video'),
+              hasAudio: offer.sdp?.includes('m=audio')
+            });
             this.sendMessage({
               type: 'offer',
               target_id: userId,
               offer: offer,
             });
+          } else {
+            console.log(`🖥️ Пропускаем создание offer для пользователя ${userId}, состояние: ${pc.connectionState}`);
           }
         } catch (error) {
           console.error(`🖥️ Ошибка добавления видео трека для пользователя ${userId}:`, error);
@@ -851,18 +975,8 @@ class VoiceService {
 
     console.log('🖥️ Останавливаем демонстрацию экрана');
 
-    // Отправляем локальное событие для немедленного обновления UI
-    const userId = this.getCurrentUserId();
-    if (userId) {
-      const event = new CustomEvent('screen_share_stop', {
-        detail: { 
-          user_id: userId
-        }
-      });
-      window.dispatchEvent(event);
-      console.log('🖥️ Отправлено локальное событие screen_share_stop для пользователя:', userId);
-    }
-
+    const currentUserId = this.getCurrentUserId();
+    
     // Останавливаем все треки
     this.screenStream.getTracks().forEach(track => {
       track.stop();
@@ -903,36 +1017,30 @@ class VoiceService {
       }
     });
 
+    // Обновляем внутреннее состояние
     this.screenStream = null;
     this.isScreenSharing = false;
 
-    // Удаляем локальный видео элемент
-    const currentUserId = this.getCurrentUserId();
-    if (currentUserId) {
-      const localVideo = document.getElementById(`remote-video-${currentUserId}`) as HTMLVideoElement;
-      if (localVideo) {
-        localVideo.remove();
-        console.log('🖥️ Локальный видео элемент удален');
-      }
-
-      // Уведомляем об остановке демонстрации экрана для локального пользователя
-      if (this.onScreenShareChanged) {
-        this.onScreenShareChanged(currentUserId, false);
-      }
-
-      // Отправляем глобальное событие
-      const event = new CustomEvent('screen_share_stop', {
-        detail: { 
-          user_id: currentUserId
-        }
-      });
-      window.dispatchEvent(event);
+    // Уведомляем об остановке демонстрации экрана для локального пользователя
+    if (currentUserId && this.onScreenShareChanged) {
+      this.onScreenShareChanged(currentUserId, false);
     }
 
     // Уведомляем сервер об остановке демонстрации экрана
     this.sendMessage({ 
       type: 'screen_share_stop'
     });
+
+    // Отправляем глобальное событие ОДИН РАЗ
+    if (currentUserId) {
+      const event = new CustomEvent('screen_share_stop', {
+        detail: { 
+          user_id: currentUserId
+        }
+      });
+      window.dispatchEvent(event);
+      console.log('🖥️ Отправлено событие screen_share_stop для пользователя:', currentUserId);
+    }
 
     console.log('🖥️ Демонстрация экрана остановлена');
   }
@@ -991,14 +1099,15 @@ class VoiceService {
       const videoContainer = document.getElementById('screen-share-container-chat');
       
       if (videoContainer) {
-        // Контейнер найден, добавляем видео
-        videoContainer.innerHTML = '';
+        // Контейнер найден, добавляем видео БЕЗ очистки контейнера
+        // НЕ очищаем весь контейнер, чтобы не удалить видео других пользователей
         videoContainer.appendChild(localVideo);
         console.log('🖥️ Локальный видео элемент добавлен в ChatArea. Контейнер размеры:', {
           width: videoContainer.offsetWidth,
           height: videoContainer.offsetHeight,
           style: videoContainer.style.cssText,
-          videoSrc: localVideo.srcObject ? 'есть' : 'нет'
+          videoSrc: localVideo.srcObject ? 'есть' : 'нет',
+          childrenCount: videoContainer.children.length
         });
         
         // Проверяем, что видео элемент действительно добавлен
@@ -1032,6 +1141,34 @@ class VoiceService {
     if (this.onScreenShareChanged) {
       this.onScreenShareChanged(currentUserId, true);
     }
+  }
+
+  // Методы для управления шумодавом
+  getNoiseSuppressionSettings() {
+    return noiseSuppressionService.getSettings();
+  }
+
+  setNoiseSuppressionEnabled(enabled: boolean) {
+    noiseSuppressionService.setEnabled(enabled);
+  }
+
+  setNoiseSuppressionLevel(level: 'basic' | 'advanced') {
+    noiseSuppressionService.setLevel(level);
+  }
+
+  setNoiseSuppressionSensitivity(sensitivity: number) {
+    noiseSuppressionService.setSensitivity(sensitivity);
+  }
+
+  getNoiseSuppressionStats() {
+    return noiseSuppressionService.getStats();
+  }
+
+  isNoiseSuppressionSupported() {
+    return {
+      basic: noiseSuppressionService.isBasicSupported(),
+      advanced: noiseSuppressionService.isAdvancedSupported()
+    };
   }
 }
 

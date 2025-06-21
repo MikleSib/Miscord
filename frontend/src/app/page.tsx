@@ -7,13 +7,12 @@ import { useStore } from '../lib/store'
 import { ServerList } from '../components/ServerList'
 import { ChannelSidebar } from '../components/ChannelSidebar'
 import { ChatArea } from '../components/ChatArea'
-import { ScreenShareToast } from '../components/ScreenShareToast'
+
 import { ConnectionStatus } from '../components/ConnectionStatus'
 import { useVoiceStore } from '../store/slices/voiceSlice'
 import voiceService from '../services/voiceService'
 import websocketService from '../services/websocketService'
-import { Button } from '../components/ui/button'
-import { Monitor } from 'lucide-react'
+
 
 export default function HomePage() {
   const router = useRouter()
@@ -30,7 +29,6 @@ export default function HomePage() {
   const { isConnected, currentVoiceChannelId } = useVoiceStore()
   const [isMounted, setIsMounted] = useState(false)
   const [sharingUsers, setSharingUsers] = useState<{ userId: number; username: string }[]>([])
-  const [toastNotifications, setToastNotifications] = useState<{ userId: number; username: string; id: string }[]>([])
   const [connectionStatus, setConnectionStatus] = useState({
     isConnected: true,
     isReconnecting: false,
@@ -58,11 +56,6 @@ export default function HomePage() {
 
       // Загружаем серверы пользователя
       await loadServers()
-
-      // Запрашиваем разрешение на уведомления
-      if ('Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission()
-      }
     }
 
     initializeApp()
@@ -90,14 +83,6 @@ export default function HomePage() {
           // Добавляем пользователя если его нет в списке
           if (!prev.find(u => u.userId === userId)) {
             const username = `User ${userId}`; // Здесь нужно получить имя пользователя
-            
-            // Показываем Toast уведомление
-            const toastId = `${userId}-${Date.now()}`;
-            setToastNotifications(prevToasts => [
-              ...prevToasts,
-              { userId, username, id: toastId }
-            ]);
-            
             return [...prev, { userId, username }];
           }
           return prev;
@@ -125,16 +110,6 @@ export default function HomePage() {
       
       setSharingUsers(prev => {
         if (!prev.find(u => u.userId === user_id)) {
-          // Показываем Toast уведомление только если это не мы сами
-          const currentUser = user;
-          if (currentUser && user_id !== currentUser.id) {
-            const toastId = `${user_id}-${Date.now()}`;
-            setToastNotifications(prevToasts => [
-              ...prevToasts,
-              { userId: user_id, username, id: toastId }
-            ]);
-          }
-          
           return [...prev, { userId: user_id, username }];
         }
         return prev;
@@ -162,21 +137,7 @@ export default function HomePage() {
     };
   }, [sharingUsers, user]);
 
-  // Функции для работы с Toast уведомлениями
-  const handleViewScreenShare = (userId: number, username: string) => {
-    // Отправляем событие для открытия демонстрации в ChatArea
-    const event = new CustomEvent('open_screen_share', {
-      detail: { userId, username }
-    });
-    window.dispatchEvent(event);
-    
-    // Убираем Toast уведомление
-    setToastNotifications(prev => prev.filter(toast => toast.userId !== userId));
-  };
 
-  const handleDismissToast = (toastId: string) => {
-    setToastNotifications(prev => prev.filter(toast => toast.id !== toastId));
-  };
 
   if (!isMounted) {
     return null // Предотвращаем гидратацию
@@ -221,18 +182,7 @@ export default function HomePage() {
         lastError={connectionStatus.lastError}
       />
 
-      {/* Toast уведомления */}
-      <div className="fixed top-4 right-4 z-50 space-y-2">
-        {toastNotifications.map((toast) => (
-          <ScreenShareToast
-            key={toast.id}
-            username={toast.username}
-            userId={toast.userId}
-            onView={() => handleViewScreenShare(toast.userId, toast.username)}
-            onDismiss={() => handleDismissToast(toast.id)}
-          />
-        ))}
-      </div>
+
     </div>
   )
 }

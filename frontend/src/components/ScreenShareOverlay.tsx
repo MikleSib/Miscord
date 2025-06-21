@@ -28,8 +28,16 @@ export function ScreenShareOverlay({ isVisible, onClose, sharingUsers }: ScreenS
       }
     };
 
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+
     document.addEventListener('keydown', handleEscape);
-    return () => document.removeEventListener('keydown', handleEscape);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
   }, [isVisible, onClose]);
 
   const handleClose = (e?: React.MouseEvent) => {
@@ -107,18 +115,6 @@ export function ScreenShareOverlay({ isVisible, onClose, sharingUsers }: ScreenS
         </div>
         
         <div className="flex items-center gap-1 md:gap-2">
-          {/* Переключение между пользователями */}
-          {sharingUsers.length > 1 && (
-            <select 
-              value={selectedUser || ''} 
-              onChange={(e) => setSelectedUser(Number(e.target.value))}
-              className="bg-gray-800 text-white px-2 py-1 rounded border border-gray-600 text-sm max-w-32 md:max-w-none"
-            >
-              {sharingUsers.map(({ userId, username }) => (
-                <option key={userId} value={userId}>{username}</option>
-              ))}
-            </select>
-          )}
           
           {/* Кнопка звука */}
           <Button
@@ -140,26 +136,17 @@ export function ScreenShareOverlay({ isVisible, onClose, sharingUsers }: ScreenS
             {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
           </Button>
           
-          {/* Кнопка начать/остановить демонстрацию */}
-          {isScreenSharing ? (
+          {/* Кнопка остановить демонстрацию - только если я сам стримлю */}
+          {isScreenSharing && (
             <Button
               variant="destructive"
               size="sm"
               onClick={stopScreenShare}
               className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 py-1 md:px-3 md:py-2"
+              title="Остановить мою демонстрацию экрана"
             >
               <MonitorOff className="w-3 h-3 md:w-4 md:h-4" />
-              <span className="hidden md:inline">Остановить</span>
-            </Button>
-          ) : (
-            <Button
-              variant="default"
-              size="sm"
-              onClick={startScreenShare}
-              className="flex items-center gap-1 md:gap-2 bg-green-600 hover:bg-green-700 text-xs md:text-sm px-2 py-1 md:px-3 md:py-2"
-            >
-              <Monitor className="w-3 h-3 md:w-4 md:h-4" />
-              <span className="hidden md:inline">Поделиться</span>
+              <span className="hidden md:inline">Остановить мой стрим</span>
             </Button>
           )}
           

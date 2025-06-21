@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation'
 import { cn } from '../lib/utils'
 import { Button } from './ui/button'
 import voiceService from '../services/voiceService'
+import { NoiseSuppressionSettings } from './NoiseSuppressionSettings'
 import {
   Dialog,
   DialogContent,
@@ -146,6 +147,7 @@ export function ChannelSidebar() {
   const [newChannelName, setNewChannelName] = useState('')
   const [isCreating, setIsCreating] = useState(false)
   const [voiceChannelMembers, setVoiceChannelMembers] = useState<Record<number, any[]>>({})
+  const [isNoiseSettingsOpen, setIsNoiseSettingsOpen] = useState(false)
   
   // Состояние для контекстного меню
   const [contextMenu, setContextMenu] = useState<{
@@ -159,6 +161,11 @@ export function ChannelSidebar() {
 
   // Состояние для пользователей, демонстрирующих экран
   const [screenSharingUsers, setScreenSharingUsers] = useState<Set<number>>(new Set());
+
+  // Отладка изменений screenSharingUsers
+  useEffect(() => {
+    console.log('🖥️ ChannelSidebar: screenSharingUsers изменился:', Array.from(screenSharingUsers));
+  }, [screenSharingUsers]);
 
   // Состояние для UserPanel функциональности
   const [isScreenSharing, setIsScreenSharing] = useState(false);
@@ -215,17 +222,22 @@ export function ChannelSidebar() {
     // Обработчики глобальных событий
     const handleScreenShareStart = (event: any) => {
       const data = event.detail;
+      console.log('🖥️ ChannelSidebar: Получено событие screen_share_start:', data);
       setScreenSharingUsers(prev => {
         const prevArray = Array.from(prev);
-        return new Set([...prevArray, data.user_id]);
+        const newSet = new Set([...prevArray, data.user_id]);
+        console.log('🖥️ ChannelSidebar: Обновлен список стримящих пользователей:', Array.from(newSet));
+        return newSet;
       });
     };
 
     const handleScreenShareStop = (event: any) => {
       const data = event.detail;
+      console.log('🖥️ ChannelSidebar: Получено событие screen_share_stop:', data);
       setScreenSharingUsers(prev => {
         const newSet = new Set(prev);
         newSet.delete(data.user_id);
+        console.log('🖥️ ChannelSidebar: Обновлен список стримящих пользователей:', Array.from(newSet));
         return newSet;
       });
     };
@@ -460,10 +472,18 @@ export function ChannelSidebar() {
     localStorage.setItem(`voice-volume-${userId}`, volume.toString());
 
     // Применяем громкость к аудио элементу
+    // HTML audio элементы поддерживают только значения от 0 до 1
     const audioElement = document.getElementById(`remote-audio-${userId}`) as HTMLAudioElement;
     if (audioElement) {
-      audioElement.volume = Math.min(volume / 100, 3.0); // Ограничиваем до 300% (3.0)
-      console.log(`🔊 Установлена громкость ${volume}% для пользователя ${userId}`);
+      // Конвертируем проценты в диапазон 0-1, максимум 100% = 1.0
+      audioElement.volume = Math.min(volume / 100, 1.0);
+      console.log(`🔊 Установлена громкость ${volume}% (${audioElement.volume}) для пользователя ${userId}`);
+    }
+
+    // Для громкости выше 100% можно использовать Web Audio API (будущая реализация)
+    if (volume > 100) {
+      console.log(`⚠️ Громкость ${volume}% превышает 100%. HTML audio ограничен до 100%.`);
+      // TODO: Реализовать усиление через Web Audio API для значений > 100%
     }
   };
 
@@ -626,10 +646,17 @@ export function ChannelSidebar() {
                       <div className="ml-6 mt-1 space-y-1">
                         {channelParticipants.map((participant) => {
                           const isScreenSharing = screenSharingUsers.has(participant.user_id);
+                          // Отладка для проверки состояния
+                          if (participant.user_id && screenSharingUsers.size > 0) {
+                            console.log(`🖥️ Проверка участника ${participant.username} (ID: ${participant.user_id}): стримит = ${isScreenSharing}, список стримящих:`, Array.from(screenSharingUsers));
+                          }
                           return (
                             <div
                               key={participant.user_id}
-                              className="flex items-center gap-2 px-2 py-1 rounded hover:bg-accent/50 transition-colors cursor-pointer"
+                              className={cn(
+                                "flex items-center gap-2 px-2 py-1 rounded hover:bg-accent/50 transition-colors cursor-pointer",
+                                isScreenSharing && "bg-green-900/20 border border-green-500/30 shadow-sm"
+                              )}
                               onContextMenu={(e) => handleParticipantContextMenu(e, participant)}
                             >
                               <SpeakingAvatar username={participant.username} isSpeaking={speakingUsers.has(participant.user_id)} isScreenSharing={isScreenSharing} />
@@ -637,13 +664,14 @@ export function ChannelSidebar() {
                                 variant="caption"
                                 className={cn(
                                   "flex-1 text-xs",
-                                  participant.is_deafened ? "text-red-400 line-through" : "text-muted-foreground"
+                                  participant.is_deafened ? "text-red-400 line-through" : "text-muted-foreground",
+                                  isScreenSharing && "text-green-300 font-semibold"
                                 )}
                               >
                                 {participant.username}
                                 {participant.user_id === user?.id && " (Вы)"}
                                 {isScreenSharing && (
-                                  <span className="text-green-400 font-medium ml-1">
+                                  <span className="text-green-400 font-bold ml-1 animate-pulse">
                                     • Стримит
                                   </span>
                                 )}
@@ -653,7 +681,7 @@ export function ChannelSidebar() {
                               {isScreenSharing && (
                                 <div className="flex items-center gap-1">
                                   {/* Анимированная точка */}
-                                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                                  <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse shadow-lg shadow-green-400/50" />
                                   
                                   {/* Кнопка для просмотра */}
                                   <Button
@@ -741,8 +769,9 @@ export function ChannelSidebar() {
               <Button
                 variant="ghost"
                 size="sm"
+                onClick={() => setIsNoiseSettingsOpen(true)}
                 className="w-8 h-8 p-0 text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                title="Настройки"
+                title="Настройки шумодава"
               >
                 <Settings className="w-4 h-4" />
               </Button>
@@ -1003,7 +1032,7 @@ export function ChannelSidebar() {
                   value={getParticipantVolume(contextMenu.participant.user_id)}
                   onChange={(_, value) => setParticipantVolume(contextMenu.participant.user_id, value as number)}
                   min={0}
-                  max={300}
+                  max={100}
                   step={5}
                   sx={{
                     color: 'rgb(88, 101, 242)',
@@ -1082,6 +1111,12 @@ export function ChannelSidebar() {
           </>
         )}
       </Menu>
+
+      {/* Модальное окно настроек шумодава */}
+      <NoiseSuppressionSettings 
+        open={isNoiseSettingsOpen} 
+        onClose={() => setIsNoiseSettingsOpen(false)} 
+      />
     </>
   )
 }

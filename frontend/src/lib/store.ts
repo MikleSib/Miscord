@@ -224,14 +224,6 @@ export const useStore = create<AppState>()(
         websocketService.onChannelInvitation((data) => {
           console.log('Получено приглашение в канал:', data);
           
-          // Показываем уведомление
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification(`Приглашение в канал`, {
-              body: `${data.invited_by} пригласил вас в канал "${data.channel_name}"`,
-              icon: '/favicon.ico'
-            });
-          }
-          
           // Перезагружаем список серверов
           get().loadServers();
         });
@@ -270,14 +262,6 @@ export const useStore = create<AppState>()(
         websocketService.onVoiceChannelJoin((data) => {
           console.log('Пользователь присоединился к голосовому каналу:', data);
           
-          // Показываем уведомление
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification(`Голосовой канал`, {
-              body: `${data.username} присоединился к каналу "${data.voice_channel_name}"`,
-              icon: '/favicon.ico'
-            });
-          }
-          
           // Генерируем глобальное событие для обновления UI
           window.dispatchEvent(new CustomEvent('voice_channel_join', { detail: data }));
         });
@@ -285,14 +269,6 @@ export const useStore = create<AppState>()(
         // Обработка выхода из голосового канала
         websocketService.onVoiceChannelLeave((data) => {
           console.log('Пользователь покинул голосовой канал:', data);
-          
-          // Показываем уведомление
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification(`Голосовой канал`, {
-              body: `${data.username} покинул голосовой канал`,
-              icon: '/favicon.ico'
-            });
-          }
           
           // Генерируем глобальное событие для обновления UI
           window.dispatchEvent(new CustomEvent('voice_channel_leave', { detail: data }));
@@ -302,14 +278,6 @@ export const useStore = create<AppState>()(
         websocketService.onScreenShareStarted((data) => {
           console.log('Пользователь начал демонстрацию экрана:', data);
           
-          // Показываем уведомление
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification(`Демонстрация экрана`, {
-              body: `${data.username} начал демонстрацию экрана`,
-              icon: '/favicon.ico'
-            });
-          }
-          
           // Генерируем глобальное событие для обновления UI
           window.dispatchEvent(new CustomEvent('screen_share_start', { detail: data }));
         });
@@ -317,14 +285,6 @@ export const useStore = create<AppState>()(
         // Обработка остановки демонстрации экрана
         websocketService.onScreenShareStopped((data) => {
           console.log('Пользователь остановил демонстрацию экрана:', data);
-          
-          // Показываем уведомление
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification(`Демонстрация экрана`, {
-              body: `${data.username} остановил демонстрацию экрана`,
-              icon: '/favicon.ico'
-            });
-          }
           
           // Генерируем глобальное событие для обновления UI
           window.dispatchEvent(new CustomEvent('screen_share_stop', { detail: data }));
