@@ -22,6 +22,8 @@ class VoiceService {
   private vadInterval: number | null = null;
   private isSpeaking: boolean = false;
   private speakingUsers: Set<number> = new Set();
+  private onParticipantsReceivedCallback: ((participants: any[]) => void) | null = null;
+  private onParticipantStatusChangedCallback: ((userId: number, status: Partial<{ is_muted: boolean; is_deafened: boolean }>) => void) | null = null;
 
   async connect(voiceChannelId: number, token: string) {
     console.log('🎙️ VoiceService.connect вызван с параметрами:', { voiceChannelId, token: token ? 'есть' : 'нет' });
@@ -82,6 +84,12 @@ class VoiceService {
     switch (data.type) {
       case 'participants':
         this.iceServers = data.ice_servers;
+        
+        // Передаем список участников в store
+        if (this.onParticipantsReceivedCallback) {
+          this.onParticipantsReceivedCallback(data.participants);
+        }
+        
         // Создаем соединения с существующими участниками
         for (const participant of data.participants) {
           await this.createPeerConnection(participant.user_id, true);
@@ -118,6 +126,20 @@ class VoiceService {
         // Обработка информации о том, что пользователь говорит
         if (this.onSpeakingChanged) {
           this.onSpeakingChanged(data.user_id, data.is_speaking);
+        }
+        break;
+        
+      case 'user_muted':
+        // Обработка изменения статуса микрофона
+        if (this.onParticipantStatusChangedCallback) {
+          this.onParticipantStatusChangedCallback(data.user_id, { is_muted: data.is_muted });
+        }
+        break;
+        
+      case 'user_deafened':
+        // Обработка изменения статуса наушников
+        if (this.onParticipantStatusChangedCallback) {
+          this.onParticipantStatusChangedCallback(data.user_id, { is_deafened: data.is_deafened });
         }
         break;
     }
@@ -291,7 +313,8 @@ class VoiceService {
     const dataArray = new Uint8Array(bufferLength);
 
     this.vadInterval = window.setInterval(() => {
-      this.analyser!.getByteFrequencyData(dataArray);
+      if (!this.analyser) return;
+      this.analyser.getByteFrequencyData(dataArray);
       
       // Вычисляем среднюю громкость
       let sum = 0;
@@ -354,6 +377,14 @@ class VoiceService {
 
   onSpeakingChange(callback: (userId: number, isSpeaking: boolean) => void) {
     this.onSpeakingChanged = callback;
+  }
+
+  onParticipantsReceived(callback: (participants: any[]) => void) {
+    this.onParticipantsReceivedCallback = callback;
+  }
+
+  onParticipantStatusChanged(callback: (userId: number, status: Partial<{ is_muted: boolean; is_deafened: boolean }>) => void) {
+    this.onParticipantStatusChangedCallback = callback;
   }
 }
 

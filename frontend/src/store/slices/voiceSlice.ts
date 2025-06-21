@@ -71,6 +71,27 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         get().setSpeaking(userId, isSpeaking);
       });
       
+      // Обработчик получения списка участников
+      voiceService.onParticipantsReceived((participants) => {
+        console.log('🎙️ Получен список участников:', participants);
+        get().setParticipants(participants);
+      });
+      
+      // Обработчик изменения статуса участников
+      voiceService.onParticipantStatusChanged((userId, status) => {
+        console.log('🎙️ Изменение статуса участника:', userId, status);
+        const currentParticipants = get().participants;
+        const participantIndex = currentParticipants.findIndex(p => p.user_id === userId);
+        
+        if (participantIndex !== -1) {
+          const updatedParticipant = {
+            ...currentParticipants[participantIndex],
+            ...status
+          };
+          get().updateParticipant(updatedParticipant);
+        }
+      });
+      
       // Подключаемся к голосовому каналу
       await voiceService.connect(channelId, token);
       
@@ -173,10 +194,14 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   setError: (error) => set({ error }),
   
   setSpeaking: (userId, isSpeaking) => {
-    if (isSpeaking) {
-      get().speakingUsers.add(userId);
-    } else {
-      get().speakingUsers.delete(userId);
-    }
+    set((state) => {
+      const newSpeakingUsers = new Set(state.speakingUsers);
+      if (isSpeaking) {
+        newSpeakingUsers.add(userId);
+      } else {
+        newSpeakingUsers.delete(userId);
+      }
+      return { speakingUsers: newSpeakingUsers };
+    });
   },
 }));

@@ -1,7 +1,7 @@
 'use client'
 
 import { Box, Typography, Avatar, IconButton } from '@mui/material';
-import { X, Monitor, UserPlus } from 'lucide-react';
+import { X, Monitor, UserPlus, Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
 import { useVoiceStore } from '../store/slices/voiceSlice';
 import { useAuthStore } from '../store/store';
 import { useStore } from '../lib/store';
@@ -78,7 +78,11 @@ export function VoiceOverlay() {
     participants, 
     currentVoiceChannelId,
     disconnectFromVoiceChannel,
-    speakingUsers
+    speakingUsers,
+    isMuted,
+    isDeafened,
+    toggleMute,
+    toggleDeafen
   } = useVoiceStore();
   const { user } = useAuthStore();
   const { currentServer } = useStore();
@@ -97,8 +101,8 @@ export function VoiceOverlay() {
     ...(user ? [{
       user_id: user.id,
       username: user.username,
-      is_muted: false,
-      is_deafened: false,
+      is_muted: isMuted,
+      is_deafened: isDeafened,
     }] : []),
     ...participants.filter(p => p.user_id !== user?.id),
   ];
@@ -191,6 +195,47 @@ export function VoiceOverlay() {
                   </Typography>
                 )}
               </Typography>
+              
+              {/* Иконки статуса */}
+              <Box sx={{ display: 'flex', gap: 0.5 }}>
+                {/* Иконка микрофона */}
+                {participant.is_muted ? (
+                  <MicOff 
+                    size={14} 
+                    style={{ 
+                      color: '#f04747',
+                      opacity: 0.8 
+                    }} 
+                  />
+                ) : (
+                  <Mic 
+                    size={14} 
+                    style={{ 
+                      color: '#43b581',
+                      opacity: 0.8 
+                    }} 
+                  />
+                )}
+                
+                {/* Иконка наушников */}
+                {participant.is_deafened ? (
+                  <VolumeX 
+                    size={14} 
+                    style={{ 
+                      color: '#f04747',
+                      opacity: 0.8 
+                    }} 
+                  />
+                ) : (
+                  <Volume2 
+                    size={14} 
+                    style={{ 
+                      color: '#43b581',
+                      opacity: 0.8 
+                    }} 
+                  />
+                )}
+              </Box>
             </Box>
           );
         })}
@@ -204,26 +249,54 @@ export function VoiceOverlay() {
         )}
       </Box>
 
-      {/* Дополнительные действия */}
+      {/* Управление микрофоном и наушниками */}
       <Box
         sx={{
           padding: '12px 16px',
           borderTop: '1px solid rgba(255, 255, 255, 0.1)',
           display: 'flex',
           gap: 1,
+          justifyContent: 'center',
         }}
       >
+        {/* Кнопка микрофона */}
+        <IconButton 
+          size="small" 
+          onClick={toggleMute}
+          sx={{ 
+            color: isMuted ? '#f04747' : '#43b581',
+            backgroundColor: isMuted ? 'rgba(240, 71, 71, 0.1)' : 'rgba(67, 181, 129, 0.1)',
+            '&:hover': { 
+              backgroundColor: isMuted ? 'rgba(240, 71, 71, 0.2)' : 'rgba(67, 181, 129, 0.2)',
+            },
+            border: `1px solid ${isMuted ? '#f04747' : '#43b581'}`,
+          }}
+        >
+          {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
+        </IconButton>
+        
+        {/* Кнопка наушников */}
+        <IconButton 
+          size="small" 
+          onClick={toggleDeafen}
+          sx={{ 
+            color: isDeafened ? '#f04747' : '#43b581',
+            backgroundColor: isDeafened ? 'rgba(240, 71, 71, 0.1)' : 'rgba(67, 181, 129, 0.1)',
+            '&:hover': { 
+              backgroundColor: isDeafened ? 'rgba(240, 71, 71, 0.2)' : 'rgba(67, 181, 129, 0.2)',
+            },
+            border: `1px solid ${isDeafened ? '#f04747' : '#43b581'}`,
+          }}
+        >
+          {isDeafened ? <VolumeX size={16} /> : <Volume2 size={16} />}
+        </IconButton>
+        
+        {/* Дополнительные действия */}
         <IconButton 
           size="small" 
           sx={{ color: '#b9bbbe', '&:hover': { color: '#dcddde' } }}
         >
           <Monitor size={16} />
-        </IconButton>
-        <IconButton 
-          size="small" 
-          sx={{ color: '#b9bbbe', '&:hover': { color: '#dcddde' } }}
-        >
-          <UserPlus size={16} />
         </IconButton>
       </Box>
     </Box>
