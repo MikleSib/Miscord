@@ -11,6 +11,8 @@ import { UserPanel } from '../components/UserPanel'
 import { ScreenShareOverlay } from '../components/ScreenShareOverlay'
 import { useVoiceStore } from '../store/slices/voiceSlice'
 import voiceService from '../services/voiceService'
+import { Button } from '../components/ui/button'
+import { Monitor } from 'lucide-react'
 
 export default function HomePage() {
   const router = useRouter()
@@ -90,16 +92,36 @@ export default function HomePage() {
       });
     };
 
+    const handleOpenScreenShare = (event: any) => {
+      const { userId, username } = event.detail;
+      // Добавляем пользователя в список если его нет
+      setSharingUsers(prev => {
+        if (!prev.find(u => u.userId === userId)) {
+          return [...prev, { userId, username }];
+        }
+        return prev;
+      });
+      // Открываем overlay
+      setIsScreenShareVisible(true);
+    };
+
     voiceService.onScreenShareChange(handleScreenShareChange);
+    window.addEventListener('open_screen_share', handleOpenScreenShare);
 
     // Показываем overlay если есть пользователи демонстрирующие экран
     const checkScreenShare = () => {
       const hasScreenShare = sharingUsers.length > 0 || voiceService.getScreenSharingStatus();
-      setIsScreenShareVisible(hasScreenShare);
+      if (hasScreenShare && !isScreenShareVisible) {
+        setIsScreenShareVisible(true);
+      }
     };
 
     checkScreenShare();
-  }, [sharingUsers]);
+
+    return () => {
+      window.removeEventListener('open_screen_share', handleOpenScreenShare);
+    };
+  }, [sharingUsers, isScreenShareVisible]);
 
   if (!isMounted) {
     return null // Предотвращаем гидратацию
@@ -135,6 +157,27 @@ export default function HomePage() {
         <ChatArea />
         <UserPanel />
       </div>
+      
+      {/* Плавающая кнопка для просмотра демонстрации экрана (мобильная версия) */}
+      {sharingUsers.length > 0 && !isScreenShareVisible && (
+        <div className="fixed bottom-20 right-4 z-40 md:hidden">
+          <Button
+            onClick={() => setIsScreenShareVisible(true)}
+            className="h-14 w-14 rounded-full bg-green-600 hover:bg-green-700 shadow-lg"
+            size="sm"
+          >
+            <div className="flex flex-col items-center">
+              <Monitor className="w-6 h-6 text-white" />
+              <div className="w-2 h-2 bg-white rounded-full animate-pulse mt-1" />
+            </div>
+          </Button>
+          {sharingUsers.length > 1 && (
+            <div className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-6 h-6 flex items-center justify-center font-bold">
+              {sharingUsers.length}
+            </div>
+          )}
+        </div>
+      )}
       
       {/* Overlay для демонстрации экрана */}
       <ScreenShareOverlay

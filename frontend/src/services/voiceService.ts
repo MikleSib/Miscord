@@ -666,33 +666,66 @@ class VoiceService {
         this.stopScreenShare();
       });
 
+      // Обрабатываем событие остановки аудио трека
+      const audioTracks = this.screenStream.getAudioTracks();
+      if (audioTracks.length > 0) {
+        audioTracks[0].addEventListener('ended', () => {
+          console.log('🖥️ Системный звук остановлен');
+        });
+      }
+
       // Добавляем видео трек ко всем существующим peer connections
       this.peerConnections.forEach(async ({ pc }, userId) => {
-        const videoTrack = this.screenStream!.getVideoTracks()[0];
-        if (videoTrack) {
-          // Добавляем видео трек
-          pc.addTrack(videoTrack, this.screenStream!);
-          console.log(`🖥️ Добавлен видео трек для пользователя ${userId}`);
-        }
-
-        // Добавляем аудио трек системы если есть
-        const audioTracks = this.screenStream!.getAudioTracks();
-        if (audioTracks.length > 0) {
-          pc.addTrack(audioTracks[0], this.screenStream!);
-          console.log(`🖥️ Добавлен системный аудио трек для пользователя ${userId}`);
-        }
-
-        // Создаем новый offer с видео
         try {
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          this.sendMessage({
-            type: 'offer',
-            target_id: userId,
-            offer: offer,
-          });
+          const videoTrack = this.screenStream!.getVideoTracks()[0];
+          if (videoTrack) {
+            // Проверяем, есть ли уже видео трек
+            const senders = pc.getSenders();
+            const existingVideoSender = senders.find(sender => 
+              sender.track && sender.track.kind === 'video'
+            );
+
+            if (existingVideoSender) {
+              // Заменяем существующий видео трек
+              await existingVideoSender.replaceTrack(videoTrack);
+              console.log(`🖥️ Заменен видео трек для пользователя ${userId}`);
+            } else {
+              // Добавляем новый видео трек
+              pc.addTrack(videoTrack, this.screenStream!);
+              console.log(`🖥️ Добавлен видео трек для пользователя ${userId}`);
+            }
+          }
+
+          // Добавляем аудио трек системы если есть
+          const audioTracks = this.screenStream!.getAudioTracks();
+          if (audioTracks.length > 0) {
+            const existingAudioSenders = pc.getSenders().filter(sender => 
+              sender.track && sender.track.kind === 'audio'
+            );
+            
+            // Добавляем только если это не микрофонный трек
+            const isSystemAudio = audioTracks[0].label.includes('System') || 
+                                 audioTracks[0].label.includes('Desktop') ||
+                                 audioTracks[0].getSettings().deviceId !== 'default';
+            
+            if (isSystemAudio) {
+              pc.addTrack(audioTracks[0], this.screenStream!);
+              console.log(`🖥️ Добавлен системный аудио трек для пользователя ${userId}`);
+            }
+          }
+
+          // Создаем новый offer только если connection state позволяет
+          if (pc.connectionState === 'connected' || pc.connectionState === 'new') {
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            this.sendMessage({
+              type: 'offer',
+              target_id: userId,
+              offer: offer,
+            });
+          }
         } catch (error) {
-          console.error(`🖥️ Ошибка создания offer с видео для пользователя ${userId}:`, error);
+          console.error(`🖥️ Ошибка добавления видео трека для пользователя ${userId}:`, error);
         }
       });
 
@@ -723,25 +756,37 @@ class VoiceService {
 
     // Удаляем видео треки из всех peer connections
     this.peerConnections.forEach(({ pc }, userId) => {
-      const senders = pc.getSenders();
-      senders.forEach((sender: RTCRtpSender) => {
-        if (sender.track && sender.track.kind === 'video') {
-          pc.removeTrack(sender);
-          console.log(`🖥️ Удален видео трек для пользователя ${userId}`);
-        }
-      });
-
-      // Создаем новый offer без видео
-      pc.createOffer().then((offer: RTCSessionDescriptionInit) => {
-        pc.setLocalDescription(offer);
-        this.sendMessage({
-          type: 'offer',
-          target_id: userId,
-          offer: offer,
+      try {
+        const senders = pc.getSenders();
+        senders.forEach((sender: RTCRtpSender) => {
+          if (sender.track && sender.track.kind === 'video') {
+            // Заменяем видео трек на null вместо удаления
+            sender.replaceTrack(null).then(() => {
+              console.log(`🖥️ Видео трек остановлен для пользователя ${userId}`);
+            }).catch(error => {
+              console.error(`🖥️ Ошибка остановки видео трека для пользователя ${userId}:`, error);
+              // Если replaceTrack не работает, удаляем трек
+              pc.removeTrack(sender);
+            });
+          }
         });
-      }).catch((error: any) => {
-        console.error(`🖥️ Ошибка создания offer без видео для пользователя ${userId}:`, error);
-      });
+
+        // Создаем новый offer без видео только если connection активно
+        if (pc.connectionState === 'connected') {
+          pc.createOffer().then((offer: RTCSessionDescriptionInit) => {
+            pc.setLocalDescription(offer);
+            this.sendMessage({
+              type: 'offer',
+              target_id: userId,
+              offer: offer,
+            });
+          }).catch((error: any) => {
+            console.error(`🖥️ Ошибка создания offer без видео для пользователя ${userId}:`, error);
+          });
+        }
+      } catch (error) {
+        console.error(`🖥️ Ошибка при остановке демонстрации для пользователя ${userId}:`, error);
+      }
     });
 
     this.screenStream = null;

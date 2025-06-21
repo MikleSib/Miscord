@@ -122,6 +122,9 @@ export function ChannelSidebar() {
   // Состояние для громкости участников (по умолчанию 100%)
   const [participantVolumes, setParticipantVolumes] = useState<Record<number, number>>({});
 
+  // Состояние для пользователей, демонстрирующих экран
+  const [screenSharingUsers, setScreenSharingUsers] = useState<Set<number>>(new Set());
+
   // Загружаем участников голосового канала
   const loadVoiceChannelMembers = async (voiceChannelId: number) => {
     try {
@@ -170,13 +173,35 @@ export function ChannelSidebar() {
       }
     };
 
+    // Обработчики глобальных событий
+    const handleScreenShareStart = (event: any) => {
+      const data = event.detail;
+      setScreenSharingUsers(prev => {
+        const prevArray = Array.from(prev);
+        return new Set([...prevArray, data.user_id]);
+      });
+    };
+
+    const handleScreenShareStop = (event: any) => {
+      const data = event.detail;
+      setScreenSharingUsers(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(data.user_id);
+        return newSet;
+      });
+    };
+
     // Подписываемся на события
     window.addEventListener('voice_channel_join', handleVoiceChannelJoin);
     window.addEventListener('voice_channel_leave', handleVoiceChannelLeave);
+    window.addEventListener('screen_share_start', handleScreenShareStart);
+    window.addEventListener('screen_share_stop', handleScreenShareStop);
 
     return () => {
       window.removeEventListener('voice_channel_join', handleVoiceChannelJoin);
       window.removeEventListener('voice_channel_leave', handleVoiceChannelLeave);
+      window.removeEventListener('screen_share_start', handleScreenShareStart);
+      window.removeEventListener('screen_share_stop', handleScreenShareStop);
     };
   }, []);
 
@@ -302,6 +327,15 @@ export function ChannelSidebar() {
       audioElement.volume = Math.min(volume / 100, 3.0); // Ограничиваем до 300% (3.0)
       console.log(`🔊 Установлена громкость ${volume}% для пользователя ${userId}`);
     }
+  };
+
+  // Открытие демонстрации экрана
+  const openScreenShare = (userId: number, username: string) => {
+    // Создаем событие для открытия ScreenShareOverlay
+    const event = new CustomEvent('open_screen_share', {
+      detail: { userId, username }
+    });
+    window.dispatchEvent(event);
   };
 
   const handleCreateTextChannel = async () => {
@@ -461,33 +495,53 @@ export function ChannelSidebar() {
                     {/* Участники голосового канала */}
                     {channelParticipants.length > 0 && (
                       <div className="ml-6 mt-1 space-y-1">
-                        {channelParticipants.map((participant) => (
-                          <div
-                            key={participant.user_id}
-                            className="flex items-center gap-2 px-2 py-1 rounded hover:bg-accent/50 transition-colors cursor-pointer"
-                            onContextMenu={(e) => handleParticipantContextMenu(e, participant)}
-                          >
-                            <SpeakingAvatar username={participant.username} isSpeaking={speakingUsers.has(participant.user_id)} />
-                            <Typography
-                              variant="caption"
-                              className={cn(
-                                "flex-1 text-xs",
-                                participant.is_deafened ? "text-red-400 line-through" : "text-muted-foreground"
-                              )}
+                        {channelParticipants.map((participant) => {
+                          const isScreenSharing = screenSharingUsers.has(participant.user_id);
+                          return (
+                            <div
+                              key={participant.user_id}
+                              className="flex items-center gap-2 px-2 py-1 rounded hover:bg-accent/50 transition-colors cursor-pointer"
+                              onContextMenu={(e) => handleParticipantContextMenu(e, participant)}
                             >
-                              {participant.username}
-                              {participant.user_id === user?.id && " (Вы)"}
-                            </Typography>
-                            <div className="flex gap-1">
-                              {participant.is_muted && (
-                                <MicOff className="w-3 h-3 text-red-400" />
+                              <SpeakingAvatar username={participant.username} isSpeaking={speakingUsers.has(participant.user_id)} />
+                              <Typography
+                                variant="caption"
+                                className={cn(
+                                  "flex-1 text-xs",
+                                  participant.is_deafened ? "text-red-400 line-through" : "text-muted-foreground"
+                                )}
+                              >
+                                {participant.username}
+                                {participant.user_id === user?.id && " (Вы)"}
+                              </Typography>
+                              
+                              {/* Индикатор демонстрации экрана */}
+                              {isScreenSharing && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="w-6 h-6 p-0 text-green-400 hover:text-green-300 hover:bg-green-400/20"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openScreenShare(participant.user_id, participant.username);
+                                  }}
+                                  title={`${participant.username} демонстрирует экран - нажмите для просмотра`}
+                                >
+                                  <Monitor className="w-3 h-3" />
+                                </Button>
                               )}
-                              {participant.is_deafened && (
-                                <Headphones className="w-3 h-3 text-red-400" />
-                              )}
+                              
+                              <div className="flex gap-1">
+                                {participant.is_muted && (
+                                  <MicOff className="w-3 h-3 text-red-400" />
+                                )}
+                                {participant.is_deafened && (
+                                  <Headphones className="w-3 h-3 text-red-400" />
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>

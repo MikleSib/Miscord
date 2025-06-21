@@ -64,24 +64,24 @@ export function ScreenShareOverlay({ isVisible, onClose, sharingUsers }: ScreenS
   return (
     <div 
       id="screen-share-overlay"
-      className={`fixed inset-0 bg-black/90 z-50 flex flex-col ${isFullscreen ? 'p-0' : 'p-4'}`}
+      className={`fixed inset-0 bg-black/90 z-50 flex flex-col ${isFullscreen ? 'p-0' : 'p-2 md:p-4'}`}
     >
       {/* Заголовок */}
-      <div className="flex items-center justify-between p-4 bg-gray-900/80 backdrop-blur-sm">
-        <div className="flex items-center gap-3">
-          <Monitor className="w-5 h-5 text-green-400" />
-          <span className="text-white font-medium">
+      <div className="flex items-center justify-between p-2 md:p-4 bg-gray-900/80 backdrop-blur-sm">
+        <div className="flex items-center gap-2 md:gap-3 min-w-0 flex-1">
+          <Monitor className="w-4 h-4 md:w-5 md:h-5 text-green-400 flex-shrink-0" />
+          <span className="text-white font-medium text-sm md:text-base truncate">
             {currentUser ? `${currentUser.username} демонстрирует экран` : 'Демонстрация экрана'}
           </span>
         </div>
         
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 md:gap-2">
           {/* Переключение между пользователями */}
           {sharingUsers.length > 1 && (
             <select 
               value={selectedUser || ''} 
               onChange={(e) => setSelectedUser(Number(e.target.value))}
-              className="bg-gray-800 text-white px-3 py-1 rounded border border-gray-600"
+              className="bg-gray-800 text-white px-2 py-1 rounded border border-gray-600 text-sm max-w-32 md:max-w-none"
             >
               {sharingUsers.map(({ userId, username }) => (
                 <option key={userId} value={userId}>{username}</option>
@@ -94,17 +94,17 @@ export function ScreenShareOverlay({ isVisible, onClose, sharingUsers }: ScreenS
             variant="ghost"
             size="sm"
             onClick={toggleMute}
-            className="text-white hover:bg-gray-700"
+            className="text-white hover:bg-gray-700 w-8 h-8 p-0 md:w-auto md:h-auto md:p-2"
           >
             {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
           </Button>
           
-          {/* Кнопка полноэкранного режима */}
+          {/* Кнопка полноэкранного режима - только на десктопе */}
           <Button
             variant="ghost"
             size="sm"
             onClick={toggleFullscreen}
-            className="text-white hover:bg-gray-700"
+            className="text-white hover:bg-gray-700 w-8 h-8 p-0 md:w-auto md:h-auto md:p-2 hidden md:flex"
           >
             {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
           </Button>
@@ -115,20 +115,20 @@ export function ScreenShareOverlay({ isVisible, onClose, sharingUsers }: ScreenS
               variant="destructive"
               size="sm"
               onClick={stopScreenShare}
-              className="flex items-center gap-2"
+              className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 py-1 md:px-3 md:py-2"
             >
-              <MonitorOff className="w-4 h-4" />
-              Остановить
+              <MonitorOff className="w-3 h-3 md:w-4 md:h-4" />
+              <span className="hidden md:inline">Остановить</span>
             </Button>
           ) : (
             <Button
               variant="default"
               size="sm"
               onClick={startScreenShare}
-              className="flex items-center gap-2 bg-green-600 hover:bg-green-700"
+              className="flex items-center gap-1 md:gap-2 bg-green-600 hover:bg-green-700 text-xs md:text-sm px-2 py-1 md:px-3 md:py-2"
             >
-              <Monitor className="w-4 h-4" />
-              Поделиться
+              <Monitor className="w-3 h-3 md:w-4 md:h-4" />
+              <span className="hidden md:inline">Поделиться</span>
             </Button>
           )}
           
@@ -137,7 +137,7 @@ export function ScreenShareOverlay({ isVisible, onClose, sharingUsers }: ScreenS
             variant="ghost"
             size="sm"
             onClick={onClose}
-            className="text-white hover:bg-gray-700"
+            className="text-white hover:bg-gray-700 w-8 h-8 p-0 md:w-auto md:h-auto md:p-2"
           >
             <X className="w-4 h-4" />
           </Button>

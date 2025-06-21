@@ -93,6 +93,15 @@ class WebSocketService {
     this.messageHandlers['voice_channel_leave'] = handler;
   }
 
+  // Демонстрация экрана
+  onScreenShareStarted(handler: (data: { user_id: number; username: string }) => void) {
+    this.messageHandlers['screen_share_started'] = handler;
+  }
+
+  onScreenShareStopped(handler: (data: { user_id: number; username: string }) => void) {
+    this.messageHandlers['screen_share_stopped'] = handler;
+  }
+
   // Отправка сообщения
   send(data: any) {
     if (this.ws?.readyState === WebSocket.OPEN) {

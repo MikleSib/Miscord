@@ -297,6 +297,38 @@ export const useStore = create<AppState>()(
           // Генерируем глобальное событие для обновления UI
           window.dispatchEvent(new CustomEvent('voice_channel_leave', { detail: data }));
         });
+
+        // Обработка начала демонстрации экрана
+        websocketService.onScreenShareStarted((data) => {
+          console.log('Пользователь начал демонстрацию экрана:', data);
+          
+          // Показываем уведомление
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification(`Демонстрация экрана`, {
+              body: `${data.username} начал демонстрацию экрана`,
+              icon: '/favicon.ico'
+            });
+          }
+          
+          // Генерируем глобальное событие для обновления UI
+          window.dispatchEvent(new CustomEvent('screen_share_start', { detail: data }));
+        });
+
+        // Обработка остановки демонстрации экрана
+        websocketService.onScreenShareStopped((data) => {
+          console.log('Пользователь остановил демонстрацию экрана:', data);
+          
+          // Показываем уведомление
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification(`Демонстрация экрана`, {
+              body: `${data.username} остановил демонстрацию экрана`,
+              icon: '/favicon.ico'
+            });
+          }
+          
+          // Генерируем глобальное событие для обновления UI
+          window.dispatchEvent(new CustomEvent('screen_share_stop', { detail: data }));
+        });
       },
 
       // Отключение WebSocket
