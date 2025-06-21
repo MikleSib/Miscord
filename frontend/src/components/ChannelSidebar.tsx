@@ -9,7 +9,7 @@ import { useRouter } from 'next/navigation'
 import { cn } from '../lib/utils'
 import { Button } from './ui/button'
 import voiceService from '../services/voiceService'
-import { NoiseSuppressionSettings } from './NoiseSuppressionSettings'
+import AdvancedNoiseSuppressionSettings from './AdvancedNoiseSuppressionSettings'
 import {
   Dialog,
   DialogContent,
@@ -1125,7 +1125,7 @@ export function ChannelSidebar() {
       </Menu>
 
       {/* Модальное окно настроек шумодава */}
-      <NoiseSuppressionSettings 
+      <AdvancedNoiseSuppressionSettings 
         open={isNoiseSettingsOpen} 
         onClose={() => setIsNoiseSettingsOpen(false)} 
       />

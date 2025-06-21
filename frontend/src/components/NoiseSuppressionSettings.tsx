@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react';
-import { Settings, Volume2, VolumeX, Zap, ZapOff } from 'lucide-react';
+import { Settings, Volume2, VolumeX, Zap, ZapOff, Brain } from 'lucide-react';
 import { Button } from './ui/button';
 import {
   Dialog,
@@ -29,15 +29,16 @@ interface NoiseSuppressionSettingsProps {
 export function NoiseSuppressionSettings({ open, onClose }: NoiseSuppressionSettingsProps) {
   const [settings, setSettings] = useState({
     enabled: true,
-    level: 'basic' as 'basic' | 'advanced',
-    sensitivity: 70,
+    level: 'professional' as 'basic' | 'advanced' | 'professional',
+    sensitivity: 75,
     vadThreshold: -30,
     vadEnabled: true
   });
   
   const [support, setSupport] = useState({
     basic: false,
-    advanced: false
+    advanced: false,
+    professional: false
   });
   
   const [stats, setStats] = useState<any>(null);
@@ -67,7 +68,10 @@ export function NoiseSuppressionSettings({ open, onClose }: NoiseSuppressionSett
     
     try {
       const supportInfo = voiceService.isNoiseSuppressionSupported();
-      setSupport(supportInfo);
+      setSupport({
+        ...supportInfo,
+        professional: supportInfo.advanced // Профессиональный уровень требует те же возможности что и продвинутый
+      });
     } catch (error) {
       console.error('🔇 Ошибка проверки поддержки шумодава:', error);
     }
@@ -93,11 +97,16 @@ export function NoiseSuppressionSettings({ open, onClose }: NoiseSuppressionSett
     voiceService.setNoiseSuppressionEnabled(enabled);
   };
 
-  const handleLevelChange = (level: 'basic' | 'advanced') => {
+  const handleLevelChange = (level: 'basic' | 'advanced' | 'professional') => {
     if (typeof window === 'undefined') return;
     
     setSettings(prev => ({ ...prev, level }));
+    // Пока что используем advanced для professional уровня
+    if (level === 'professional') {
+      voiceService.setNoiseSuppressionLevel('advanced');
+    } else {
     voiceService.setNoiseSuppressionLevel(level);
+    }
     
     // Обновляем статистику после изменения уровня
     setTimeout(loadStats, 500);
@@ -138,12 +147,14 @@ export function NoiseSuppressionSettings({ open, onClose }: NoiseSuppressionSett
     return 'Только громкие звуки';
   };
 
-  const getLevelDescription = (level: 'basic' | 'advanced') => {
+  const getLevelDescription = (level: 'basic' | 'advanced' | 'professional') => {
     switch (level) {
       case 'basic':
         return 'Использует встроенное подавление шума браузера. Низкое потребление ресурсов.';
       case 'advanced':
         return 'Использует RNNoise с машинным обучением. Лучшее качество, но больше нагрузки на процессор.';
+      case 'professional':
+        return 'Использует наш собственный Miscord AI алгоритм. Качество уровня Krisp! ⭐';
     }
   };
 
@@ -198,7 +209,7 @@ export function NoiseSuppressionSettings({ open, onClose }: NoiseSuppressionSett
                 Уровень обработки
               </Typography>
               
-              <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
+              <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', md: 'row' } }}>
                 <Box sx={{ flex: 1 }}>
                   <Box
                     sx={{
@@ -256,12 +267,41 @@ export function NoiseSuppressionSettings({ open, onClose }: NoiseSuppressionSett
                     </Typography>
                   </Box>
                 </Box>
+                
+                <Box sx={{ flex: 1 }}>
+                  <Box
+                    sx={{
+                      p: 2,
+                      border: settings.level === 'professional' ? 2 : 1,
+                      borderColor: settings.level === 'professional' ? 'primary.main' : 'divider',
+                      borderRadius: 1,
+                      cursor: support.professional ? 'pointer' : 'not-allowed',
+                      opacity: support.professional ? 1 : 0.5,
+                      bgcolor: settings.level === 'professional' ? 'primary.light' : 'transparent',
+                      '&:hover': support.professional ? { bgcolor: 'action.hover' } : {}
+                    }}
+                    onClick={() => support.professional && handleLevelChange('professional')}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                      <Brain size={20} />
+                      <Typography variant="subtitle2">Профессиональный (Miscord AI) ⭐</Typography>
+                      <Chip
+                        size="small"
+                        label={getStatusText(support.professional, settings.level === 'professional' && settings.enabled)}
+                        color={getStatusColor(support.professional, settings.level === 'professional' && settings.enabled)}
+                      />
+                    </Box>
+                    <Typography variant="body2" color="text.secondary">
+                      {getLevelDescription('professional')}
+                    </Typography>
+                  </Box>
+                </Box>
               </Box>
             </Box>
           )}
 
           {/* Чувствительность */}
-          {settings.enabled && settings.level === 'advanced' && (
+          {settings.enabled && (settings.level === 'advanced' || settings.level === 'professional') && (
             <Box>
               <Typography variant="subtitle1" gutterBottom>
                 Чувствительность: {getSensitivityLabel(settings.sensitivity)} ({settings.sensitivity}%)

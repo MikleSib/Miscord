@@ -10,10 +10,11 @@ interface RNNoiseModule {
 
 interface NoiseSuppressionSettings {
   enabled: boolean;
-  level: 'basic' | 'advanced'; // basic = browser native, advanced = RNNoise
+  level: 'basic' | 'advanced' | 'professional'; // basic = browser native, advanced = RNNoise, professional = our advanced AI
   sensitivity: number; // 0-100
   vadThreshold: number; // Порог активации голоса в дБ (-60 до 0)
   vadEnabled: boolean; // Включить/выключить VAD
+  mode?: 'gentle' | 'balanced' | 'aggressive'; // Режимы для professional уровня
 }
 
 class NoiseSuppressionService {
@@ -22,16 +23,20 @@ class NoiseSuppressionService {
   private isInitialized = false;
   private settings: NoiseSuppressionSettings = {
     enabled: true,
-    level: 'basic',
-    sensitivity: 70,
+    level: 'professional', // Используем наш продвинутый алгоритм по умолчанию
+    sensitivity: 75,
     vadThreshold: -30, // дБ
-    vadEnabled: true
+    vadEnabled: true,
+    mode: 'balanced'
   };
   private isSettingsLoaded = false;
   
   // RNNoise специфичные поля
   private rnnoiseModule: RNNoiseModule | null = null;
   private isRNNoiseLoaded = false;
+  
+  // Advanced AI специфичные поля
+  private isAdvancedLoaded = false;
 
   constructor() {
     // Не загружаем настройки в конструкторе для SSR совместимости
@@ -77,6 +82,10 @@ class NoiseSuppressionService {
       await this.loadRNNoise();
     }
     
+    if (this.settings.level === 'professional' && !this.isAdvancedLoaded) {
+      await this.loadAdvancedProcessor();
+    }
+    
     this.isInitialized = true;
     console.log('🔇 Сервис шумодава инициализирован', this.settings);
   }
@@ -96,6 +105,29 @@ class NoiseSuppressionService {
       // Fallback к базовому шумодаву
       this.settings.level = 'basic';
       this.saveSettings();
+    }
+  }
+
+  private async loadAdvancedProcessor(): Promise<void> {
+    try {
+      console.log('🔇 Загружаем Advanced AI Processor...');
+      
+      // Загружаем наш продвинутый AudioWorklet процессор
+      if (this.audioContext) {
+        await this.audioContext.audioWorklet.addModule('/advanced-noise-processor.js');
+        console.log('🔇 Advanced AI Processor загружен');
+        this.isAdvancedLoaded = true;
+      }
+    } catch (error) {
+      console.error('🔇 Ошибка загрузки Advanced AI Processor:', error);
+      // Fallback к RNNoise или базовому шумодаву
+      this.settings.level = 'advanced';
+      this.saveSettings();
+      
+      // Пытаемся загрузить RNNoise
+      if (!this.isRNNoiseLoaded) {
+        await this.loadRNNoise();
+      }
     }
   }
 
@@ -122,6 +154,11 @@ class NoiseSuppressionService {
     if (this.settings.level === 'basic') {
       console.log('🔇 Используем базовый уровень (встроенное подавление шума браузера)');
       return inputStream;
+    }
+
+    if (this.settings.level === 'professional') {
+      console.log('🔇 Используем профессиональный уровень (Advanced AI)');
+      return await this.processWithAdvancedAI(inputStream);
     }
 
     console.log('🔇 Используем продвинутый уровень (RNNoise)');
@@ -161,6 +198,40 @@ class NoiseSuppressionService {
     }
   }
 
+  private async processWithAdvancedAI(inputStream: MediaStream): Promise<MediaStream> {
+    if (!this.audioContext || !this.isAdvancedLoaded) {
+      console.warn('🔇 Advanced AI не загружен, используем оригинальный поток');
+      return inputStream;
+    }
+
+    try {
+      // Создаем источник из входного потока
+      const source = this.audioContext.createMediaStreamSource(inputStream);
+      
+      // Создаем AudioWorklet узел для нашего продвинутого процессора
+      this.workletNode = new AudioWorkletNode(this.audioContext, 'advanced-noise-processor', {
+        processorOptions: {
+          sensitivity: this.settings.sensitivity,
+          mode: this.settings.mode || 'balanced',
+          vadEnabled: this.settings.vadEnabled
+        }
+      });
+
+      // Создаем destination для выходного потока
+      const destination = this.audioContext.createMediaStreamDestination();
+
+      // Соединяем: источник -> Advanced AI -> destination
+      source.connect(this.workletNode);
+      this.workletNode.connect(destination);
+
+      console.log('🔇 Advanced AI обработка активирована с режимом:', this.settings.mode);
+      return destination.stream;
+    } catch (error) {
+      console.error('🔇 Ошибка обработки с Advanced AI:', error);
+      return inputStream;
+    }
+  }
+
   // Методы для управления настройками
   setEnabled(enabled: boolean) {
     this.ensureSettingsLoaded();
@@ -170,7 +241,7 @@ class NoiseSuppressionService {
     console.log('🔇 Шумодав', enabled ? 'включен' : 'выключен', 'новые настройки:', this.settings);
   }
 
-  setLevel(level: 'basic' | 'advanced') {
+  setLevel(level: 'basic' | 'advanced' | 'professional') {
     this.ensureSettingsLoaded();
     console.log('🔇 setLevel вызван:', level, 'текущие настройки:', this.settings);
     this.settings.level = level;
@@ -181,6 +252,12 @@ class NoiseSuppressionService {
     if (level === 'advanced' && !this.isRNNoiseLoaded && this.audioContext) {
       console.log('🔇 Загружаем RNNoise для продвинутого уровня');
       this.loadRNNoise();
+    }
+    
+    // Если переключились на professional, загружаем Advanced AI
+    if (level === 'professional' && !this.isAdvancedLoaded && this.audioContext) {
+      console.log('🔇 Загружаем Advanced AI для профессионального уровня');
+      this.loadAdvancedProcessor();
     }
   }
 
@@ -218,6 +295,24 @@ class NoiseSuppressionService {
     console.log('🔇 VAD', enabled ? 'включен' : 'выключен');
   }
 
+  setMode(mode: 'gentle' | 'balanced' | 'aggressive') {
+    this.ensureSettingsLoaded();
+    console.log('🔇 setMode вызван:', mode, 'текущие настройки:', this.settings);
+    this.settings.mode = mode;
+    this.saveSettings();
+    
+    // Обновляем режим в worklet если используется professional уровень
+    if (this.workletNode && this.settings.level === 'professional') {
+      this.workletNode.port.postMessage({
+        type: 'setMode',
+        mode: mode
+      });
+      console.log('🔇 Отправлено сообщение worklet о смене режима');
+    }
+    
+    console.log('🔇 Режим шумодава изменен на:', mode, 'новые настройки:', this.settings);
+  }
+
   getSettings(): NoiseSuppressionSettings {
     this.ensureSettingsLoaded();
     return { ...this.settings };
@@ -248,9 +343,11 @@ class NoiseSuppressionService {
     return {
       initialized: this.isInitialized,
       rnnoiseLoaded: this.isRNNoiseLoaded,
+      advancedLoaded: this.isAdvancedLoaded,
       settings: this.settings,
       basicSupported: this.isBasicSupported(),
-      advancedSupported: this.isAdvancedSupported()
+      advancedSupported: this.isAdvancedSupported(),
+      professionalSupported: this.isAdvancedSupported() // Профессиональный уровень требует те же возможности что и продвинутый
     };
   }
 }
