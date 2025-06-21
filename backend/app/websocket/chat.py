@@ -11,32 +11,7 @@ from app.websocket.connection_manager import manager
 from app.core.dependencies import get_current_user_ws
 import asyncio
 
-async def get_current_user_ws(
-    websocket: WebSocket,
-    token: str = Query(...),
-    db: AsyncSession = Depends(get_db)
-) -> User:
-    """Получение текущего пользователя для WebSocket"""
-    payload = decode_access_token(token)
-    if not payload:
-        await websocket.close(code=4001, reason="Invalid token")
-        return None
-    
-    user_id = payload.get("sub")
-    if not user_id:
-        await websocket.close(code=4001, reason="Invalid token")
-        return None
-    
-    result = await db.execute(
-        select(User).where(User.id == int(user_id))
-    )
-    user = result.scalar_one_or_none()
-    
-    if not user:
-        await websocket.close(code=4001, reason="User not found")
-        return None
-    
-    return user
+
 
 async def websocket_chat_endpoint(
     websocket: WebSocket,

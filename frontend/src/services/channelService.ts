@@ -38,27 +38,27 @@ class ChannelService {
   }
 
   async createChannel(data: CreateChannelRequest): Promise<BackendChannel> {
-    const response = await api.post<BackendChannel>('/channels/', data);
+    const response = await api.post<BackendChannel>('/api/channels/', data);
     return response.data;
   }
 
   async createServer(data: CreateServerRequest): Promise<BackendChannel> {
-    const response = await api.post<BackendChannel>('/channels/', data);
+    const response = await api.post<BackendChannel>('/api/channels/', data);
     return response.data;
   }
 
   async getChannels(): Promise<BackendChannel[]> {
-    const response = await api.get<BackendChannel[]>('/channels/');
+    const response = await api.get<BackendChannel[]>('/api/channels/');
     return response.data;
   }
 
   async getChannelDetails(channelId: number): Promise<BackendChannel> {
-    const response = await api.get<BackendChannel>(`/channels/${channelId}`);
+    const response = await api.get<BackendChannel>(`/api/channels/${channelId}`);
     return response.data;
   }
 
   async createTextChannel(serverId: number, data: CreateTextChannelRequest): Promise<TextChannel> {
-    const response = await api.post<TextChannel>(`/channels/${serverId}/text-channels`, {
+    const response = await api.post<TextChannel>(`/api/channels/${serverId}/text-channels`, {
       ...data,
       channel_id: serverId
     });
@@ -66,7 +66,7 @@ class ChannelService {
   }
 
   async createVoiceChannel(serverId: number, data: CreateVoiceChannelRequest): Promise<VoiceChannel> {
-    const response = await api.post<VoiceChannel>(`/channels/${serverId}/voice-channels`, {
+    const response = await api.post<VoiceChannel>(`/api/channels/${serverId}/voice-channels`, {
       ...data,
       channel_id: serverId
     });
@@ -74,14 +74,14 @@ class ChannelService {
   }
 
   async inviteUserToServer(serverId: number, username: string): Promise<any> {
-    const response = await api.post(`/channels/${serverId}/invite`, null, {
+    const response = await api.post(`/api/channels/${serverId}/invite`, null, {
       params: { username }
     });
     return response.data;
   }
 
   async getServerMembers(serverId: number): Promise<User[]> {
-    const response = await api.get<User[]>(`/channels/${serverId}/members`);
+    const response = await api.get<User[]>(`/api/channels/${serverId}/members`);
     return response.data;
   }
 }
