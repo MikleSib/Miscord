@@ -71,9 +71,6 @@ class VoiceService {
       // Инициализируем сервис шумодава
       await noiseSuppressionService.initialize(this.audioContext);
       
-      // Принудительно включаем шумодав
-      noiseSuppressionService.forceEnableNoiseSuppression();
-      
       // Проверяем настройки шумодава
       const noiseSettings = noiseSuppressionService.getSettings();
       console.log('🔇 Настройки шумодава после инициализации:', noiseSettings);
@@ -785,7 +782,7 @@ class VoiceService {
         
         // Конвертируем порог из дБ в значения 0-255 (примерная формула)
         // -60 дБ = 0, 0 дБ = 255
-        const dbThreshold = vadSettings.vadThreshold; // от -60 до 0
+        const dbThreshold = -30; // Фиксированный порог VAD в дБ
         const linearThreshold = Math.pow(10, dbThreshold / 20) * 255;
         
         // Адаптивные пороги на основе настройки VAD
@@ -802,7 +799,7 @@ class VoiceService {
         if (currentlySpeaking !== this.isSpeaking) {
           this.isSpeaking = currentlySpeaking;
           
-          console.log(`🎙️ Голосовая активность: ${currentlySpeaking ? 'ГОВОРИТ' : 'молчит'} (total: ${totalAverage.toFixed(1)}, mid: ${midAverage.toFixed(1)}, max: ${maxValue}) [пороги: total=${totalThreshold.toFixed(1)}, mid=${midThreshold.toFixed(1)}, max=${maxThreshold.toFixed(1)}, VAD=${vadSettings.vadThreshold}дБ]`);
+          console.log(`🎙️ Голосовая активность: ${currentlySpeaking ? 'ГОВОРИТ' : 'молчит'} (total: ${totalAverage.toFixed(1)}, mid: ${midAverage.toFixed(1)}, max: ${maxValue}) [пороги: total=${totalThreshold.toFixed(1)}, mid=${midThreshold.toFixed(1)}, max=${maxThreshold.toFixed(1)}, VAD=${dbThreshold}дБ]`);
           
           // Отправляем информацию о голосовой активности
           this.sendMessage({
@@ -1186,115 +1183,6 @@ class VoiceService {
     if (this.onScreenShareChanged) {
       this.onScreenShareChanged(currentUserId, true);
     }
-  }
-
-  // Методы для управления шумодавом
-  getNoiseSuppressionSettings() {
-    return noiseSuppressionService.getSettings();
-  }
-
-  setNoiseSuppressionEnabled(enabled: boolean) {
-    noiseSuppressionService.setEnabled(enabled);
-    // Пересоздаем поток с новыми настройками
-    this.updateAudioStreamWithNoiseSuppression();
-  }
-
-  setNoiseSuppressionLevel(level: 'basic' | 'advanced') {
-    noiseSuppressionService.setLevel(level);
-    // Пересоздаем поток с новыми настройками
-    this.updateAudioStreamWithNoiseSuppression();
-  }
-
-  setNoiseSuppressionSensitivity(sensitivity: number) {
-    noiseSuppressionService.setSensitivity(sensitivity);
-    // Для чувствительности не нужно пересоздавать поток, только обновить worklet
-  }
-
-  setVadThreshold(threshold: number) {
-    noiseSuppressionService.setVadThreshold(threshold);
-    // VAD обновится автоматически при следующем цикле
-    console.log('🔇 Порог VAD обновлен на:', threshold, 'дБ');
-  }
-
-  setVadEnabled(enabled: boolean) {
-    noiseSuppressionService.setVadEnabled(enabled);
-    // VAD обновится автоматически при следующем цикле
-    console.log('🔇 VAD', enabled ? 'включен' : 'выключен');
-  }
-
-  // Метод для обновления аудио потока с новыми настройками шумодава
-  private async updateAudioStreamWithNoiseSuppression() {
-    console.log('🔇 updateAudioStreamWithNoiseSuppression - состояние:', {
-      hasLocalStream: !!this.localStream,
-      hasAudioContext: !!this.audioContext,
-      voiceChannelId: this.voiceChannelId,
-      peerConnectionsCount: this.peerConnections.size
-    });
-    
-    if (!this.localStream || !this.audioContext || !this.voiceChannelId) {
-      console.log('🔇 Нет активного потока для обновления. Настройки будут применены при следующем подключении.');
-      return;
-    }
-
-    try {
-      console.log('🔇 Обновляем аудио поток с новыми настройками шумодава');
-      
-      // Получаем новый сырой поток
-      const rawStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          sampleRate: 48000,
-        },
-        video: false,
-      });
-
-      // Обрабатываем через сервис шумодава
-      const processedStream = await noiseSuppressionService.processStream(rawStream);
-      
-      // Заменяем аудио треки во всех peer connections
-      this.peerConnections.forEach(({ pc }) => {
-        const senders = pc.getSenders();
-        const audioSender = senders.find(sender => 
-          sender.track && sender.track.kind === 'audio'
-        );
-        
-        if (audioSender && processedStream.getAudioTracks().length > 0) {
-          const newAudioTrack = processedStream.getAudioTracks()[0];
-          audioSender.replaceTrack(newAudioTrack).then(() => {
-            console.log('🔇 Аудио трек заменен в peer connection');
-          }).catch(error => {
-            console.error('🔇 Ошибка замены аудио трека:', error);
-          });
-        }
-      });
-
-      // Останавливаем старый поток
-      this.localStream.getTracks().forEach(track => track.stop());
-      
-      // Обновляем локальный поток
-      this.localStream = processedStream;
-      
-      // Обновляем VAD с новым потоком
-      this.cleanupVoiceActivityDetection();
-      this.initVoiceActivityDetection();
-      
-      console.log('🔇 Аудио поток успешно обновлен');
-    } catch (error) {
-      console.error('🔇 Ошибка обновления аудио потока:', error);
-    }
-  }
-
-  getNoiseSuppressionStats() {
-    return noiseSuppressionService.getStats();
-  }
-
-  isNoiseSuppressionSupported() {
-    return {
-      basic: noiseSuppressionService.isBasicSupported(),
-      advanced: noiseSuppressionService.isAdvancedSupported()
-    };
   }
 
   // Метод для получения отладочной информации
