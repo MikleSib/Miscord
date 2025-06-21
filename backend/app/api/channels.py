@@ -27,8 +27,7 @@ async def create_channel(
     db_channel = Channel(
         name=channel_data.name,
         description=channel_data.description,
-        owner_id=current_user.id,
-        type=ChannelType.SERVER
+        owner_id=current_user.id
     )
     db.add(db_channel)
     await db.commit()
@@ -37,8 +36,7 @@ async def create_channel(
     # Автоматически добавляем создателя как участника
     member = ChannelMember(
         channel_id=db_channel.id,
-        user_id=current_user.id,
-        role="admin"
+        user_id=current_user.id
     )
     db.add(member)
     
