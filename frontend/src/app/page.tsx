@@ -7,7 +7,6 @@ import { useStore } from '../lib/store'
 import { ServerList } from '../components/ServerList'
 import { ChannelSidebar } from '../components/ChannelSidebar'
 import { ChatArea } from '../components/ChatArea'
-import { VoiceOverlay } from '../components/VoiceOverlay'
 import { useVoiceStore } from '../store/slices/voiceSlice'
 
 export default function HomePage() {
@@ -112,9 +111,6 @@ export default function HomePage() {
           </div>
         )}
       </div>
-      
-      {/* Голосовой оверлей */}
-      {isConnected && <VoiceOverlay />}
     </div>
   )
 }

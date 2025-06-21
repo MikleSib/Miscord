@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Hash, Volume2, ChevronDown, Settings, Plus, Mic, MicOff, Headphones, PhoneOff, VolumeX, Monitor } from 'lucide-react'
+import { Hash, Volume2, ChevronDown, Settings, Plus, Mic, MicOff, Headphones, PhoneOff, VolumeX, Monitor, UserX, UserCheck, Shield, Volume1 } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { useVoiceStore } from '../store/slices/voiceSlice'
 import { useAuthStore } from '../store/store'
@@ -15,6 +15,11 @@ import {
   Box,
   Avatar,
   Typography,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
+  Divider,
 } from '@mui/material'
 import channelService from '../services/channelService'
 
@@ -104,6 +109,13 @@ export function ChannelSidebar() {
   const [newChannelName, setNewChannelName] = useState('')
   const [isCreating, setIsCreating] = useState(false)
   const [voiceChannelMembers, setVoiceChannelMembers] = useState<Record<number, any[]>>({})
+  
+  // Состояние для контекстного меню
+  const [contextMenu, setContextMenu] = useState<{
+    mouseX: number;
+    mouseY: number;
+    participant: any;
+  } | null>(null);
 
   // Загружаем участников голосового канала
   const loadVoiceChannelMembers = async (voiceChannelId: number) => {
@@ -204,6 +216,48 @@ export function ChannelSidebar() {
     // Для других каналов показываем загруженных участников
     return voiceChannelMembers[channelId] || [];
   }
+
+  // Обработка правого клика по участнику
+  const handleParticipantContextMenu = (event: React.MouseEvent, participant: any) => {
+    event.preventDefault();
+    event.stopPropagation();
+    
+    setContextMenu({
+      mouseX: event.clientX,
+      mouseY: event.clientY,
+      participant: participant,
+    });
+  };
+
+  // Закрытие контекстного меню
+  const handleContextMenuClose = () => {
+    setContextMenu(null);
+  };
+
+  // Действия контекстного меню
+  const handleMuteUser = () => {
+    console.log('Заглушить пользователя:', contextMenu?.participant.username);
+    // TODO: Реализовать заглушение пользователя
+    handleContextMenuClose();
+  };
+
+  const handleKickUser = () => {
+    console.log('Исключить пользователя:', contextMenu?.participant.username);
+    // TODO: Реализовать исключение пользователя
+    handleContextMenuClose();
+  };
+
+  const handleViewProfile = () => {
+    console.log('Просмотреть профиль:', contextMenu?.participant.username);
+    // TODO: Реализовать просмотр профиля
+    handleContextMenuClose();
+  };
+
+  const handleSendMessage = () => {
+    console.log('Отправить сообщение:', contextMenu?.participant.username);
+    // TODO: Реализовать отправку личного сообщения
+    handleContextMenuClose();
+  };
 
   const handleCreateTextChannel = async () => {
     if (!newChannelName.trim() || !currentServer) return
@@ -365,7 +419,8 @@ export function ChannelSidebar() {
                         {channelParticipants.map((participant) => (
                           <div
                             key={participant.user_id}
-                            className="flex items-center gap-2 px-2 py-1 rounded hover:bg-accent/50 transition-colors"
+                            className="flex items-center gap-2 px-2 py-1 rounded hover:bg-accent/50 transition-colors cursor-pointer"
+                            onContextMenu={(e) => handleParticipantContextMenu(e, participant)}
                           >
                             <SpeakingAvatar username={participant.username} isSpeaking={speakingUsers.has(participant.user_id)} />
                             <Typography
@@ -533,6 +588,91 @@ export function ChannelSidebar() {
           </Box>
         </DialogContent>
       </Dialog>
+      
+      {/* Контекстное меню для участников голосового канала */}
+      <Menu
+        open={contextMenu !== null}
+        onClose={handleContextMenuClose}
+        anchorReference="anchorPosition"
+        anchorPosition={
+          contextMenu !== null
+            ? { top: contextMenu.mouseY, left: contextMenu.mouseX }
+            : undefined
+        }
+        PaperProps={{
+          sx: {
+            backgroundColor: 'var(--background)',
+            border: '1px solid var(--border)',
+            borderRadius: '8px',
+            minWidth: '200px',
+          },
+        }}
+      >
+        {contextMenu && (
+          <>
+            {/* Информация о пользователе */}
+            <MenuItem disabled sx={{ paddingY: 1 }}>
+              <ListItemIcon>
+                <Avatar sx={{ width: 24, height: 24, fontSize: '12px' }}>
+                  {contextMenu.participant.username[0].toUpperCase()}
+                </Avatar>
+              </ListItemIcon>
+              <ListItemText 
+                primary={contextMenu.participant.username}
+                primaryTypographyProps={{ fontWeight: 600, fontSize: '14px' }}
+              />
+            </MenuItem>
+            
+            <Divider />
+            
+            {/* Действия только для других пользователей */}
+            {contextMenu.participant.user_id !== user?.id && (
+              <>
+                <MenuItem onClick={handleSendMessage}>
+                  <ListItemIcon>
+                    <Hash size={16} />
+                  </ListItemIcon>
+                  <ListItemText primary="Отправить сообщение" />
+                </MenuItem>
+                
+                <MenuItem onClick={handleViewProfile}>
+                  <ListItemIcon>
+                    <UserCheck size={16} />
+                  </ListItemIcon>
+                  <ListItemText primary="Посмотреть профиль" />
+                </MenuItem>
+                
+                <Divider />
+                
+                {/* Модерационные действия (пока заглушены) */}
+                <MenuItem onClick={handleMuteUser} disabled>
+                  <ListItemIcon>
+                    <Volume1 size={16} />
+                  </ListItemIcon>
+                  <ListItemText primary="Заглушить пользователя" />
+                </MenuItem>
+                
+                <MenuItem onClick={handleKickUser} disabled>
+                  <ListItemIcon>
+                    <UserX size={16} />
+                  </ListItemIcon>
+                  <ListItemText primary="Исключить из канала" />
+                </MenuItem>
+              </>
+            )}
+            
+            {/* Для себя */}
+            {contextMenu.participant.user_id === user?.id && (
+              <MenuItem onClick={handleViewProfile}>
+                <ListItemIcon>
+                  <UserCheck size={16} />
+                </ListItemIcon>
+                <ListItemText primary="Мой профиль" />
+              </MenuItem>
+            )}
+          </>
+        )}
+      </Menu>
     </>
   )
 }
