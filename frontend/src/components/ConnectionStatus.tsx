@@ -20,7 +20,7 @@ export function ConnectionStatus({
   const [autoHideTimer, setAutoHideTimer] = useState<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    // Показываем индикатор если есть проблемы с подключением
+    // Показываем индикатор ТОЛЬКО если есть проблемы с подключением
     if (!isConnected || isReconnecting || lastError) {
       setIsVisible(true);
       
@@ -28,13 +28,14 @@ export function ConnectionStatus({
       if (autoHideTimer) {
         clearTimeout(autoHideTimer);
       }
+    } else {
+      // Если соединение в порядке, скрываем индикатор
+      setIsVisible(false);
       
-      // Автоматически скрываем через 1 секунду если соединение восстановлено
-      if (isConnected && !isReconnecting && !lastError) {
-        const timer = setTimeout(() => {
-          setIsVisible(false);
-        }, 1000);
-        setAutoHideTimer(timer);
+      // Очищаем таймер если есть
+      if (autoHideTimer) {
+        clearTimeout(autoHideTimer);
+        setAutoHideTimer(null);
       }
     }
 
