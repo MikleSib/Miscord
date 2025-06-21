@@ -29,11 +29,11 @@ export function ConnectionStatus({
         clearTimeout(autoHideTimer);
       }
       
-      // Автоматически скрываем через 5 секунд если соединение восстановлено
+      // Автоматически скрываем через 1 секунду если соединение восстановлено
       if (isConnected && !isReconnecting && !lastError) {
         const timer = setTimeout(() => {
           setIsVisible(false);
-        }, 5000);
+        }, 1000);
         setAutoHideTimer(timer);
       }
     }
