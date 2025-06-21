@@ -20,6 +20,8 @@ import {
   ListItemIcon,
   ListItemText,
   Divider,
+  Slider,
+  Paper,
 } from '@mui/material'
 import channelService from '../services/channelService'
 
@@ -116,6 +118,9 @@ export function ChannelSidebar() {
     mouseY: number;
     participant: any;
   } | null>(null);
+
+  // Состояние для громкости участников (по умолчанию 100%)
+  const [participantVolumes, setParticipantVolumes] = useState<Record<number, number>>({});
 
   // Загружаем участников голосового канала
   const loadVoiceChannelMembers = async (voiceChannelId: number) => {
@@ -257,6 +262,46 @@ export function ChannelSidebar() {
     console.log('Отправить сообщение:', contextMenu?.participant.username);
     // TODO: Реализовать отправку личного сообщения
     handleContextMenuClose();
+  };
+
+  // Получение громкости участника (по умолчанию 100%)
+  const getParticipantVolume = (userId: number): number => {
+    // Сначала проверяем состояние
+    if (participantVolumes[userId] !== undefined) {
+      return participantVolumes[userId];
+    }
+    
+    // Затем проверяем localStorage
+    const savedVolume = localStorage.getItem(`voice-volume-${userId}`);
+    if (savedVolume) {
+      const volume = parseInt(savedVolume);
+      // Обновляем состояние
+      setParticipantVolumes(prev => ({
+        ...prev,
+        [userId]: volume
+      }));
+      return volume;
+    }
+    
+    return 100; // По умолчанию 100%
+  };
+
+  // Установка громкости участника
+  const setParticipantVolume = (userId: number, volume: number) => {
+    setParticipantVolumes(prev => ({
+      ...prev,
+      [userId]: volume
+    }));
+
+    // Сохраняем в localStorage
+    localStorage.setItem(`voice-volume-${userId}`, volume.toString());
+
+    // Применяем громкость к аудио элементу
+    const audioElement = document.getElementById(`remote-audio-${userId}`) as HTMLAudioElement;
+    if (audioElement) {
+      audioElement.volume = Math.min(volume / 100, 3.0); // Ограничиваем до 300% (3.0)
+      console.log(`🔊 Установлена громкость ${volume}% для пользователя ${userId}`);
+    }
   };
 
   const handleCreateTextChannel = async () => {
@@ -601,71 +646,167 @@ export function ChannelSidebar() {
         }
         PaperProps={{
           sx: {
-            backgroundColor: 'var(--background)',
-            border: '1px solid var(--border)',
+            backgroundColor: 'rgb(47, 49, 54)',
+            border: '1px solid rgb(60, 63, 69)',
             borderRadius: '8px',
-            minWidth: '200px',
+            minWidth: '250px',
+            boxShadow: '0 8px 16px rgba(0, 0, 0, 0.24)',
+            '& .MuiMenuItem-root': {
+              color: 'rgb(220, 221, 222)',
+              fontSize: '14px',
+              padding: '8px 12px',
+              '&:hover': {
+                backgroundColor: 'rgb(64, 68, 75)',
+              },
+              '&.Mui-disabled': {
+                color: 'rgb(114, 118, 125)',
+              },
+            },
+            '& .MuiDivider-root': {
+              borderColor: 'rgb(60, 63, 69)',
+              margin: '4px 0',
+            },
           },
         }}
       >
         {contextMenu && (
           <>
-            {/* Информация о пользователе */}
-            <MenuItem disabled sx={{ paddingY: 1 }}>
-              <ListItemIcon>
-                <Avatar sx={{ width: 24, height: 24, fontSize: '12px' }}>
+            {/* Заголовок с информацией о пользователе */}
+            <Paper
+              sx={{
+                backgroundColor: 'rgb(54, 57, 63)',
+                margin: '8px',
+                padding: '12px',
+                borderRadius: '6px',
+                border: 'none',
+                boxShadow: 'none',
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <Avatar 
+                  sx={{ 
+                    width: 32, 
+                    height: 32, 
+                    fontSize: '14px',
+                    backgroundColor: 'rgb(88, 101, 242)',
+                    fontWeight: 600,
+                  }}
+                >
                   {contextMenu.participant.username[0].toUpperCase()}
                 </Avatar>
-              </ListItemIcon>
-              <ListItemText 
-                primary={contextMenu.participant.username}
-                primaryTypographyProps={{ fontWeight: 600, fontSize: '14px' }}
-              />
-            </MenuItem>
+                <Box>
+                  <Typography 
+                    sx={{ 
+                      fontWeight: 600, 
+                      fontSize: '16px', 
+                      color: 'rgb(220, 221, 222)',
+                      lineHeight: 1.2,
+                    }}
+                  >
+                    {contextMenu.participant.username}
+                  </Typography>
+                  <Typography 
+                    sx={{ 
+                      fontSize: '12px', 
+                      color: 'rgb(163, 166, 170)',
+                      lineHeight: 1,
+                    }}
+                  >
+                    {contextMenu.participant.user_id === user?.id ? 'Это вы' : 'Участник'}
+                  </Typography>
+                </Box>
+              </Box>
+            </Paper>
+            
+            {/* Ползунок громкости для других пользователей */}
+            {contextMenu.participant.user_id !== user?.id && (
+              <Box sx={{ padding: '8px 16px 12px' }}>
+                <Typography 
+                  sx={{ 
+                    fontSize: '12px', 
+                    color: 'rgb(163, 166, 170)', 
+                    marginBottom: '8px',
+                    fontWeight: 500,
+                  }}
+                >
+                  Громкость пользователя: {getParticipantVolume(contextMenu.participant.user_id)}%
+                </Typography>
+                <Slider
+                  value={getParticipantVolume(contextMenu.participant.user_id)}
+                  onChange={(_, value) => setParticipantVolume(contextMenu.participant.user_id, value as number)}
+                  min={0}
+                  max={300}
+                  step={5}
+                  sx={{
+                    color: 'rgb(88, 101, 242)',
+                    height: 6,
+                    '& .MuiSlider-track': {
+                      backgroundColor: 'rgb(88, 101, 242)',
+                      border: 'none',
+                    },
+                    '& .MuiSlider-rail': {
+                      backgroundColor: 'rgb(79, 84, 92)',
+                    },
+                    '& .MuiSlider-thumb': {
+                      backgroundColor: 'rgb(255, 255, 255)',
+                      border: '2px solid rgb(88, 101, 242)',
+                      width: 16,
+                      height: 16,
+                      '&:hover': {
+                        boxShadow: '0 0 0 8px rgba(88, 101, 242, 0.16)',
+                      },
+                    },
+                  }}
+                />
+              </Box>
+            )}
             
             <Divider />
             
-            {/* Действия только для других пользователей */}
+            {/* Действия для других пользователей */}
             {contextMenu.participant.user_id !== user?.id && (
               <>
                 <MenuItem onClick={handleSendMessage}>
-                  <ListItemIcon>
-                    <Hash size={16} />
+                  <ListItemIcon sx={{ minWidth: '36px' }}>
+                    <Hash size={18} color="rgb(163, 166, 170)" />
                   </ListItemIcon>
                   <ListItemText primary="Отправить сообщение" />
                 </MenuItem>
                 
                 <MenuItem onClick={handleViewProfile}>
-                  <ListItemIcon>
-                    <UserCheck size={16} />
+                  <ListItemIcon sx={{ minWidth: '36px' }}>
+                    <UserCheck size={18} color="rgb(163, 166, 170)" />
                   </ListItemIcon>
                   <ListItemText primary="Посмотреть профиль" />
                 </MenuItem>
                 
                 <Divider />
                 
-                {/* Модерационные действия (пока заглушены) */}
+                {/* Модерационные действия (пока отключены) */}
                 <MenuItem onClick={handleMuteUser} disabled>
-                  <ListItemIcon>
-                    <Volume1 size={16} />
+                  <ListItemIcon sx={{ minWidth: '36px' }}>
+                    <Volume1 size={18} color="rgb(114, 118, 125)" />
                   </ListItemIcon>
                   <ListItemText primary="Заглушить пользователя" />
                 </MenuItem>
                 
                 <MenuItem onClick={handleKickUser} disabled>
-                  <ListItemIcon>
-                    <UserX size={16} />
+                  <ListItemIcon sx={{ minWidth: '36px' }}>
+                    <UserX size={18} color="rgb(237, 66, 69)" />
                   </ListItemIcon>
-                  <ListItemText primary="Исключить из канала" />
+                  <ListItemText 
+                    primary="Исключить из канала" 
+                    primaryTypographyProps={{ color: 'rgb(237, 66, 69)' }}
+                  />
                 </MenuItem>
               </>
             )}
             
-            {/* Для себя */}
+            {/* Действия для себя */}
             {contextMenu.participant.user_id === user?.id && (
               <MenuItem onClick={handleViewProfile}>
-                <ListItemIcon>
-                  <UserCheck size={16} />
+                <ListItemIcon sx={{ minWidth: '36px' }}>
+                  <UserCheck size={18} color="rgb(163, 166, 170)" />
                 </ListItemIcon>
                 <ListItemText primary="Мой профиль" />
               </MenuItem>

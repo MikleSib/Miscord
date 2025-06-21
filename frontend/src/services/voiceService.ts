@@ -197,6 +197,16 @@ class VoiceService {
         remoteAudio.style.display = 'none';
         document.body.appendChild(remoteAudio);
         
+        // Применяем сохраненную громкость если есть
+        setTimeout(() => {
+          const savedVolume = localStorage.getItem(`voice-volume-${userId}`);
+          if (savedVolume) {
+            const volume = parseInt(savedVolume);
+            remoteAudio.volume = Math.min(volume / 100, 3.0);
+            console.log(`🔊 Применена сохраненная громкость ${volume}% для пользователя ${userId}`);
+          }
+        }, 100);
+        
         // Пытаемся воспроизвести аудио
         const playPromise = remoteAudio.play();
         if (playPromise !== undefined) {
