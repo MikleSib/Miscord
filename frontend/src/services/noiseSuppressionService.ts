@@ -4,6 +4,7 @@ export interface NoiseSuppressionSettings {
   sensitivity: number;
   mode: 'gentle' | 'balanced' | 'aggressive';
   vadEnabled: boolean;
+  vadThreshold: number; // Порог в дБ (от -100 до 0)
   adaptiveThreshold: boolean;
   bandCount: number;
   debugMode: boolean;
@@ -33,6 +34,7 @@ class UnifiedNoiseSuppressionService {
       sensitivity: 75,
       mode: 'balanced',
       vadEnabled: true,
+      vadThreshold: -60, // Значение по умолчанию
       adaptiveThreshold: true,
       bandCount: 8,
       debugMode: false
@@ -137,6 +139,12 @@ class UnifiedNoiseSuppressionService {
   
   setSensitivity(sensitivity: number) {
     this.settings.sensitivity = sensitivity;
+    this.saveSettings();
+    this.updateWorkletOptions();
+  }
+  
+  setVadThreshold(threshold: number) {
+    this.settings.vadThreshold = threshold;
     this.saveSettings();
     this.updateWorkletOptions();
   }

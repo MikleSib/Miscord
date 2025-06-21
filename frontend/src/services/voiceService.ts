@@ -1,4 +1,14 @@
 import noiseSuppressionService from './noiseSuppressionService';
+import { useAuthStore } from '../store/store'
+import { useRouter } from 'next/navigation'
+import { cn } from '../lib/utils'
+import AdvancedNoiseSuppressionSettings from './AdvancedNoiseSuppressionSettings'
+import {
+  Dialog,
+  Paper,
+} from '@mui/material'
+import channelService from '../services/channelService'
+import { useNoiseSuppressionStore } from '@/store/noiseSuppressionStore'
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://miscord.ru';
 
@@ -730,60 +740,37 @@ class VoiceService {
       try {
         this.analyser.getByteFrequencyData(dataArray);
         
-        // Анализируем разные частотные диапазоны
-        const lowFreqEnd = Math.floor(bufferLength * 0.1); // 0-10% частот (низкие)
-        const midFreqStart = lowFreqEnd;
-        const midFreqEnd = Math.floor(bufferLength * 0.4); // 10-40% частот (средние - человеческая речь)
-        const highFreqStart = midFreqEnd;
-        
-        // Вычисляем энергию в разных диапазонах
-        let lowSum = 0, midSum = 0, highSum = 0, totalSum = 0, maxValue = 0;
-        
-        for (let i = 0; i < bufferLength; i++) {
-          const value = dataArray[i];
-          totalSum += value;
-          maxValue = Math.max(maxValue, value);
-          
-          if (i < lowFreqEnd) {
-            lowSum += value;
-          } else if (i < midFreqEnd) {
-            midSum += value;
-          } else {
-            highSum += value;
-          }
-        }
-        
-        const totalAverage = totalSum / bufferLength;
-        const midAverage = midSum / (midFreqEnd - midFreqStart);
-        
-        // Получаем настройки VAD из сервиса шумодава
-        const vadSettings = noiseSuppressionService.getSettings();
-        
-        // Проверяем включен ли VAD
-        if (!vadSettings.vadEnabled) {
-          // Если VAD выключен, микрофон всегда активен, но не показываем индикатор говорения
-          // Отправляем speaking: true только один раз при подключении
+        // Используем данные из нового noiseSuppressionStore
+        const { settings, setMicLevel } = useNoiseSuppressionStore.getState();
+
+        if (!settings.vadEnabled) {
           if (!this.isSpeaking) {
             this.isSpeaking = true;
-            this.sendMessage({
-              type: 'speaking',
-              is_speaking: true
-            });
-            
-            if (this.onSpeakingChanged) {
-              const currentUserId = this.getCurrentUserId();
-              if (currentUserId) {
-                this.onSpeakingChanged(currentUserId, true);
-              }
+            this.sendMessage({ type: 'speaking', is_speaking: true });
+            const currentUserId = this.getCurrentUserId();
+            if (currentUserId && this.onSpeakingChanged) {
+              this.onSpeakingChanged(currentUserId, true);
             }
           }
+          // При выключенном VAD уровень микрофона все равно показываем
+          const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+          const micLevelDb = 20 * Math.log10(average / 255);
+          setMicLevel(isFinite(micLevelDb) ? micLevelDb : -100);
           return;
         }
-        
-        // Конвертируем порог из дБ в значения 0-255 (примерная формула)
-        // -60 дБ = 0, 0 дБ = 255
-        const dbThreshold = -30; // Фиксированный порог VAD в дБ
+
+        const dbThreshold = settings.vadThreshold; // Используем порог из store
         const linearThreshold = Math.pow(10, dbThreshold / 20) * 255;
+
+        // Конвертация уровня громкости в дБ и обновление store
+        const totalAverage = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+        const micLevelDb = 20 * Math.log10(totalAverage / 255);
+        setMicLevel(isFinite(micLevelDb) ? micLevelDb : -100);
+        
+        // Анализ для VAD
+        const midFrequencyData = dataArray.slice(dataArray.length / 4, dataArray.length / 2);
+        const midAverage = midFrequencyData.reduce((a, b) => a + b, 0) / midFrequencyData.length;
+        const maxValue = Math.max(...Array.from(dataArray));
         
         // Адаптивные пороги на основе настройки VAD
         const totalThreshold = Math.max(1, linearThreshold * 0.1);

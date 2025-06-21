@@ -15,6 +15,8 @@ const AdvancedNoiseSuppressionSettings: React.FC = () => {
     settings,
     setMode,
     setSensitivity,
+    setVadThreshold,
+    micLevel,
     stats,
     isSupported,
   } = useNoiseSuppressionStore();
@@ -26,9 +28,11 @@ const AdvancedNoiseSuppressionSettings: React.FC = () => {
       </div>
     );
   }
+  
+  const micLevelPercentage = Math.max(0, 100 + micLevel);
 
   return (
-    <div className="p-4 bg-gray-800 text-white rounded-lg space-y-6">
+    <div className="p-6 bg-gray-800 text-white rounded-lg space-y-6">
       <div className="flex items-center justify-between">
         <Label htmlFor="ns-enable" className="text-lg font-medium">
           Шумоподавление
@@ -83,6 +87,40 @@ const AdvancedNoiseSuppressionSettings: React.FC = () => {
               step={1}
               value={[settings.sensitivity]}
               onValueChange={(value) => setSensitivity(value[0])}
+            />
+          </div>
+
+          <Separator />
+          
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <Label htmlFor="vad-threshold-slider" className="text-base font-medium">
+                Чувствительность микрофона
+              </Label>
+              <span className="text-sm font-mono text-gray-300">{settings.vadThreshold} дБ</span>
+            </div>
+            <p className="text-sm text-gray-400 mb-3">
+              Установите порог громкости для активации микрофона.
+            </p>
+            {/* Индикатор уровня микрофона */}
+            <div className="relative w-full h-2 bg-gray-700 rounded-full mb-2">
+              <div 
+                className="absolute top-0 left-0 h-full bg-green-500 rounded-full transition-all duration-75"
+                style={{ width: `${micLevelPercentage}%`}}
+              />
+              <div 
+                className="absolute top-0 h-full w-1 bg-white"
+                style={{ left: `${100 + settings.vadThreshold}%`}}
+              />
+            </div>
+            
+            <Slider
+              id="vad-threshold-slider"
+              min={-100}
+              max={0}
+              step={1}
+              value={[settings.vadThreshold]}
+              onValueChange={(value) => setVadThreshold(value[0])}
             />
           </div>
 

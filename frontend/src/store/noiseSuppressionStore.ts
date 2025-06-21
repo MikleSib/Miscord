@@ -8,11 +8,14 @@ interface NoiseSuppressionState {
     processedFrames: number;
     quality: number;
   };
+  micLevel: number; // Уровень микрофона в дБ (-100 до 0)
   isSupported: boolean;
   initialize: () => void;
   setEnabled: (enabled: boolean) => void;
   setMode: (mode: NoiseSuppressionSettings['mode']) => void;
   setSensitivity: (sensitivity: number) => void;
+  setVadThreshold: (threshold: number) => void;
+  setMicLevel: (level: number) => void;
   updateStats: () => void;
 }
 
@@ -23,6 +26,7 @@ export const useNoiseSuppressionStore = create<NoiseSuppressionState>((set, get)
     sensitivity: 75,
     mode: 'balanced',
     vadEnabled: true,
+    vadThreshold: -60,
     adaptiveThreshold: true,
     bandCount: 8,
     debugMode: false
@@ -31,6 +35,7 @@ export const useNoiseSuppressionStore = create<NoiseSuppressionState>((set, get)
     processedFrames: 0,
     quality: 0,
   },
+  micLevel: -100,
   isSupported: false,
 
   initialize: () => {
@@ -67,6 +72,15 @@ export const useNoiseSuppressionStore = create<NoiseSuppressionState>((set, get)
   setSensitivity: (sensitivity) => {
     noiseSuppressionService.setSensitivity(sensitivity);
     set(state => ({ settings: { ...state.settings, sensitivity } }));
+  },
+
+  setVadThreshold: (threshold) => {
+    noiseSuppressionService.setVadThreshold(threshold);
+    set(state => ({ settings: { ...state.settings, vadThreshold: threshold } }));
+  },
+
+  setMicLevel: (level) => {
+    set({ micLevel: level });
   },
 
   updateStats: () => {
