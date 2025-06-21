@@ -63,16 +63,7 @@ async def websocket_voice_endpoint(
             await websocket.close(code=4004, reason="Voice channel not found")
             return
         
-        # Проверка членства в основном канале
-        member_result = await db.execute(
-            select(ChannelMember).where(
-                (ChannelMember.channel_id == voice_channel.channel_id) &
-                (ChannelMember.user_id == user.id)
-            )
-        )
-        if not member_result.scalar_one_or_none():
-            await websocket.close(code=4003, reason="Not a member of this channel")
-            return
+        # Убираем проверку членства - все пользователи могут заходить в любые каналы
         
         # Проверка лимита пользователей
         active_users_count = await db.execute(
