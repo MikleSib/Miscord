@@ -1,14 +1,5 @@
 import noiseSuppressionService from './noiseSuppressionService';
 import { useNoiseSuppressionStore } from '@/store/noiseSuppressionStore';
-import { useAuthStore } from '../store/store'
-import { useRouter } from 'next/navigation'
-import { cn } from '../lib/utils'
-import AdvancedNoiseSuppressionSettings from './AdvancedNoiseSuppressionSettings'
-import {
-  Dialog,
-  Paper,
-} from '@mui/material'
-import channelService from '../services/channelService'
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://miscord.ru';
 
