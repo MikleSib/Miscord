@@ -70,9 +70,17 @@ export const useNoiseSuppressionStore = create<NoiseSuppressionState>((set, get)
           professional: advancedSupport
         }
       });
-      // Set initial values from services if needed
-      get().setEnabled(get().isEnabled);
-      get().setLevel(get().level);
+      
+      // Принудительно включаем шумодав при инициализации
+      const currentState = get();
+      if (!currentState.isEnabled) {
+        console.log('🔇 Store: Принудительно включаем шумодав при инициализации');
+        get().setEnabled(true);
+      } else {
+        // Устанавливаем настройки в сервисы
+        get().setEnabled(true);
+        get().setLevel(currentState.level);
+      }
 
     } catch (error) {
       console.error("Failed to initialize noise suppression store:", error);

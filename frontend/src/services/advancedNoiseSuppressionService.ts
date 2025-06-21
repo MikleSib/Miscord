@@ -50,7 +50,15 @@ class AdvancedNoiseSuppressionService {
     try {
       const saved = localStorage.getItem('advanced-noise-suppression-settings');
       if (saved) {
-        this.settings = { ...this.settings, ...JSON.parse(saved) };
+        const parsedSettings = JSON.parse(saved);
+        this.settings = { ...this.settings, ...parsedSettings };
+        
+        // Принудительно включаем шумодав, если он был отключен
+        if (this.settings.enabled === false) {
+          console.log('🔇 Advanced шумодав был отключен в настройках, включаем его');
+          this.settings.enabled = true;
+          this.saveSettings(); // Сохраняем исправленные настройки
+        }
       }
     } catch (error) {
       console.error('🔇 Ошибка загрузки настроек продвинутого шумодава:', error);
@@ -70,6 +78,13 @@ class AdvancedNoiseSuppressionService {
   async initialize(audioContext: AudioContext): Promise<void> {
     this.ensureSettingsLoaded();
     this.audioContext = audioContext;
+    
+    // Принудительно включаем шумодав при инициализации
+    if (!this.settings.enabled) {
+      console.log('🔇 Advanced: Принудительно включаем шумодав при инициализации');
+      this.settings.enabled = true;
+      this.saveSettings();
+    }
     
     try {
       console.log('🔇 Загружаем Advanced Noise Processor...');

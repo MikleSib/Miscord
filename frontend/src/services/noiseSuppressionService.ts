@@ -56,7 +56,15 @@ class NoiseSuppressionService {
     try {
       const saved = localStorage.getItem('noise-suppression-settings');
       if (saved) {
-        this.settings = { ...this.settings, ...JSON.parse(saved) };
+        const parsedSettings = JSON.parse(saved);
+        this.settings = { ...this.settings, ...parsedSettings };
+        
+        // Принудительно включаем шумодав, если он был отключен
+        if (this.settings.enabled === false) {
+          console.log('🔇 Шумодав был отключен в настройках, включаем его');
+          this.settings.enabled = true;
+          this.saveSettings(); // Сохраняем исправленные настройки
+        }
       }
     } catch (error) {
       console.error('🔇 Ошибка загрузки настроек шумодава:', error);
@@ -74,9 +82,44 @@ class NoiseSuppressionService {
     }
   }
 
+  // Принудительная очистка настроек и включение шумодава
+  forceEnableNoiseSuppression() {
+    console.log('🔇 Принудительно очищаем настройки и включаем шумодав');
+    
+    // Очищаем localStorage
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem('noise-suppression-settings');
+        localStorage.removeItem('advanced-noise-suppression-settings');
+        console.log('🔇 Настройки очищены из localStorage');
+      } catch (error) {
+        console.error('🔇 Ошибка очистки localStorage:', error);
+      }
+    }
+    
+    // Принудительно включаем шумодав
+    this.settings.enabled = true;
+    this.settings.level = 'professional';
+    this.settings.sensitivity = 75;
+    this.settings.vadEnabled = true;
+    this.settings.mode = 'balanced';
+    
+    // Сохраняем новые настройки
+    this.saveSettings();
+    
+    console.log('🔇 Шумодав принудительно включен с настройками:', this.settings);
+  }
+
   async initialize(audioContext: AudioContext): Promise<void> {
     this.ensureSettingsLoaded();
     this.audioContext = audioContext;
+    
+    // Принудительно включаем шумодав при инициализации
+    if (!this.settings.enabled) {
+      console.log('🔇 Принудительно включаем шумодав при инициализации');
+      this.settings.enabled = true;
+      this.saveSettings();
+    }
     
     if (this.settings.level === 'advanced' && !this.isRNNoiseLoaded) {
       await this.loadRNNoise();
