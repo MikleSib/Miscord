@@ -30,7 +30,9 @@ export function NoiseSuppressionSettings({ open, onClose }: NoiseSuppressionSett
   const [settings, setSettings] = useState({
     enabled: true,
     level: 'basic' as 'basic' | 'advanced',
-    sensitivity: 70
+    sensitivity: 70,
+    vadThreshold: -30,
+    vadEnabled: true
   });
   
   const [support, setSupport] = useState({
@@ -42,7 +44,7 @@ export function NoiseSuppressionSettings({ open, onClose }: NoiseSuppressionSett
   
   // Загружаем настройки при открытии
   useEffect(() => {
-    if (open) {
+    if (open && typeof window !== 'undefined') {
       loadSettings();
       checkSupport();
       loadStats();
@@ -50,6 +52,8 @@ export function NoiseSuppressionSettings({ open, onClose }: NoiseSuppressionSett
   }, [open]);
 
   const loadSettings = () => {
+    if (typeof window === 'undefined') return;
+    
     try {
       const currentSettings = voiceService.getNoiseSuppressionSettings();
       setSettings(currentSettings);
@@ -59,6 +63,8 @@ export function NoiseSuppressionSettings({ open, onClose }: NoiseSuppressionSett
   };
 
   const checkSupport = () => {
+    if (typeof window === 'undefined') return;
+    
     try {
       const supportInfo = voiceService.isNoiseSuppressionSupported();
       setSupport(supportInfo);
@@ -68,8 +74,12 @@ export function NoiseSuppressionSettings({ open, onClose }: NoiseSuppressionSett
   };
 
   const loadStats = () => {
+    if (typeof window === 'undefined') return;
+    
     try {
       const statsInfo = voiceService.getNoiseSuppressionStats();
+      const debugInfo = voiceService.getDebugInfo();
+      console.log('🔇 Отладочная информация VoiceService:', debugInfo);
       setStats(statsInfo);
     } catch (error) {
       console.error('🔇 Ошибка загрузки статистики шумодава:', error);
@@ -77,11 +87,15 @@ export function NoiseSuppressionSettings({ open, onClose }: NoiseSuppressionSett
   };
 
   const handleEnabledChange = (enabled: boolean) => {
+    if (typeof window === 'undefined') return;
+    
     setSettings(prev => ({ ...prev, enabled }));
     voiceService.setNoiseSuppressionEnabled(enabled);
   };
 
   const handleLevelChange = (level: 'basic' | 'advanced') => {
+    if (typeof window === 'undefined') return;
+    
     setSettings(prev => ({ ...prev, level }));
     voiceService.setNoiseSuppressionLevel(level);
     
@@ -90,14 +104,38 @@ export function NoiseSuppressionSettings({ open, onClose }: NoiseSuppressionSett
   };
 
   const handleSensitivityChange = (sensitivity: number) => {
+    if (typeof window === 'undefined') return;
+    
     setSettings(prev => ({ ...prev, sensitivity }));
     voiceService.setNoiseSuppressionSensitivity(sensitivity);
+  };
+
+  const handleVadThresholdChange = (threshold: number) => {
+    if (typeof window === 'undefined') return;
+    
+    setSettings(prev => ({ ...prev, vadThreshold: threshold }));
+    voiceService.setVadThreshold(threshold);
+  };
+
+  const handleVadEnabledChange = (enabled: boolean) => {
+    if (typeof window === 'undefined') return;
+    
+    setSettings(prev => ({ ...prev, vadEnabled: enabled }));
+    voiceService.setVadEnabled(enabled);
   };
 
   const getSensitivityLabel = (value: number) => {
     if (value < 30) return 'Низкая';
     if (value < 70) return 'Средняя';
     return 'Высокая';
+  };
+
+  const getVadThresholdLabel = (value: number) => {
+    if (value <= -50) return 'Очень чувствительный';
+    if (value <= -35) return 'Чувствительный';
+    if (value <= -20) return 'Нормальный';
+    if (value <= -10) return 'Менее чувствительный';
+    return 'Только громкие звуки';
   };
 
   const getLevelDescription = (level: 'basic' | 'advanced') => {
@@ -248,6 +286,57 @@ export function NoiseSuppressionSettings({ open, onClose }: NoiseSuppressionSett
               </Typography>
             </Box>
           )}
+
+          {/* Настройки активации голоса (VAD) */}
+          <Box>
+            <Typography variant="h6" gutterBottom>
+              Активация микрофона
+            </Typography>
+            
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={settings.vadEnabled}
+                  onChange={(e) => handleVadEnabledChange(e.target.checked)}
+                  color="primary"
+                />
+              }
+              label="Активация по голосу (VAD)"
+              sx={{ mb: 2 }}
+            />
+            
+            {settings.vadEnabled && (
+              <Box>
+                                 <Typography variant="subtitle1" gutterBottom>
+                   Порог активации: {settings.vadThreshold} дБ ({getVadThresholdLabel(settings.vadThreshold)})
+                 </Typography>
+                <Slider
+                  value={settings.vadThreshold}
+                  onChange={(_, value) => handleVadThresholdChange(value as number)}
+                  min={-60}
+                  max={0}
+                  step={1}
+                  marks={[
+                    { value: -60, label: '-60 дБ (очень тихо)' },
+                    { value: -40, label: '-40 дБ' },
+                    { value: -20, label: '-20 дБ' },
+                    { value: 0, label: '0 дБ (очень громко)' }
+                  ]}
+                  sx={{ mt: 2 }}
+                />
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                  Более низкие значения (ближе к -60 дБ) = микрофон активируется при более тихих звуках.
+                  Более высокие значения (ближе к 0 дБ) = нужно говорить громче для активации.
+                </Typography>
+              </Box>
+            )}
+            
+            {!settings.vadEnabled && (
+              <Alert severity="info" sx={{ mt: 1 }}>
+                Микрофон всегда активен. VAD отключен - микрофон будет передавать звук постоянно.
+              </Alert>
+            )}
+          </Box>
 
           {/* Предупреждения */}
           {!support.basic && !support.advanced && (

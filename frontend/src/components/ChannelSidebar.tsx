@@ -446,16 +446,22 @@ export function ChannelSidebar() {
       return participantVolumes[userId];
     }
     
-    // Затем проверяем localStorage
-    const savedVolume = localStorage.getItem(`voice-volume-${userId}`);
-    if (savedVolume) {
-      const volume = parseInt(savedVolume);
-      // Обновляем состояние
-      setParticipantVolumes(prev => ({
-        ...prev,
-        [userId]: volume
-      }));
-      return volume;
+    // Затем проверяем localStorage (только в браузере)
+    if (typeof window !== 'undefined') {
+      try {
+        const savedVolume = localStorage.getItem(`voice-volume-${userId}`);
+        if (savedVolume) {
+          const volume = parseInt(savedVolume);
+          // Обновляем состояние
+          setParticipantVolumes(prev => ({
+            ...prev,
+            [userId]: volume
+          }));
+          return volume;
+        }
+      } catch (error) {
+        console.error('Ошибка загрузки громкости из localStorage:', error);
+      }
     }
     
     return 100; // По умолчанию 100%
@@ -468,8 +474,14 @@ export function ChannelSidebar() {
       [userId]: volume
     }));
 
-    // Сохраняем в localStorage
-    localStorage.setItem(`voice-volume-${userId}`, volume.toString());
+    // Сохраняем в localStorage (только в браузере)
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(`voice-volume-${userId}`, volume.toString());
+      } catch (error) {
+        console.error('Ошибка сохранения громкости в localStorage:', error);
+      }
+    }
 
     // Применяем громкость к аудио элементу
     // HTML audio элементы поддерживают только значения от 0 до 1

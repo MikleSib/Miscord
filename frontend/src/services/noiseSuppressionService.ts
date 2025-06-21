@@ -12,6 +12,8 @@ interface NoiseSuppressionSettings {
   enabled: boolean;
   level: 'basic' | 'advanced'; // basic = browser native, advanced = RNNoise
   sensitivity: number; // 0-100
+  vadThreshold: number; // Порог активации голоса в дБ (-60 до 0)
+  vadEnabled: boolean; // Включить/выключить VAD
 }
 
 class NoiseSuppressionService {
@@ -21,33 +23,54 @@ class NoiseSuppressionService {
   private settings: NoiseSuppressionSettings = {
     enabled: true,
     level: 'basic',
-    sensitivity: 70
+    sensitivity: 70,
+    vadThreshold: -30, // дБ
+    vadEnabled: true
   };
+  private isSettingsLoaded = false;
   
   // RNNoise специфичные поля
   private rnnoiseModule: RNNoiseModule | null = null;
   private isRNNoiseLoaded = false;
 
   constructor() {
-    this.loadSettings();
+    // Не загружаем настройки в конструкторе для SSR совместимости
+  }
+
+  private ensureSettingsLoaded() {
+    if (!this.isSettingsLoaded && typeof window !== 'undefined') {
+      this.loadSettings();
+      this.isSettingsLoaded = true;
+    }
   }
 
   private loadSettings() {
-    const saved = localStorage.getItem('noise-suppression-settings');
-    if (saved) {
-      try {
+    // Проверяем, что мы в браузере (не на сервере)
+    if (typeof window === 'undefined') return;
+    
+    try {
+      const saved = localStorage.getItem('noise-suppression-settings');
+      if (saved) {
         this.settings = { ...this.settings, ...JSON.parse(saved) };
-      } catch (error) {
-        console.error('🔇 Ошибка загрузки настроек шумодава:', error);
       }
+    } catch (error) {
+      console.error('🔇 Ошибка загрузки настроек шумодава:', error);
     }
   }
 
   private saveSettings() {
-    localStorage.setItem('noise-suppression-settings', JSON.stringify(this.settings));
+    // Проверяем, что мы в браузере (не на сервере)
+    if (typeof window === 'undefined') return;
+    
+    try {
+      localStorage.setItem('noise-suppression-settings', JSON.stringify(this.settings));
+    } catch (error) {
+      console.error('🔇 Ошибка сохранения настроек шумодава:', error);
+    }
   }
 
   async initialize(audioContext: AudioContext): Promise<void> {
+    this.ensureSettingsLoaded();
     this.audioContext = audioContext;
     
     if (this.settings.level === 'advanced' && !this.isRNNoiseLoaded) {
@@ -77,19 +100,31 @@ class NoiseSuppressionService {
   }
 
   async processStream(inputStream: MediaStream): Promise<MediaStream> {
+    this.ensureSettingsLoaded();
+    console.log('🔇 processStream вызван:', {
+      initialized: this.isInitialized,
+      hasAudioContext: !!this.audioContext,
+      settings: this.settings,
+      inputStreamTracks: inputStream.getTracks().length,
+      inputStreamActive: inputStream.active
+    });
+
     if (!this.isInitialized || !this.audioContext) {
-      throw new Error('Сервис шумодава не инициализирован');
+      console.warn('🔇 Сервис шумодава не инициализирован, возвращаем оригинальный поток');
+      return inputStream;
     }
 
     if (!this.settings.enabled) {
+      console.log('🔇 Шумодав отключен, возвращаем оригинальный поток');
       return inputStream;
     }
 
     if (this.settings.level === 'basic') {
-      // Используем встроенное подавление шума браузера
+      console.log('🔇 Используем базовый уровень (встроенное подавление шума браузера)');
       return inputStream;
     }
 
+    console.log('🔇 Используем продвинутый уровень (RNNoise)');
     // Используем RNNoise для продвинутого подавления шума
     return await this.processWithRNNoise(inputStream);
   }
@@ -128,23 +163,30 @@ class NoiseSuppressionService {
 
   // Методы для управления настройками
   setEnabled(enabled: boolean) {
+    this.ensureSettingsLoaded();
+    console.log('🔇 setEnabled вызван:', enabled, 'текущие настройки:', this.settings);
     this.settings.enabled = enabled;
     this.saveSettings();
-    console.log('🔇 Шумодав', enabled ? 'включен' : 'выключен');
+    console.log('🔇 Шумодав', enabled ? 'включен' : 'выключен', 'новые настройки:', this.settings);
   }
 
   setLevel(level: 'basic' | 'advanced') {
+    this.ensureSettingsLoaded();
+    console.log('🔇 setLevel вызван:', level, 'текущие настройки:', this.settings);
     this.settings.level = level;
     this.saveSettings();
-    console.log('🔇 Уровень шумодава изменен на:', level);
+    console.log('🔇 Уровень шумодава изменен на:', level, 'новые настройки:', this.settings);
     
     // Если переключились на advanced, загружаем RNNoise
     if (level === 'advanced' && !this.isRNNoiseLoaded && this.audioContext) {
+      console.log('🔇 Загружаем RNNoise для продвинутого уровня');
       this.loadRNNoise();
     }
   }
 
   setSensitivity(sensitivity: number) {
+    this.ensureSettingsLoaded();
+    console.log('🔇 setSensitivity вызван:', sensitivity, 'текущие настройки:', this.settings);
     this.settings.sensitivity = Math.max(0, Math.min(100, sensitivity));
     this.saveSettings();
     
@@ -154,12 +196,30 @@ class NoiseSuppressionService {
         type: 'setSensitivity',
         sensitivity: this.settings.sensitivity
       });
+      console.log('🔇 Отправлено сообщение worklet о смене чувствительности');
     }
     
-    console.log('🔇 Чувствительность шумодава:', this.settings.sensitivity);
+    console.log('🔇 Чувствительность шумодава:', this.settings.sensitivity, 'новые настройки:', this.settings);
+  }
+
+  setVadThreshold(threshold: number) {
+    this.ensureSettingsLoaded();
+    console.log('🔇 setVadThreshold вызван:', threshold, 'текущие настройки:', this.settings);
+    this.settings.vadThreshold = Math.max(-60, Math.min(0, threshold));
+    this.saveSettings();
+    console.log('🔇 Порог VAD изменен на:', this.settings.vadThreshold, 'дБ');
+  }
+
+  setVadEnabled(enabled: boolean) {
+    this.ensureSettingsLoaded();
+    console.log('🔇 setVadEnabled вызван:', enabled, 'текущие настройки:', this.settings);
+    this.settings.vadEnabled = enabled;
+    this.saveSettings();
+    console.log('🔇 VAD', enabled ? 'включен' : 'выключен');
   }
 
   getSettings(): NoiseSuppressionSettings {
+    this.ensureSettingsLoaded();
     return { ...this.settings };
   }
 
