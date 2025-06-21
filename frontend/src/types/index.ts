@@ -7,6 +7,8 @@ export interface User {
   is_online?: boolean;
   created_at?: string;
   updated_at?: string;
+  is_muted?: boolean;
+  is_deafened?: boolean;
 }
 
 export interface Server {

@@ -4,7 +4,7 @@ from sqlalchemy import select, func, and_
 from sqlalchemy.orm import selectinload
 from typing import List
 from app.db.database import get_db
-from app.models import Channel, ChannelMember, TextChannel, VoiceChannel, User, ChannelType
+from app.models import Channel, ChannelMember, TextChannel, VoiceChannel, User, ChannelType, VoiceChannelUser
 from app.schemas.channel import (
     ChannelCreate, Channel as ChannelSchema, ChannelUpdate,
     TextChannelCreate, TextChannel as TextChannelSchema,
@@ -406,4 +406,60 @@ async def get_channel_members(
             email=member.email
         )
         for member in members
+    ]
+
+@router.get("/voice/{voice_channel_id}/members")
+async def get_voice_channel_members(
+    voice_channel_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Получение списка участников голосового канала"""
+    # Проверяем существование голосового канала
+    voice_channel_result = await db.execute(
+        select(VoiceChannel).where(VoiceChannel.id == voice_channel_id)
+    )
+    voice_channel = voice_channel_result.scalar_one_or_none()
+    if not voice_channel:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Voice channel not found"
+        )
+    
+    # Проверяем членство в основном канале
+    member_result = await db.execute(
+        select(ChannelMember).where(
+            and_(
+                ChannelMember.channel_id == voice_channel.channel_id,
+                ChannelMember.user_id == current_user.id
+            )
+        )
+    )
+    if not member_result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not a member of this channel"
+        )
+    
+    # Получаем всех участников голосового канала с информацией о пользователях
+    result = await db.execute(
+        select(VoiceChannelUser, User).join(User, VoiceChannelUser.user_id == User.id).where(
+            VoiceChannelUser.voice_channel_id == voice_channel_id
+        )
+    )
+    voice_members = result.all()
+    
+    return [
+        {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "is_active": user.is_active,
+            "is_online": user.is_online,
+            "created_at": user.created_at,
+            "updated_at": user.updated_at,
+            "is_muted": voice_user.is_muted,
+            "is_deafened": voice_user.is_deafened
+        }
+        for voice_user, user in voice_members
     ]

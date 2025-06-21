@@ -354,7 +354,18 @@ class VoiceService {
   }
 
   setDeafened(deafened: boolean) {
-    // Реализация отключения звука
+    console.log(`🔊 Установка deafened: ${deafened}`);
+    
+    // Заглушаем/включаем все удаленные аудио элементы
+    this.peerConnections.forEach(({ userId }) => {
+      const audioElement = document.getElementById(`remote-audio-${userId}`) as HTMLAudioElement;
+      if (audioElement) {
+        audioElement.muted = deafened;
+        console.log(`🔊 ${deafened ? 'Заглушен' : 'Включен'} звук от пользователя ${userId}`);
+      }
+    });
+    
+    // Отправляем статус на сервер
     this.sendMessage({ type: 'deafen', is_deafened: deafened });
   }
 
@@ -443,8 +454,8 @@ class VoiceService {
         }
         const average = sum / bufferLength;
         
-        // Порог для определения речи (можно настроить)
-        const threshold = 30;
+        // Порог для определения речи (понижен для более чувствительного определения)
+        const threshold = 15;
         const currentlySpeaking = average > threshold;
         
         if (currentlySpeaking !== this.isSpeaking) {

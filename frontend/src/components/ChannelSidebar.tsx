@@ -103,11 +103,73 @@ export function ChannelSidebar() {
   const [isCreateVoiceModalOpen, setIsCreateVoiceModalOpen] = useState(false)
   const [newChannelName, setNewChannelName] = useState('')
   const [isCreating, setIsCreating] = useState(false)
+  const [voiceChannelMembers, setVoiceChannelMembers] = useState<Record<number, any[]>>({})
+
+  // Загружаем участников голосового канала
+  const loadVoiceChannelMembers = async (voiceChannelId: number) => {
+    try {
+      const members = await channelService.getVoiceChannelMembers(voiceChannelId);
+      setVoiceChannelMembers(prev => ({
+        ...prev,
+        [voiceChannelId]: members
+      }));
+    } catch (error) {
+      console.error('Ошибка загрузки участников голосового канала:', error);
+      // Если ошибка, устанавливаем пустой массив
+      setVoiceChannelMembers(prev => ({
+        ...prev,
+        [voiceChannelId]: []
+      }));
+    }
+  };
+
+  // Загружаем участников всех голосовых каналов при смене сервера
+  useEffect(() => {
+    if (currentServer) {
+      const voiceChannels = currentServer.channels.filter(c => c.type === 'voice');
+      voiceChannels.forEach(channel => {
+        loadVoiceChannelMembers(channel.id);
+      });
+    }
+  }, [currentServer]);
+
+  // Обработка уведомлений о голосовых каналах
+  useEffect(() => {
+    const handleVoiceChannelJoin = (event: any) => {
+      const data = event.detail;
+      console.log('Пользователь присоединился к голосовому каналу:', data);
+      // Обновляем список участников для этого канала
+      if (data.voice_channel_id) {
+        loadVoiceChannelMembers(data.voice_channel_id);
+      }
+    };
+
+    const handleVoiceChannelLeave = (event: any) => {
+      const data = event.detail;
+      console.log('Пользователь покинул голосовой канал:', data);
+      // Обновляем список участников для этого канала
+      if (data.voice_channel_id) {
+        loadVoiceChannelMembers(data.voice_channel_id);
+      }
+    };
+
+    // Подписываемся на события
+    window.addEventListener('voice_channel_join', handleVoiceChannelJoin);
+    window.addEventListener('voice_channel_leave', handleVoiceChannelLeave);
+
+    return () => {
+      window.removeEventListener('voice_channel_join', handleVoiceChannelJoin);
+      window.removeEventListener('voice_channel_leave', handleVoiceChannelLeave);
+    };
+  }, []);
 
   const handleChannelClick = async (channel: any) => {
     console.log('🔄 Клик по каналу:', channel.name, 'тип:', channel.type, 'ID:', channel.id);
     
     if (channel.type === 'voice') {
+      // Обновляем список участников перед подключением
+      await loadVoiceChannelMembers(channel.id);
+      
       // Подключаемся к голосовому каналу
       try {
         console.log('🎙️ Начинаем подключение к голосовому каналу');
@@ -139,7 +201,8 @@ export function ChannelSidebar() {
       ];
       return allParticipants;
     }
-    return []; // Для других каналов пока показываем пустой список
+    // Для других каналов показываем загруженных участников
+    return voiceChannelMembers[channelId] || [];
   }
 
   const handleCreateTextChannel = async () => {

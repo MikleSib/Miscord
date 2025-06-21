@@ -84,6 +84,11 @@ class ChannelService {
     const response = await api.get<User[]>(`/api/channels/${serverId}/members`);
     return response.data;
   }
+
+  async getVoiceChannelMembers(voiceChannelId: number): Promise<User[]> {
+    const response = await api.get<User[]>(`/api/channels/voice/${voiceChannelId}/members`);
+    return response.data;
+  }
 }
 
 export default new ChannelService();

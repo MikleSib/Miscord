@@ -277,6 +277,9 @@ export const useStore = create<AppState>()(
               icon: '/favicon.ico'
             });
           }
+          
+          // Генерируем глобальное событие для обновления UI
+          window.dispatchEvent(new CustomEvent('voice_channel_join', { detail: data }));
         });
         
         // Обработка выхода из голосового канала
@@ -290,6 +293,9 @@ export const useStore = create<AppState>()(
               icon: '/favicon.ico'
             });
           }
+          
+          // Генерируем глобальное событие для обновления UI
+          window.dispatchEvent(new CustomEvent('voice_channel_leave', { detail: data }));
         });
       },
 
