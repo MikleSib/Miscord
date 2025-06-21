@@ -56,15 +56,13 @@ class NoiseSuppressionService {
     try {
       const saved = localStorage.getItem('noise-suppression-settings');
       if (saved) {
-        const parsedSettings = JSON.parse(saved);
-        this.settings = { ...this.settings, ...parsedSettings };
-        
-        // Принудительно включаем шумодав, если он был отключен
-        if (this.settings.enabled === false) {
-          console.log('🔇 Шумодав был отключен в настройках, включаем его');
-          this.settings.enabled = true;
-          this.saveSettings(); // Сохраняем исправленные настройки
-        }
+        // Если настройки есть, загружаем их
+        this.settings = { ...this.settings, ...JSON.parse(saved) };
+      } else {
+        // Если настроек нет, принудительно включаем
+        console.log('🔇 Сохраненные настройки не найдены, принудительно включаем шумодав.');
+        this.settings.enabled = true;
+        this.saveSettings();
       }
     } catch (error) {
       console.error('🔇 Ошибка загрузки настроек шумодава:', error);
@@ -399,9 +397,14 @@ class NoiseSuppressionService {
       this.workletNode.disconnect();
       this.workletNode = null;
     }
-    
+
+    // Сбрасываем состояние, чтобы модули перезагрузились при следующей инициализации
     this.isInitialized = false;
-    console.log('🔇 Сервис шумодава очищен');
+    this.isRNNoiseLoaded = false;
+    this.isAdvancedLoaded = false;
+    this.audioContext = null; // Также сбрасываем контекст
+
+    console.log('🔇 Сервис шумодава очищен и готов к новой инициализации');
   }
 
   // Получение статистики (для отладки)
