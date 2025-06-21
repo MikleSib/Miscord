@@ -6,11 +6,10 @@ import { useStore } from '../lib/store'
 import { useAuthStore } from '../store/store'
 import { formatDate } from '../lib/utils'
 import { Button } from './ui/button'
-import websocketService from '../services/websocketService'
 
 export function ChatArea() {
   const { currentChannel, messages, sendMessage, addMessage } = useStore()
-  const { user, token } = useAuthStore()
+  const { user } = useAuthStore()
   const [messageInput, setMessageInput] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -20,50 +19,11 @@ export function ChatArea() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [channelMessages])
 
-  // WebSocket connection
-  useEffect(() => {
-    if (currentChannel && currentChannel.type === 'text' && token) {
-      websocketService.connect(currentChannel.id, token)
-
-      // Listen for new messages
-      const handleNewMessage = (data: any) => {
-        if (data.message && data.message.content) {
-          const newMessage = {
-            id: data.message.id || Date.now(),
-            content: data.message.content,
-            user: data.message.author || { id: data.message.author_id, username: 'Unknown' },
-            timestamp: data.message.created_at || new Date().toISOString(),
-            channelId: currentChannel.id,
-          }
-          addMessage(currentChannel.id, newMessage)
-        }
-      }
-
-      websocketService.on('new_message', handleNewMessage)
-
-      return () => {
-        websocketService.off('new_message', handleNewMessage)
-        websocketService.disconnect()
-      }
-    }
-  }, [currentChannel, token, addMessage])
-
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault()
     if (messageInput.trim() && currentChannel && user && currentChannel.type === 'text') {
-      // Send via WebSocket for real-time
-      websocketService.sendMessage(currentChannel.id, messageInput)
-      
-      // Also add to local store for immediate UI update
-      const localMessage = {
-        id: Date.now(),
-        content: messageInput,
-        user: user,
-        timestamp: new Date().toISOString(),
-        channelId: currentChannel.id,
-      }
-      addMessage(currentChannel.id, localMessage)
-      
+      // Отправляем сообщение через store
+      sendMessage(messageInput)
       setMessageInput('')
     }
   }
@@ -90,30 +50,37 @@ export function ChatArea() {
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto scrollbar-thin">
         <div className="p-4 space-y-4">
-          {channelMessages.map((message) => (
-            <div key={message.id} className="flex gap-3 hover:bg-accent/5 px-2 py-1 rounded">
-              <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
-                {message.user.avatar ? (
-                  <img src={message.user.avatar} alt="" className="w-full h-full rounded-full" />
-                ) : (
-                  <span className="text-sm font-semibold">
-                    {message.user.username[0].toUpperCase()}
-                  </span>
-                )}
-              </div>
-              <div className="flex-1">
-                <div className="flex items-baseline gap-2">
-                  <span className="font-semibold text-sm">
-                    {message.user.username}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {formatDate(message.timestamp)}
-                  </span>
-                </div>
-                <p className="text-sm mt-0.5">{message.content}</p>
-              </div>
+          {channelMessages.length === 0 ? (
+            <div className="text-center text-muted-foreground py-8">
+              <p>Пока что здесь нет сообщений</p>
+              <p className="text-sm">Начните общение в канале #{currentChannel.name}</p>
             </div>
-          ))}
+          ) : (
+            channelMessages.map((message) => (
+              <div key={message.id} className="flex gap-3 hover:bg-accent/5 px-2 py-1 rounded">
+                <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
+                  {message.author.avatar ? (
+                    <img src={message.author.avatar} alt="" className="w-full h-full rounded-full" />
+                  ) : (
+                    <span className="text-sm font-semibold">
+                      {message.author.username[0].toUpperCase()}
+                    </span>
+                  )}
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-baseline gap-2">
+                    <span className="font-semibold text-sm">
+                      {message.author.username}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {formatDate(message.timestamp)}
+                    </span>
+                  </div>
+                  <p className="text-sm mt-0.5">{message.content}</p>
+                </div>
+              </div>
+            ))
+          )}
           <div ref={messagesEndRef} />
         </div>
       </div>
