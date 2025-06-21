@@ -18,7 +18,7 @@ async def get_current_user_voice(
     token: str,
     db: AsyncSession
 ) -> User:
-    """Получение текущего пользователя для голосового WebSocket"""
+    """Получение текущего пользователя для голосовой WebSocket"""
     payload = decode_access_token(token)
     if not payload:
         await websocket.close(code=4001, reason="Invalid token")
@@ -256,6 +256,39 @@ async def websocket_voice_endpoint(
                                 await conn_info["websocket"].send_json(speaking_message)
                             except:
                                 pass
+                
+                elif data["type"] == "screen_share_start":
+                    # Уведомляем всех участников канала о начале демонстрации экрана
+                    await manager.broadcast_to_channel(
+                        channel_id,
+                        {
+                            "type": "screen_share_started",
+                            "user_id": user.id,
+                            "username": user.username
+                        },
+                        exclude_user_id=user.id
+                    )
+                    logger.info(f"Пользователь {user.username} начал демонстрацию экрана")
+                
+                elif data["type"] == "screen_share_stop":
+                    # Уведомляем всех участников канала об остановке демонстрации экрана
+                    await manager.broadcast_to_channel(
+                        channel_id,
+                        {
+                            "type": "screen_share_stopped",
+                            "user_id": user.id,
+                            "username": user.username
+                        },
+                        exclude_user_id=user.id
+                    )
+                    logger.info(f"Пользователь {user.username} остановил демонстрацию экрана")
+                
+                else:
+                    logger.warning(f"Неизвестный тип сообщения: {data['type']}")
+                    await websocket.send_text(json.dumps({
+                        "type": "error",
+                        "message": f"Неизвестный тип сообщения: {data['type']}"
+                    }))
         
         except WebSocketDisconnect:
             pass

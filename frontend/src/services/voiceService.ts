@@ -10,6 +10,7 @@ interface PeerConnection {
 class VoiceService {
   private ws: WebSocket | null = null;
   private localStream: MediaStream | null = null;
+  private screenStream: MediaStream | null = null; // Поток демонстрации экрана
   private peerConnections: Map<number, PeerConnection> = new Map();
   private iceServers: RTCIceServer[] = [];
   private voiceChannelId: number | null = null;
@@ -24,6 +25,8 @@ class VoiceService {
   private speakingUsers: Set<number> = new Set();
   private onParticipantsReceivedCallback: ((participants: any[]) => void) | null = null;
   private onParticipantStatusChangedCallback: ((userId: number, status: Partial<{ is_muted: boolean; is_deafened: boolean }>) => void) | null = null;
+  private isScreenSharing: boolean = false; // Статус демонстрации экрана
+  private onScreenShareChanged: ((userId: number, isSharing: boolean) => void) | null = null;
 
   async connect(voiceChannelId: number, token: string) {
     console.log('🎙️ VoiceService.connect вызван с параметрами:', { voiceChannelId, token: token ? 'есть' : 'нет' });
@@ -162,6 +165,35 @@ class VoiceService {
           this.onParticipantStatusChangedCallback(data.user_id, { is_deafened: data.is_deafened });
         }
         break;
+
+      case 'participant_status_changed':
+        console.log('🔊 Статус участника изменен:', data.user_id, data.status);
+        if (this.onParticipantStatusChangedCallback) {
+          this.onParticipantStatusChangedCallback(data.user_id, data.status);
+        }
+        break;
+
+      case 'screen_share_started':
+        console.log('🖥️ Пользователь начал демонстрацию экрана:', data.user_id);
+        if (this.onScreenShareChanged) {
+          this.onScreenShareChanged(data.user_id, true);
+        }
+        break;
+
+      case 'screen_share_stopped':
+        console.log('🖥️ Пользователь остановил демонстрацию экрана:', data.user_id);
+        // Удаляем видео элемент
+        const videoElement = document.getElementById(`remote-video-${data.user_id}`);
+        if (videoElement) {
+          videoElement.remove();
+        }
+        if (this.onScreenShareChanged) {
+          this.onScreenShareChanged(data.user_id, false);
+        }
+        break;
+
+      default:
+        console.log('🔊 Неизвестное сообщение:', data);
     }
   }
 
@@ -185,50 +217,91 @@ class VoiceService {
       console.log('🔊 Получен удаленный поток от пользователя', userId, event.streams);
       
       if (event.streams && event.streams[0]) {
-        const remoteAudio = new Audio();
-        remoteAudio.srcObject = event.streams[0];
-        remoteAudio.autoplay = true;
-        remoteAudio.controls = false;
-        remoteAudio.muted = false;
-        remoteAudio.volume = 1.0;
-        
-        // Добавляем аудио элемент в DOM
-        remoteAudio.id = `remote-audio-${userId}`;
-        remoteAudio.style.display = 'none';
-        document.body.appendChild(remoteAudio);
-        
-        // Применяем сохраненную громкость если есть
-        setTimeout(() => {
-          const savedVolume = localStorage.getItem(`voice-volume-${userId}`);
-          if (savedVolume) {
-            const volume = parseInt(savedVolume);
-            remoteAudio.volume = Math.min(volume / 100, 3.0);
-            console.log(`🔊 Применена сохраненная громкость ${volume}% для пользователя ${userId}`);
+        const stream = event.streams[0];
+        const audioTracks = stream.getAudioTracks();
+        const videoTracks = stream.getVideoTracks();
+
+        // Обрабатываем аудио треки
+        if (audioTracks.length > 0) {
+          const remoteAudio = new Audio();
+          remoteAudio.srcObject = new MediaStream(audioTracks);
+          remoteAudio.autoplay = true;
+          remoteAudio.controls = false;
+          remoteAudio.muted = false;
+          remoteAudio.volume = 1.0;
+          
+          remoteAudio.id = `remote-audio-${userId}`;
+          remoteAudio.style.display = 'none';
+          document.body.appendChild(remoteAudio);
+          
+          // Применяем сохраненную громкость если есть
+          setTimeout(() => {
+            const savedVolume = localStorage.getItem(`voice-volume-${userId}`);
+            if (savedVolume) {
+              const volume = parseInt(savedVolume);
+              remoteAudio.volume = Math.min(volume / 100, 3.0);
+              console.log(`🔊 Применена сохраненная громкость ${volume}% для пользователя ${userId}`);
+            }
+          }, 100);
+          
+          // Пытаемся воспроизвести аудио
+          const playPromise = remoteAudio.play();
+          if (playPromise !== undefined) {
+            playPromise.then(() => {
+              console.log('🔊 Аудио от пользователя', userId, 'успешно воспроизводится');
+            }).catch(error => {
+              console.error('🔊 Ошибка воспроизведения аудио от пользователя', userId, ':', error);
+              
+              const enableAudio = () => {
+                remoteAudio.play().then(() => {
+                  console.log('🔊 Аудио от пользователя', userId, 'включено после взаимодействия пользователя');
+                  document.removeEventListener('click', enableAudio);
+                  document.removeEventListener('touchstart', enableAudio);
+                }).catch(e => {
+                  console.error('🔊 Все еще не удается воспроизвести аудио от пользователя', userId, ':', e);
+                });
+              };
+              
+              document.addEventListener('click', enableAudio, { once: true });
+              document.addEventListener('touchstart', enableAudio, { once: true });
+            });
           }
-        }, 100);
-        
-        // Пытаемся воспроизвести аудио
-        const playPromise = remoteAudio.play();
-        if (playPromise !== undefined) {
-          playPromise.then(() => {
-            console.log('🔊 Аудио от пользователя', userId, 'успешно воспроизводится');
-          }).catch(error => {
-            console.error('🔊 Ошибка воспроизведения аудио от пользователя', userId, ':', error);
+        }
+
+        // Обрабатываем видео треки (демонстрация экрана)
+        if (videoTracks.length > 0) {
+          console.log('🖥️ Получен видео поток от пользователя', userId);
+          
+          // Создаем или обновляем видео элемент
+          let remoteVideo = document.getElementById(`remote-video-${userId}`) as HTMLVideoElement;
+          if (!remoteVideo) {
+            remoteVideo = document.createElement('video');
+            remoteVideo.id = `remote-video-${userId}`;
+            remoteVideo.autoplay = true;
+            remoteVideo.controls = false;
+            remoteVideo.muted = true; // Видео всегда без звука, звук идет через аудио элемент
+            remoteVideo.style.width = '100%';
+            remoteVideo.style.height = '100%';
+            remoteVideo.style.objectFit = 'contain';
+            remoteVideo.style.backgroundColor = '#000';
             
-            // Пытаемся включить аудио при первом клике пользователя
-            const enableAudio = () => {
-              remoteAudio.play().then(() => {
-                console.log('🔊 Аудио от пользователя', userId, 'включено после взаимодействия пользователя');
-                document.removeEventListener('click', enableAudio);
-                document.removeEventListener('touchstart', enableAudio);
-              }).catch(e => {
-                console.error('🔊 Все еще не удается воспроизвести аудио от пользователя', userId, ':', e);
-              });
-            };
-            
-            document.addEventListener('click', enableAudio, { once: true });
-            document.addEventListener('touchstart', enableAudio, { once: true });
-          });
+            // Добавляем в специальный контейнер для видео
+            const videoContainer = document.getElementById('screen-share-container');
+            if (videoContainer) {
+              videoContainer.appendChild(remoteVideo);
+            } else {
+              document.body.appendChild(remoteVideo);
+            }
+          }
+          
+          remoteVideo.srcObject = new MediaStream(videoTracks);
+          
+          // Уведомляем о начале демонстрации экрана
+          if (this.onScreenShareChanged) {
+            this.onScreenShareChanged(userId, true);
+          }
+          
+          console.log('🖥️ Видео элемент создан для пользователя', userId);
         }
       }
     };
@@ -345,6 +418,18 @@ class VoiceService {
     if (audioElement) {
       audioElement.remove();
       console.log(`🔊 Удален аудио элемент для пользователя ${userId}`);
+    }
+
+    // Удаляем видео элемент из DOM
+    const videoElement = document.getElementById(`remote-video-${userId}`);
+    if (videoElement) {
+      videoElement.remove();
+      console.log(`🖥️ Удален видео элемент для пользователя ${userId}`);
+      
+      // Уведомляем об остановке демонстрации экрана
+      if (this.onScreenShareChanged) {
+        this.onScreenShareChanged(userId, false);
+      }
     }
   }
 
@@ -558,6 +643,124 @@ class VoiceService {
 
   onParticipantStatusChanged(callback: (userId: number, status: Partial<{ is_muted: boolean; is_deafened: boolean }>) => void) {
     this.onParticipantStatusChangedCallback = callback;
+  }
+
+  // Демонстрация экрана
+  async startScreenShare(): Promise<boolean> {
+    try {
+      console.log('🖥️ Начинаем демонстрацию экрана');
+      
+      // Получаем поток экрана
+      this.screenStream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 30 }
+        },
+        audio: true // Включаем звук системы если доступен
+      });
+
+      // Обрабатываем событие остановки демонстрации экрана
+      this.screenStream.getVideoTracks()[0].addEventListener('ended', () => {
+        console.log('🖥️ Демонстрация экрана остановлена пользователем');
+        this.stopScreenShare();
+      });
+
+      // Добавляем видео трек ко всем существующим peer connections
+      this.peerConnections.forEach(async ({ pc }, userId) => {
+        const videoTrack = this.screenStream!.getVideoTracks()[0];
+        if (videoTrack) {
+          // Добавляем видео трек
+          pc.addTrack(videoTrack, this.screenStream!);
+          console.log(`🖥️ Добавлен видео трек для пользователя ${userId}`);
+        }
+
+        // Добавляем аудио трек системы если есть
+        const audioTracks = this.screenStream!.getAudioTracks();
+        if (audioTracks.length > 0) {
+          pc.addTrack(audioTracks[0], this.screenStream!);
+          console.log(`🖥️ Добавлен системный аудио трек для пользователя ${userId}`);
+        }
+
+        // Создаем новый offer с видео
+        try {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          this.sendMessage({
+            type: 'offer',
+            target_id: userId,
+            offer: offer,
+          });
+        } catch (error) {
+          console.error(`🖥️ Ошибка создания offer с видео для пользователя ${userId}:`, error);
+        }
+      });
+
+      this.isScreenSharing = true;
+      
+      // Уведомляем сервер о начале демонстрации экрана
+      this.sendMessage({ 
+        type: 'screen_share_start'
+      });
+
+      console.log('🖥️ Демонстрация экрана успешно начата');
+      return true;
+    } catch (error) {
+      console.error('🖥️ Ошибка начала демонстрации экрана:', error);
+      return false;
+    }
+  }
+
+  stopScreenShare() {
+    if (!this.screenStream) return;
+
+    console.log('🖥️ Останавливаем демонстрацию экрана');
+
+    // Останавливаем все треки
+    this.screenStream.getTracks().forEach(track => {
+      track.stop();
+    });
+
+    // Удаляем видео треки из всех peer connections
+    this.peerConnections.forEach(({ pc }, userId) => {
+      const senders = pc.getSenders();
+      senders.forEach((sender: RTCRtpSender) => {
+        if (sender.track && sender.track.kind === 'video') {
+          pc.removeTrack(sender);
+          console.log(`🖥️ Удален видео трек для пользователя ${userId}`);
+        }
+      });
+
+      // Создаем новый offer без видео
+      pc.createOffer().then((offer: RTCSessionDescriptionInit) => {
+        pc.setLocalDescription(offer);
+        this.sendMessage({
+          type: 'offer',
+          target_id: userId,
+          offer: offer,
+        });
+      }).catch((error: any) => {
+        console.error(`🖥️ Ошибка создания offer без видео для пользователя ${userId}:`, error);
+      });
+    });
+
+    this.screenStream = null;
+    this.isScreenSharing = false;
+
+    // Уведомляем сервер об остановке демонстрации экрана
+    this.sendMessage({ 
+      type: 'screen_share_stop'
+    });
+
+    console.log('🖥️ Демонстрация экрана остановлена');
+  }
+
+  getScreenSharingStatus(): boolean {
+    return this.isScreenSharing;
+  }
+
+  onScreenShareChange(callback: (userId: number, isSharing: boolean) => void) {
+    this.onScreenShareChanged = callback;
   }
 }
 

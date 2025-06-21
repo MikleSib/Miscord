@@ -7,7 +7,10 @@ import { useStore } from '../lib/store'
 import { ServerList } from '../components/ServerList'
 import { ChannelSidebar } from '../components/ChannelSidebar'
 import { ChatArea } from '../components/ChatArea'
+import { UserPanel } from '../components/UserPanel'
+import { ScreenShareOverlay } from '../components/ScreenShareOverlay'
 import { useVoiceStore } from '../store/slices/voiceSlice'
+import voiceService from '../services/voiceService'
 
 export default function HomePage() {
   const router = useRouter()
@@ -15,13 +18,16 @@ export default function HomePage() {
   const { 
     servers, 
     currentServer, 
+    currentChannel, 
     loadServers, 
     initializeWebSocket,
     disconnectWebSocket,
     isLoading 
   } = useStore()
-  const { isConnected } = useVoiceStore()
+  const { isConnected, currentVoiceChannelId } = useVoiceStore()
   const [isMounted, setIsMounted] = useState(false)
+  const [isScreenShareVisible, setIsScreenShareVisible] = useState(false)
+  const [sharingUsers, setSharingUsers] = useState<{ userId: number; username: string }[]>([])
 
   useEffect(() => {
     setIsMounted(true)
@@ -57,6 +63,44 @@ export default function HomePage() {
     }
   }, [isMounted, token, isAuthenticated, router, initializeWebSocket, loadServers, disconnectWebSocket])
 
+  useEffect(() => {
+    if (!user || !token) {
+      router.push('/login')
+      return
+    }
+    
+    loadServers()
+  }, [user, token, router, loadServers])
+
+  useEffect(() => {
+    // Подписываемся на изменения демонстрации экрана
+    const handleScreenShareChange = (userId: number, isSharing: boolean) => {
+      setSharingUsers(prev => {
+        if (isSharing) {
+          // Добавляем пользователя если его нет в списке
+          if (!prev.find(u => u.userId === userId)) {
+            // Здесь нужно получить имя пользователя, пока используем ID
+            return [...prev, { userId, username: `User ${userId}` }];
+          }
+          return prev;
+        } else {
+          // Удаляем пользователя из списка
+          return prev.filter(u => u.userId !== userId);
+        }
+      });
+    };
+
+    voiceService.onScreenShareChange(handleScreenShareChange);
+
+    // Показываем overlay если есть пользователи демонстрирующие экран
+    const checkScreenShare = () => {
+      const hasScreenShare = sharingUsers.length > 0 || voiceService.getScreenSharingStatus();
+      setIsScreenShareVisible(hasScreenShare);
+    };
+
+    checkScreenShare();
+  }, [sharingUsers]);
+
   if (!isMounted) {
     return null // Предотвращаем гидратацию
   }
@@ -84,33 +128,20 @@ export default function HomePage() {
   }
 
   return (
-    <div className="flex h-screen bg-background">
-      {/* Список серверов */}
+    <div className="h-screen flex bg-background">
       <ServerList />
-      
-      {/* Боковая панель каналов */}
-      {currentServer && (
-        <ChannelSidebar />
-      )}
-      
-      {/* Основная область чата */}
+      <ChannelSidebar />
       <div className="flex-1 flex flex-col">
-        {currentServer ? (
-          <ChatArea />
-        ) : (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center text-muted-foreground">
-              <h2 className="text-2xl font-semibold mb-2">Добро пожаловать в Miscord!</h2>
-              <p>Выберите сервер, чтобы начать общение</p>
-              {servers.length === 0 && (
-                <p className="mt-4">
-                  У вас пока нет серверов. Создайте новый или попросите кого-то пригласить вас.
-                </p>
-              )}
-            </div>
-          </div>
-        )}
+        <ChatArea />
+        <UserPanel />
       </div>
+      
+      {/* Overlay для демонстрации экрана */}
+      <ScreenShareOverlay
+        isVisible={isScreenShareVisible}
+        onClose={() => setIsScreenShareVisible(false)}
+        sharingUsers={sharingUsers}
+      />
     </div>
   )
 }
