@@ -61,83 +61,123 @@ async def create_channel(
     
     await db.commit()
     
-    return db_channel
+    return {
+        "id": db_channel.id,
+        "name": db_channel.name,
+        "description": db_channel.description,
+        "owner_id": db_channel.owner_id,
+        "created_at": db_channel.created_at,
+        "updated_at": db_channel.updated_at,
+        "owner": {
+            "id": current_user.id,
+            "username": current_user.username,
+            "email": current_user.email,
+            "is_active": current_user.is_active,
+            "is_online": current_user.is_online,
+            "created_at": current_user.created_at,
+            "updated_at": current_user.updated_at
+        },
+        "text_channels": [],
+        "voice_channels": [],
+        "members_count": 1
+    }
 
 @router.get("/", response_model=List[ChannelSchema])
 async def get_user_channels(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Получение списка каналов пользователя"""
+    """Получение каналов пользователя"""
     result = await db.execute(
-        select(Channel)
-        .join(ChannelMember)
-        .where(ChannelMember.user_id == current_user.id)
-        .options(
-            selectinload(Channel.owner),
-            selectinload(Channel.text_channels),
-            selectinload(Channel.voice_channels)
+        select(Channel).join(ChannelMember).where(
+            ChannelMember.user_id == current_user.id
         )
     )
     channels = result.scalars().all()
     
-    # Подсчет участников для каждого канала
-    for channel in channels:
-        count_result = await db.execute(
-            select(func.count(ChannelMember.id))
-            .where(ChannelMember.channel_id == channel.id)
-        )
-        channel.members_count = count_result.scalar()
-    
-    return channels
+    return [
+        {
+            "id": channel.id,
+            "name": channel.name,
+            "description": channel.description,
+            "owner_id": channel.owner_id,
+            "created_at": channel.created_at,
+            "updated_at": channel.updated_at,
+            "owner": {
+                "id": current_user.id,
+                "username": current_user.username,
+                "email": current_user.email,
+                "is_active": current_user.is_active,
+                "is_online": current_user.is_online,
+                "created_at": current_user.created_at,
+                "updated_at": current_user.updated_at
+            },
+            "text_channels": [],
+            "voice_channels": [],
+            "members_count": 0
+        }
+        for channel in channels
+    ]
 
-@router.get("/{channel_id}", response_model=ChannelSchema)
-async def get_channel(
+@router.get("/{channel_id}")
+async def get_channel_details(
     channel_id: int,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Получение информации о канале"""
-    # Проверка членства
+    """Получение детальной информации о канале"""
+    # Проверяем членство
     member_result = await db.execute(
-        select(ChannelMember)
-        .where(
-            (ChannelMember.channel_id == channel_id) &
-            (ChannelMember.user_id == current_user.id)
+        select(ChannelMember).where(
+            and_(
+                ChannelMember.channel_id == channel_id,
+                ChannelMember.user_id == current_user.id
+            )
         )
     )
     if not member_result.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You are not a member of this channel"
+            detail="Not a member of this channel"
         )
     
-    # Получение канала
-    result = await db.execute(
-        select(Channel)
-        .where(Channel.id == channel_id)
-        .options(
-            selectinload(Channel.owner),
-            selectinload(Channel.text_channels),
-            selectinload(Channel.voice_channels)
-        )
+    # Получаем основной канал
+    channel_result = await db.execute(
+        select(Channel).where(Channel.id == channel_id)
     )
-    channel = result.scalar_one_or_none()
-    
+    channel = channel_result.scalar_one_or_none()
     if not channel:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Channel not found"
         )
     
-    # Подсчет участников
-    count_result = await db.execute(
-        select(func.count(ChannelMember.id))
-        .where(ChannelMember.channel_id == channel_id)
+    # Получаем текстовые каналы
+    text_result = await db.execute(
+        select(TextChannel).where(TextChannel.channel_id == channel_id).order_by(TextChannel.position)
     )
-    channel.members_count = count_result.scalar()
+    text_channels = text_result.scalars().all()
     
-    return channel
+    # Получаем голосовые каналы
+    voice_result = await db.execute(
+        select(VoiceChannel).where(VoiceChannel.channel_id == channel_id).order_by(VoiceChannel.position)
+    )
+    voice_channels = voice_result.scalars().all()
+    
+    return {
+        "id": channel.id,
+        "name": channel.name,
+        "description": channel.description,
+        "owner_id": channel.owner_id,
+        "type": channel.type,
+        "channels": [
+            {"id": tc.id, "name": tc.name, "type": "text", "position": tc.position}
+            for tc in text_channels
+        ] + [
+            {"id": vc.id, "name": vc.name, "type": "voice", "position": vc.position, "max_users": vc.max_users}
+            for vc in voice_channels
+        ]
+    }
 
 @router.post("/{channel_id}/join")
 async def join_channel(

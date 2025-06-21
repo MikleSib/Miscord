@@ -27,6 +27,14 @@ class UserInDB(UserBase):
 class User(UserInDB):
     pass
 
+class UserResponse(BaseModel):
+    id: int
+    username: str
+    email: str
+    
+    class Config:
+        from_attributes = True
+
 class UserLogin(BaseModel):
     username: str
     password: str
