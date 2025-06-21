@@ -179,30 +179,30 @@ export const useStore = create<AppState>()(
       // Загрузка деталей сервера
       loadServerDetails: async (serverId: number) => {
         try {
-          const serverDetails = await channelService.getChannelDetails(serverId);
+          const serverDetails = await channelService.getChannelDetails(serverId)
           
-          const channels: Channel[] = serverDetails.channels.map((ch: any) => ({
+          const channels: Channel[] = (serverDetails.channels || []).map((ch: any) => ({
             id: ch.id,
             name: ch.name,
             type: ch.type,
             serverId: serverId
-          }));
+          }))
           
           const updatedServer: Server = {
             id: serverDetails.id,
             name: serverDetails.name,
             description: serverDetails.description,
             channels
-          };
+          }
           
           set((state) => ({
             servers: state.servers.map(server =>
               server.id === serverId ? updatedServer : server
             ),
             currentServer: updatedServer
-          }));
+          }))
         } catch (error) {
-          console.error('Ошибка загрузки деталей сервера:', error);
+          console.error('Ошибка загрузки деталей сервера:', error)
         }
       },
 
