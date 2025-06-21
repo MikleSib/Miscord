@@ -98,7 +98,9 @@ class VoiceService {
         for (const participant of data.participants) {
           if (participant.user_id !== currentUserId) {
             console.log('🔊 Создаем peer connection с участником:', participant.user_id, participant.username);
-            await this.createPeerConnection(participant.user_id, true);
+            // Создаем offer только если наш ID меньше
+            const shouldCreateOffer = currentUserId !== null && currentUserId < participant.user_id;
+            await this.createPeerConnection(participant.user_id, shouldCreateOffer);
           }
         }
         break;
@@ -111,7 +113,9 @@ class VoiceService {
         // Создаем соединение только если это не мы сами
         const currentUserId2 = this.getCurrentUserId();
         if (data.user_id !== currentUserId2) {
-          await this.createPeerConnection(data.user_id, false); // Новый пользователь создает offer
+          // Создаем offer только если наш ID меньше (существующий пользователь создает offer для нового)
+          const shouldCreateOffer = currentUserId2 !== null && currentUserId2 < data.user_id;
+          await this.createPeerConnection(data.user_id, shouldCreateOffer);
         }
         break;
 
@@ -185,17 +189,37 @@ class VoiceService {
         remoteAudio.srcObject = event.streams[0];
         remoteAudio.autoplay = true;
         remoteAudio.controls = false;
+        remoteAudio.muted = false;
+        remoteAudio.volume = 1.0;
+        
+        // Добавляем аудио элемент в DOM
+        remoteAudio.id = `remote-audio-${userId}`;
+        remoteAudio.style.display = 'none';
+        document.body.appendChild(remoteAudio);
         
         // Пытаемся воспроизвести аудио
-        remoteAudio.play().then(() => {
-          console.log('🔊 Аудио от пользователя', userId, 'успешно воспроизводится');
-        }).catch(error => {
-          console.error('🔊 Ошибка воспроизведения аудио от пользователя', userId, ':', error);
-        });
-        
-        // Добавляем аудио элемент в DOM для отладки
-        remoteAudio.id = `remote-audio-${userId}`;
-        document.body.appendChild(remoteAudio);
+        const playPromise = remoteAudio.play();
+        if (playPromise !== undefined) {
+          playPromise.then(() => {
+            console.log('🔊 Аудио от пользователя', userId, 'успешно воспроизводится');
+          }).catch(error => {
+            console.error('🔊 Ошибка воспроизведения аудио от пользователя', userId, ':', error);
+            
+            // Пытаемся включить аудио при первом клике пользователя
+            const enableAudio = () => {
+              remoteAudio.play().then(() => {
+                console.log('🔊 Аудио от пользователя', userId, 'включено после взаимодействия пользователя');
+                document.removeEventListener('click', enableAudio);
+                document.removeEventListener('touchstart', enableAudio);
+              }).catch(e => {
+                console.error('🔊 Все еще не удается воспроизвести аудио от пользователя', userId, ':', e);
+              });
+            };
+            
+            document.addEventListener('click', enableAudio, { once: true });
+            document.addEventListener('touchstart', enableAudio, { once: true });
+          });
+        }
       }
     };
 
