@@ -10,8 +10,10 @@ import { ChatArea } from '../components/ChatArea'
 import { UserPanel } from '../components/UserPanel'
 import { ScreenShareOverlay } from '../components/ScreenShareOverlay'
 import { ScreenShareToast } from '../components/ScreenShareToast'
+import { ConnectionStatus } from '../components/ConnectionStatus'
 import { useVoiceStore } from '../store/slices/voiceSlice'
 import voiceService from '../services/voiceService'
+import websocketService from '../services/websocketService'
 import { Button } from '../components/ui/button'
 import { Monitor } from 'lucide-react'
 
@@ -32,6 +34,13 @@ export default function HomePage() {
   const [isScreenShareVisible, setIsScreenShareVisible] = useState(false)
   const [sharingUsers, setSharingUsers] = useState<{ userId: number; username: string }[]>([])
   const [toastNotifications, setToastNotifications] = useState<{ userId: number; username: string; id: string }[]>([])
+  const [connectionStatus, setConnectionStatus] = useState({
+    isConnected: true,
+    isReconnecting: false,
+    reconnectAttempts: 0,
+    maxReconnectAttempts: 5,
+    lastError: undefined as string | undefined
+  })
 
   useEffect(() => {
     setIsMounted(true)
@@ -137,19 +146,20 @@ export default function HomePage() {
       });
     };
 
+    // Подписываемся на изменения статуса подключения WebSocket
+    websocketService.onConnectionStatusChange((status) => {
+      setConnectionStatus({
+        isConnected: status.isConnected,
+        isReconnecting: status.isReconnecting,
+        reconnectAttempts: status.reconnectAttempts,
+        maxReconnectAttempts: status.maxReconnectAttempts,
+        lastError: status.lastError
+      });
+    });
+
     voiceService.onScreenShareChange(handleScreenShareChange);
     window.addEventListener('open_screen_share', handleOpenScreenShare);
     window.addEventListener('screen_share_start', handleScreenShareStartEvent);
-
-    // Показываем overlay если есть пользователи демонстрирующие экран
-    const checkScreenShare = () => {
-      const hasScreenShare = sharingUsers.length > 0 || voiceService.getScreenSharingStatus();
-      if (hasScreenShare && !isScreenShareVisible) {
-        setIsScreenShareVisible(true);
-      }
-    };
-
-    checkScreenShare();
 
     return () => {
       window.removeEventListener('open_screen_share', handleOpenScreenShare);
@@ -230,6 +240,15 @@ export default function HomePage() {
         isVisible={isScreenShareVisible}
         onClose={() => setIsScreenShareVisible(false)}
         sharingUsers={sharingUsers}
+      />
+
+      {/* Индикатор состояния подключения */}
+      <ConnectionStatus
+        isConnected={connectionStatus.isConnected}
+        isReconnecting={connectionStatus.isReconnecting}
+        reconnectAttempts={connectionStatus.reconnectAttempts}
+        maxReconnectAttempts={connectionStatus.maxReconnectAttempts}
+        lastError={connectionStatus.lastError}
       />
 
       {/* Toast уведомления */}

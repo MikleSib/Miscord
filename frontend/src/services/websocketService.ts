@@ -15,11 +15,50 @@ class WebSocketService {
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
   private messageHandlers: { [key: string]: (data: any) => void } = {};
+  private isReconnecting = false;
+  private lastError: string | null = null;
+  private connectionStatusHandlers: ((status: {
+    isConnected: boolean;
+    isReconnecting: boolean;
+    reconnectAttempts: number;
+    maxReconnectAttempts: number;
+    lastError?: string;
+  }) => void)[] = [];
+
+  private notifyConnectionStatus() {
+    const status = {
+      isConnected: this.isConnected(),
+      isReconnecting: this.isReconnecting,
+      reconnectAttempts: this.reconnectAttempts,
+      maxReconnectAttempts: this.maxReconnectAttempts,
+      lastError: this.lastError || undefined
+    };
+    
+    this.connectionStatusHandlers.forEach(handler => handler(status));
+  }
+
+  // Подписка на изменения статуса подключения
+  onConnectionStatusChange(handler: (status: {
+    isConnected: boolean;
+    isReconnecting: boolean;
+    reconnectAttempts: number;
+    maxReconnectAttempts: number;
+    lastError?: string;
+  }) => void) {
+    this.connectionStatusHandlers.push(handler);
+    
+    // Сразу уведомляем о текущем статусе
+    this.notifyConnectionStatus();
+  }
 
   connect(token: string) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       return;
     }
+
+    this.isReconnecting = true;
+    this.lastError = null;
+    this.notifyConnectionStatus();
 
     try {
       this.ws = new WebSocket(`${WS_URL}/ws/notifications?token=${token}`);
@@ -27,6 +66,9 @@ class WebSocketService {
       this.ws.onopen = () => {
         console.log('🔔 WebSocket уведомлений подключен');
         this.reconnectAttempts = 0;
+        this.isReconnecting = false;
+        this.lastError = null;
+        this.notifyConnectionStatus();
       };
 
       this.ws.onmessage = (event) => {
@@ -40,30 +82,49 @@ class WebSocketService {
           }
         } catch (error) {
           console.error('Ошибка обработки WebSocket сообщения:', error);
+          this.lastError = 'Ошибка обработки сообщения';
+          this.notifyConnectionStatus();
         }
       };
 
-      this.ws.onclose = () => {
-        console.log('🔔 WebSocket уведомлений отключен');
+      this.ws.onclose = (event) => {
+        console.log('🔔 WebSocket уведомлений отключен', event.code, event.reason);
+        this.isReconnecting = false;
+        this.lastError = event.reason || 'Соединение закрыто';
+        this.notifyConnectionStatus();
         this.handleReconnect(token);
       };
 
       this.ws.onerror = (error) => {
         console.error('🔔 Ошибка WebSocket уведомлений:', error);
+        this.lastError = 'Ошибка соединения';
+        this.isReconnecting = false;
+        this.notifyConnectionStatus();
       };
     } catch (error) {
       console.error('Ошибка подключения WebSocket уведомлений:', error);
+      this.lastError = 'Не удалось подключиться';
+      this.isReconnecting = false;
+      this.notifyConnectionStatus();
     }
   }
 
   private handleReconnect(token: string) {
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
+      this.isReconnecting = true;
+      this.lastError = `Попытка ${this.reconnectAttempts}/${this.maxReconnectAttempts}`;
+      this.notifyConnectionStatus();
+      
       console.log(`🔔 Попытка переподключения ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
       
       setTimeout(() => {
         this.connect(token);
       }, this.reconnectDelay * this.reconnectAttempts);
+    } else {
+      this.isReconnecting = false;
+      this.lastError = 'Превышено максимальное количество попыток переподключения';
+      this.notifyConnectionStatus();
     }
   }
 
@@ -116,7 +177,10 @@ class WebSocketService {
       this.ws = null;
     }
     this.messageHandlers = {};
+    this.connectionStatusHandlers = [];
     this.reconnectAttempts = 0;
+    this.isReconnecting = false;
+    this.lastError = null;
   }
 
   // Проверка состояния подключения
