@@ -42,7 +42,7 @@ async def get_current_user_voice(
 
 async def websocket_voice_endpoint(
     websocket: WebSocket,
-    voice_channel_id: int,
+    channel_id: int,
     token: str
 ):
     """WebSocket эндпоинт для голосовой связи"""
@@ -55,7 +55,7 @@ async def websocket_voice_endpoint(
         
         # Проверка существования голосового канала
         voice_result = await db.execute(
-            select(VoiceChannel).where(VoiceChannel.id == voice_channel_id)
+            select(VoiceChannel).where(VoiceChannel.id == channel_id)
         )
         voice_channel = voice_result.scalar_one_or_none()
         
@@ -68,7 +68,7 @@ async def websocket_voice_endpoint(
         # Проверка лимита пользователей
         active_users_count = await db.execute(
             select(VoiceChannelUser).where(
-                VoiceChannelUser.voice_channel_id == voice_channel_id
+                VoiceChannelUser.voice_channel_id == channel_id
             )
         )
         if len(active_users_count.scalars().all()) >= voice_channel.max_users:
@@ -79,17 +79,17 @@ async def websocket_voice_endpoint(
         
         # Добавление в голосовой канал в БД
         voice_user = VoiceChannelUser(
-            voice_channel_id=voice_channel_id,
+            voice_channel_id=channel_id,
             user_id=user.id
         )
         db.add(voice_user)
         await db.commit()
         
         # Инициализация хранилища для канала
-        if voice_channel_id not in voice_connections:
-            voice_connections[voice_channel_id] = {}
+        if channel_id not in voice_connections:
+            voice_connections[channel_id] = {}
         
-        voice_connections[voice_channel_id][user.id] = {
+        voice_connections[channel_id][user.id] = {
             "websocket": websocket,
             "user_id": user.id,
             "username": user.username,
@@ -100,7 +100,7 @@ async def websocket_voice_endpoint(
         try:
             # Отправка списка участников новому пользователю
             participants = []
-            for uid, conn_info in voice_connections[voice_channel_id].items():
+            for uid, conn_info in voice_connections[channel_id].items():
                 if uid != user.id:
                     participants.append({
                         "user_id": uid,
@@ -122,7 +122,7 @@ async def websocket_voice_endpoint(
                 "username": user.username
             }
             
-            for uid, conn_info in voice_connections[voice_channel_id].items():
+            for uid, conn_info in voice_connections[channel_id].items():
                 if uid != user.id:
                     try:
                         await conn_info["websocket"].send_json(join_message)
@@ -134,7 +134,7 @@ async def websocket_voice_endpoint(
                 "type": "voice_channel_join",
                 "user_id": user.id,
                 "username": user.username,
-                "voice_channel_id": voice_channel_id,
+                "voice_channel_id": channel_id,
                 "voice_channel_name": voice_channel.name
             }
             await manager.broadcast_to_all(global_join_message)
@@ -146,8 +146,8 @@ async def websocket_voice_endpoint(
                 if data["type"] == "offer":
                     # Пересылка offer целевому пользователю
                     target_id = data.get("target_id")
-                    if target_id and target_id in voice_connections[voice_channel_id]:
-                        await voice_connections[voice_channel_id][target_id]["websocket"].send_json({
+                    if target_id and target_id in voice_connections[channel_id]:
+                        await voice_connections[channel_id][target_id]["websocket"].send_json({
                             "type": "offer",
                             "from_id": user.id,
                             "offer": data["offer"]
@@ -156,8 +156,8 @@ async def websocket_voice_endpoint(
                 elif data["type"] == "answer":
                     # Пересылка answer целевому пользователю
                     target_id = data.get("target_id")
-                    if target_id and target_id in voice_connections[voice_channel_id]:
-                        await voice_connections[voice_channel_id][target_id]["websocket"].send_json({
+                    if target_id and target_id in voice_connections[channel_id]:
+                        await voice_connections[channel_id][target_id]["websocket"].send_json({
                             "type": "answer",
                             "from_id": user.id,
                             "answer": data["answer"]
@@ -166,8 +166,8 @@ async def websocket_voice_endpoint(
                 elif data["type"] == "ice_candidate":
                     # Пересылка ICE candidate целевому пользователю
                     target_id = data.get("target_id")
-                    if target_id and target_id in voice_connections[voice_channel_id]:
-                        await voice_connections[voice_channel_id][target_id]["websocket"].send_json({
+                    if target_id and target_id in voice_connections[channel_id]:
+                        await voice_connections[channel_id][target_id]["websocket"].send_json({
                             "type": "ice_candidate",
                             "from_id": user.id,
                             "candidate": data["candidate"]
@@ -176,13 +176,13 @@ async def websocket_voice_endpoint(
                 elif data["type"] == "mute":
                     # Обновление статуса mute
                     is_muted = data.get("is_muted", False)
-                    voice_connections[voice_channel_id][user.id]["is_muted"] = is_muted
+                    voice_connections[channel_id][user.id]["is_muted"] = is_muted
                     
                     # Обновление в БД
                     voice_user_result = await db.execute(
                         select(VoiceChannelUser).where(
                             and_(
-                                VoiceChannelUser.voice_channel_id == voice_channel_id,
+                                VoiceChannelUser.voice_channel_id == channel_id,
                                 VoiceChannelUser.user_id == user.id
                             )
                         )
@@ -199,7 +199,7 @@ async def websocket_voice_endpoint(
                         "is_muted": is_muted
                     }
                     
-                    for uid, conn_info in voice_connections[voice_channel_id].items():
+                    for uid, conn_info in voice_connections[channel_id].items():
                         if uid != user.id:
                             try:
                                 await conn_info["websocket"].send_json(mute_message)
@@ -209,13 +209,13 @@ async def websocket_voice_endpoint(
                 elif data["type"] == "deafen":
                     # Обновление статуса deafen
                     is_deafened = data.get("is_deafened", False)
-                    voice_connections[voice_channel_id][user.id]["is_deafened"] = is_deafened
+                    voice_connections[channel_id][user.id]["is_deafened"] = is_deafened
                     
                     # Обновление в БД
                     voice_user_result = await db.execute(
                         select(VoiceChannelUser).where(
                             and_(
-                                VoiceChannelUser.voice_channel_id == voice_channel_id,
+                                VoiceChannelUser.voice_channel_id == channel_id,
                                 VoiceChannelUser.user_id == user.id
                             )
                         )
@@ -232,7 +232,7 @@ async def websocket_voice_endpoint(
                         "is_deafened": is_deafened
                     }
                     
-                    for uid, conn_info in voice_connections[voice_channel_id].items():
+                    for uid, conn_info in voice_connections[channel_id].items():
                         if uid != user.id:
                             try:
                                 await conn_info["websocket"].send_json(deafen_message)
@@ -250,7 +250,7 @@ async def websocket_voice_endpoint(
                         "is_speaking": is_speaking
                     }
                     
-                    for uid, conn_info in voice_connections[voice_channel_id].items():
+                    for uid, conn_info in voice_connections[channel_id].items():
                         if uid != user.id:
                             try:
                                 await conn_info["websocket"].send_json(speaking_message)
@@ -263,18 +263,18 @@ async def websocket_voice_endpoint(
             print(f"Voice WebSocket error: {e}")
         finally:
             # Удаление из голосового канала
-            if voice_channel_id in voice_connections and user.id in voice_connections[voice_channel_id]:
-                del voice_connections[voice_channel_id][user.id]
+            if channel_id in voice_connections and user.id in voice_connections[channel_id]:
+                del voice_connections[channel_id][user.id]
                 
                 # Если канал пуст, удаляем его
-                if not voice_connections[voice_channel_id]:
-                    del voice_connections[voice_channel_id]
+                if not voice_connections[channel_id]:
+                    del voice_connections[channel_id]
             
             # Удаление из БД
             await db.execute(
                 delete(VoiceChannelUser).where(
                     and_(
-                        VoiceChannelUser.voice_channel_id == voice_channel_id,
+                        VoiceChannelUser.voice_channel_id == channel_id,
                         VoiceChannelUser.user_id == user.id
                     )
                 )
@@ -287,8 +287,8 @@ async def websocket_voice_endpoint(
                 "user_id": user.id
             }
             
-            if voice_channel_id in voice_connections:
-                for uid, conn_info in voice_connections[voice_channel_id].items():
+            if channel_id in voice_connections:
+                for uid, conn_info in voice_connections[channel_id].items():
                     try:
                         await conn_info["websocket"].send_json(leave_message)
                     except:
@@ -299,6 +299,6 @@ async def websocket_voice_endpoint(
                 "type": "voice_channel_leave",
                 "user_id": user.id,
                 "username": user.username,
-                "voice_channel_id": voice_channel_id
+                "voice_channel_id": channel_id
             }
             await manager.broadcast_to_all(global_leave_message)
