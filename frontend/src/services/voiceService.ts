@@ -285,12 +285,20 @@ class VoiceService {
             remoteVideo.style.objectFit = 'contain';
             remoteVideo.style.backgroundColor = '#000';
             
-            // Добавляем в специальный контейнер для видео
-            const videoContainer = document.getElementById('screen-share-container');
+            // Добавляем в контейнер в ChatArea
+            const videoContainer = document.getElementById('screen-share-container-chat');
             if (videoContainer) {
+              // Очищаем контейнер от предыдущего содержимого
+              videoContainer.innerHTML = '';
               videoContainer.appendChild(remoteVideo);
             } else {
-              document.body.appendChild(remoteVideo);
+              // Если контейнер не найден, пробуем старый контейнер
+              const fallbackContainer = document.getElementById('screen-share-container');
+              if (fallbackContainer) {
+                fallbackContainer.appendChild(remoteVideo);
+              } else {
+                document.body.appendChild(remoteVideo);
+              }
             }
           }
           

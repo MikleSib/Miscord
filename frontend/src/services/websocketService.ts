@@ -12,7 +12,7 @@ type MessageHandler = (message: WebSocketMessage) => void;
 class WebSocketService {
   private ws: WebSocket | null = null;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
+  private maxReconnectAttempts = 60;
   private reconnectDelay = 1000;
   private messageHandlers: { [key: string]: (data: any) => void } = {};
   private isReconnecting = false;
@@ -116,7 +116,7 @@ class WebSocketService {
       this.lastError = `Попытка ${this.reconnectAttempts}/${this.maxReconnectAttempts}`;
       this.notifyConnectionStatus();
       
-      console.log(`🔔 Попытка переподключения ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
+      console.log(`�� Попытка переподключения ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
       
       setTimeout(() => {
         this.connect(token);

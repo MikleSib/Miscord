@@ -7,8 +7,6 @@ import { useStore } from '../lib/store'
 import { ServerList } from '../components/ServerList'
 import { ChannelSidebar } from '../components/ChannelSidebar'
 import { ChatArea } from '../components/ChatArea'
-import { UserPanel } from '../components/UserPanel'
-import { ScreenShareOverlay } from '../components/ScreenShareOverlay'
 import { ScreenShareToast } from '../components/ScreenShareToast'
 import { ConnectionStatus } from '../components/ConnectionStatus'
 import { useVoiceStore } from '../store/slices/voiceSlice'
@@ -31,14 +29,13 @@ export default function HomePage() {
   } = useStore()
   const { isConnected, currentVoiceChannelId } = useVoiceStore()
   const [isMounted, setIsMounted] = useState(false)
-  const [isScreenShareVisible, setIsScreenShareVisible] = useState(false)
   const [sharingUsers, setSharingUsers] = useState<{ userId: number; username: string }[]>([])
   const [toastNotifications, setToastNotifications] = useState<{ userId: number; username: string; id: string }[]>([])
   const [connectionStatus, setConnectionStatus] = useState({
     isConnected: true,
     isReconnecting: false,
     reconnectAttempts: 0,
-    maxReconnectAttempts: 5,
+    maxReconnectAttempts: 60,
     lastError: undefined as string | undefined
   })
 
@@ -120,8 +117,6 @@ export default function HomePage() {
         }
         return prev;
       });
-      // Открываем overlay
-      setIsScreenShareVisible(true);
     };
 
     // Обработчик событий screen_share_start из WebSocket
@@ -165,14 +160,18 @@ export default function HomePage() {
       window.removeEventListener('open_screen_share', handleOpenScreenShare);
       window.removeEventListener('screen_share_start', handleScreenShareStartEvent);
     };
-  }, [sharingUsers, isScreenShareVisible, user]);
+  }, [sharingUsers, user]);
 
   // Функции для работы с Toast уведомлениями
   const handleViewScreenShare = (userId: number, username: string) => {
+    // Отправляем событие для открытия демонстрации в ChatArea
     const event = new CustomEvent('open_screen_share', {
       detail: { userId, username }
     });
     window.dispatchEvent(event);
+    
+    // Убираем Toast уведомление
+    setToastNotifications(prev => prev.filter(toast => toast.userId !== userId));
   };
 
   const handleDismissToast = (toastId: string) => {
@@ -211,37 +210,8 @@ export default function HomePage() {
       <ChannelSidebar />
       <div className="flex-1 flex flex-col">
         <ChatArea />
-        <UserPanel />
       </div>
       
-      {/* Плавающая кнопка для просмотра демонстрации экрана (мобильная версия) */}
-      {sharingUsers.length > 0 && !isScreenShareVisible && (
-        <div className="fixed bottom-20 right-4 z-40 md:hidden">
-          <Button
-            onClick={() => setIsScreenShareVisible(true)}
-            className="h-14 w-14 rounded-full bg-green-600 hover:bg-green-700 shadow-lg"
-            size="sm"
-          >
-            <div className="flex flex-col items-center">
-              <Monitor className="w-6 h-6 text-white" />
-              <div className="w-2 h-2 bg-white rounded-full animate-pulse mt-1" />
-            </div>
-          </Button>
-          {sharingUsers.length > 1 && (
-            <div className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-6 h-6 flex items-center justify-center font-bold">
-              {sharingUsers.length}
-            </div>
-          )}
-        </div>
-      )}
-      
-      {/* Overlay для демонстрации экрана */}
-      <ScreenShareOverlay
-        isVisible={isScreenShareVisible}
-        onClose={() => setIsScreenShareVisible(false)}
-        sharingUsers={sharingUsers}
-      />
-
       {/* Индикатор состояния подключения */}
       <ConnectionStatus
         isConnected={connectionStatus.isConnected}

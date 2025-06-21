@@ -1,12 +1,14 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Hash, Volume2, ChevronDown, Settings, Plus, Mic, MicOff, Headphones, PhoneOff, VolumeX, Monitor, UserX, UserCheck, Shield, Volume1 } from 'lucide-react'
+import { Hash, Volume2, ChevronDown, Settings, Plus, Mic, MicOff, Headphones, PhoneOff, VolumeX, Monitor, MonitorOff, UserX, UserCheck, Shield, Volume1, LogOut } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { useVoiceStore } from '../store/slices/voiceSlice'
 import { useAuthStore } from '../store/store'
+import { useRouter } from 'next/navigation'
 import { cn } from '../lib/utils'
 import { Button } from './ui/button'
+import voiceService from '../services/voiceService'
 import {
   Dialog,
   DialogContent,
@@ -105,7 +107,8 @@ export function ChannelSidebar() {
     toggleDeafen,
     speakingUsers
   } = useVoiceStore()
-  const { user } = useAuthStore()
+  const { user, logout } = useAuthStore()
+  const router = useRouter()
   const [isCreateTextModalOpen, setIsCreateTextModalOpen] = useState(false)
   const [isCreateVoiceModalOpen, setIsCreateVoiceModalOpen] = useState(false)
   const [newChannelName, setNewChannelName] = useState('')
@@ -124,6 +127,10 @@ export function ChannelSidebar() {
 
   // Состояние для пользователей, демонстрирующих экран
   const [screenSharingUsers, setScreenSharingUsers] = useState<Set<number>>(new Set());
+
+  // Состояние для UserPanel функциональности
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [activeSharingUsers, setActiveSharingUsers] = useState<{ userId: number; username: string }[]>([]);
 
   // Загружаем участников голосового канала
   const loadVoiceChannelMembers = async (voiceChannelId: number) => {
@@ -204,6 +211,84 @@ export function ChannelSidebar() {
       window.removeEventListener('screen_share_stop', handleScreenShareStop);
     };
   }, []);
+
+  // Обработчики для UserPanel функциональности
+  useEffect(() => {
+    // Подписываемся на изменения статуса демонстрации экрана
+    const updateScreenShareStatus = () => {
+      setIsScreenSharing(voiceService.getScreenSharingStatus());
+    };
+
+    // Обработчики событий демонстрации экрана для UserPanel
+    const handleScreenShareStartForUserPanel = (event: any) => {
+      const { user_id, username } = event.detail;
+      setActiveSharingUsers(prev => {
+        if (!prev.find(u => u.userId === user_id)) {
+          return [...prev, { userId: user_id, username }];
+        }
+        return prev;
+      });
+    };
+
+    const handleScreenShareStopForUserPanel = (event: any) => {
+      const { user_id } = event.detail;
+      setActiveSharingUsers(prev => prev.filter(u => u.userId !== user_id));
+    };
+
+    // Проверяем статус при загрузке
+    updateScreenShareStatus();
+
+    // Подписываемся на события
+    window.addEventListener('screen_share_start', handleScreenShareStartForUserPanel);
+    window.addEventListener('screen_share_stop', handleScreenShareStopForUserPanel);
+
+    // Можно добавить слушатель событий если нужно
+    const interval = setInterval(updateScreenShareStatus, 1000);
+    
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('screen_share_start', handleScreenShareStartForUserPanel);
+      window.removeEventListener('screen_share_stop', handleScreenShareStopForUserPanel);
+    };
+  }, []);
+
+  // Обработчики для UserPanel функциональности
+  const handleLogout = () => {
+    logout();
+    router.push('/login');
+  };
+
+  const handleMuteToggle = () => {
+    voiceService.setMuted(!isMuted);
+  };
+
+  const handleDeafenToggle = () => {
+    voiceService.setDeafened(!isDeafened);
+  };
+
+  const handleDisconnect = () => {
+    disconnectFromVoiceChannel();
+  };
+
+  const handleScreenShareToggle = async () => {
+    if (isScreenSharing) {
+      voiceService.stopScreenShare();
+    } else {
+      await voiceService.startScreenShare();
+    }
+    setIsScreenSharing(voiceService.getScreenSharingStatus());
+  };
+
+  const handleViewScreenShare = () => {
+    // Создаем событие для открытия ScreenShareOverlay
+    const event = new CustomEvent('open_screen_share', {
+      detail: { 
+        userId: activeSharingUsers[0]?.userId, 
+        username: activeSharingUsers[0]?.username 
+      }
+    });
+    window.dispatchEvent(event);
+  };
 
   const handleChannelClick = async (channel: any) => {
     console.log('🔄 Клик по каналу:', channel.name, 'тип:', channel.type, 'ID:', channel.id);
@@ -327,15 +412,6 @@ export function ChannelSidebar() {
       audioElement.volume = Math.min(volume / 100, 3.0); // Ограничиваем до 300% (3.0)
       console.log(`🔊 Установлена громкость ${volume}% для пользователя ${userId}`);
     }
-  };
-
-  // Открытие демонстрации экрана
-  const openScreenShare = (userId: number, username: string) => {
-    // Создаем событие для открытия ScreenShareOverlay
-    const event = new CustomEvent('open_screen_share', {
-      detail: { userId, username }
-    });
-    window.dispatchEvent(event);
   };
 
   const handleCreateTextChannel = async () => {
@@ -523,7 +599,10 @@ export function ChannelSidebar() {
                                   className="w-6 h-6 p-0 text-green-400 hover:text-green-300 hover:bg-green-400/20"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    openScreenShare(participant.user_id, participant.username);
+                                    const event = new CustomEvent('open_screen_share', {
+                                      detail: { userId: participant.user_id, username: participant.username }
+                                    });
+                                    window.dispatchEvent(event);
                                   }}
                                   title={`${participant.username} демонстрирует экран - нажмите для просмотра`}
                                 >
@@ -556,74 +635,145 @@ export function ChannelSidebar() {
           </div>
         </div>
 
-        {/* Панель управления голосом в самом низу */}
-        {isConnected && currentVoiceChannelId && (
-          <div className="mt-auto border-t border-border/50 bg-accent/10 p-3">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-medium text-green-400 truncate">
-                  Голосовое подключение
-                </div>
-                <div className="text-xs text-muted-foreground truncate">
-                  {currentServer?.channels.find(c => c.id === currentVoiceChannelId)?.name || 'Голосовой канал'}
-                </div>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-5 w-5 p-0 text-muted-foreground hover:text-red-400"
-                onClick={() => {
-                  disconnectFromVoiceChannel();
+        {/* Панель пользователя внизу */}
+        <div className="mt-auto border-t border-border">
+          {/* Информация о пользователе */}
+          <div className="p-3 bg-secondary/50">
+            <div className="flex items-center gap-3">
+              <Avatar 
+                sx={{ 
+                  width: 32, 
+                  height: 32, 
+                  fontSize: '14px',
+                  backgroundColor: 'rgb(88, 101, 242)',
+                  fontWeight: 600,
                 }}
-                title="Отключиться"
               >
-                <PhoneOff className="w-3 h-3" />
-              </Button>
-            </div>
-            
-            <div className="flex gap-1">
+                {user?.username[0].toUpperCase()}
+              </Avatar>
+              <div className="flex-1 min-w-0">
+                <Typography 
+                  sx={{ 
+                    fontWeight: 600, 
+                    fontSize: '14px', 
+                    color: 'rgb(220, 221, 222)',
+                    lineHeight: 1.2,
+                  }}
+                >
+                  {user?.username}
+                </Typography>
+                <Typography 
+                  sx={{ 
+                    fontSize: '12px', 
+                    color: 'rgb(163, 166, 170)',
+                    lineHeight: 1,
+                  }}
+                >
+                  {currentVoiceChannelId ? 'В голосовом канале' : 'Онлайн'}
+                </Typography>
+              </div>
+              
+              {/* Кнопка настроек */}
               <Button
                 variant="ghost"
                 size="sm"
-                className={cn(
-                  "h-7 w-7 p-0",
-                  isMuted 
-                    ? "bg-red-500/20 text-red-400 hover:bg-red-500/30" 
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                )}
-                onClick={toggleMute}
-                title={isMuted ? 'Включить микрофон' : 'Отключить микрофон'}
+                className="w-8 h-8 p-0 text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                title="Настройки"
               >
-                {isMuted ? <MicOff className="w-3 h-3" /> : <Mic className="w-3 h-3" />}
+                <Settings className="w-4 h-4" />
               </Button>
               
+              {/* Кнопка выхода */}
               <Button
                 variant="ghost"
                 size="sm"
-                className={cn(
-                  "h-7 w-7 p-0",
-                  isDeafened 
-                    ? "bg-red-500/20 text-red-400 hover:bg-red-500/30" 
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                )}
-                onClick={toggleDeafen}
-                title={isDeafened ? 'Включить звук' : 'Отключить звук'}
+                onClick={handleLogout}
+                className="w-8 h-8 p-0 text-muted-foreground hover:text-red-400 hover:bg-red-400/10"
+                title="Выйти"
               >
-                {isDeafened ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
-              </Button>
-
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                title="Демонстрация экрана"
-              >
-                <Monitor className="w-3 h-3" />
+                <LogOut className="w-4 h-4" />
               </Button>
             </div>
           </div>
-        )}
+
+          {/* Кнопки управления голосом (если подключен) */}
+          {currentVoiceChannelId && (
+            <div className="px-3 pb-3">
+              <div className="flex items-center gap-1">
+                {/* Кнопка микрофона */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleMuteToggle}
+                  className={cn(
+                    "flex-1 h-8",
+                    isMuted ? 'bg-red-600 hover:bg-red-700 text-white' : 'hover:bg-accent'
+                  )}
+                  title={isMuted ? 'Включить микрофон' : 'Отключить микрофон'}
+                >
+                  {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                </Button>
+
+                {/* Кнопка наушников */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleDeafenToggle}
+                  className={cn(
+                    "flex-1 h-8",
+                    isDeafened ? 'bg-red-600 hover:bg-red-700 text-white' : 'hover:bg-accent'
+                  )}
+                  title={isDeafened ? 'Включить звук' : 'Отключить звук'}
+                >
+                  {isDeafened ? <VolumeX className="w-4 h-4" /> : <Headphones className="w-4 h-4" />}
+                </Button>
+
+                {/* Кнопка демонстрации экрана */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleScreenShareToggle}
+                  className={cn(
+                    "flex-1 h-8",
+                    isScreenSharing ? 'bg-green-600 hover:bg-green-700 text-white' : 'hover:bg-accent'
+                  )}
+                  title={isScreenSharing ? 'Остановить демонстрацию экрана' : 'Начать демонстрацию экрана'}
+                >
+                  {isScreenSharing ? <MonitorOff className="w-4 h-4" /> : <Monitor className="w-4 h-4" />}
+                </Button>
+
+                {/* Кнопка просмотра активных демонстраций */}
+                {activeSharingUsers.length > 0 && !isScreenSharing && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleViewScreenShare}
+                    className="flex-1 h-8 bg-blue-600 hover:bg-blue-700 text-white relative"
+                    title={`Смотреть демонстрацию экрана: ${activeSharingUsers.map(u => u.username).join(', ')}`}
+                  >
+                    <Monitor className="w-4 h-4" />
+                    {activeSharingUsers.length > 1 && (
+                      <div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center font-bold">
+                        {activeSharingUsers.length}
+                      </div>
+                    )}
+                  </Button>
+                )}
+
+                {/* Кнопка отключения */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleDisconnect}
+                  className="w-8 h-8 p-0 hover:bg-red-600 hover:text-white"
+                  title="Отключиться от голосового канала"
+                >
+                  <PhoneOff className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Модальное окно создания текстового канала */}
