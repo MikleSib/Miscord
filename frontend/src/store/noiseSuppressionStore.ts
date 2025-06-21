@@ -167,9 +167,11 @@ export const useNoiseSuppressionStore = create<NoiseSuppressionState>((set, get)
 }));
 
 // Auto-update stats every few seconds
-setInterval(() => {
-  useNoiseSuppressionStore.getState().updateStats();
-}, 2000);
+if (typeof window !== 'undefined') {
+  setInterval(() => {
+    useNoiseSuppressionStore.getState().updateStats();
+  }, 2000);
 
-// Initialize the store
-useNoiseSuppressionStore.getState().initialize(); 
+  // Initialize the store only on client side
+  useNoiseSuppressionStore.getState().initialize();
+} 

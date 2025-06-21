@@ -121,11 +121,12 @@ class NoiseSuppressionService {
       this.saveSettings();
     }
     
-    if (this.settings.level === 'advanced' && !this.isRNNoiseLoaded) {
+    // Загружаем модули в зависимости от уровня
+    if (this.settings.level === 'advanced') {
+      console.log('🔇 Загружаем RNNoise для уровня advanced');
       await this.loadRNNoise();
-    }
-    
-    if (this.settings.level === 'professional' && !this.isAdvancedLoaded) {
+    } else if (this.settings.level === 'professional') {
+      console.log('🔇 Загружаем Advanced AI для уровня professional');
       await this.loadAdvancedProcessor();
     }
     
@@ -210,9 +211,20 @@ class NoiseSuppressionService {
   }
 
   private async processWithRNNoise(inputStream: MediaStream): Promise<MediaStream> {
-    if (!this.audioContext || !this.isRNNoiseLoaded) {
-      console.warn('🔇 RNNoise не загружен, используем оригинальный поток');
+    if (!this.audioContext) {
+      console.warn('🔇 Нет AudioContext, используем оригинальный поток');
       return inputStream;
+    }
+
+    // Принудительно загружаем RNNoise если не загружен
+    if (!this.isRNNoiseLoaded) {
+      console.log('🔇 RNNoise не загружен, загружаем...');
+      try {
+        await this.loadRNNoise();
+      } catch (error) {
+        console.error('🔇 Не удалось загрузить RNNoise, используем оригинальный поток:', error);
+        return inputStream;
+      }
     }
 
     try {
@@ -242,9 +254,20 @@ class NoiseSuppressionService {
   }
 
   private async processWithAdvancedAI(inputStream: MediaStream): Promise<MediaStream> {
-    if (!this.audioContext || !this.isAdvancedLoaded) {
-      console.warn('🔇 Advanced AI не загружен, используем оригинальный поток');
+    if (!this.audioContext) {
+      console.warn('🔇 Нет AudioContext, используем оригинальный поток');
       return inputStream;
+    }
+
+    // Принудительно загружаем Advanced AI если не загружен
+    if (!this.isAdvancedLoaded) {
+      console.log('🔇 Advanced AI не загружен, загружаем...');
+      try {
+        await this.loadAdvancedProcessor();
+      } catch (error) {
+        console.error('🔇 Не удалось загрузить Advanced AI, используем оригинальный поток:', error);
+        return inputStream;
+      }
     }
 
     try {

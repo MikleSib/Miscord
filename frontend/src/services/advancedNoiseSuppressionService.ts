@@ -319,12 +319,16 @@ class AdvancedNoiseSuppressionService {
   }
 
   isSupported(): boolean {
+    // Проверяем, что мы в браузере
     if (typeof window === 'undefined') return false;
     
-    return !!(
-      window.AudioContext || 
-      (window as any).webkitAudioContext
-    ) && 'audioWorklet' in AudioContext.prototype;
+    // Проверяем поддержку AudioContext
+    const hasAudioContext = !!(window.AudioContext || (window as any).webkitAudioContext);
+    
+    // Проверяем поддержку AudioWorklet
+    const hasAudioWorklet = hasAudioContext && 'audioWorklet' in AudioContext.prototype;
+    
+    return hasAudioContext && hasAudioWorklet;
   }
 
   cleanup() {
