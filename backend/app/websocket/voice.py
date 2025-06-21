@@ -259,32 +259,40 @@ async def websocket_voice_endpoint(
                 
                 elif data["type"] == "screen_share_start":
                     # Уведомляем всех участников канала о начале демонстрации экрана
-                    await manager.broadcast_to_channel(
-                        channel_id,
-                        {
-                            "type": "screen_share_started",
-                            "user_id": user.id,
-                            "username": user.username
-                        },
-                        exclude_user_id=user.id
-                    )
-                    logger.info(f"Пользователь {user.username} начал демонстрацию экрана")
+                    screen_share_message = {
+                        "type": "screen_share_started",
+                        "user_id": user.id,
+                        "username": user.username
+                    }
+                    
+                    for uid, conn_info in voice_connections[channel_id].items():
+                        if uid != user.id:
+                            try:
+                                await conn_info["websocket"].send_json(screen_share_message)
+                            except:
+                                pass
+                    
+                    print(f"Пользователь {user.username} начал демонстрацию экрана")
                 
                 elif data["type"] == "screen_share_stop":
                     # Уведомляем всех участников канала об остановке демонстрации экрана
-                    await manager.broadcast_to_channel(
-                        channel_id,
-                        {
-                            "type": "screen_share_stopped",
-                            "user_id": user.id,
-                            "username": user.username
-                        },
-                        exclude_user_id=user.id
-                    )
-                    logger.info(f"Пользователь {user.username} остановил демонстрацию экрана")
+                    screen_share_message = {
+                        "type": "screen_share_stopped",
+                        "user_id": user.id,
+                        "username": user.username
+                    }
+                    
+                    for uid, conn_info in voice_connections[channel_id].items():
+                        if uid != user.id:
+                            try:
+                                await conn_info["websocket"].send_json(screen_share_message)
+                            except:
+                                pass
+                    
+                    print(f"Пользователь {user.username} остановил демонстрацию экрана")
                 
                 else:
-                    logger.warning(f"Неизвестный тип сообщения: {data['type']}")
+                    print(f"Неизвестный тип сообщения: {data['type']}")
                     await websocket.send_text(json.dumps({
                         "type": "error",
                         "message": f"Неизвестный тип сообщения: {data['type']}"
