@@ -81,29 +81,42 @@ class VoiceService {
   }
 
   private async handleMessage(data: any) {
+    console.log('🔊 VoiceService получил сообщение:', data.type, data);
+    
     switch (data.type) {
       case 'participants':
         this.iceServers = data.ice_servers;
+        console.log('🔊 ICE серверы:', this.iceServers);
         
         // Передаем список участников в store
         if (this.onParticipantsReceivedCallback) {
           this.onParticipantsReceivedCallback(data.participants);
         }
         
-        // Создаем соединения с существующими участниками
+        // Создаем соединения с существующими участниками (кроме себя)
+        const currentUserId = this.getCurrentUserId();
         for (const participant of data.participants) {
-          await this.createPeerConnection(participant.user_id, true);
+          if (participant.user_id !== currentUserId) {
+            console.log('🔊 Создаем peer connection с участником:', participant.user_id, participant.username);
+            await this.createPeerConnection(participant.user_id, true);
+          }
         }
         break;
 
       case 'user_joined_voice':
+        console.log('🔊 Пользователь присоединился к голосовому каналу:', data.user_id, data.username);
         if (this.onParticipantJoined) {
           this.onParticipantJoined(data.user_id, data.username);
         }
-        await this.createPeerConnection(data.user_id, true);
+        // Создаем соединение только если это не мы сами
+        const currentUserId2 = this.getCurrentUserId();
+        if (data.user_id !== currentUserId2) {
+          await this.createPeerConnection(data.user_id, false); // Новый пользователь создает offer
+        }
         break;
 
       case 'user_left_voice':
+        console.log('🔊 Пользователь покинул голосовой канал:', data.user_id);
         if (this.onParticipantLeft) {
           this.onParticipantLeft(data.user_id);
         }
@@ -111,14 +124,17 @@ class VoiceService {
         break;
 
       case 'offer':
+        console.log('🔊 Получен offer от пользователя:', data.from_id);
         await this.handleOffer(data.from_id, data.offer);
         break;
 
       case 'answer':
+        console.log('🔊 Получен answer от пользователя:', data.from_id);
         await this.handleAnswer(data.from_id, data.answer);
         break;
 
       case 'ice_candidate':
+        console.log('🔊 Получен ICE candidate от пользователя:', data.from_id);
         await this.handleIceCandidate(data.from_id, data.candidate);
         break;
         
@@ -146,6 +162,8 @@ class VoiceService {
   }
 
   private async createPeerConnection(userId: number, createOffer: boolean) {
+    console.log(`🔊 Создаем peer connection с пользователем ${userId}, createOffer: ${createOffer}`);
+    
     const pc = new RTCPeerConnection({
       iceServers: this.iceServers,
     });
@@ -153,22 +171,38 @@ class VoiceService {
     // Добавляем локальный поток
     if (this.localStream) {
       this.localStream.getTracks().forEach(track => {
+        console.log(`🔊 Добавляем трек ${track.kind} в peer connection для пользователя ${userId}`);
         pc.addTrack(track, this.localStream!);
       });
     }
 
     // Обработка входящего потока
     pc.ontrack = (event) => {
-      console.log('Received remote stream from user', userId);
-      // Здесь можно обработать входящий аудиопоток
-      const remoteAudio = new Audio();
-      remoteAudio.srcObject = event.streams[0];
-      remoteAudio.play();
+      console.log('🔊 Получен удаленный поток от пользователя', userId, event.streams);
+      
+      if (event.streams && event.streams[0]) {
+        const remoteAudio = new Audio();
+        remoteAudio.srcObject = event.streams[0];
+        remoteAudio.autoplay = true;
+        remoteAudio.controls = false;
+        
+        // Пытаемся воспроизвести аудио
+        remoteAudio.play().then(() => {
+          console.log('🔊 Аудио от пользователя', userId, 'успешно воспроизводится');
+        }).catch(error => {
+          console.error('🔊 Ошибка воспроизведения аудио от пользователя', userId, ':', error);
+        });
+        
+        // Добавляем аудио элемент в DOM для отладки
+        remoteAudio.id = `remote-audio-${userId}`;
+        document.body.appendChild(remoteAudio);
+      }
     };
 
     // Обработка ICE кандидатов
     pc.onicecandidate = (event) => {
       if (event.candidate) {
+        console.log(`🔊 Отправляем ICE candidate пользователю ${userId}:`, event.candidate);
         this.sendMessage({
           type: 'ice_candidate',
           target_id: userId,
@@ -177,11 +211,22 @@ class VoiceService {
       }
     };
 
+    // Обработка состояния соединения
+    pc.onconnectionstatechange = () => {
+      console.log(`🔊 Состояние соединения с пользователем ${userId}:`, pc.connectionState);
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log(`🔊 Состояние ICE соединения с пользователем ${userId}:`, pc.iceConnectionState);
+    };
+
     this.peerConnections.set(userId, { pc, userId });
 
     if (createOffer) {
+      console.log(`🔊 Создаем offer для пользователя ${userId}`);
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
+      console.log(`🔊 Отправляем offer пользователю ${userId}:`, offer);
       this.sendMessage({
         type: 'offer',
         target_id: userId,
@@ -191,43 +236,81 @@ class VoiceService {
   }
 
   private async handleOffer(userId: number, offer: RTCSessionDescriptionInit) {
+    console.log(`🔊 Обрабатываем offer от пользователя ${userId}:`, offer);
+    
     let peerConnection = this.peerConnections.get(userId);
     
     if (!peerConnection) {
+      console.log(`🔊 Создаем новое peer connection для пользователя ${userId}`);
       await this.createPeerConnection(userId, false);
       peerConnection = this.peerConnections.get(userId)!;
     }
 
-    await peerConnection.pc.setRemoteDescription(offer);
-    const answer = await peerConnection.pc.createAnswer();
-    await peerConnection.pc.setLocalDescription(answer);
+    try {
+      await peerConnection.pc.setRemoteDescription(offer);
+      console.log(`🔊 Установлен remote description для пользователя ${userId}`);
+      
+      const answer = await peerConnection.pc.createAnswer();
+      await peerConnection.pc.setLocalDescription(answer);
+      console.log(`🔊 Создан и установлен answer для пользователя ${userId}:`, answer);
 
-    this.sendMessage({
-      type: 'answer',
-      target_id: userId,
-      answer: answer,
-    });
+      this.sendMessage({
+        type: 'answer',
+        target_id: userId,
+        answer: answer,
+      });
+      console.log(`🔊 Отправлен answer пользователю ${userId}`);
+    } catch (error) {
+      console.error(`🔊 Ошибка при обработке offer от пользователя ${userId}:`, error);
+    }
   }
 
   private async handleAnswer(userId: number, answer: RTCSessionDescriptionInit) {
+    console.log(`🔊 Обрабатываем answer от пользователя ${userId}:`, answer);
+    
     const peerConnection = this.peerConnections.get(userId);
     if (peerConnection) {
-      await peerConnection.pc.setRemoteDescription(answer);
+      try {
+        await peerConnection.pc.setRemoteDescription(answer);
+        console.log(`🔊 Установлен remote description (answer) для пользователя ${userId}`);
+      } catch (error) {
+        console.error(`🔊 Ошибка при обработке answer от пользователя ${userId}:`, error);
+      }
+    } else {
+      console.error(`🔊 Не найдено peer connection для пользователя ${userId}`);
     }
   }
 
   private async handleIceCandidate(userId: number, candidate: RTCIceCandidateInit) {
+    console.log(`🔊 Обрабатываем ICE candidate от пользователя ${userId}:`, candidate);
+    
     const peerConnection = this.peerConnections.get(userId);
     if (peerConnection) {
-      await peerConnection.pc.addIceCandidate(candidate);
+      try {
+        await peerConnection.pc.addIceCandidate(candidate);
+        console.log(`🔊 Добавлен ICE candidate для пользователя ${userId}`);
+      } catch (error) {
+        console.error(`🔊 Ошибка при добавлении ICE candidate для пользователя ${userId}:`, error);
+      }
+    } else {
+      console.error(`🔊 Не найдено peer connection для пользователя ${userId}`);
     }
   }
 
   private removePeerConnection(userId: number) {
+    console.log(`🔊 Удаляем peer connection для пользователя ${userId}`);
+    
     const peerConnection = this.peerConnections.get(userId);
     if (peerConnection) {
       peerConnection.pc.close();
       this.peerConnections.delete(userId);
+    }
+    
+    // Удаляем аудио элемент из DOM
+    const audioElement = document.getElementById(`remote-audio-${userId}`);
+    if (audioElement) {
+      audioElement.remove();
+      console.log(`🔊 Удален аудио элемент для пользователя ${userId}`);
     }
   }
 
@@ -267,8 +350,17 @@ class VoiceService {
   }
 
   private cleanup() {
+    console.log('🔊 Очистка VoiceService');
+    
     // Закрываем все peer connections
-    this.peerConnections.forEach(({ pc }) => pc.close());
+    this.peerConnections.forEach(({ pc, userId }) => {
+      pc.close();
+      // Удаляем соответствующий аудио элемент
+      const audioElement = document.getElementById(`remote-audio-${userId}`);
+      if (audioElement) {
+        audioElement.remove();
+      }
+    });
     this.peerConnections.clear();
 
     // Останавливаем локальный поток
