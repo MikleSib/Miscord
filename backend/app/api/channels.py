@@ -169,7 +169,7 @@ async def get_channel_details(
         "name": channel.name,
         "description": channel.description,
         "owner_id": channel.owner_id,
-        "type": channel.type,
+        "type": "server",  # Это сервер, содержащий каналы
         "channels": [
             {"id": tc.id, "name": tc.name, "type": "text", "position": tc.position}
             for tc in text_channels
@@ -338,8 +338,7 @@ async def invite_user_to_channel(
     # Добавляем пользователя как участника
     new_member = ChannelMember(
         channel_id=channel_id,
-        user_id=target_user.id,
-        role="member"
+        user_id=target_user.id
     )
     db.add(new_member)
     await db.commit()
