@@ -123,26 +123,47 @@ class RNNoiseProcessor extends AudioWorkletProcessor {
   }
   
   processWithSimpleFilter(inputChannel, outputChannel) {
-    // Продвинутый фильтр для демонстрации работы шумодава
+    // Улучшенный фильтр для демонстрации работы шумодава
     const sensitivity = this.sensitivity / 100; // Нормализуем 0-1
     
+    // Анализируем энергию сигнала
+    let energy = 0;
+    let maxSample = 0;
+    for (let i = 0; i < inputChannel.length; i++) {
+      const sample = Math.abs(inputChannel[i]);
+      energy += sample * sample;
+      maxSample = Math.max(maxSample, sample);
+    }
+    energy = Math.sqrt(energy / inputChannel.length);
+    
+    // Адаптивные пороги на основе чувствительности (более заметные)
+    const noiseThreshold = 0.001 + (1 - sensitivity) * 0.05; // от 0.001 до 0.051
+    const signalThreshold = 0.01 + sensitivity * 0.1; // от 0.01 до 0.11
+    const maxThreshold = 0.05 + sensitivity * 0.3; // от 0.05 до 0.35
+    
+    // Определяем коэффициент подавления для всего фрейма
+    let suppressionFactor;
+    if (maxSample > maxThreshold || energy > signalThreshold) {
+      // Явно речь - минимальное подавление
+      suppressionFactor = 0.9 + sensitivity * 0.1; // от 0.9 до 1.0
+    } else if (energy < noiseThreshold && maxSample < noiseThreshold * 3) {
+      // Явно шум - сильное подавление
+      suppressionFactor = (1 - sensitivity) * 0.2; // от 0.2 до 0.0
+    } else {
+      // Неопределенная область - умеренное подавление
+      suppressionFactor = 0.2 + sensitivity * 0.6; // от 0.2 до 0.8
+    }
+    
+    // Применяем подавление
     for (let i = 0; i < inputChannel.length; i++) {
       let sample = inputChannel[i];
       
-      // Адаптивное подавление шума на основе чувствительности
-      const noiseThreshold = 0.01 * (1 - sensitivity); // Чем выше чувствительность, тем ниже порог
+      // Применяем основное подавление
+      sample *= suppressionFactor;
       
-      if (Math.abs(sample) < noiseThreshold) {
-        // Подавляем тихие звуки (предполагаемый шум)
-        sample *= 0.1 * sensitivity; // Чем выше чувствительность, тем сильнее подавление
-      } else {
-        // Для громких звуков (предполагаемая речь) применяем легкую обработку
-        sample *= 0.95 + 0.05 * sensitivity; // Небольшое усиление/ослабление
-      }
-      
-      // Простой высокочастотный фильтр для удаления низкочастотного шума
-      if (i > 0) {
-        const highPassStrength = 0.05 + 0.15 * sensitivity; // Сила фильтра зависит от чувствительности
+      // Дополнительный высокочастотный фильтр для удаления шипения
+      if (i > 0 && sensitivity > 0.5) {
+        const highPassStrength = (sensitivity - 0.5) * 0.3;
         sample = sample - highPassStrength * inputChannel[i - 1];
       }
       
@@ -156,7 +177,7 @@ class RNNoiseProcessor extends AudioWorkletProcessor {
     
     // Логируем каждые 1000 фреймов для отладки
     if (this.processedFrames % 1000 === 0) {
-      console.log(`🔇 RNNoise Processor обработал ${this.processedFrames} фреймов, чувствительность: ${this.sensitivity}%`);
+      console.log(`🔇 Фильтр: энергия=${energy.toFixed(4)}, макс=${maxSample.toFixed(4)}, подавление=${suppressionFactor.toFixed(2)}, чувствительность=${this.sensitivity}%`);
     }
   }
   
