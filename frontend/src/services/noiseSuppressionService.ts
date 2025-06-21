@@ -166,7 +166,9 @@ class UnifiedNoiseSuppressionService {
   }
 
   isSupported(): boolean {
-    return typeof window !== 'undefined' && !!(window.AudioContext && window.AudioContext.prototype.audioWorklet);
+    return typeof window !== 'undefined' && 
+           typeof AudioContext !== 'undefined' && 
+           'audioWorklet' in AudioContext.prototype;
   }
 
   cleanup() {

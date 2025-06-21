@@ -18,7 +18,15 @@ interface NoiseSuppressionState {
 
 export const useNoiseSuppressionStore = create<NoiseSuppressionState>((set, get) => ({
   isEnabled: true,
-  settings: noiseSuppressionService.getSettings(),
+  settings: {
+    enabled: true,
+    sensitivity: 75,
+    mode: 'balanced',
+    vadEnabled: true,
+    adaptiveThreshold: true,
+    bandCount: 8,
+    debugMode: false
+  },
   stats: {
     processedFrames: 0,
     quality: 0,
@@ -26,11 +34,14 @@ export const useNoiseSuppressionStore = create<NoiseSuppressionState>((set, get)
   isSupported: false,
 
   initialize: () => {
+    if (typeof window === 'undefined') return;
+    
     const isSupported = noiseSuppressionService.isSupported();
+    const settings = noiseSuppressionService.getSettings();
     set({ 
       isSupported,
-      settings: noiseSuppressionService.getSettings(),
-      isEnabled: noiseSuppressionService.getSettings().enabled
+      settings,
+      isEnabled: settings.enabled
     });
     
     // Запускаем обновление статистики, только если шумодав поддерживается
@@ -43,7 +54,9 @@ export const useNoiseSuppressionStore = create<NoiseSuppressionState>((set, get)
     noiseSuppressionService.setEnabled(enabled);
     set({ isEnabled: enabled });
     // Это вызовет обновление потока в voiceService
-    window.dispatchEvent(new CustomEvent('noise-suppression-settings-changed'));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('noise-suppression-settings-changed'));
+    }
   },
 
   setMode: (mode) => {
@@ -68,6 +81,7 @@ export const useNoiseSuppressionStore = create<NoiseSuppressionState>((set, get)
   },
 }));
 
+// Инициализируем только на клиенте
 if (typeof window !== 'undefined') {
   useNoiseSuppressionStore.getState().initialize();
 } 
