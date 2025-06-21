@@ -79,13 +79,23 @@ export const useStore = create<AppState>((set, get) => ({
   },
   
   addChannel: (serverId, channel) => {
-    set((state) => ({
-      servers: state.servers.map(server => 
+    set((state) => {
+      const updatedServers = state.servers.map(server => 
         server.id === serverId 
           ? { ...server, channels: [...server.channels, channel] }
           : server
-      ),
-    }));
+      );
+      
+      // Также обновляем currentServer, если канал добавляется в текущий сервер
+      const updatedCurrentServer = state.currentServer?.id === serverId 
+        ? updatedServers.find(s => s.id === serverId) || state.currentServer
+        : state.currentServer;
+      
+      return {
+        servers: updatedServers,
+        currentServer: updatedCurrentServer,
+      };
+    });
   },
   
   sendMessage: (content) => {

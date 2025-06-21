@@ -1,4 +1,6 @@
-const WS_URL = process.env.REACT_APP_WS_URL || 'ws://localhost:8000';
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://195.19.93.203:8000';
+
+console.log('🎙️ VoiceService инициализирован с WS_URL:', WS_URL);
 
 interface PeerConnection {
   pc: RTCPeerConnection;
@@ -16,11 +18,14 @@ class VoiceService {
   private onParticipantLeft: ((userId: number) => void) | null = null;
 
   async connect(voiceChannelId: number, token: string) {
+    console.log('🎙️ VoiceService.connect вызван с параметрами:', { voiceChannelId, token: token ? 'есть' : 'нет' });
+    
     this.voiceChannelId = voiceChannelId;
     this.token = token;
 
     // Получаем доступ к микрофону
     try {
+      console.log('🎙️ Запрашиваем доступ к микрофону...');
       this.localStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -29,32 +34,39 @@ class VoiceService {
         },
         video: false,
       });
+      console.log('🎙️ Доступ к микрофону получен');
     } catch (error) {
-      console.error('Error accessing microphone:', error);
+      console.error('🎙️ Ошибка доступа к микрофону:', error);
       throw new Error('Не удалось получить доступ к микрофону');
     }
 
     // Подключаемся к WebSocket
     const wsUrl = `${WS_URL}/ws/voice/${voiceChannelId}?token=${token}`;
+    console.log('🎙️ Подключаемся к WebSocket:', wsUrl);
     this.ws = new WebSocket(wsUrl);
 
-    this.ws.onopen = () => {
-      console.log('Voice WebSocket connected');
-    };
+    return new Promise<void>((resolve, reject) => {
+      this.ws!.onopen = () => {
+        console.log('🎙️ Voice WebSocket подключен успешно');
+        resolve();
+      };
 
-    this.ws.onmessage = async (event) => {
-      const data = JSON.parse(event.data);
-      await this.handleMessage(data);
-    };
+      this.ws!.onerror = (error) => {
+        console.error('🎙️ Ошибка Voice WebSocket:', error);
+        reject(new Error('Ошибка подключения WebSocket'));
+      };
 
-    this.ws.onerror = (error) => {
-      console.error('Voice WebSocket error:', error);
-    };
+      this.ws!.onmessage = async (event) => {
+        console.log('🎙️ Получено сообщение WebSocket:', event.data);
+        const data = JSON.parse(event.data);
+        await this.handleMessage(data);
+      };
 
-    this.ws.onclose = () => {
-      console.log('Voice WebSocket disconnected');
-      this.cleanup();
-    };
+      this.ws!.onclose = (event) => {
+        console.log('🎙️ Voice WebSocket отключен:', event.code, event.reason);
+        this.cleanup();
+      };
+    });
   }
 
   private async handleMessage(data: any) {

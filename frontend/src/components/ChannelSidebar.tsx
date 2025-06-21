@@ -1,8 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { Hash, Volume2, ChevronDown, Settings, Plus } from 'lucide-react'
+import { Hash, Volume2, ChevronDown, Settings, Plus, Mic, MicOff, Headphones } from 'lucide-react'
 import { useStore } from '../lib/store'
+import { useVoiceStore } from '../store/slices/voiceSlice'
+import { useAuthStore } from '../store/store'
 import { cn } from '../lib/utils'
 import { Button } from './ui/button'
 import {
@@ -11,15 +13,57 @@ import {
   DialogTitle,
   TextField,
   Box,
+  Avatar,
+  Typography,
 } from '@mui/material'
 import channelService from '../services/channelService'
 
 export function ChannelSidebar() {
   const { currentServer, currentChannel, selectChannel, addChannel } = useStore()
+  const { connectToVoiceChannel, currentVoiceChannelId, participants } = useVoiceStore()
+  const { user } = useAuthStore()
   const [isCreateTextModalOpen, setIsCreateTextModalOpen] = useState(false)
   const [isCreateVoiceModalOpen, setIsCreateVoiceModalOpen] = useState(false)
   const [newChannelName, setNewChannelName] = useState('')
   const [isCreating, setIsCreating] = useState(false)
+
+  const handleChannelClick = async (channel: any) => {
+    console.log('🔄 Клик по каналу:', channel.name, 'тип:', channel.type, 'ID:', channel.id);
+    
+    if (channel.type === 'voice') {
+      // Подключаемся к голосовому каналу
+      try {
+        console.log('🎙️ Начинаем подключение к голосовому каналу');
+        await connectToVoiceChannel(channel.id);
+        selectChannel(channel.id);
+        console.log('🎙️ Подключение завершено успешно');
+      } catch (error) {
+        console.error('🎙️ Ошибка подключения к голосовому каналу:', error);
+      }
+    } else {
+      // Для текстовых каналов просто выбираем
+      selectChannel(channel.id);
+    }
+  }
+
+  // Функция для получения участников конкретного голосового канала
+  const getChannelParticipants = (channelId: number) => {
+    if (currentVoiceChannelId === channelId) {
+      // Если это текущий канал, показываем всех участников включая текущего пользователя
+      const currentUserParticipant = participants.find(p => p.user_id === user?.id);
+      const allParticipants = [
+        ...(user ? [{
+          user_id: user.id,
+          username: user.username,
+          is_muted: currentUserParticipant?.is_muted ?? false,
+          is_deafened: currentUserParticipant?.is_deafened ?? false,
+        }] : []),
+        ...participants.filter(p => p.user_id !== user?.id),
+      ];
+      return allParticipants;
+    }
+    return []; // Для других каналов пока показываем пустой список
+  }
 
   const handleCreateTextChannel = async () => {
     if (!newChannelName.trim() || !currentServer) return
@@ -101,68 +145,123 @@ export function ChannelSidebar() {
         {/* Channels List */}
         <div className="flex-1 overflow-y-auto scrollbar-thin">
           {/* Text Channels */}
-          {textChannels.length > 0 && (
-            <div className="pt-4">
-              <div className="px-2 mb-1">
-                <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground uppercase">
-                  <span>Текстовые каналы</span>
-                  <Plus 
-                    className="w-4 h-4 cursor-pointer hover:text-foreground" 
-                    onClick={() => setIsCreateTextModalOpen(true)}
-                  />
-                </div>
-              </div>
-              <div className="px-2 space-y-0.5">
-                {textChannels.map((channel) => (
-                  <Button
-                    key={channel.id}
-                    variant="ghost"
-                    size="sm"
-                    className={cn(
-                      "w-full justify-start gap-1.5 h-8 px-2",
-                      currentChannel?.id === channel.id && "bg-accent"
-                    )}
-                    onClick={() => selectChannel(channel.id)}
-                  >
-                    <Hash className="w-4 h-4" />
-                    <span>{channel.name}</span>
-                  </Button>
-                ))}
+          <div className="pt-4">
+            <div className="px-2 mb-1">
+              <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground uppercase">
+                <span>Текстовые каналы</span>
+                <Plus 
+                  className="w-4 h-4 cursor-pointer hover:text-foreground" 
+                  onClick={() => setIsCreateTextModalOpen(true)}
+                />
               </div>
             </div>
-          )}
+            <div className="px-2 space-y-0.5">
+              {textChannels.map((channel) => (
+                <Button
+                  key={channel.id}
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "w-full justify-start gap-1.5 h-8 px-2",
+                    currentChannel?.id === channel.id && "bg-accent"
+                  )}
+                  onClick={() => handleChannelClick(channel)}
+                >
+                  <Hash className="w-4 h-4" />
+                  <span>{channel.name}</span>
+                </Button>
+              ))}
+              {textChannels.length === 0 && (
+                <div className="px-2 py-2 text-xs text-muted-foreground">
+                  Нет текстовых каналов
+                </div>
+              )}
+            </div>
+          </div>
 
           {/* Voice Channels */}
-          {voiceChannels.length > 0 && (
-            <div className="pt-4">
-              <div className="px-2 mb-1">
-                <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground uppercase">
-                  <span>Голосовые каналы</span>
-                  <Plus 
-                    className="w-4 h-4 cursor-pointer hover:text-foreground" 
-                    onClick={() => setIsCreateVoiceModalOpen(true)}
-                  />
-                </div>
-              </div>
-              <div className="px-2 space-y-0.5">
-                {voiceChannels.map((channel) => (
-                  <Button
-                    key={channel.id}
-                    variant="ghost"
-                    size="sm"
-                    className={cn(
-                      "w-full justify-start gap-1.5 h-8 px-2",
-                      currentChannel?.id === channel.id && "bg-accent"
-                    )}
-                    onClick={() => selectChannel(channel.id)}
-                  >
-                    <Volume2 className="w-4 h-4" />
-                    <span>{channel.name}</span>
-                  </Button>
-                ))}
+          <div className="pt-4">
+            <div className="px-2 mb-1">
+              <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground uppercase">
+                <span>Голосовые каналы</span>
+                <Plus 
+                  className="w-4 h-4 cursor-pointer hover:text-foreground" 
+                  onClick={() => setIsCreateVoiceModalOpen(true)}
+                />
               </div>
             </div>
-          )}
+            <div className="px-2 space-y-0.5">
+              {voiceChannels.map((channel) => {
+                const channelParticipants = getChannelParticipants(channel.id);
+                return (
+                  <div key={channel.id}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={cn(
+                        "w-full justify-start gap-1.5 h-8 px-2",
+                        currentChannel?.id === channel.id && "bg-accent",
+                        currentVoiceChannelId === channel.id && "bg-green-600/20 border border-green-500/50"
+                      )}
+                      onClick={() => handleChannelClick(channel)}
+                    >
+                      <Volume2 className={cn(
+                        "w-4 h-4",
+                        currentVoiceChannelId === channel.id && "text-green-400"
+                      )} />
+                      <span className={cn(
+                        currentVoiceChannelId === channel.id && "text-green-400"
+                      )}>
+                        {channel.name}
+                      </span>
+                      {currentVoiceChannelId === channel.id && (
+                        <div className="ml-auto w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                      )}
+                    </Button>
+                    
+                    {/* Участники голосового канала */}
+                    {channelParticipants.length > 0 && (
+                      <div className="ml-6 mt-1 space-y-1">
+                        {channelParticipants.map((participant) => (
+                          <div
+                            key={participant.user_id}
+                            className="flex items-center gap-2 px-2 py-1 rounded hover:bg-accent/50 transition-colors"
+                          >
+                            <Avatar sx={{ width: 20, height: 20, fontSize: '10px' }}>
+                              {participant.username[0].toUpperCase()}
+                            </Avatar>
+                            <Typography
+                              variant="caption"
+                              className={cn(
+                                "flex-1 text-xs",
+                                participant.is_deafened ? "text-red-400 line-through" : "text-muted-foreground"
+                              )}
+                            >
+                              {participant.username}
+                              {participant.user_id === user?.id && " (Вы)"}
+                            </Typography>
+                            <div className="flex gap-1">
+                              {participant.is_muted && (
+                                <MicOff className="w-3 h-3 text-red-400" />
+                              )}
+                              {participant.is_deafened && (
+                                <Headphones className="w-3 h-3 text-red-400" />
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {voiceChannels.length === 0 && (
+                <div className="px-2 py-2 text-xs text-muted-foreground">
+                  Нет голосовых каналов
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* User Panel */}

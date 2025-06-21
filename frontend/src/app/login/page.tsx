@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -18,11 +18,16 @@ import authService from '../../services/authService';
 const LoginPage: React.FC = () => {
   const router = useRouter();
   const { user, isAuthenticated, isLoading, error, loginStart, loginSuccess, loginFailure, clearError } = useAuthStore();
+  const [isMounted, setIsMounted] = useState(false);
   
   const [formData, setFormData] = useState({
     username: '',
     password: '',
   });
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
@@ -51,19 +56,24 @@ const LoginPage: React.FC = () => {
     }
   };
 
-  React.useEffect(() => {
+  useEffect(() => {
     // Этот эффект будет следить за состоянием аутентификации
     // и выполнять перенаправление после успешного входа.
-    if (isAuthenticated && user) {
+    if (isMounted && isAuthenticated && user) {
       router.push('/');
     }
-  }, [isAuthenticated, user, router]);
+  }, [isAuthenticated, user, router, isMounted]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     return () => {
       clearError();
     };
   }, [clearError]);
+
+  // Не рендерим до тех пор, пока компонент не смонтирован
+  if (!isMounted) {
+    return null;
+  }
 
   return (
     <Container component="main" maxWidth="xs">

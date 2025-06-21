@@ -44,7 +44,11 @@ class ChannelService {
     name: string;
     position: number;
   }): Promise<TextChannel> {
-    const response = await api.post<TextChannel>(`/api/channels/${channelId}/text-channels`, data);
+    const requestData = {
+      ...data,
+      channel_id: channelId
+    };
+    const response = await api.post<TextChannel>(`/api/channels/${channelId}/text-channels`, requestData);
     return response.data;
   }
 
@@ -53,7 +57,11 @@ class ChannelService {
     position: number;
     max_users: number;
   }): Promise<VoiceChannel> {
-    const response = await api.post<VoiceChannel>(`/api/channels/${channelId}/voice-channels`, data);
+    const requestData = {
+      ...data,
+      channel_id: channelId
+    };
+    const response = await api.post<VoiceChannel>(`/api/channels/${channelId}/voice-channels`, requestData);
     return response.data;
   }
 }

@@ -1,119 +1,175 @@
-import React from 'react';
-import {
-  Box,
-  Paper,
-  Typography,
-  Avatar,
-  IconButton,
-  styled,
-  List,
-  ListItem,
-} from '@mui/material';
-import CloseIcon from '@mui/icons-material/Close';
-import MicIcon from '@mui/icons-material/Mic';
-import MicOffIcon from '@mui/icons-material/MicOff';
+'use client'
+
+import { Box, Typography, Avatar, IconButton } from '@mui/material';
+import { X, Monitor, UserPlus } from 'lucide-react';
 import { useVoiceStore } from '../store/slices/voiceSlice';
-import { useStore } from '../lib/store';
 import { useAuthStore } from '../store/store';
+import { useStore } from '../lib/store';
 
-const OverlayContainer = styled(Paper)({
-  position: 'fixed',
-  bottom: '80px',
-  right: '20px',
-  width: '300px',
-  backgroundColor: '#2f3136',
-  borderRadius: '8px',
-  overflow: 'hidden',
-  boxShadow: '0 2px 10px 0 rgba(0,0,0,.2)',
-});
-
-const OverlayHeader = styled(Box)({
-  padding: '12px 16px',
-  backgroundColor: '#202225',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-});
-
-const ParticipantList = styled(List)({
-  padding: '8px',
-  maxHeight: '300px',
-  overflowY: 'auto',
-});
-
-const ParticipantItem = styled(ListItem)({
-  padding: '8px',
-  borderRadius: '4px',
-  '&:hover': {
-    backgroundColor: '#393c43',
-  },
-});
-
-const VoiceOverlay: React.FC = () => {
-  const { currentChannel } = useStore();
-  const { user } = useAuthStore();
+export function VoiceOverlay() {
   const { 
+    isConnected, 
     participants, 
-    isMuted, 
-    isDeafened, 
+    currentVoiceChannelId,
     disconnectFromVoiceChannel 
   } = useVoiceStore();
+  const { user } = useAuthStore();
+  const { currentServer } = useStore();
 
-  const handleDisconnect = () => {
-    disconnectFromVoiceChannel();
-  };
+  if (!isConnected || !currentVoiceChannelId) {
+    return null;
+  }
 
-  if (!currentChannel || currentChannel.type !== 'voice' || !user) return null;
+  // Находим текущий голосовой канал
+  const currentVoiceChannel = currentServer?.channels.find(
+    c => c.type === 'voice' && c.id === currentVoiceChannelId
+  );
 
-  // Добавляем текущего пользователя в список участников
+  // Все участники включая текущего пользователя
   const allParticipants = [
-    {
+    ...(user ? [{
       user_id: user.id,
       username: user.username,
-      is_muted: isMuted,
-      is_deafened: isDeafened,
-    },
-    ...participants.filter(p => p.user_id !== user.id),
+      is_muted: false,
+      is_deafened: false,
+    }] : []),
+    ...participants.filter(p => p.user_id !== user?.id),
   ];
 
   return (
-    <OverlayContainer elevation={3}>
-      <OverlayHeader>
-        <Typography variant="subtitle1" sx={{ color: '#ffffff', fontWeight: 600 }}>
-          {currentChannel.name}
-        </Typography>
-        <IconButton size="small" onClick={handleDisconnect} sx={{ color: '#b9bbbe' }}>
-          <CloseIcon fontSize="small" />
+    <Box
+      sx={{
+        position: 'fixed',
+        top: 16,
+        right: 16,
+        backgroundColor: 'rgba(54, 57, 63, 0.95)',
+        borderRadius: '8px',
+        border: '1px solid rgba(255, 255, 255, 0.1)',
+        minWidth: 200,
+        maxWidth: 300,
+        zIndex: 1000,
+        backdropFilter: 'blur(10px)',
+      }}
+    >
+      {/* Заголовок */}
+      <Box
+        sx={{
+          padding: '12px 16px 8px',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}
+      >
+        <Box>
+          <Typography variant="body2" sx={{ color: '#dcddde', fontWeight: 600 }}>
+            {currentVoiceChannel?.name || 'Голосовой канал'}
+          </Typography>
+          <Typography variant="caption" sx={{ color: '#72767d' }}>
+            {currentServer?.name}
+          </Typography>
+        </Box>
+        <IconButton 
+          size="small" 
+          onClick={disconnectFromVoiceChannel}
+          sx={{ color: '#b9bbbe', '&:hover': { color: '#f04747' } }}
+        >
+          <X size={16} />
         </IconButton>
-      </OverlayHeader>
+      </Box>
 
-      <ParticipantList>
+      {/* Участники */}
+      <Box sx={{ padding: '8px 0', maxHeight: 300, overflowY: 'auto' }}>
         {allParticipants.map((participant) => (
-          <ParticipantItem key={participant.user_id}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
-              <Avatar sx={{ width: 32, height: 32 }}>
-                {participant.username[0].toUpperCase()}
-              </Avatar>
-              <Typography
-                variant="body2"
-                sx={{
-                  flex: 1,
-                  color: participant.is_deafened ? '#f04747' : '#dcddde',
-                  textDecoration: participant.is_deafened ? 'line-through' : 'none',
-                }}
-              >
-                {participant.username}
-                {participant.user_id === user.id && ' (Вы)'}
-              </Typography>
-              {participant.is_muted && (
-                <MicOffIcon sx={{ fontSize: 16, color: '#f04747' }} />
+          <Box
+            key={participant.user_id}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+              padding: '6px 16px',
+              '&:hover': {
+                backgroundColor: 'rgba(79, 84, 92, 0.16)',
+              },
+            }}
+          >
+            <Avatar sx={{ width: 24, height: 24, fontSize: '12px' }}>
+              {participant.username[0].toUpperCase()}
+            </Avatar>
+            <Typography
+              variant="body2"
+              sx={{
+                color: '#dcddde',
+                flex: 1,
+                fontSize: '14px',
+              }}
+            >
+              {participant.username}
+              {participant.user_id === user?.id && (
+                <Typography
+                  component="span"
+                  variant="caption"
+                  sx={{ color: '#72767d', ml: 1 }}
+                >
+                  (Вы)
+                </Typography>
               )}
-            </Box>
-          </ParticipantItem>
+            </Typography>
+          </Box>
         ))}
-      </ParticipantList>
-    </OverlayContainer>
-  );
-};
+        
+        {allParticipants.length === 0 && (
+          <Box sx={{ padding: '16px', textAlign: 'center' }}>
+            <Typography variant="body2" sx={{ color: '#72767d' }}>
+              Нет участников
+            </Typography>
+          </Box>
+        )}
+      </Box>
 
-export default VoiceOverlay;
+      {/* Дополнительные действия */}
+      <Box
+        sx={{
+          padding: '8px 16px 12px',
+          borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+          display: 'flex',
+          gap: 1,
+        }}
+      >
+        <IconButton
+          size="small"
+          sx={{
+            color: '#b9bbbe',
+            backgroundColor: 'rgba(79, 84, 92, 0.4)',
+            borderRadius: '4px',
+            width: 32,
+            height: 32,
+            '&:hover': {
+              backgroundColor: 'rgba(79, 84, 92, 0.6)',
+            }
+          }}
+          title="Демонстрация экрана"
+        >
+          <Monitor size={16} />
+        </IconButton>
+        
+        <IconButton
+          size="small"
+          sx={{
+            color: '#b9bbbe',
+            backgroundColor: 'rgba(79, 84, 92, 0.4)',
+            borderRadius: '4px',
+            width: 32,
+            height: 32,
+            '&:hover': {
+              backgroundColor: 'rgba(79, 84, 92, 0.6)',
+            }
+          }}
+          title="Пригласить пользователя"
+        >
+          <UserPlus size={16} />
+        </IconButton>
+      </Box>
+    </Box>
+  );
+}

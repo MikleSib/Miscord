@@ -64,3 +64,13 @@
     @apply bg-muted-foreground/20;
   }
 }
+
+/* Анимация для индикатора голосового подключения */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
