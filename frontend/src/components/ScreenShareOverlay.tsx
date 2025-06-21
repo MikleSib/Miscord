@@ -20,6 +20,33 @@ export function ScreenShareOverlay({ isVisible, onClose, sharingUsers }: ScreenS
     }
   }, [sharingUsers, selectedUser]);
 
+  // Обработчик нажатия Escape
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isVisible) {
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isVisible, onClose]);
+
+  const handleClose = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    onClose();
+  };
+
+  const handleBackgroundClick = (e: React.MouseEvent) => {
+    // Закрываем только если клик по фону, а не по содержимому
+    if (e.target === e.currentTarget) {
+      handleClose();
+    }
+  };
+
   const toggleFullscreen = () => {
     const overlay = document.getElementById('screen-share-overlay');
     if (!overlay) return;
@@ -65,9 +92,13 @@ export function ScreenShareOverlay({ isVisible, onClose, sharingUsers }: ScreenS
     <div 
       id="screen-share-overlay"
       className={`fixed inset-0 bg-black/90 z-50 flex flex-col ${isFullscreen ? 'p-0' : 'p-2 md:p-4'}`}
+      onClick={handleBackgroundClick}
     >
       {/* Заголовок */}
-      <div className="flex items-center justify-between p-2 md:p-4 bg-gray-900/80 backdrop-blur-sm">
+      <div 
+        className="flex items-center justify-between p-2 md:p-4 bg-gray-900/80 backdrop-blur-sm"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center gap-2 md:gap-3 min-w-0 flex-1">
           <Monitor className="w-4 h-4 md:w-5 md:h-5 text-green-400 flex-shrink-0" />
           <span className="text-white font-medium text-sm md:text-base truncate">
@@ -136,7 +167,7 @@ export function ScreenShareOverlay({ isVisible, onClose, sharingUsers }: ScreenS
           <Button
             variant="ghost"
             size="sm"
-            onClick={onClose}
+            onClick={handleClose}
             className="text-white hover:bg-gray-700 w-8 h-8 p-0 md:w-auto md:h-auto md:p-2"
           >
             <X className="w-4 h-4" />
@@ -148,6 +179,7 @@ export function ScreenShareOverlay({ isVisible, onClose, sharingUsers }: ScreenS
       <div 
         id="screen-share-container" 
         className="flex-1 flex items-center justify-center relative"
+        onClick={(e) => e.stopPropagation()}
       >
         {sharingUsers.length === 0 ? (
           <div className="text-center text-gray-400">
