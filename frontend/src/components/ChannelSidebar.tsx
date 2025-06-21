@@ -1125,10 +1125,23 @@ export function ChannelSidebar() {
       </Menu>
 
       {/* Модальное окно настроек шумодава */}
-      <AdvancedNoiseSuppressionSettings 
-        open={isNoiseSettingsOpen} 
-        onClose={() => setIsNoiseSettingsOpen(false)} 
-      />
+      <Dialog
+        open={isNoiseSettingsOpen}
+        onClose={() => setIsNoiseSettingsOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogContent sx={{ 
+          backgroundColor: 'rgb(47, 49, 54)', 
+          color: 'rgb(220, 221, 222)',
+          padding: 0,
+          '& .MuiDialogContent-root': {
+            padding: 0
+          }
+        }}>
+          <AdvancedNoiseSuppressionSettings />
+        </DialogContent>
+      </Dialog>
     </>
   )
 }
