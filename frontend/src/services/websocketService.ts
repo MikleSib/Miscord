@@ -1,6 +1,6 @@
 import { Message } from '../types';
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://195.19.93.203:8000';
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://miscord.ru';
 
 interface WebSocketMessage {
   type: string;
