@@ -24,6 +24,12 @@ COPY . .
 # Uncomment the following line in case you want to disable telemetry during the build.
 ENV NEXT_TELEMETRY_DISABLED 1
 
+# Build-time environment variables for Next.js
+ARG NEXT_PUBLIC_API_URL=https://miscord.ru
+ARG NEXT_PUBLIC_WS_URL=wss://miscord.ru
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
+
 RUN npm run build
 
 # Production image, copy all the files and run next
