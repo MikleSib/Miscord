@@ -14,6 +14,7 @@ export function UserPanel() {
   const { user, logout } = useAuthStore();
   const { currentVoiceChannelId, isMuted, isDeafened, disconnectFromVoiceChannel } = useVoiceStore();
   const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [activeSharingUsers, setActiveSharingUsers] = useState<{ userId: number; username: string }[]>([]);
   const router = useRouter();
 
   useEffect(() => {
@@ -22,13 +23,37 @@ export function UserPanel() {
       setIsScreenSharing(voiceService.getScreenSharingStatus());
     };
 
+    // Обработчики событий демонстрации экрана
+    const handleScreenShareStart = (event: any) => {
+      const { user_id, username } = event.detail;
+      setActiveSharingUsers(prev => {
+        if (!prev.find(u => u.userId === user_id)) {
+          return [...prev, { userId: user_id, username }];
+        }
+        return prev;
+      });
+    };
+
+    const handleScreenShareStop = (event: any) => {
+      const { user_id } = event.detail;
+      setActiveSharingUsers(prev => prev.filter(u => u.userId !== user_id));
+    };
+
     // Проверяем статус при загрузке
     updateScreenShareStatus();
+
+    // Подписываемся на события
+    window.addEventListener('screen_share_start', handleScreenShareStart);
+    window.addEventListener('screen_share_stop', handleScreenShareStop);
 
     // Можно добавить слушатель событий если нужно
     const interval = setInterval(updateScreenShareStatus, 1000);
     
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('screen_share_start', handleScreenShareStart);
+      window.removeEventListener('screen_share_stop', handleScreenShareStop);
+    };
   }, []);
 
   const handleLogout = () => {
@@ -55,6 +80,17 @@ export function UserPanel() {
       await voiceService.startScreenShare();
     }
     setIsScreenSharing(voiceService.getScreenSharingStatus());
+  };
+
+  const handleViewScreenShare = () => {
+    // Создаем событие для открытия ScreenShareOverlay
+    const event = new CustomEvent('open_screen_share', {
+      detail: { 
+        userId: activeSharingUsers[0]?.userId, 
+        username: activeSharingUsers[0]?.username 
+      }
+    });
+    window.dispatchEvent(event);
   };
 
   if (!user) return null;
@@ -135,9 +171,28 @@ export function UserPanel() {
               "w-8 h-8 p-0",
               isScreenSharing ? 'bg-green-600 hover:bg-green-700 text-white' : 'hover:bg-accent'
             )}
+            title={isScreenSharing ? 'Остановить демонстрацию экрана' : 'Начать демонстрацию экрана'}
           >
             {isScreenSharing ? <MonitorOff className="w-4 h-4" /> : <Monitor className="w-4 h-4" />}
           </Button>
+
+          {/* Кнопка просмотра активных демонстраций */}
+          {activeSharingUsers.length > 0 && !isScreenSharing && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleViewScreenShare}
+              className="w-8 h-8 p-0 bg-blue-600 hover:bg-blue-700 text-white relative"
+              title={`Смотреть демонстрацию экрана: ${activeSharingUsers.map(u => u.username).join(', ')}`}
+            >
+              <Monitor className="w-4 h-4" />
+              {activeSharingUsers.length > 1 && (
+                <div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center font-bold">
+                  {activeSharingUsers.length}
+                </div>
+              )}
+            </Button>
+          )}
 
           {/* Кнопка отключения */}
           <Button

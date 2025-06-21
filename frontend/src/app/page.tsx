@@ -9,6 +9,7 @@ import { ChannelSidebar } from '../components/ChannelSidebar'
 import { ChatArea } from '../components/ChatArea'
 import { UserPanel } from '../components/UserPanel'
 import { ScreenShareOverlay } from '../components/ScreenShareOverlay'
+import { ScreenShareToast } from '../components/ScreenShareToast'
 import { useVoiceStore } from '../store/slices/voiceSlice'
 import voiceService from '../services/voiceService'
 import { Button } from '../components/ui/button'
@@ -30,6 +31,7 @@ export default function HomePage() {
   const [isMounted, setIsMounted] = useState(false)
   const [isScreenShareVisible, setIsScreenShareVisible] = useState(false)
   const [sharingUsers, setSharingUsers] = useState<{ userId: number; username: string }[]>([])
+  const [toastNotifications, setToastNotifications] = useState<{ userId: number; username: string; id: string }[]>([])
 
   useEffect(() => {
     setIsMounted(true)
@@ -81,8 +83,16 @@ export default function HomePage() {
         if (isSharing) {
           // Добавляем пользователя если его нет в списке
           if (!prev.find(u => u.userId === userId)) {
-            // Здесь нужно получить имя пользователя, пока используем ID
-            return [...prev, { userId, username: `User ${userId}` }];
+            const username = `User ${userId}`; // Здесь нужно получить имя пользователя
+            
+            // Показываем Toast уведомление
+            const toastId = `${userId}-${Date.now()}`;
+            setToastNotifications(prevToasts => [
+              ...prevToasts,
+              { userId, username, id: toastId }
+            ]);
+            
+            return [...prev, { userId, username }];
           }
           return prev;
         } else {
@@ -105,8 +115,31 @@ export default function HomePage() {
       setIsScreenShareVisible(true);
     };
 
+    // Обработчик событий screen_share_start из WebSocket
+    const handleScreenShareStartEvent = (event: any) => {
+      const { user_id, username } = event.detail;
+      
+      setSharingUsers(prev => {
+        if (!prev.find(u => u.userId === user_id)) {
+          // Показываем Toast уведомление только если это не мы сами
+          const currentUser = user;
+          if (currentUser && user_id !== currentUser.id) {
+            const toastId = `${user_id}-${Date.now()}`;
+            setToastNotifications(prevToasts => [
+              ...prevToasts,
+              { userId: user_id, username, id: toastId }
+            ]);
+          }
+          
+          return [...prev, { userId: user_id, username }];
+        }
+        return prev;
+      });
+    };
+
     voiceService.onScreenShareChange(handleScreenShareChange);
     window.addEventListener('open_screen_share', handleOpenScreenShare);
+    window.addEventListener('screen_share_start', handleScreenShareStartEvent);
 
     // Показываем overlay если есть пользователи демонстрирующие экран
     const checkScreenShare = () => {
@@ -120,8 +153,21 @@ export default function HomePage() {
 
     return () => {
       window.removeEventListener('open_screen_share', handleOpenScreenShare);
+      window.removeEventListener('screen_share_start', handleScreenShareStartEvent);
     };
-  }, [sharingUsers, isScreenShareVisible]);
+  }, [sharingUsers, isScreenShareVisible, user]);
+
+  // Функции для работы с Toast уведомлениями
+  const handleViewScreenShare = (userId: number, username: string) => {
+    const event = new CustomEvent('open_screen_share', {
+      detail: { userId, username }
+    });
+    window.dispatchEvent(event);
+  };
+
+  const handleDismissToast = (toastId: string) => {
+    setToastNotifications(prev => prev.filter(toast => toast.id !== toastId));
+  };
 
   if (!isMounted) {
     return null // Предотвращаем гидратацию
@@ -185,6 +231,19 @@ export default function HomePage() {
         onClose={() => setIsScreenShareVisible(false)}
         sharingUsers={sharingUsers}
       />
+
+      {/* Toast уведомления */}
+      <div className="fixed top-4 right-4 z-50 space-y-2">
+        {toastNotifications.map((toast) => (
+          <ScreenShareToast
+            key={toast.id}
+            username={toast.username}
+            userId={toast.userId}
+            onView={() => handleViewScreenShare(toast.userId, toast.username)}
+            onDismiss={() => handleDismissToast(toast.id)}
+          />
+        ))}
+      </div>
     </div>
   )
 }
