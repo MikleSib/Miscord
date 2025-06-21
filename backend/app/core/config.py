@@ -1,5 +1,7 @@
 from pydantic_settings import BaseSettings
 from typing import List
+import json
+import os
 
 class Settings(BaseSettings):
     # База данных
@@ -15,6 +17,17 @@ class Settings(BaseSettings):
     
     # CORS
     CORS_ORIGINS: List[str] = ["http://localhost:3000"]
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Обработка CORS_ORIGINS из переменной окружения
+        cors_origins_env = os.getenv("CORS_ORIGINS")
+        if cors_origins_env:
+            try:
+                self.CORS_ORIGINS = json.loads(cors_origins_env)
+            except json.JSONDecodeError:
+                # Если не JSON, то разделяем по запятой
+                self.CORS_ORIGINS = [origin.strip() for origin in cors_origins_env.split(",")]
     
     # WebRTC
     ICE_SERVERS: List[dict] = [
