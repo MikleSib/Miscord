@@ -17,6 +17,14 @@ interface NoiseSuppressionSettings {
   mode?: 'gentle' | 'balanced' | 'aggressive'; // Режимы для professional уровня
 }
 
+// Добавляем интерфейс для статистики
+interface AdvancedStats {
+  processedFrames: number;
+  noisePowers: number[];
+  speechPowers: number[];
+  // Другие поля по необходимости
+}
+
 class NoiseSuppressionService {
   private audioContext: AudioContext | null = null;
   private workletNode: AudioWorkletNode | null = null;
@@ -37,6 +45,10 @@ class NoiseSuppressionService {
   
   // Advanced AI специфичные поля
   private isAdvancedLoaded = false;
+
+  // Добавляем поле для хранения статистики
+  private advancedStats: AdvancedStats | null = null;
+  private statsInterval: NodeJS.Timeout | null = null;
 
   constructor() {
     // Не загружаем настройки в конструкторе для SSR совместимости
@@ -257,9 +269,8 @@ class NoiseSuppressionService {
       return inputStream;
     }
 
-    // Принудительно загружаем Advanced AI если не загружен
     if (!this.isAdvancedLoaded) {
-      console.log('🔇 Advanced AI не загружен, загружаем...');
+      console.log('🔇 Advanced AI не загружен, принудительно загружаем...');
       try {
         await this.loadAdvancedProcessor();
       } catch (error) {
@@ -269,10 +280,8 @@ class NoiseSuppressionService {
     }
 
     try {
-      // Создаем источник из входного потока
       const source = this.audioContext.createMediaStreamSource(inputStream);
       
-      // Создаем AudioWorklet узел для нашего продвинутого процессора
       this.workletNode = new AudioWorkletNode(this.audioContext, 'advanced-noise-processor', {
         processorOptions: {
           sensitivity: this.settings.sensitivity,
@@ -280,13 +289,17 @@ class NoiseSuppressionService {
           vadEnabled: this.settings.vadEnabled
         }
       });
+      
+      // Настраиваем получение статистики от ворлета
+      this.setupWorkletMessageHandling();
 
-      // Создаем destination для выходного потока
       const destination = this.audioContext.createMediaStreamDestination();
 
-      // Соединяем: источник -> Advanced AI -> destination
       source.connect(this.workletNode);
       this.workletNode.connect(destination);
+      
+      // Запускаем периодический запрос статистики
+      this.startStatsCollection();
 
       console.log('🔇 Advanced AI обработка активирована с режимом:', this.settings.mode);
       return destination.stream;
@@ -397,6 +410,8 @@ class NoiseSuppressionService {
       this.workletNode.disconnect();
       this.workletNode = null;
     }
+    
+    this.stopStatsCollection(); // Останавливаем сбор статистики
 
     // Сбрасываем состояние, чтобы модули перезагрузились при следующей инициализации
     this.isInitialized = false;
@@ -409,18 +424,53 @@ class NoiseSuppressionService {
 
   // Получение статистики (для отладки)
   getStats() {
-    return {
-      initialized: this.isInitialized,
-      rnnoiseLoaded: this.isRNNoiseLoaded,
-      advancedLoaded: this.isAdvancedLoaded,
-      settings: this.settings,
-      basicSupported: this.isBasicSupported(),
-      advancedSupported: this.isAdvancedSupported(),
-      professionalSupported: this.isAdvancedSupported() // Профессиональный уровень требует те же возможности что и продвинутый
+    return this.advancedStats;
+  }
+
+  getRealtimeQuality(): number {
+    if (!this.advancedStats || !this.advancedStats.speechPowers || this.advancedStats.speechPowers.length === 0) return 0;
+
+    const avgNoise = this.advancedStats.noisePowers.reduce((a, b) => a + b, 0) / this.advancedStats.noisePowers.length;
+    const avgSpeech = this.advancedStats.speechPowers.reduce((a, b) => a + b, 0) / this.advancedStats.speechPowers.length;
+
+    if (avgSpeech === 0) return 0;
+    
+    const snr = avgSpeech / (avgNoise + 0.001); // Отношение сигнал/шум
+    // Нормализуем значение, чтобы оно выглядело более адекватно в процентах
+    const quality = Math.min(1, snr / 10) * 100;
+    return Math.round(quality);
+  }
+
+  // Добавляем новые методы для работы со статистикой
+  private setupWorkletMessageHandling() {
+    if (!this.workletNode) return;
+
+    this.workletNode.port.onmessage = (event) => {
+      if (event.data.type === 'stats') {
+        this.advancedStats = event.data.data;
+      }
     };
+  }
+
+  private startStatsCollection() {
+    this.stopStatsCollection(); // Останавливаем предыдущий интервал, если он был
+
+    this.statsInterval = setInterval(() => {
+      if (this.workletNode && this.settings.enabled && this.settings.level === 'professional') {
+        this.workletNode.port.postMessage({ type: 'getStats' });
+      }
+    }, 2000); // Запрашиваем статистику каждые 2 секунды
+  }
+
+  private stopStatsCollection() {
+    if (this.statsInterval) {
+      clearInterval(this.statsInterval);
+      this.statsInterval = null;
+    }
   }
 }
 
 // Экспортируем singleton
 export const noiseSuppressionService = new NoiseSuppressionService();
-export default noiseSuppressionService; 
+export default noiseSuppressionService;
+export type { NoiseSuppressionSettings }; 

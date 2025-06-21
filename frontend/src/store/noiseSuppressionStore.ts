@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import voiceService from '../services/voiceService';
-import advancedNoiseSuppressionService from '../services/advancedNoiseSuppressionService';
+import noiseSuppressionService from '../services/noiseSuppressionService';
 
 export type NoiseSuppressionLevel = 'basic' | 'advanced' | 'professional';
 export type AdvancedMode = 'gentle' | 'balanced' | 'aggressive';
@@ -62,7 +62,7 @@ export const useNoiseSuppressionStore = create<NoiseSuppressionState>((set, get)
   initialize: () => {
     try {
       const supportInfo = voiceService.isNoiseSuppressionSupported();
-      const advancedSupport = advancedNoiseSuppressionService.isSupported();
+      const advancedSupport = noiseSuppressionService.isSupported();
       set({
         support: {
           basic: supportInfo.basic,
@@ -90,7 +90,7 @@ export const useNoiseSuppressionStore = create<NoiseSuppressionState>((set, get)
   setEnabled: (enabled) => {
     const { level } = get();
     if (level === 'professional') {
-      advancedNoiseSuppressionService.setEnabled(enabled);
+      noiseSuppressionService.setEnabled(enabled);
     } else {
       voiceService.setNoiseSuppressionEnabled(enabled);
     }
@@ -103,10 +103,10 @@ export const useNoiseSuppressionStore = create<NoiseSuppressionState>((set, get)
     // When switching levels, ensure the correct service is activated/deactivated
     if (level === 'professional') {
       voiceService.setNoiseSuppressionEnabled(false);
-      advancedNoiseSuppressionService.setEnabled(isEnabled);
-      advancedNoiseSuppressionService.setMode(get().advancedMode);
+      noiseSuppressionService.setEnabled(isEnabled);
+      noiseSuppressionService.setMode(get().advancedMode);
     } else {
-      advancedNoiseSuppressionService.setEnabled(false);
+      noiseSuppressionService.setEnabled(false);
       voiceService.setNoiseSuppressionEnabled(isEnabled);
       voiceService.setNoiseSuppressionLevel(level);
     }
@@ -120,7 +120,7 @@ export const useNoiseSuppressionStore = create<NoiseSuppressionState>((set, get)
   setSensitivity: (sensitivity) => {
     const { level } = get();
     if (level === 'professional') {
-      advancedNoiseSuppressionService.setSensitivity(sensitivity);
+      noiseSuppressionService.setSensitivity(sensitivity);
     } else {
       voiceService.setNoiseSuppressionSensitivity(sensitivity);
     }
@@ -128,7 +128,7 @@ export const useNoiseSuppressionStore = create<NoiseSuppressionState>((set, get)
   },
 
   setAdvancedMode: (mode) => {
-    advancedNoiseSuppressionService.setMode(mode);
+    noiseSuppressionService.setMode(mode);
     set({ advancedMode: mode });
   },
 
@@ -142,16 +142,14 @@ export const useNoiseSuppressionStore = create<NoiseSuppressionState>((set, get)
         }
 
         if (level === 'professional') {
-            const advancedStats = advancedNoiseSuppressionService.getStats();
+            const advancedStats = noiseSuppressionService.getStats();
             newStats = { 
                 processedFrames: advancedStats?.processedFrames || 0,
-                // processingTimeMs is not available in this service's stats
-                processingTimeMs: 0, 
-                quality: advancedNoiseSuppressionService.getRealtimeQuality() 
+                processingTimeMs: 0,
+                quality: noiseSuppressionService.getRealtimeQuality() 
             };
         } else {
             const basicStats = voiceService.getNoiseSuppressionStats();
-            // The basic service does not provide detailed stats.
             newStats = {
                 processedFrames: 0,
                 processingTimeMs: 0,
