@@ -1,5 +1,6 @@
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import asyncio
 
@@ -8,6 +9,8 @@ from app.db.database import engine, Base
 from app.api import auth, channels
 from app.websocket import chat, voice
 from app.websocket.connection_manager import manager
+from app.websocket.chat import websocket_chat_endpoint, websocket_notifications_endpoint
+from app.websocket.voice import websocket_voice_endpoint
 
 # Создание таблиц при старте
 @asynccontextmanager
@@ -47,12 +50,16 @@ app.include_router(channels.router, prefix="/api/channels", tags=["channels"])
 
 # WebSocket эндпоинты
 @app.websocket("/ws/chat/{channel_id}")
-async def websocket_chat(websocket: WebSocket, channel_id: int, token: str):
-    await chat.websocket_chat_endpoint(websocket, channel_id, token)
+async def websocket_chat_endpoint_route(websocket: WebSocket, channel_id: int, token: str):
+    await websocket_chat_endpoint(websocket, channel_id, token)
 
-@app.websocket("/ws/voice/{voice_channel_id}")
-async def websocket_voice(websocket: WebSocket, voice_channel_id: int, token: str):
-    await voice.websocket_voice_endpoint(websocket, voice_channel_id, token)
+@app.websocket("/ws/notifications")
+async def websocket_notifications_endpoint_route(websocket: WebSocket, token: str):
+    await websocket_notifications_endpoint(websocket, token)
+
+@app.websocket("/ws/voice/{channel_id}")
+async def websocket_voice_endpoint_route(websocket: WebSocket, channel_id: int, token: str):
+    await websocket_voice_endpoint(websocket, channel_id, token)
 
 # Корневой эндпоинт
 @app.get("/")
@@ -64,7 +71,8 @@ async def root():
             "auth": "/api/auth",
             "channels": "/api/channels",
             "websocket_chat": "/ws/chat/{channel_id}",
-            "websocket_voice": "/ws/voice/{voice_channel_id}"
+            "websocket_voice": "/ws/voice/{channel_id}",
+            "websocket_notifications": "/ws/notifications"
         }
     }
 
@@ -72,3 +80,7 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -1,13 +1,15 @@
-from fastapi import WebSocket, WebSocketDisconnect, Depends, Query
+from fastapi import WebSocket, WebSocketDisconnect, Depends, Query, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 import json
-from app.db.database import get_db
+from app.db.database import get_db, AsyncSessionLocal
 from app.models import User, Message, TextChannel, ChannelMember
 from app.schemas.message import MessageCreate, Message as MessageSchema
 from app.core.security import decode_access_token
 from app.websocket.connection_manager import manager
+from app.core.dependencies import get_current_user_ws
+import asyncio
 
 async def get_current_user_ws(
     websocket: WebSocket,
@@ -42,121 +44,121 @@ async def websocket_chat_endpoint(
     token: str = Query(...),
     db: AsyncSession = Depends(get_db)
 ):
-    """WebSocket эндпоинт для чата"""
-    # Аутентификация
-    user = await get_current_user_ws(websocket, token, db)
-    if not user:
-        return
-    
-    # Проверка членства в канале
-    member_result = await db.execute(
-        select(ChannelMember).where(
-            (ChannelMember.channel_id == channel_id) &
-            (ChannelMember.user_id == user.id)
-        )
-    )
-    if not member_result.scalar_one_or_none():
-        await websocket.close(code=4003, reason="Not a member of this channel")
-        return
-    
-    # Подключение к менеджеру соединений
-    await manager.connect(websocket, user.id, channel_id)
-    
+    """WebSocket эндпоинт для чата в текстовых каналах"""
     try:
-        # Обновление статуса пользователя
-        user.is_online = True
-        await db.commit()
+        # Аутентификация пользователя
+        user = await get_current_user_ws(token, db)
+        if not user:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
+        # Подключение к WebSocket
+        await manager.connect(websocket, user.id, channel_id)
         
-        while True:
-            # Получение сообщения от клиента
-            data = await websocket.receive_json()
+        try:
+            while True:
+                # Получение сообщения от клиента
+                data = await websocket.receive_text()
+                message_data = json.loads(data)
+                
+                if message_data.get("type") == "message":
+                    # Обработка текстового сообщения
+                    content = message_data.get("content", "").strip()
+                    text_channel_id = message_data.get("text_channel_id")
+                    
+                    if content and text_channel_id:
+                        # Проверяем существование текстового канала
+                        text_channel_result = await db.execute(
+                            select(TextChannel).where(TextChannel.id == text_channel_id)
+                        )
+                        text_channel = text_channel_result.scalar_one_or_none()
+                        
+                        if text_channel:
+                            # Создаем сообщение
+                            db_message = Message(
+                                content=content,
+                                author_id=user.id,
+                                text_channel_id=text_channel_id
+                            )
+                            db.add(db_message)
+                            await db.commit()
+                            await db.refresh(db_message)
+                            
+                            # Отправляем сообщение всем участникам канала
+                            await manager.send_to_channel(channel_id, {
+                                "type": "message",
+                                "id": db_message.id,
+                                "content": db_message.content,
+                                "author": {
+                                    "id": user.id,
+                                    "username": user.username
+                                },
+                                "timestamp": db_message.created_at.isoformat(),
+                                "text_channel_id": text_channel_id
+                            })
+                
+                elif message_data.get("type") == "typing":
+                    # Обработка индикатора печати
+                    text_channel_id = message_data.get("text_channel_id")
+                    if text_channel_id:
+                        await manager.send_to_channel(channel_id, {
+                            "type": "typing",
+                            "user": {
+                                "id": user.id,
+                                "username": user.username
+                            },
+                            "text_channel_id": text_channel_id
+                        })
+                        
+        except WebSocketDisconnect:
+            pass
+        except Exception as e:
+            print(f"Ошибка в WebSocket чата: {e}")
+        finally:
+            await manager.disconnect(websocket, user.id, channel_id)
             
-            if data["type"] == "message":
-                # Создание нового сообщения
-                text_channel_id = data.get("text_channel_id")
-                content = data.get("content")
-                
-                if not text_channel_id or not content:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "Invalid message data"
-                    })
-                    continue
-                
-                # Проверка существования текстового канала
-                text_channel_result = await db.execute(
-                    select(TextChannel).where(
-                        (TextChannel.id == text_channel_id) &
-                        (TextChannel.channel_id == channel_id)
-                    )
-                )
-                text_channel = text_channel_result.scalar_one_or_none()
-                
-                if not text_channel:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "Text channel not found"
-                    })
-                    continue
-                
-                # Создание сообщения в БД
-                new_message = Message(
-                    content=content,
-                    author_id=user.id,
-                    text_channel_id=text_channel_id
-                )
-                db.add(new_message)
-                await db.commit()
-                await db.refresh(new_message)
-                
-                # Загрузка автора для отправки
-                result = await db.execute(
-                    select(Message)
-                    .where(Message.id == new_message.id)
-                    .options(selectinload(Message.author))
-                )
-                message_with_author = result.scalar_one()
-                
-                # Подготовка данных для отправки
-                message_data = {
-                    "type": "new_message",
-                    "message": {
-                        "id": message_with_author.id,
-                        "content": message_with_author.content,
-                        "author_id": message_with_author.author_id,
-                        "text_channel_id": message_with_author.text_channel_id,
-                        "created_at": message_with_author.created_at.isoformat(),
-                        "is_edited": message_with_author.is_edited,
-                        "author": {
-                            "id": message_with_author.author.id,
-                            "username": message_with_author.author.username,
-                            "is_online": message_with_author.author.is_online
-                        }
-                    }
-                }
-                
-                # Рассылка сообщения всем в канале
-                await manager.broadcast_to_channel(channel_id, message_data)
-            
-            elif data["type"] == "typing":
-                # Уведомление о наборе текста
-                text_channel_id = data.get("text_channel_id")
-                typing_data = {
-                    "type": "user_typing",
-                    "user_id": user.id,
-                    "username": user.username,
-                    "text_channel_id": text_channel_id
-                }
-                await manager.broadcast_to_channel(channel_id, typing_data)
-    
-    except WebSocketDisconnect:
-        pass
     except Exception as e:
-        print(f"WebSocket error: {e}")
-    finally:
-        # Отключение от менеджера
-        await manager.disconnect(user.id, channel_id)
-        
-        # Обновление статуса пользователя
-        user.is_online = False
-        await db.commit()
+        print(f"Ошибка подключения WebSocket чата: {e}")
+        await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
+
+
+async def websocket_notifications_endpoint(
+    websocket: WebSocket,
+    token: str = Query(...)
+):
+    """WebSocket эндпоинт для уведомлений (приглашения, синхронизация)"""
+    async with AsyncSessionLocal() as db:
+        try:
+            # Аутентификация пользователя
+            user = await get_current_user_ws(token, db)
+            if not user:
+                await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                return
+
+            # Подключение к WebSocket (без привязки к каналу)
+            await manager.connect(websocket, user.id)
+            
+            try:
+                while True:
+                    # Ожидаем сообщения от клиента (например, keepalive)
+                    try:
+                        data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                        message_data = json.loads(data)
+                        
+                        if message_data.get("type") == "ping":
+                            await websocket.send_text(json.dumps({"type": "pong"}))
+                            
+                    except asyncio.TimeoutError:
+                        # Отправляем ping для поддержания соединения
+                        await websocket.send_text(json.dumps({"type": "ping"}))
+                        
+            except WebSocketDisconnect:
+                pass
+            except Exception as e:
+                print(f"Ошибка в WebSocket уведомлений: {e}")
+            finally:
+                await manager.disconnect(websocket, user.id)
+                
+        except Exception as e:
+            print(f"Ошибка подключения WebSocket уведомлений: {e}")
+            await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
