@@ -30,6 +30,7 @@ class VoiceService {
   private onParticipantStatusChangedCallback: ((userId: number, status: Partial<{ is_muted: boolean; is_deafened: boolean }>) => void) | null = null;
   private isScreenSharing: boolean = false; // Статус демонстрации экрана
   private onScreenShareChanged: ((userId: number, isSharing: boolean) => void) | null = null;
+  private isManuallyMuted: boolean = false;
 
   async connect(voiceChannelId: number, token: string) {
     console.log('🎙️ VoiceService.connect вызван с параметрами:', { voiceChannelId, token: token ? 'есть' : 'нет' });
@@ -546,10 +547,19 @@ class VoiceService {
   }
 
   setMuted(muted: boolean) {
+    this.isManuallyMuted = muted;
     if (this.localStream) {
       this.localStream.getAudioTracks().forEach(track => {
         track.enabled = !muted;
       });
+    }
+    if (muted && this.isSpeaking) {
+        this.isSpeaking = false;
+        this.sendMessage({ type: 'speaking', is_speaking: false });
+        const currentUserId = this.getCurrentUserId();
+        if (currentUserId && this.onSpeakingChanged) {
+          this.onSpeakingChanged(currentUserId, false);
+        }
     }
     this.sendMessage({ type: 'mute', is_muted: muted });
   }
@@ -671,45 +681,49 @@ class VoiceService {
         
         const { settings, setMicLevel } = useNoiseSuppressionStore.getState();
 
-        if (!settings.vadEnabled) {
-          if (!this.isSpeaking) {
-            this.isSpeaking = true;
-            this.sendMessage({ type: 'speaking', is_speaking: true });
-            const currentUserId = this.getCurrentUserId();
-            if (currentUserId && this.onSpeakingChanged) {
-              this.onSpeakingChanged(currentUserId, true);
-            }
-          }
-          const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-          const micLevelDb = 20 * Math.log10(average / 255);
-          setMicLevel(isFinite(micLevelDb) ? micLevelDb : -100);
-          return;
-        }
-
-        const dbThreshold = settings.vadThreshold;
-        const linearThreshold = Math.pow(10, dbThreshold / 20) * 255;
-
         const totalAverage = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
         const micLevelDb = 20 * Math.log10(totalAverage / 255);
         setMicLevel(isFinite(micLevelDb) ? micLevelDb : -100);
-        
-        const midFrequencyData = dataArray.slice(dataArray.length / 4, dataArray.length / 2);
-        const midAverage = midFrequencyData.reduce((a, b) => a + b, 0) / midFrequencyData.length;
-        const maxValue = Math.max(...Array.from(dataArray));
-        
-        const totalThreshold = Math.max(1, linearThreshold * 0.1);
-        const midThreshold = Math.max(2, linearThreshold * 0.2); 
-        const maxThreshold = Math.max(3, linearThreshold * 0.3);
-        
-        const currentlySpeaking = 
-          totalAverage > totalThreshold || 
-          midAverage > midThreshold || 
-          maxValue > maxThreshold;
+
+        if (this.isManuallyMuted) {
+          return;
+        }
+
+        let currentlySpeaking;
+
+        if (!settings.vadEnabled) {
+          currentlySpeaking = true;
+        } else {
+          const dbThreshold = settings.vadThreshold;
+          const linearThreshold = Math.pow(10, dbThreshold / 20) * 255;
+          
+          const midFrequencyData = dataArray.slice(dataArray.length / 4, dataArray.length / 2);
+          const midAverage = midFrequencyData.reduce((a, b) => a + b, 0) / midFrequencyData.length;
+          const maxValue = Math.max(...Array.from(dataArray));
+          
+          const totalThreshold = Math.max(1, linearThreshold * 0.1);
+          const midThreshold = Math.max(2, linearThreshold * 0.2); 
+          const maxThreshold = Math.max(3, linearThreshold * 0.3);
+          
+          currentlySpeaking = 
+            totalAverage > totalThreshold || 
+            midAverage > midThreshold || 
+            maxValue > maxThreshold;
+        }
+
+        if (this.localStream) {
+            this.localStream.getAudioTracks().forEach(track => {
+                if (track.enabled !== currentlySpeaking) {
+                    track.enabled = currentlySpeaking;
+                    console.log(`🎙️ Аудио трек ${currentlySpeaking ? 'ВКЛЮЧЕН' : 'ВЫКЛЮЧЕН'} через VAD`);
+                }
+            });
+        }
         
         if (currentlySpeaking !== this.isSpeaking) {
           this.isSpeaking = currentlySpeaking;
           
-          console.log(`🎙️ Голосовая активность: ${currentlySpeaking ? 'ГОВОРИТ' : 'молчит'} (total: ${totalAverage.toFixed(1)}, mid: ${midAverage.toFixed(1)}, max: ${maxValue}) [пороги: total=${totalThreshold.toFixed(1)}, mid=${midThreshold.toFixed(1)}, max=${maxThreshold.toFixed(1)}, VAD=${dbThreshold}дБ]`);
+          console.log(`🎙️ Голосовая активность: ${currentlySpeaking ? 'ГОВОРИТ' : 'молчит'}`);
           
           this.sendMessage({
             type: 'speaking',
