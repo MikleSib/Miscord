@@ -272,47 +272,98 @@ class VoiceService {
         });
 
         if (audioTracks.length > 0) {
-          const remoteAudio = new Audio();
-          remoteAudio.srcObject = new MediaStream(audioTracks);
+          console.log(`🔊 Настройка аудио воспроизведения для пользователя ${userId}`);
+          
+          // Удаляем старый аудио элемент если существует
+          const existingAudio = document.getElementById(`remote-audio-${userId}`);
+          if (existingAudio) {
+            existingAudio.remove();
+            console.log(`🔊 Удален старый аудио элемент для пользователя ${userId}`);
+          }
+          
+          // Создаем новый аудио элемент
+          const remoteAudio = document.createElement('audio');
+          remoteAudio.id = `remote-audio-${userId}`;
           remoteAudio.autoplay = true;
           remoteAudio.controls = false;
           remoteAudio.muted = false;
           remoteAudio.volume = 1.0;
-          
-          remoteAudio.id = `remote-audio-${userId}`;
           remoteAudio.style.display = 'none';
+          
+          // Создаем MediaStream только с аудио треками
+          const audioStream = new MediaStream(audioTracks);
+          remoteAudio.srcObject = audioStream;
+          
+          // Добавляем элемент в DOM
           document.body.appendChild(remoteAudio);
           
-          setTimeout(() => {
-            const savedVolume = localStorage.getItem(`voice-volume-${userId}`);
-            if (savedVolume) {
-              const volume = parseInt(savedVolume);
-              remoteAudio.volume = Math.min(volume / 100, 1.0);
-              console.log(`🔊 Применена сохраненная громкость ${volume}% для пользователя ${userId}`);
-            }
-          }, 100);
+          // Обработчики событий для диагностики
+          remoteAudio.addEventListener('loadstart', () => {
+            console.log(`🔊 Начата загрузка аудио для пользователя ${userId}`);
+          });
           
-          const playPromise = remoteAudio.play();
-          if (playPromise !== undefined) {
-            playPromise.then(() => {
-              console.log('🔊 Аудио от пользователя', userId, 'успешно воспроизводится');
-            }).catch(error => {
-              console.error('🔊 Ошибка воспроизведения аудио от пользователя', userId, ':', error);
+          remoteAudio.addEventListener('loadedmetadata', () => {
+            console.log(`🔊 Метаданные аудио загружены для пользователя ${userId}`, {
+              duration: remoteAudio.duration,
+              readyState: remoteAudio.readyState,
+              networkState: remoteAudio.networkState
+            });
+          });
+          
+          remoteAudio.addEventListener('canplay', () => {
+            console.log(`🔊 Аудио готово к воспроизведению для пользователя ${userId}`);
+          });
+          
+          remoteAudio.addEventListener('error', (e) => {
+            console.error(`🔊 Ошибка аудио элемента для пользователя ${userId}:`, e);
+          });
+          
+          // Попытка воспроизведения
+          const attemptPlay = async () => {
+            try {
+              console.log(`🔊 Попытка воспроизведения аудио для пользователя ${userId}`);
+              await remoteAudio.play();
+              console.log(`🔊 ✅ Аудио от пользователя ${userId} успешно воспроизводится`);
               
-              const enableAudio = () => {
-                remoteAudio.play().then(() => {
-                  console.log('🔊 Аудио от пользователя', userId, 'включено после взаимодействия пользователя');
+              // Применяем сохраненную громкость
+              const savedVolume = localStorage.getItem(`voice-volume-${userId}`);
+              if (savedVolume) {
+                const volume = parseInt(savedVolume);
+                remoteAudio.volume = Math.min(volume / 100, 1.0);
+                console.log(`🔊 Применена сохраненная громкость ${volume}% для пользователя ${userId}`);
+              }
+              
+            } catch (error) {
+              console.warn(`🔊 ⚠️ Автовоспроизведение заблокировано для пользователя ${userId}:`, error);
+              
+              // Создаем обработчик для включения аудио после взаимодействия пользователя
+              const enableAudio = async () => {
+                try {
+                  await remoteAudio.play();
+                  console.log(`🔊 ✅ Аудио от пользователя ${userId} включено после взаимодействия пользователя`);
+                  
+                  // Удаляем обработчики после успешного воспроизведения
                   document.removeEventListener('click', enableAudio);
                   document.removeEventListener('touchstart', enableAudio);
-                }).catch(e => {
-                  console.error('🔊 Все еще не удается воспроизвести аудио от пользователя', userId, ':', e);
-                });
+                  document.removeEventListener('keydown', enableAudio);
+                  
+                } catch (e) {
+                  console.error(`🔊 ❌ Все еще не удается воспроизвести аудио от пользователя ${userId}:`, e);
+                }
               };
               
+              // Добавляем обработчики для различных типов взаимодействия
               document.addEventListener('click', enableAudio, { once: true });
               document.addEventListener('touchstart', enableAudio, { once: true });
-            });
-          }
+              document.addEventListener('keydown', enableAudio, { once: true });
+              
+              // Показываем уведомление пользователю
+              console.log(`🔊 💡 Кликните в любом месте страницы, чтобы включить звук от пользователя ${userId}`);
+            }
+          };
+          
+          // Небольшая задержка перед попыткой воспроизведения
+          setTimeout(attemptPlay, 100);
         }
 
         if (videoTracks.length > 0) {
@@ -580,11 +631,31 @@ class VoiceService {
   setDeafened(deafened: boolean) {
     console.log(`🔊 Установка deafened: ${deafened}`);
     
+    // Проходим по всем подключениям и управляем аудио элементами
     this.peerConnections.forEach(({ userId }) => {
       const audioElement = document.getElementById(`remote-audio-${userId}`) as HTMLAudioElement;
       if (audioElement) {
         audioElement.muted = deafened;
         console.log(`🔊 ${deafened ? 'Заглушен' : 'Включен'} звук от пользователя ${userId}`);
+        
+        // Дополнительная проверка состояния аудио элемента
+        console.log(`🔊 Состояние аудио элемента пользователя ${userId}:`, {
+          muted: audioElement.muted,
+          volume: audioElement.volume,
+          paused: audioElement.paused,
+          readyState: audioElement.readyState,
+          networkState: audioElement.networkState,
+          srcObject: !!audioElement.srcObject
+        });
+        
+        // Если включаем звук и элемент на паузе, пытаемся воспроизвести
+        if (!deafened && audioElement.paused) {
+          audioElement.play().catch(error => {
+            console.warn(`🔊 Не удалось возобновить воспроизведение для пользователя ${userId}:`, error);
+          });
+        }
+      } else {
+        console.warn(`🔊 ⚠️ Аудио элемент для пользователя ${userId} не найден`);
       }
     });
     
@@ -1073,16 +1144,133 @@ class VoiceService {
   }
 
   getDebugInfo() {
+    const peerConnectionsInfo = Array.from(this.peerConnections.entries()).map(([userId, { pc }]) => {
+      const audioElement = document.getElementById(`remote-audio-${userId}`) as HTMLAudioElement;
+      
+      return {
+        userId,
+        connectionState: pc.connectionState,
+        iceConnectionState: pc.iceConnectionState,
+        iceGatheringState: pc.iceGatheringState,
+        signalingState: pc.signalingState,
+        audioElement: audioElement ? {
+          exists: true,
+          muted: audioElement.muted,
+          volume: audioElement.volume,
+          paused: audioElement.paused,
+          readyState: audioElement.readyState,
+          networkState: audioElement.networkState,
+          srcObject: !!audioElement.srcObject,
+          currentTime: audioElement.currentTime,
+          duration: audioElement.duration
+        } : {
+          exists: false
+        }
+      };
+    });
+
     return {
-      hasLocalStream: !!this.localStream,
-      hasAudioContext: !!this.audioContext,
+      isConnected: !!this.ws && this.ws.readyState === WebSocket.OPEN,
       voiceChannelId: this.voiceChannelId,
-      peerConnectionsCount: this.peerConnections.size,
-      wsState: this.ws?.readyState,
-      localStreamTracks: this.localStream?.getTracks().length || 0,
-      localStreamActive: this.localStream?.active || false
+      hasLocalStream: !!this.localStream,
+      hasRawStream: !!this.rawStream,
+      peerConnections: peerConnectionsInfo,
+      audioContext: this.audioContext ? {
+        state: this.audioContext.state,
+        sampleRate: this.audioContext.sampleRate
+      } : null,
+      isScreenSharing: this.isScreenSharing,
+      isSpeaking: this.isSpeaking,
+      isManuallyMuted: this.isManuallyMuted
     };
+  }
+
+  // Новая функция для диагностики аудио проблем
+  diagnoseAudioIssues() {
+    console.log('🔊 🔍 Диагностика аудио проблем:');
+    
+    const debugInfo = this.getDebugInfo();
+    console.log('🔊 Общая информация:', debugInfo);
+    
+    // Проверяем каждое peer connection
+    this.peerConnections.forEach(({ userId, pc }) => {
+      console.log(`🔊 Диагностика пользователя ${userId}:`);
+      
+      // Проверяем состояние соединения
+      console.log(`  - Состояние соединения: ${pc.connectionState}`);
+      console.log(`  - ICE состояние: ${pc.iceConnectionState}`);
+      console.log(`  - Signaling состояние: ${pc.signalingState}`);
+      
+      // Проверяем удаленные потоки
+      const receivers = pc.getReceivers();
+      console.log(`  - Количество receivers: ${receivers.length}`);
+      
+      receivers.forEach((receiver, index) => {
+        const track = receiver.track;
+        if (track) {
+          console.log(`  - Receiver ${index}:`, {
+            kind: track.kind,
+            id: track.id,
+            label: track.label,
+            readyState: track.readyState,
+            enabled: track.enabled,
+            muted: track.muted
+          });
+        }
+      });
+      
+      // Проверяем аудио элемент
+      const audioElement = document.getElementById(`remote-audio-${userId}`) as HTMLAudioElement;
+      if (audioElement) {
+        console.log(`  - Аудио элемент найден:`, {
+          muted: audioElement.muted,
+          volume: audioElement.volume,
+          paused: audioElement.paused,
+          readyState: audioElement.readyState,
+          networkState: audioElement.networkState,
+          srcObject: !!audioElement.srcObject,
+          currentTime: audioElement.currentTime,
+          duration: audioElement.duration,
+          error: audioElement.error
+        });
+        
+        // Проверяем MediaStream
+        if (audioElement.srcObject) {
+          const stream = audioElement.srcObject as MediaStream;
+          const audioTracks = stream.getAudioTracks();
+          console.log(`  - MediaStream аудио треки: ${audioTracks.length}`);
+          
+          audioTracks.forEach((track, trackIndex) => {
+            console.log(`    - Трек ${trackIndex}:`, {
+              id: track.id,
+              label: track.label,
+              kind: track.kind,
+              readyState: track.readyState,
+              enabled: track.enabled,
+              muted: track.muted
+            });
+          });
+        }
+      } else {
+        console.log(`  - ❌ Аудио элемент не найден!`);
+      }
+      
+      console.log('---');
+    });
+    
+    // Проверяем autoplay policy
+    if (navigator.userAgent.includes('Chrome') || navigator.userAgent.includes('Firefox')) {
+      console.log('🔊 💡 Если звук не работает, возможно браузер блокирует autoplay.');
+      console.log('🔊 💡 Кликните в любом месте страницы, чтобы разрешить воспроизведение аудио.');
+    }
   }
 }
 
-export default new VoiceService();
+const voiceService = new VoiceService();
+
+// Добавляем в глобальный объект для отладки
+if (typeof window !== 'undefined') {
+  (window as any).voiceService = voiceService;
+}
+
+export default voiceService;
