@@ -548,11 +548,16 @@ class VoiceService {
 
   setMuted(muted: boolean) {
     this.isManuallyMuted = muted;
-    if (this.localStream) {
-      this.localStream.getAudioTracks().forEach(track => {
-        track.enabled = !muted;
-      });
+
+    if (muted) {
+        noiseSuppressionService.setGain(0);
+    } else {
+        // Let VAD decide the gain level, but we can set it to 1 initially
+        // to avoid a delay in being heard when unmuting. VAD will correct on next tick if silent.
+        noiseSuppressionService.setGain(1);
     }
+    
+    // If the user mutes, we should also ensure the speaking status is off.
     if (muted && this.isSpeaking) {
         this.isSpeaking = false;
         this.sendMessage({ type: 'speaking', is_speaking: false });
@@ -711,14 +716,7 @@ class VoiceService {
             maxValue > maxThreshold;
         }
 
-        if (this.localStream) {
-            this.localStream.getAudioTracks().forEach(track => {
-                if (track.enabled !== currentlySpeaking) {
-                    track.enabled = currentlySpeaking;
-                    console.log(`🎙️ Аудио трек ${currentlySpeaking ? 'ВКЛЮЧЕН' : 'ВЫКЛЮЧЕН'} через VAD`);
-                }
-            });
-        }
+        noiseSuppressionService.setGain(currentlySpeaking ? 1 : 0);
         
         if (currentlySpeaking !== this.isSpeaking) {
           this.isSpeaking = currentlySpeaking;

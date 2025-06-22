@@ -19,6 +19,9 @@ export interface NoiseSuppressionStats {
 class UnifiedNoiseSuppressionService {
   private audioContext: AudioContext | null = null;
   private workletNode: AudioWorkletNode | null = null;
+  private sourceNode: MediaStreamAudioSourceNode | null = null;
+  private destinationNode: MediaStreamAudioDestinationNode | null = null;
+  private gainNode: GainNode | null = null;
   private isInitialized = false;
   private settings: NoiseSuppressionSettings;
   private stats: NoiseSuppressionStats | null = null;
@@ -74,30 +77,32 @@ class UnifiedNoiseSuppressionService {
     }
   }
 
-  async processStream(inputStream: MediaStream): Promise<MediaStream> {
-    if (!this.isInitialized || !this.audioContext || !this.settings.enabled) {
-      console.log('🔇 Шумодав неактивен, возвращаем оригинальный поток.');
-      this.cleanup(); // Убедимся, что все остановлено
-      return inputStream;
+  async processStream(stream: MediaStream): Promise<MediaStream> {
+    if (!this.audioContext || !this.isInitialized) {
+      throw new Error("Noise suppression service not initialized.");
     }
+    this.cleanup();
 
     try {
-      const source = this.audioContext.createMediaStreamSource(inputStream);
-      this.workletNode = new AudioWorkletNode(this.audioContext, 'advanced-noise-processor', {
-        processorOptions: this.settings
-      });
+      this.sourceNode = this.audioContext.createMediaStreamSource(stream);
+      this.destinationNode = this.audioContext.createMediaStreamDestination();
+      this.workletNode = new AudioWorkletNode(this.audioContext, 'noise-suppressor');
+      this.gainNode = this.audioContext.createGain();
 
-      this.setupWorkletMessageHandling();
-      this.startStatsCollection();
+      this.workletNode.onprocessorerror = (event) => {
+        console.error('An error from noise-suppressor worklet occurred: ', event);
+      };
 
-      const destination = this.audioContext.createMediaStreamDestination();
-      source.connect(this.workletNode).connect(destination);
+      this.sourceNode
+        .connect(this.workletNode)
+        .connect(this.gainNode)
+        .connect(this.destinationNode);
 
-      console.log('🔇 Шумодав активирован с настройками:', this.settings);
-      return destination.stream;
+      return this.destinationNode.stream;
     } catch (error) {
-      console.error('🔇 Ошибка активации шумодава:', error);
-      return inputStream;
+      console.error('Error processing stream in noise suppression service: ', error);
+      // Fallback to original stream
+      return stream;
     }
   }
   
@@ -155,6 +160,13 @@ class UnifiedNoiseSuppressionService {
       }
   }
 
+  setGain(level: number) {
+    if (this.gainNode) {
+      // Using setTargetAtTime for a smoother transition to avoid clicks
+      this.gainNode.gain.setTargetAtTime(level, this.audioContext!.currentTime, 0.01);
+    }
+  }
+
   getSettings(): NoiseSuppressionSettings {
     return this.settings;
   }
@@ -184,6 +196,18 @@ class UnifiedNoiseSuppressionService {
     if (this.workletNode) {
       this.workletNode.disconnect();
       this.workletNode = null;
+    }
+    if (this.sourceNode) {
+      this.sourceNode.disconnect();
+      this.sourceNode = null;
+    }
+    if (this.destinationNode) {
+      this.destinationNode.disconnect();
+      this.destinationNode = null;
+    }
+    if (this.gainNode) {
+      this.gainNode.gain.value = 1;
+      this.gainNode = null;
     }
     this.isInitialized = false;
     console.log('🔇 Сервис шумодава очищен.');
