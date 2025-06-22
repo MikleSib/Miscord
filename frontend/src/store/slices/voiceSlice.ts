@@ -69,7 +69,6 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       
       // Обработчик изменения голосовой активности
       voiceService.onSpeakingChange((userId, isSpeaking) => {
-        console.log('🎙️ Изменение голосовой активности:', userId, isSpeaking);
         get().setSpeaking(userId, isSpeaking);
       });
       
@@ -234,6 +233,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       } else {
         newSpeakingUsers.delete(userId);
       }
+      // Force a re-render by creating a new object for the state
       return { speakingUsers: newSpeakingUsers };
     });
   },

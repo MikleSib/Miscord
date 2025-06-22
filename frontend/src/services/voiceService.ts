@@ -13,6 +13,7 @@ interface PeerConnection {
 class VoiceService {
   private ws: WebSocket | null = null;
   private localStream: MediaStream | null = null;
+  private rawStream: MediaStream | null = null; // Сырой поток для VAD
   private screenStream: MediaStream | null = null; // Поток демонстрации экрана
   private peerConnections: Map<number, PeerConnection> = new Map();
   private iceServers: RTCIceServer[] = [];
@@ -50,11 +51,11 @@ class VoiceService {
 
     try {
       console.log('🎙️ Запрашиваем доступ к микрофону...');
-      const rawStream = await navigator.mediaDevices.getUserMedia({
+      this.rawStream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          echoCancellation: true,
-          noiseSuppression: true, 
-          autoGainControl: true,
+          echoCancellation: false,  // Отключаем браузерные фильтры
+          noiseSuppression: false,  // Используем только наш кастомный шумодав
+          autoGainControl: false,   // Отключаем автоматическую регулировку громкости
           sampleRate: 48000, 
         },
         video: false,
@@ -71,10 +72,10 @@ class VoiceService {
       const noiseSettings = noiseSuppressionService.getSettings();
       console.log('🔇 Настройки шумодава после инициализации:', noiseSettings);
       
-      this.localStream = await noiseSuppressionService.processStream(rawStream);
+      this.localStream = await noiseSuppressionService.processStream(this.rawStream);
       console.log('🔇 Поток обработан через сервис шумодава');
       
-      if (this.localStream !== rawStream) {
+      if (this.localStream !== this.rawStream) {
         console.log('🔇 ✅ Шумодав успешно применен к потоку');
       } else {
         console.warn('🔇 ⚠️ Шумодав не был применен, используется оригинальный поток');
@@ -172,6 +173,13 @@ class VoiceService {
         break;
         
       case 'user_speaking':
+        // Ignore server speaking messages for the local user - we handle that locally with VAD
+        const localUserId = this.getCurrentUserId();
+        if (data.user_id === localUserId) {
+          console.log('🔊 Игнорируем серверное сообщение о голосовой активности для локального пользователя');
+          break;
+        }
+        
         if (this.onSpeakingChanged) {
           this.onSpeakingChanged(data.user_id, data.is_speaking);
         }
@@ -637,6 +645,11 @@ class VoiceService {
       this.localStream = null;
     }
 
+    if (this.rawStream) {
+      this.rawStream.getTracks().forEach(track => track.stop());
+      this.rawStream = null;
+    }
+
     this.cleanupVoiceActivityDetection();
 
     noiseSuppressionService.cleanup();
@@ -651,10 +664,11 @@ class VoiceService {
   }
 
   private initVoiceActivityDetection() {
-    if (!this.localStream || !this.audioContext) return;
+    if (!this.rawStream || !this.audioContext) return;
 
     try {
-      const source = this.audioContext.createMediaStreamSource(this.localStream);
+      // Используем сырой поток для VAD анализа, до обработки шумодавом
+      const source = this.audioContext.createMediaStreamSource(this.rawStream);
       this.analyser = this.audioContext.createAnalyser();
       
       this.analyser.fftSize = 1024; 
@@ -664,6 +678,7 @@ class VoiceService {
       
       source.connect(this.analyser);
       
+      console.log('🎙️ VAD инициализирован с анализером сырого потока');
       this.startVoiceActivityDetection();
     } catch (error) {
       console.error('🎙️ Ошибка инициализации VAD:', error);
@@ -700,20 +715,9 @@ class VoiceService {
           currentlySpeaking = true;
         } else {
           const dbThreshold = settings.vadThreshold;
-          const linearThreshold = Math.pow(10, dbThreshold / 20) * 255;
           
-          const midFrequencyData = dataArray.slice(dataArray.length / 4, dataArray.length / 2);
-          const midAverage = midFrequencyData.reduce((a, b) => a + b, 0) / midFrequencyData.length;
-          const maxValue = Math.max(...Array.from(dataArray));
-          
-          const totalThreshold = Math.max(1, linearThreshold * 0.1);
-          const midThreshold = Math.max(2, linearThreshold * 0.2); 
-          const maxThreshold = Math.max(3, linearThreshold * 0.3);
-          
-          currentlySpeaking = 
-            totalAverage > totalThreshold || 
-            midAverage > midThreshold || 
-            maxValue > maxThreshold;
+          // Simply compare the actual mic level in dB with the user's threshold in dB
+          currentlySpeaking = micLevelDb > dbThreshold;
         }
 
         noiseSuppressionService.setGain(currentlySpeaking ? 1 : 0);
@@ -721,7 +725,7 @@ class VoiceService {
         if (currentlySpeaking !== this.isSpeaking) {
           this.isSpeaking = currentlySpeaking;
           
-          console.log(`🎙️ Голосовая активность: ${currentlySpeaking ? 'ГОВОРИТ' : 'молчит'}`);
+        
           
           this.sendMessage({
             type: 'speaking',

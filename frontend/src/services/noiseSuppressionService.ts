@@ -12,6 +12,14 @@ export interface NoiseSuppressionSettings {
 
 export interface NoiseSuppressionStats {
   processedFrames: number;
+  qualityScore: number;
+  totalNoiseSuppressed?: number;
+  speechFrames?: number;
+  silenceFrames?: number;
+  // AI-specific metrics
+  mlPredictions?: number;
+  mlAccuracy?: number;
+  speechProbability?: number;
   noisePowers: number[];
   speechPowers: number[];
 }
@@ -23,6 +31,7 @@ class UnifiedNoiseSuppressionService {
   private destinationNode: MediaStreamAudioDestinationNode | null = null;
   private gainNode: GainNode | null = null;
   private isInitialized = false;
+  private processorType: string = 'advanced-noise-processor';
   private settings: NoiseSuppressionSettings;
   private stats: NoiseSuppressionStats | null = null;
   private statsInterval: NodeJS.Timeout | null = null;
@@ -68,11 +77,20 @@ class UnifiedNoiseSuppressionService {
   async initialize(audioContext: AudioContext): Promise<void> {
     this.audioContext = audioContext;
     try {
-      await this.audioContext.audioWorklet.addModule('/advanced-noise-processor.js');
+      // Пробуем загрузить AI-процессор, если не получается - fallback к обычному
+      try {
+        await this.audioContext.audioWorklet.addModule('/ai-noise-processor.js');
+        this.processorType = 'ai-noise-processor';
+        console.log('🤖 AI-Enhanced сервис шумодава инициализирован');
+      } catch (aiError) {
+        console.warn('🤖 AI-процессор недоступен, используем обычный:', aiError);
+        await this.audioContext.audioWorklet.addModule('/advanced-noise-processor.js');
+        this.processorType = 'advanced-noise-processor';
+        console.log('🔇 Advanced сервис шумодава инициализирован');
+      }
       this.isInitialized = true;
-      console.log('🔇 Единый сервис шумодава инициализирован');
     } catch (error) {
-      console.error('🔇 Ошибка загрузки модуля advanced-noise-processor:', error);
+      console.error('🔇 Ошибка загрузки модулей шумодава:', error);
       this.isInitialized = false;
     }
   }
@@ -86,7 +104,9 @@ class UnifiedNoiseSuppressionService {
     try {
       this.sourceNode = this.audioContext.createMediaStreamSource(stream);
       this.destinationNode = this.audioContext.createMediaStreamDestination();
-      this.workletNode = new AudioWorkletNode(this.audioContext, 'noise-suppressor');
+      this.workletNode = new AudioWorkletNode(this.audioContext, this.processorType, {
+        processorOptions: this.settings
+      });
       this.gainNode = this.audioContext.createGain();
 
       this.workletNode.onprocessorerror = (event) => {
@@ -97,6 +117,10 @@ class UnifiedNoiseSuppressionService {
         .connect(this.workletNode)
         .connect(this.gainNode)
         .connect(this.destinationNode);
+
+      // Настраиваем обработку сообщений и запускаем сбор статистики
+      this.setupWorkletMessageHandling();
+      this.startStatsCollection();
 
       return this.destinationNode.stream;
     } catch (error) {
@@ -176,7 +200,15 @@ class UnifiedNoiseSuppressionService {
   }
   
   getRealtimeQuality(): number {
-    if (!this.stats || !this.stats.speechPowers) return 0;
+    if (!this.stats) return 0;
+    
+    // Используем улучшенную метрику качества из воркера
+    if (this.stats.qualityScore !== undefined) {
+      return this.stats.qualityScore;
+    }
+    
+    // Fallback к старой метрике если новая недоступна
+    if (!this.stats.speechPowers) return 0;
     const { noisePowers, speechPowers } = this.stats;
     const avgNoise = noisePowers.reduce((a, b) => a + b, 0) / (noisePowers.length || 1);
     const avgSpeech = speechPowers.reduce((a, b) => a + b, 0) / (speechPowers.length || 1);
