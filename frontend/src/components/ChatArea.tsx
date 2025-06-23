@@ -26,6 +26,16 @@ export function ChatArea() {
 
   const channelMessages = currentChannel ? messages[currentChannel.id] || [] : []
 
+  // Отладка изменений currentChannel
+  useEffect(() => {
+    console.log('[ChatArea] currentChannel изменился:', currentChannel);
+    if (currentChannel) {
+      console.log('[ChatArea] Тип канала:', currentChannel.type);
+      console.log('[ChatArea] ID канала:', currentChannel.id);
+      console.log('[ChatArea] Имя канала:', currentChannel.name);
+    }
+  }, [currentChannel]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [channelMessages])

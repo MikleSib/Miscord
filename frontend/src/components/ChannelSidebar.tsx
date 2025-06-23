@@ -373,7 +373,12 @@ export function ChannelSidebar() {
       }
     } else {
       // Для текстовых каналов просто выбираем
+      console.log('📝 Текстовый канал - вызываем selectChannel:', channel.id);
+      console.log('📝 Функция selectChannel:', typeof selectChannel);
+      console.log('📝 currentServer:', currentServer);
+      console.log('📝 currentServer.channels:', currentServer?.channels);
       selectChannel(channel.id);
+      console.log('📝 selectChannel вызван для текстового канала');
     }
   }
 
