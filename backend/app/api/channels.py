@@ -54,6 +54,7 @@ async def get_full_server_data(db: AsyncSession = Depends(get_db)):
                 "email": m.user.email,
                 "is_active": m.user.is_active,
                 "is_online": m.user.is_online,
+                "avatar_url": m.user.avatar_url,
                 "created_at": m.user.created_at,
                 "updated_at": m.user.updated_at
             })
@@ -70,13 +71,13 @@ async def get_full_server_data(db: AsyncSession = Depends(get_db)):
                     author_data = {
                         "id": -1,  # Специальный ID для удаленных пользователей
                         "username": "УДАЛЕННЫЙ АККАУНТ",
-                        "avatar": None
+                        "avatar_url": None
                     }
                 else:
                     author_data = {
                         "id": msg.author.id,
                         "username": msg.author.display_name or msg.author.username,
-                        "avatar": getattr(msg.author, 'avatar', None)
+                        "avatar_url": getattr(msg.author, 'avatar_url', None)
                     }
                 
                 msg_list.append({
@@ -112,6 +113,7 @@ async def get_full_server_data(db: AsyncSession = Depends(get_db)):
                     {
                         "id": vcu.user.id,
                         "username": vcu.user.display_name or vcu.user.username,
+                        "avatar_url": vcu.user.avatar_url,
                         "is_muted": vcu.is_muted,
                         "is_deafened": vcu.is_deafened
                     }
@@ -131,6 +133,7 @@ async def get_full_server_data(db: AsyncSession = Depends(get_db)):
                 "email": channel.owner.email,
                 "is_active": channel.owner.is_active,
                 "is_online": channel.owner.is_online,
+                "avatar_url": channel.owner.avatar_url,
                 "created_at": channel.owner.created_at,
                 "updated_at": channel.owner.updated_at
             } if channel.owner else None,
@@ -147,6 +150,7 @@ async def get_full_server_data(db: AsyncSession = Depends(get_db)):
             "email": u.email,
             "is_active": u.is_active,
             "is_online": u.is_online,
+            "avatar_url": u.avatar_url,
             "created_at": u.created_at,
             "updated_at": u.updated_at
         }
@@ -588,6 +592,7 @@ async def get_voice_channel_members(
             "email": user.email,
             "is_active": user.is_active,
             "is_online": user.is_online,
+            "avatar_url": user.avatar_url,
             "created_at": user.created_at,
             "updated_at": user.updated_at,
             "is_muted": voice_user.is_muted,
@@ -647,13 +652,13 @@ async def get_channel_messages(
             author_data = {
                 "id": -1,  # Специальный ID для удаленных пользователей
                 "username": "УДАЛЕННЫЙ АККАУНТ",
-                "avatar": None
+                "avatar_url": None
             }
         else:
                                 author_data = {
                         "id": msg.author.id,
                         "username": msg.author.display_name or msg.author.username,
-                        "avatar": getattr(msg.author, 'avatar', None)
+                        "avatar_url": getattr(msg.author, 'avatar_url', None)
                     }
         
         message_dict = {

@@ -26,16 +26,21 @@ import {
   Paper,
 } from '@mui/material'
 import channelService from '../services/channelService'
+import { UserAvatar } from './ui/user-avatar'
 
 // Компонент для аватарки с анимацией при разговоре
 interface SpeakingAvatarProps {
-  username: string;
+  user: {
+    username?: string;
+    display_name?: string;
+    avatar_url?: string | null;
+  };
   isSpeaking: boolean;
   isScreenSharing?: boolean;
   size?: number;
 }
 
-function SpeakingAvatar({ username, isSpeaking, isScreenSharing, size = 20 }: SpeakingAvatarProps) {
+function SpeakingAvatar({ user, isSpeaking, isScreenSharing, size = 20 }: SpeakingAvatarProps) {
   return (
     <Box
       sx={{
@@ -105,12 +110,11 @@ function SpeakingAvatar({ username, isSpeaking, isScreenSharing, size = 20 }: Sp
       )}
       
       {/* Основная аватарка */}
-      <Avatar 
+      <UserAvatar
+        user={user}
+        size={size}
         sx={{ 
-          width: size, 
-          height: size, 
-          fontSize: `${size * 0.4}px`,
-          backgroundColor: isScreenSharing ? '#22c55e' : (isSpeaking ? '#00ff88' : '#5865f2'),
+          backgroundColor: isScreenSharing ? '#22c55e' : (isSpeaking ? '#00ff88' : (!user.avatar_url ? '#5865f2' : 'transparent')),
           color: 'white',
           fontWeight: 600,
           zIndex: 1,
@@ -118,9 +122,7 @@ function SpeakingAvatar({ username, isSpeaking, isScreenSharing, size = 20 }: Sp
           border: isScreenSharing ? '2px solid #16a34a' : (isSpeaking ? '1px solid #00ff88' : '1px solid transparent'),
           transition: 'all 0.2s ease-in-out',
         }}
-      >
-        {username[0].toUpperCase()}
-      </Avatar>
+      />
     </Box>
   );
 }
@@ -644,7 +646,7 @@ export function ChannelSidebar() {
                               className="flex items-center gap-2 px-2 py-1 rounded hover:bg-accent/50 transition-colors cursor-pointer"
                               onContextMenu={(e) => handleParticipantContextMenu(e, participant)}
                             >
-                              <SpeakingAvatar username={participant.username} isSpeaking={speakingUsers.has(participant.user_id)} isScreenSharing={isScreenSharing} />
+                              <SpeakingAvatar user={participant} isSpeaking={speakingUsers.has(participant.user_id)} isScreenSharing={isScreenSharing} />
                               <Typography
                                 variant="caption"
                                 className={cn(
@@ -716,17 +718,15 @@ export function ChannelSidebar() {
           {/* Информация о пользователе */}
           <div className="p-3 bg-secondary/50">
             <div className="flex items-center gap-3">
-              <Avatar 
+              <UserAvatar 
+                user={user || undefined}
+                size={32}
                 sx={{ 
-                  width: 32, 
-                  height: 32, 
                   fontSize: '14px',
                   backgroundColor: 'rgb(88, 101, 242)',
                   fontWeight: 600,
                 }}
-              >
-                {(user?.display_name || user?.username)?.[0].toUpperCase()}
-              </Avatar>
+              />
               <div className="flex-1 min-w-0">
                 <Typography 
                   sx={{ 

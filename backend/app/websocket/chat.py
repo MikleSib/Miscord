@@ -135,7 +135,7 @@ async def websocket_chat_endpoint(
                         "author": {
                             "id": full_message.author.id,
                             "username": full_message.author.display_name or full_message.author.username,
-                            "avatar": getattr(full_message.author, 'avatar', None)
+                                                          "avatar_url": getattr(full_message.author, 'avatar_url', None)
                         },
                         "attachments": [
                             {

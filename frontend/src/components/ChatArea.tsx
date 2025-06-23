@@ -8,6 +8,7 @@ import { useAuthStore } from '../store/store'
 import { useChatStore } from '../store/chatStore'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from './ui/button'
+import { UserAvatar } from './ui/user-avatar'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import chatService from '../services/chatService'
@@ -253,10 +254,10 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
               )}
               <div className={`flex items-start gap-3 py-1 ${showAuthor ? 'mt-3' : ''}`}>
                 {showAuthor ? (
-                  <Avatar>
-                    <AvatarImage src={msg.author.avatar} />
-                    <AvatarFallback>{msg.author.username.substring(0, 2).toUpperCase()}</AvatarFallback>
-                  </Avatar>
+                  <UserAvatar 
+                    user={msg.author}
+                    size={40}
+                  />
                 ) : (
                    <div className="w-10 flex-shrink-0" /> 
                 )}

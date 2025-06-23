@@ -3,7 +3,6 @@ export interface User {
   username: string;
   email: string;
   display_name?: string;
-  avatar?: string;
   avatar_url?: string;
   is_active?: boolean;
   is_online?: boolean;

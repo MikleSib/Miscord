@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '../../store/store';
 import { Button } from '../../components/ui/button';
 import { Avatar } from '@mui/material';
+import { UserAvatar } from '../../components/ui/user-avatar';
 import { X, Upload, Trash2, User } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import authService from '../../services/authService';
@@ -176,7 +177,7 @@ export default function SettingsPage() {
                 <div className="flex items-center gap-4">
                   <div className="relative">
                     <Avatar
-                      src={avatarPreview || undefined}
+                      src={avatarPreview || user.avatar_url || undefined}
                       sx={{
                         width: 80,
                         height: 80,
