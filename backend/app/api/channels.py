@@ -61,26 +61,35 @@ async def get_full_server_data(db: AsyncSession = Depends(get_db)):
             # Берём последние 50 сообщений
             messages = sorted(tc.messages, key=lambda m: m.timestamp, reverse=True)[:50]
             messages = list(reversed(messages))
-            msg_list = [
-                {
+            msg_list = []
+            for msg in messages:
+                # Обрабатываем случай удаленного пользователя
+                if msg.author is None:
+                    author_data = {
+                        "id": -1,  # Специальный ID для удаленных пользователей
+                        "username": "УДАЛЕННЫЙ АККАУНТ",
+                        "avatar": None
+                    }
+                else:
+                    author_data = {
+                        "id": msg.author.id,
+                        "username": msg.author.username,
+                        "avatar": getattr(msg.author, 'avatar', None)
+                    }
+                
+                msg_list.append({
                     "id": msg.id,
                     "content": msg.content,
                     "channelId": msg.text_channel_id,
                     "timestamp": msg.timestamp.isoformat(),
-                    "author": {
-                        "id": msg.author.id,
-                        "username": msg.author.username,
-                        "avatar": getattr(msg.author, 'avatar', None)
-                    },
+                    "author": author_data,
                     "attachments": [
                         {
                             "id": att.id,
                             "file_url": att.file_url
                         } for att in msg.attachments
                     ]
-                }
-                for msg in messages
-            ]
+                })
             text_channels.append({
                 "id": tc.id,
                 "name": tc.name,
@@ -631,16 +640,26 @@ async def get_channel_messages(
     # Преобразуем в формат для фронтенда
     message_list = []
     for msg in messages:
+        # Обрабатываем случай удаленного пользователя
+        if msg.author is None:
+            author_data = {
+                "id": -1,  # Специальный ID для удаленных пользователей
+                "username": "УДАЛЕННЫЙ АККАУНТ",
+                "avatar": None
+            }
+        else:
+            author_data = {
+                "id": msg.author.id,
+                "username": msg.author.username,
+                "avatar": getattr(msg.author, 'avatar', None)
+            }
+        
         message_dict = {
             "id": msg.id,
             "content": msg.content,
             "channelId": msg.text_channel_id,
             "timestamp": msg.timestamp.isoformat(),
-            "author": {
-                "id": msg.author.id,
-                "username": msg.author.username,
-                "avatar": getattr(msg.author, 'avatar', None)
-            },
+            "author": author_data,
             "attachments": [
                 {
                     "id": att.id,
