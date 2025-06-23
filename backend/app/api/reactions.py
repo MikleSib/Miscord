@@ -10,7 +10,7 @@ from app.schemas.user import UserResponse
 
 router = APIRouter()
 
-@router.post("/messages/{message_id}/reactions", response_model=ReactionResponse)
+@router.post("/api/messages/{message_id}/reactions", response_model=ReactionResponse)
 async def toggle_reaction(
     message_id: int,
     reaction_data: ReactionToggleRequest,
@@ -54,7 +54,7 @@ async def toggle_reaction(
     # Возвращаем актуальные данные о реакциях на это сообщение
     return get_reaction_summary(db, message_id, reaction_data.emoji, current_user.id)
 
-@router.get("/messages/{message_id}/reactions", response_model=List[ReactionResponse])
+@router.get("/api/messages/{message_id}/reactions", response_model=List[ReactionResponse])
 async def get_message_reactions(
     message_id: int,
     current_user: User = Depends(get_current_user),
