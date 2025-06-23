@@ -12,8 +12,7 @@ import { UserAvatar } from './ui/user-avatar'
 import { ChatMessage } from './ChatMessage'
 import { ReplyInput } from './ReplyInput'
 import { Message } from '../types'
-import { format } from 'date-fns'
-import { ru } from 'date-fns/locale'
+import { formatDateDivider } from '../lib/utils'
 import chatService from '../services/chatService'
 import uploadService from '../services/uploadService'
 import reactionService from '../services/reactionService'
@@ -281,7 +280,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
               {showDateDivider && (
                 <div className="date-divider">
                   <span>
-                    {format(new Date(msg.timestamp), 'd MMMM yyyy', { locale: ru })}
+                    {formatDateDivider(msg.timestamp)}
                   </span>
                 </div>
               )}

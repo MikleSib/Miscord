@@ -1,5 +1,5 @@
-from pydantic import BaseModel, constr
-from datetime import datetime
+from pydantic import BaseModel, constr, field_serializer
+from datetime import datetime, timezone
 from typing import Optional, List
 from app.schemas.user import UserResponse
 from app.schemas.attachment import Attachment as AttachmentSchema
@@ -25,6 +25,14 @@ class Message(BaseModel):
     attachments: List[AttachmentSchema] = []
     reactions: List["ReactionResponse"] = []
     reply_to: Optional["Message"] = None
+
+    @field_serializer('timestamp')
+    def serialize_timestamp(self, dt: datetime) -> str:
+        # Убеждаемся что время в UTC и сериализуем в ISO формате
+        if dt.tzinfo is None:
+            # Если timezone не указан, считаем что это UTC
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.isoformat()
 
     class Config:
         from_attributes = True

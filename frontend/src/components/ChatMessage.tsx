@@ -1,12 +1,11 @@
 'use client'
 
 import React, { useState } from 'react'
-import { format } from 'date-fns'
-import { ru } from 'date-fns/locale'
 import { Reply, MoreHorizontal, Smile } from 'lucide-react'
 import { Message, User } from '../types'
 import { UserAvatar } from './ui/user-avatar'
 import { Button } from './ui/button'
+import { formatMessageTime, formatMessageFullTime } from '../lib/utils'
 
 interface ChatMessageProps {
   message: Message;
@@ -97,8 +96,11 @@ export function ChatMessage({ message, showAuthor, onReply, onReaction, currentU
         {showAuthor && (
           <div className="flex items-baseline gap-2">
             <span className="font-semibold">{message.author.username}</span>
-            <span className="text-xs text-muted-foreground">
-              {format(new Date(message.timestamp), 'd MMM yyyy, HH:mm', { locale: ru })}
+            <span 
+              className="text-xs text-muted-foreground cursor-help" 
+              title={formatMessageFullTime(message.timestamp)}
+            >
+              {formatMessageTime(message.timestamp)}
             </span>
           </div>
         )}
