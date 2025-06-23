@@ -236,6 +236,72 @@ export const useStore = create<AppState>()(
           get().loadServers();
         });
         
+        // Обработка создания нового сервера
+        websocketService.onServerCreated((data) => {
+          console.log('Создан новый сервер:', data);
+          
+          // Показываем уведомление
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification(`Новый сервер`, {
+              body: `${data.created_by.username} создал сервер "${data.server.name}"`,
+              icon: '/favicon.ico'
+            });
+          }
+          
+          // Добавляем новый сервер в список
+          const newServer: Server = {
+            id: data.server.id,
+            name: data.server.name,
+            description: data.server.description,
+            channels: []
+          };
+          get().addServer(newServer);
+        });
+        
+        // Обработка создания текстового канала
+        websocketService.onTextChannelCreated((data) => {
+          console.log('Создан новый текстовый канал:', data);
+          
+          // Показываем уведомление
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification(`Новый текстовый канал`, {
+              body: `${data.created_by.username} создал канал #${data.text_channel.name}`,
+              icon: '/favicon.ico'
+            });
+          }
+          
+          // Добавляем новый канал в соответствующий сервер
+          const newChannel: Channel = {
+            id: data.text_channel.id,
+            name: data.text_channel.name,
+            type: 'text',
+            serverId: data.channel_id
+          };
+          get().addChannel(data.channel_id, newChannel);
+        });
+        
+        // Обработка создания голосового канала
+        websocketService.onVoiceChannelCreated((data) => {
+          console.log('Создан новый голосовой канал:', data);
+          
+          // Показываем уведомление
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification(`Новый голосовой канал`, {
+              body: `${data.created_by.username} создал голосовой канал ${data.voice_channel.name}`,
+              icon: '/favicon.ico'
+            });
+          }
+          
+          // Добавляем новый канал в соответствующий сервер
+          const newChannel: Channel = {
+            id: data.voice_channel.id,
+            name: data.voice_channel.name,
+            type: 'voice',
+            serverId: data.channel_id
+          };
+          get().addChannel(data.channel_id, newChannel);
+        });
+        
         // Обработка присоединения пользователя
         websocketService.onUserJoinedChannel((data) => {
           console.log('Пользователь присоединился к каналу:', data);

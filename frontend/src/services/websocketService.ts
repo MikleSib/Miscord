@@ -145,6 +145,19 @@ class WebSocketService {
     this.messageHandlers['channel_updated'] = handler;
   }
 
+  // Новые обработчики для создания каналов
+  onServerCreated(handler: (data: { server: any; created_by: { id: number; username: string } }) => void) {
+    this.messageHandlers['server_created'] = handler;
+  }
+
+  onTextChannelCreated(handler: (data: { channel_id: number; text_channel: any; created_by: { id: number; username: string } }) => void) {
+    this.messageHandlers['text_channel_created'] = handler;
+  }
+
+  onVoiceChannelCreated(handler: (data: { channel_id: number; voice_channel: any; created_by: { id: number; username: string } }) => void) {
+    this.messageHandlers['voice_channel_created'] = handler;
+  }
+
   // Голосовые уведомления
   onVoiceChannelJoin(handler: (data: { user_id: number; username: string; voice_channel_id: number; voice_channel_name: string }) => void) {
     this.messageHandlers['voice_channel_join'] = handler;

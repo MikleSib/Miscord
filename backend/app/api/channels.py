@@ -59,6 +59,35 @@ async def create_channel(
     
     await db.commit()
     
+    # Отправляем WebSocket уведомление всем пользователям о новом сервере
+    await manager.broadcast_to_all({
+        "type": "server_created",
+        "server": {
+            "id": db_channel.id,
+            "name": db_channel.name,
+            "description": db_channel.description,
+            "owner_id": db_channel.owner_id,
+            "created_at": db_channel.created_at.isoformat(),
+            "updated_at": db_channel.updated_at.isoformat() if db_channel.updated_at else None,
+            "owner": {
+                "id": current_user.id,
+                "username": current_user.username,
+                "email": current_user.email,
+                "is_active": current_user.is_active,
+                "is_online": current_user.is_online,
+                "created_at": current_user.created_at.isoformat(),
+                "updated_at": current_user.updated_at.isoformat() if current_user.updated_at else None
+            },
+            "text_channels": [],
+            "voice_channels": [],
+            "members_count": 1
+        },
+        "created_by": {
+            "id": current_user.id,
+            "username": current_user.username
+        }
+    })
+    
     return {
         "id": db_channel.id,
         "name": db_channel.name,
@@ -248,6 +277,23 @@ async def create_text_channel(
     await db.commit()
     await db.refresh(new_text_channel)
     
+    # Отправляем WebSocket уведомление всем участникам сервера
+    await manager.send_to_channel(channel_id, {
+        "type": "text_channel_created",
+        "channel_id": channel_id,
+        "text_channel": {
+            "id": new_text_channel.id,
+            "name": new_text_channel.name,
+            "type": "text",
+            "position": new_text_channel.position,
+            "server_id": channel_id
+        },
+        "created_by": {
+            "id": current_user.id,
+            "username": current_user.username
+        }
+    })
+    
     return new_text_channel
 
 @router.post("/{channel_id}/voice-channels", response_model=VoiceChannelSchema)
@@ -280,6 +326,24 @@ async def create_voice_channel(
     db.add(new_voice_channel)
     await db.commit()
     await db.refresh(new_voice_channel)
+    
+    # Отправляем WebSocket уведомление всем участникам сервера
+    await manager.send_to_channel(channel_id, {
+        "type": "voice_channel_created",
+        "channel_id": channel_id,
+        "voice_channel": {
+            "id": new_voice_channel.id,
+            "name": new_voice_channel.name,
+            "type": "voice",
+            "position": new_voice_channel.position,
+            "max_users": new_voice_channel.max_users,
+            "server_id": channel_id
+        },
+        "created_by": {
+            "id": current_user.id,
+            "username": current_user.username
+        }
+    })
     
     return new_voice_channel
 
