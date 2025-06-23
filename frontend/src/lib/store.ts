@@ -104,9 +104,17 @@ export const useStore = create<AppState>()(
 
       // Добавление сервера
       addServer: (server: Server) => {
-        set((state) => ({
-          servers: [...state.servers, server]
-        }));
+        set((state) => {
+          // Проверяем, существует ли уже сервер с таким ID
+          const existingServer = state.servers.find(s => s.id === server.id);
+          if (existingServer) {
+            // Если сервер уже существует, не добавляем его снова
+            return state;
+          }
+          return {
+            servers: [...state.servers, server]
+          };
+        });
       },
 
       // Обновление сервера
@@ -123,16 +131,29 @@ export const useStore = create<AppState>()(
 
       // Добавление канала
       addChannel: (serverId: number, channel: Channel) => {
-        set((state) => ({
-          servers: state.servers.map(server =>
-            server.id === serverId
-              ? { ...server, channels: [...server.channels, channel] }
-              : server
-          ),
-          currentServer: state.currentServer?.id === serverId
-            ? { ...state.currentServer, channels: [...state.currentServer.channels, channel] }
-            : state.currentServer
-        }));
+        set((state) => {
+          const updatedServers = state.servers.map(server => {
+            if (server.id === serverId) {
+              // Проверяем, существует ли уже канал с таким ID
+              const existingChannel = server.channels.find(c => c.id === channel.id);
+              if (existingChannel) {
+                // Если канал уже существует, возвращаем сервер без изменений
+                return server;
+              }
+              return { ...server, channels: [...server.channels, channel] };
+            }
+            return server;
+          });
+
+          const updatedCurrentServer = state.currentServer?.id === serverId
+            ? updatedServers.find(s => s.id === serverId) || state.currentServer
+            : state.currentServer;
+
+          return {
+            servers: updatedServers,
+            currentServer: updatedCurrentServer
+          };
+        });
       },
 
       // Отправка сообщения

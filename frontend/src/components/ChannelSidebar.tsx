@@ -571,13 +571,18 @@ export function ChannelSidebar() {
                   variant="ghost"
                   size="sm"
                   className={cn(
-                    "w-full justify-start gap-1.5 h-8 px-2",
-                    currentChannel?.id === channel.id && "bg-accent"
+                    "w-full justify-start gap-1.5 h-8 px-2 text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                    currentChannel?.id === channel.id && "bg-accent text-foreground"
                   )}
                   onClick={() => handleChannelClick(channel)}
                 >
-                  <Hash className="w-4 h-4" />
-                  <span>{channel.name}</span>
+                  <Hash className={cn(
+                    "w-4 h-4",
+                    currentChannel?.id === channel.id ? "text-foreground" : "text-muted-foreground"
+                  )} />
+                  <span className={cn(
+                    currentChannel?.id === channel.id ? "text-foreground font-medium" : ""
+                  )}>{channel.name}</span>
                 </Button>
               ))}
               {textChannels.length === 0 && (
