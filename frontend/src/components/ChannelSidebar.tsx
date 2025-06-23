@@ -332,6 +332,7 @@ export function ChannelSidebar() {
       if (currentVoiceChannelId === channel.id) {
         console.log('🎙️ Уже подключены к этому голосовому каналу, игнорируем клик');
         // Просто выбираем канал в UI, но не переподключаемся
+        console.log('🎙️ Вызываем selectChannel для голосового канала:', channel.id);
         selectChannel(channel.id);
         return;
       }
@@ -354,6 +355,7 @@ export function ChannelSidebar() {
       try {
         console.log(`🎙️ Начинаем подключение к голосовому каналу ${channel.id}`);
         await connectToVoiceChannel(channel.id);
+        console.log('🎙️ Вызываем selectChannel после подключения:', channel.id);
         selectChannel(channel.id);
         console.log('🎙️ Подключение завершено успешно');
       } catch (error) {
@@ -361,7 +363,12 @@ export function ChannelSidebar() {
       }
     } else {
       // Для текстовых каналов просто выбираем
+      console.log('📝 Текстовый канал - вызываем selectChannel:', channel.id);
+      console.log('📝 Функция selectChannel:', typeof selectChannel);
+      console.log('📝 currentServer:', currentServer);
+      console.log('📝 currentServer.channels:', currentServer?.channels);
       selectChannel(channel.id);
+      console.log('📝 selectChannel вызван для текстового канала');
     }
   }
 

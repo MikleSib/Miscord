@@ -88,12 +88,20 @@ export const useStore = create<StoreState>((set, get) => ({
   },
   
   selectChannel: (channelId) => {
+    console.log('[Store] selectChannel вызван с channelId:', channelId);
     const currentServer = get().currentServer;
+    console.log('[Store] currentServer:', currentServer);
     if (currentServer) {
       const channel = currentServer.channels.find(c => c.id === channelId);
+      console.log('[Store] найден канал:', channel);
       if (channel) {
+        console.log('[Store] устанавливаем currentChannel:', channel);
         set({ currentChannel: channel });
+      } else {
+        console.warn('[Store] канал не найден среди каналов сервера:', currentServer.channels);
       }
+    } else {
+      console.warn('[Store] currentServer не установлен!');
     }
   },
   

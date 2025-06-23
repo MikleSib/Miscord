@@ -23,6 +23,11 @@ export function ChatArea() {
     addMessage 
   } = useChatStore()
   
+  // Логируем изменения currentChannel
+  useEffect(() => {
+    console.log('[ChatArea] currentChannel изменился:', currentChannel);
+  }, [currentChannel]);
+  
   const [messageInput, setMessageInput] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [isLoading, setIsLoading] = useState(false)
