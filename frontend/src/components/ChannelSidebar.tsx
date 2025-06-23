@@ -572,7 +572,7 @@ export function ChannelSidebar() {
                   size="sm"
                   className={cn(
                     "w-full justify-start gap-1.5 h-8 px-2 text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                    currentChannel?.id === channel.id && "bg-accent text-foreground"
+                    currentChannel?.id === channel.id && "bg-accent text-foreground border-l-4 border-l-blue-500"
                   )}
                   onClick={() => handleChannelClick(channel)}
                 >

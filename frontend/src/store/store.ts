@@ -17,6 +17,7 @@ interface AuthState {
   registerFailure: (error: string) => void;
   logout: () => void;
   setUser: (user: User) => void;
+  updateUser: (user: User) => void;
   clearError: () => void;
   setToken: (token: string) => void;
 }
@@ -62,6 +63,7 @@ export const useAuthStore = create<AuthState>()(
         error: null,
       }),
       setUser: (user) => set({ user, isAuthenticated: true }),
+      updateUser: (user) => set({ user }),
       clearError: () => set({ error: null }),
       setToken: (token) => set({ token }),
     }),

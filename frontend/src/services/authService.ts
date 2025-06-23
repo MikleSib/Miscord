@@ -27,6 +27,27 @@ class AuthService {
     return response.data;
   }
 
+  async updateProfile(data: { display_name: string }): Promise<User> {
+    const response = await api.put<User>('/api/auth/profile', data);
+    return response.data;
+  }
+
+  async uploadAvatar(file: File): Promise<{ avatar_url: string }> {
+    const formData = new FormData();
+    formData.append('avatar', file);
+    
+    const response = await api.post<{ avatar_url: string }>('/api/auth/avatar', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  }
+
+  async deleteAvatar(): Promise<void> {
+    await api.delete('/api/auth/avatar');
+  }
+
   logout(): void {
     localStorage.removeItem('access_token');
   }

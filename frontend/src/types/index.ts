@@ -2,7 +2,9 @@ export interface User {
   id: number;
   username: string;
   email: string;
+  display_name?: string;
   avatar?: string;
+  avatar_url?: string;
   is_active?: boolean;
   is_online?: boolean;
   created_at?: string;

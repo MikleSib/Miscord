@@ -64,6 +64,10 @@ export function UserPanel() {
     router.push('/login');
   };
 
+  const handleSettings = () => {
+    router.push('/settings');
+  };
+
   const handleMuteToggle = () => {
     voiceService.setMuted(!isMuted);
   };
@@ -213,6 +217,7 @@ export function UserPanel() {
       <div className="flex items-center gap-1">
         <IconButton 
           size="small" 
+          onClick={handleSettings}
           sx={{ 
             color: 'rgb(163, 166, 170)',
             '&:hover': { 
