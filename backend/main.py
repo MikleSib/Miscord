@@ -6,7 +6,7 @@ import asyncio
 
 from app.core.config import settings
 from app.db.database import engine, Base
-from app.api import auth, channels, uploads
+from app.api import auth, channels, uploads, reactions
 from app.websocket import chat, voice
 from app.websocket.connection_manager import manager
 from app.websocket.chat import websocket_chat_endpoint, websocket_notifications_endpoint
@@ -48,6 +48,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(channels.router, prefix="/api/channels", tags=["channels"])
 app.include_router(uploads.router, prefix="/api", tags=["uploads"])
+app.include_router(reactions.router, prefix="/api", tags=["reactions"])
 
 # WebSocket эндпоинты
 @app.websocket("/ws/chat/{text_channel_id}")

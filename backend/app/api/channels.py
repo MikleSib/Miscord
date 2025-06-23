@@ -4,7 +4,7 @@ from sqlalchemy import select, func, and_
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from app.db.database import get_db
-from app.models import Channel, ChannelMember, TextChannel, VoiceChannel, User, ChannelType, VoiceChannelUser, Message
+from app.models import Channel, ChannelMember, TextChannel, VoiceChannel, User, ChannelType, VoiceChannelUser, Message, Reaction
 from app.schemas.channel import (
     ChannelCreate, Channel as ChannelSchema, ChannelUpdate,
     TextChannelCreate, TextChannel as TextChannelSchema,
@@ -645,7 +645,9 @@ async def get_channel_messages(
     # Загружаем связанные данные
     query = query.options(
         selectinload(Message.author),
-        selectinload(Message.attachments)
+        selectinload(Message.attachments),
+        selectinload(Message.reactions).selectinload(Reaction.user),
+        selectinload(Message.reply_to).selectinload(Message.author)
     )
     
     result = await db.execute(query)
@@ -662,14 +664,41 @@ async def get_channel_messages(
             author_data = {
                 "id": -1,  # Специальный ID для удаленных пользователей
                 "username": "УДАЛЕННЫЙ АККАУНТ",
+                "email": "",
+                "display_name": "УДАЛЕННЫЙ АККАУНТ",
                 "avatar_url": None
             }
         else:
-                                author_data = {
-                        "id": msg.author.id,
-                        "username": msg.author.display_name or msg.author.username,
-                        "avatar_url": getattr(msg.author, 'avatar_url', None)
-                    }
+            author_data = {
+                "id": msg.author.id,
+                "username": msg.author.display_name or msg.author.username,
+                "email": msg.author.email,
+                "display_name": msg.author.display_name,
+                "avatar_url": getattr(msg.author, 'avatar_url', None)
+            }
+        
+        # Формируем реакции
+        reactions_dict = {}
+        for reaction in msg.reactions:
+            emoji = reaction.emoji
+            if emoji not in reactions_dict:
+                reactions_dict[emoji] = {
+                    "id": reaction.id,
+                    "emoji": emoji,
+                    "count": 0,
+                    "users": [],
+                    "current_user_reacted": False
+                }
+            reactions_dict[emoji]["count"] += 1
+            reactions_dict[emoji]["users"].append({
+                "id": reaction.user.id,
+                "username": reaction.user.display_name or reaction.user.username,
+                "email": reaction.user.email,
+                "display_name": reaction.user.display_name,
+                "avatar_url": getattr(reaction.user, 'avatar_url', None)
+            })
+            if reaction.user_id == current_user.id:
+                reactions_dict[emoji]["current_user_reacted"] = True
         
         message_dict = {
             "id": msg.id,
@@ -683,7 +712,29 @@ async def get_channel_messages(
                     "file_url": att.file_url,
                     "filename": getattr(att, 'filename', None)
                 } for att in msg.attachments
-            ]
+            ],
+            "reactions": list(reactions_dict.values()),
+            "reply_to": None if not msg.reply_to else {
+                "id": msg.reply_to.id,
+                "content": msg.reply_to.content,
+                "channelId": msg.reply_to.text_channel_id,
+                "timestamp": msg.reply_to.timestamp.isoformat(),
+                "author": {
+                    "id": msg.reply_to.author.id,
+                    "username": msg.reply_to.author.display_name or msg.reply_to.author.username,
+                    "email": msg.reply_to.author.email,
+                    "display_name": msg.reply_to.author.display_name,
+                    "avatar_url": getattr(msg.reply_to.author, 'avatar_url', None)
+                } if msg.reply_to.author else {
+                    "id": -1,
+                    "username": "УДАЛЕННЫЙ АККАУНТ",
+                    "email": "",
+                    "display_name": "УДАЛЕННЫЙ АККАУНТ",
+                    "avatar_url": None
+                },
+                "attachments": [],
+                "reactions": []
+            }
         }
         message_list.append(message_dict)
     

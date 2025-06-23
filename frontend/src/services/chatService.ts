@@ -115,10 +115,11 @@ class ChatService {
     this.reconnectAttempts = 0;
   }
 
-  sendMessage(content: string, attachments: string[] = []) {
+  sendMessage(content: string, attachments: string[] = [], replyToId?: number) {
     console.log('[ChatService] sendMessage вызван', { 
       content, 
       attachments, 
+      replyToId,
       channelId: this.channelId,
       wsState: this.ws?.readyState,
       wsOpen: this.ws?.readyState === WebSocket.OPEN 
@@ -141,6 +142,7 @@ class ChatService {
       text_channel_id: this.channelId,
       content,
       attachments,
+      ...(replyToId && { reply_to_id: replyToId }),
     };
     
     console.log('[ChatService] Отправляем сообщение через WebSocket:', message);

@@ -35,6 +35,14 @@ export interface Attachment {
   message_id: number;
 }
 
+export interface Reaction {
+  id: number;
+  emoji: string;
+  count: number;
+  users: User[];
+  currentUserReacted: boolean;
+}
+
 export interface Message {
   id: number;
   content: string | null;
@@ -43,6 +51,8 @@ export interface Message {
   channelId: number; // В нашем случае это text_channel_id
   is_edited?: boolean;
   attachments: Attachment[];
+  reactions?: Reaction[];
+  reply_to?: Message; // Ответ на сообщение
 }
 
 // Бэкенд типы (для API)

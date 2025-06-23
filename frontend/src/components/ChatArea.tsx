@@ -9,10 +9,14 @@ import { useChatStore } from '../store/chatStore'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from './ui/button'
 import { UserAvatar } from './ui/user-avatar'
+import { ChatMessage } from './ChatMessage'
+import { ReplyInput } from './ReplyInput'
+import { Message } from '../types'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import chatService from '../services/chatService'
 import uploadService from '../services/uploadService'
+import reactionService from '../services/reactionService'
 
 export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSidebar: boolean, setShowUserSidebar: (v: boolean) => void }) {
   const { currentChannel } = useStore()
@@ -34,6 +38,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   const [files, setFiles] = useState<File[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [typingUsers, setTypingUsers] = useState<string[]>([])
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -153,14 +158,16 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
       console.log('[ChatArea] Отправляем сообщение через chatService', { 
         content: messageInput, 
         attachments: attachmentUrls,
-        channelId: currentChannel.id 
+        channelId: currentChannel.id,
+        replyTo: replyingTo?.id 
       });
       
-      chatService.sendMessage(messageInput, attachmentUrls);
+      chatService.sendMessage(messageInput, attachmentUrls, replyingTo?.id);
       
       console.log('[ChatArea] Сообщение отправлено, очищаем форму');
       setMessageInput('')
       setFiles([])
+      setReplyingTo(null)
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
@@ -176,6 +183,24 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     setMessageInput(e.target.value);
     if (currentChannel?.type === 'text') {
       chatService.sendTyping();
+    }
+  }
+
+  const handleReply = (message: Message) => {
+    setReplyingTo(message);
+  }
+
+  const handleCancelReply = () => {
+    setReplyingTo(null);
+  }
+
+  const handleReaction = async (messageId: number, emoji: string) => {
+    try {
+      await reactionService.toggleReaction(messageId, emoji);
+      // TODO: Обновить реакции в реальном времени через WebSocket
+      console.log('Реакция обновлена:', emoji, 'на сообщение:', messageId);
+    } catch (error) {
+      console.error('Ошибка при изменении реакции:', error);
     }
   }
   
@@ -252,43 +277,13 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
                   </span>
                 </div>
               )}
-              <div className={`flex items-start gap-3 py-1 ${showAuthor ? 'mt-3' : ''}`}>
-                {showAuthor ? (
-                  <UserAvatar 
-                    user={msg.author}
-                    size={40}
-                  />
-                ) : (
-                   <div className="w-10 flex-shrink-0" /> 
-                )}
-                
-                <div className="flex flex-col">
-                  {showAuthor && (
-                    <div className="flex items-baseline gap-2">
-                      <span className="font-semibold">{msg.author.username}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {format(new Date(msg.timestamp), 'd MMM yyyy, HH:mm', { locale: ru })}
-                      </span>
-                    </div>
-                  )}
-                  
-                  {msg.content && <p className="text-sm leading-relaxed">{msg.content}</p>}
-
-                  {msg.attachments && msg.attachments.length > 0 && (
-                    <div className="mt-2 flex flex-col gap-2">
-                      {msg.attachments.map(att => (
-                        <a key={att.id} href={att.file_url} target="_blank" rel="noopener noreferrer">
-                          <img 
-                            src={att.file_url} 
-                            alt="Вложение"
-                            className="max-w-xs max-h-80 rounded-md object-cover"
-                          />
-                        </a>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
+              <ChatMessage
+                message={msg}
+                showAuthor={showAuthor}
+                onReply={handleReply}
+                onReaction={handleReaction}
+                currentUser={user || undefined}
+              />
             </React.Fragment>
           )
         })}
@@ -296,6 +291,9 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
       </div>
       
       <TypingIndicator />
+
+      {/* Reply Input */}
+      <ReplyInput replyingTo={replyingTo} onCancelReply={handleCancelReply} />
 
       {/* Message Input */}
       {currentChannel.type === 'text' && (
@@ -347,7 +345,11 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
                 type="text"
                 value={messageInput}
                 onChange={handleInputChange}
-                placeholder={`Написать в #${currentChannel.name}`}
+                placeholder={
+                  replyingTo 
+                    ? `Ответ пользователю ${replyingTo.author.username}...`
+                    : `Написать в #${currentChannel.name}`
+                }
                 className="flex-1 bg-transparent outline-none text-sm"
                 disabled={isLoading}
               />

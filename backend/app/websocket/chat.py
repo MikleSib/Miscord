@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 import json
 from app.db.database import get_db, AsyncSessionLocal
-from app.models import User, Message, TextChannel, ChannelMember, Attachment
+from app.models import User, Message, TextChannel, ChannelMember, Attachment, Reaction
 from app.schemas.message import MessageCreate, Message as MessageSchema
 from app.core.security import decode_access_token
 from app.websocket.connection_manager import manager
@@ -79,8 +79,9 @@ async def websocket_chat_endpoint(
                     content = message_data.get("content", "").strip()
                     msg_channel_id = message_data.get("text_channel_id")
                     attachments = message_data.get("attachments", [])
+                    reply_to_id = message_data.get("reply_to_id")
 
-                    print(f"[WS_CHAT] Обработка сообщения: content='{content}', msg_channel_id={msg_channel_id}, attachments={len(attachments)} файлов")
+                    print(f"[WS_CHAT] Обработка сообщения: content='{content}', msg_channel_id={msg_channel_id}, attachments={len(attachments)} файлов, reply_to={reply_to_id}")
 
                     # Проверяем, что сообщение для этого канала
                     if msg_channel_id != text_channel_id:
@@ -103,6 +104,7 @@ async def websocket_chat_endpoint(
                         content=content if content else None,
                         author_id=user.id,
                         text_channel_id=text_channel_id,  # Используем канал подключения
+                        reply_to_id=reply_to_id if reply_to_id else None,
                     )
                     
                     # Добавляем вложения
@@ -121,7 +123,9 @@ async def websocket_chat_endpoint(
                         .where(Message.id == db_message.id)
                         .options(
                             selectinload(Message.author),
-                            selectinload(Message.attachments)
+                            selectinload(Message.attachments),
+                            selectinload(Message.reactions).selectinload(Reaction.user),
+                            selectinload(Message.reply_to).selectinload(Message.author)
                         )
                     )
                     full_message = message_result.scalar_one()
@@ -135,7 +139,9 @@ async def websocket_chat_endpoint(
                         "author": {
                             "id": full_message.author.id,
                             "username": full_message.author.display_name or full_message.author.username,
-                                                          "avatar_url": getattr(full_message.author, 'avatar_url', None)
+                            "email": full_message.author.email,
+                            "display_name": full_message.author.display_name,
+                            "avatar_url": getattr(full_message.author, 'avatar_url', None)
                         },
                         "attachments": [
                             {
@@ -143,7 +149,19 @@ async def websocket_chat_endpoint(
                                 "file_url": att.file_url,
                                 "filename": getattr(att, 'filename', None)
                             } for att in full_message.attachments
-                        ]
+                        ],
+                        "reactions": [],  # Пока пустой массив, реакции будут добавляться позже
+                        "reply_to": None if not full_message.reply_to else {
+                            "id": full_message.reply_to.id,
+                            "content": full_message.reply_to.content,
+                            "author": {
+                                "id": full_message.reply_to.author.id,
+                                "username": full_message.reply_to.author.display_name or full_message.reply_to.author.username,
+                                "email": full_message.reply_to.author.email,
+                                "display_name": full_message.reply_to.author.display_name,
+                                "avatar_url": getattr(full_message.reply_to.author, 'avatar_url', None)
+                            }
+                        }
                     }
                     
                     print(f"[WS_CHAT] Отправка сообщения в канал {text_channel_id}: {message_dict}")

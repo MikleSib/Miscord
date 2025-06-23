@@ -1,22 +1,8 @@
 import { create } from 'zustand';
 import chatService from '../services/chatService';
+import { Message } from '../types';
 
-interface ChatMessage {
-  id: number;
-  content: string;
-  channelId: number;
-  timestamp: string;
-  author: {
-    id: number;
-    username: string;
-    avatar?: string;
-  };
-  attachments: Array<{
-    id: number;
-    file_url: string;
-    filename?: string;
-  }>;
-}
+type ChatMessage = Message;
 
 interface ChatState {
   messages: ChatMessage[];

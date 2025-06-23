@@ -2,6 +2,7 @@ from .user import User
 from .channel import Channel, ChannelMember, TextChannel, VoiceChannel, VoiceChannelUser, ChannelType
 from .message import Message
 from .attachment import Attachment
+from .reaction import Reaction
 
 __all__ = [
     "User",
@@ -13,4 +14,5 @@ __all__ = [
     "ChannelType",
     "Message",
     "Attachment",
+    "Reaction",
 ]

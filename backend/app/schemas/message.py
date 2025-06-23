@@ -10,6 +10,7 @@ class MessageBase(BaseModel):
 class MessageCreate(MessageBase):
     text_channel_id: int
     attachments: Optional[List[str]] = []
+    reply_to_id: Optional[int] = None
 
 class MessageUpdate(BaseModel):
     content: constr(max_length=5000)
@@ -22,6 +23,8 @@ class Message(BaseModel):
     text_channel_id: int
     is_edited: bool
     attachments: List[AttachmentSchema] = []
+    reactions: List["ReactionResponse"] = []
+    reply_to: Optional["Message"] = None
 
     class Config:
         from_attributes = True
@@ -31,3 +34,9 @@ class MessageEvent(BaseModel):
     message: Optional[Message] = None
     message_id: Optional[int] = None
     text_channel_id: int
+
+# Import after class definitions to avoid circular imports
+from app.schemas.reaction import ReactionResponse
+
+# Update forward references
+Message.model_rebuild()
