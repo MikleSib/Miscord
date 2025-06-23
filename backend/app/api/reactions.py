@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from sqlalchemy import and_
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_, select
+from sqlalchemy.orm import selectinload
 from typing import List
 
 from app.core.dependencies import get_db, get_current_user
@@ -15,12 +16,13 @@ async def toggle_reaction(
     message_id: int,
     reaction_data: ReactionToggleRequest,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Добавить или убрать реакцию на сообщение"""
     
     # Проверяем, существует ли сообщение
-    message = db.query(Message).filter(Message.id == message_id).first()
+    result = await db.execute(select(Message).filter(Message.id == message_id))
+    message = result.scalar_one_or_none()
     if not message:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -28,18 +30,21 @@ async def toggle_reaction(
         )
     
     # Проверяем, есть ли уже такая реакция от этого пользователя
-    existing_reaction = db.query(Reaction).filter(
-        and_(
-            Reaction.message_id == message_id,
-            Reaction.user_id == current_user.id,
-            Reaction.emoji == reaction_data.emoji
+    result = await db.execute(
+        select(Reaction).filter(
+            and_(
+                Reaction.message_id == message_id,
+                Reaction.user_id == current_user.id,
+                Reaction.emoji == reaction_data.emoji
+            )
         )
-    ).first()
+    )
+    existing_reaction = result.scalar_one_or_none()
     
     if existing_reaction:
         # Если реакция уже есть - удаляем её
         db.delete(existing_reaction)
-        db.commit()
+        await db.commit()
     else:
         # Если реакции нет - добавляем
         new_reaction = Reaction(
@@ -48,22 +53,23 @@ async def toggle_reaction(
             user_id=current_user.id
         )
         db.add(new_reaction)
-        db.commit()
-        db.refresh(new_reaction)
+        await db.commit()
+        await db.refresh(new_reaction)
     
     # Возвращаем актуальные данные о реакциях на это сообщение
-    return get_reaction_summary(db, message_id, reaction_data.emoji, current_user.id)
+    return await get_reaction_summary(db, message_id, reaction_data.emoji, current_user.id)
 
 @router.get("/messages/{message_id}/reactions", response_model=List[ReactionResponse])
 async def get_message_reactions(
     message_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Получить все реакции на сообщение"""
     
     # Проверяем, существует ли сообщение
-    message = db.query(Message).filter(Message.id == message_id).first()
+    result = await db.execute(select(Message).filter(Message.id == message_id))
+    message = result.scalar_one_or_none()
     if not message:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -71,27 +77,33 @@ async def get_message_reactions(
         )
     
     # Получаем все уникальные эмодзи для этого сообщения
-    unique_emojis = db.query(Reaction.emoji).filter(
-        Reaction.message_id == message_id
-    ).distinct().all()
+    result = await db.execute(
+        select(Reaction.emoji).filter(
+            Reaction.message_id == message_id
+        ).distinct()
+    )
+    unique_emojis = result.scalars().all()
     
     reactions = []
-    for (emoji,) in unique_emojis:
-        reaction_summary = get_reaction_summary(db, message_id, emoji, current_user.id)
+    for emoji in unique_emojis:
+        reaction_summary = await get_reaction_summary(db, message_id, emoji, current_user.id)
         reactions.append(reaction_summary)
     
     return reactions
 
-def get_reaction_summary(db: Session, message_id: int, emoji: str, current_user_id: int) -> ReactionResponse:
+async def get_reaction_summary(db: AsyncSession, message_id: int, emoji: str, current_user_id: int) -> ReactionResponse:
     """Получить сводку по конкретной реакции"""
     
     # Получаем всех пользователей, поставивших эту реакцию
-    reactions = db.query(Reaction).filter(
-        and_(
-            Reaction.message_id == message_id,
-            Reaction.emoji == emoji
-        )
-    ).all()
+    result = await db.execute(
+        select(Reaction).filter(
+            and_(
+                Reaction.message_id == message_id,
+                Reaction.emoji == emoji
+            )
+        ).options(selectinload(Reaction.user))
+    )
+    reactions = result.scalars().all()
     
     users = [UserResponse.from_orm(reaction.user) for reaction in reactions]
     current_user_reacted = any(reaction.user_id == current_user_id for reaction in reactions)
