@@ -116,27 +116,47 @@ export function ChatArea() {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!messageInput.trim() && files.length === 0) return
-    if (!currentChannel || currentChannel.type !== 'text') return
+    console.log('[ChatArea] handleSendMessage вызван', { messageInput, files, currentChannel });
+    
+    if (!messageInput.trim() && files.length === 0) {
+      console.log('[ChatArea] Пустое сообщение, отмена отправки');
+      return;
+    }
+    if (!currentChannel || currentChannel.type !== 'text') {
+      console.log('[ChatArea] Нет канала или канал не текстовый', { currentChannel });
+      return;
+    }
 
+    console.log('[ChatArea] Начинаем отправку сообщения');
     setIsLoading(true)
     try {
       const attachmentUrls: string[] = [];
       for (const file of files) {
+        console.log('[ChatArea] Загружаем файл:', file.name);
         const response = await uploadService.uploadFile(file);
         attachmentUrls.push(response.file_url);
+        console.log('[ChatArea] Файл загружен:', response.file_url);
       }
       
+      console.log('[ChatArea] Отправляем сообщение через chatService', { 
+        content: messageInput, 
+        attachments: attachmentUrls,
+        channelId: currentChannel.id 
+      });
+      
       chatService.sendMessage(messageInput, attachmentUrls);
+      
+      console.log('[ChatArea] Сообщение отправлено, очищаем форму');
       setMessageInput('')
       setFiles([])
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
     } catch (error) {
-      console.error('Ошибка отправки сообщения:', error);
+      console.error('[ChatArea] Ошибка отправки сообщения:', error);
     } finally {
       setIsLoading(false)
+      console.log('[ChatArea] Отправка завершена');
     }
   }
 

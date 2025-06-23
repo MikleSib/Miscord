@@ -107,8 +107,23 @@ class ChatService {
   }
 
   sendMessage(content: string, attachments: string[] = []) {
+    console.log('[ChatService] sendMessage вызван', { 
+      content, 
+      attachments, 
+      channelId: this.channelId,
+      wsState: this.ws?.readyState,
+      wsOpen: this.ws?.readyState === WebSocket.OPEN 
+    });
+    
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn('[ChatService] WebSocket не открыт, сообщение не отправлено');
+      console.warn('[ChatService] WebSocket не открыт, сообщение не отправлено', {
+        ws: !!this.ws,
+        readyState: this.ws?.readyState,
+        CONNECTING: WebSocket.CONNECTING,
+        OPEN: WebSocket.OPEN,
+        CLOSING: WebSocket.CLOSING,
+        CLOSED: WebSocket.CLOSED
+      });
       return;
     }
     
@@ -119,8 +134,13 @@ class ChatService {
       attachments,
     };
     
-    console.log('[ChatService] Отправляем сообщение:', message);
-    this.ws.send(JSON.stringify(message));
+    console.log('[ChatService] Отправляем сообщение через WebSocket:', message);
+    try {
+      this.ws.send(JSON.stringify(message));
+      console.log('[ChatService] Сообщение успешно отправлено');
+    } catch (error) {
+      console.error('[ChatService] Ошибка отправки сообщения:', error);
+    }
   }
 
   sendTyping() {
