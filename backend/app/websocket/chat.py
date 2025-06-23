@@ -146,10 +146,10 @@ async def websocket_chat_endpoint(
                         ]
                     }
                     
-                    print(f"[WS_CHAT] Отправка broadcast сообщения: {message_dict}")
+                    print(f"[WS_CHAT] Отправка сообщения в канал {text_channel_id}: {message_dict}")
                     
                     # Отправляем сообщение всем подключенным к этому каналу
-                    await manager.broadcast_to_all({
+                    await manager.send_to_channel(text_channel_id, {
                         "type": "new_message",
                         "data": message_dict
                     })
@@ -158,7 +158,7 @@ async def websocket_chat_endpoint(
                     msg_channel_id = message_data.get("text_channel_id")
                     if msg_channel_id == text_channel_id:
                         print(f"[WS_CHAT] Статус печати от {user.username} в канал {text_channel_id}")
-                        await manager.broadcast_to_all({
+                        await manager.send_to_channel(text_channel_id, {
                             "type": "typing",
                             "user": {
                                 "id": user.id,

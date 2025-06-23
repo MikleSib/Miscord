@@ -14,7 +14,7 @@ import uploadService from '../services/uploadService'
 
 export function ChatArea() {
   const { currentChannel } = useStore()
-  const { user } = useAuthStore()
+  const { user, token } = useAuthStore()
   const { 
     messages, 
     isLoading: chatLoading, 
@@ -42,8 +42,16 @@ export function ChatArea() {
       loadMessageHistory(currentChannel.id);
       
       // Подключаемся к WebSocket чата только если еще не подключены
-      const token = localStorage.getItem('access_token');
-      if (token) {
+      const accessToken = token || localStorage.getItem('access_token');
+      console.log('[ChatArea] Проверяем токен для WebSocket:', { 
+        hasToken: !!accessToken, 
+        tokenLength: accessToken?.length,
+        channelId: currentChannel.id,
+        tokenFromStore: !!token,
+        tokenFromStorage: !!localStorage.getItem('access_token')
+      });
+      
+      if (accessToken) {
         console.log('[ChatArea] Подключаем WebSocket для канала', currentChannel.id);
         
         // Отключаемся от предыдущего соединения
@@ -51,7 +59,9 @@ export function ChatArea() {
         
         // Небольшая задержка для завершения отключения
         setTimeout(() => {
-          chatService.connect(currentChannel.id, token);
+          if (accessToken) {
+            chatService.connect(currentChannel.id, accessToken);
+          }
           
           // Обработчик новых сообщений
           chatService.onMessage((msg) => {
@@ -93,7 +103,7 @@ export function ChatArea() {
       chatService.disconnect();
       setTypingUsers([]);
     };
-  }, [currentChannel?.id, currentChannel?.type, loadMessageHistory, addMessage]);
+  }, [currentChannel?.id, currentChannel?.type, loadMessageHistory, addMessage, token]);
   
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -116,27 +126,47 @@ export function ChatArea() {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!messageInput.trim() && files.length === 0) return
-    if (!currentChannel || currentChannel.type !== 'text') return
+    console.log('[ChatArea] handleSendMessage вызван', { messageInput, files, currentChannel });
+    
+    if (!messageInput.trim() && files.length === 0) {
+      console.log('[ChatArea] Пустое сообщение, отмена отправки');
+      return;
+    }
+    if (!currentChannel || currentChannel.type !== 'text') {
+      console.log('[ChatArea] Нет канала или канал не текстовый', { currentChannel });
+      return;
+    }
 
+    console.log('[ChatArea] Начинаем отправку сообщения');
     setIsLoading(true)
     try {
       const attachmentUrls: string[] = [];
       for (const file of files) {
+        console.log('[ChatArea] Загружаем файл:', file.name);
         const response = await uploadService.uploadFile(file);
         attachmentUrls.push(response.file_url);
+        console.log('[ChatArea] Файл загружен:', response.file_url);
       }
       
+      console.log('[ChatArea] Отправляем сообщение через chatService', { 
+        content: messageInput, 
+        attachments: attachmentUrls,
+        channelId: currentChannel.id 
+      });
+      
       chatService.sendMessage(messageInput, attachmentUrls);
+      
+      console.log('[ChatArea] Сообщение отправлено, очищаем форму');
       setMessageInput('')
       setFiles([])
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
     } catch (error) {
-      console.error('Ошибка отправки сообщения:', error);
+      console.error('[ChatArea] Ошибка отправки сообщения:', error);
     } finally {
       setIsLoading(false)
+      console.log('[ChatArea] Отправка завершена');
     }
   }
 
