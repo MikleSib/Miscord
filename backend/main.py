@@ -50,9 +50,9 @@ app.include_router(channels.router, prefix="/api/channels", tags=["channels"])
 app.include_router(uploads.router, prefix="/api", tags=["uploads"])
 
 # WebSocket эндпоинты
-@app.websocket("/ws/chat/{server_channel_id}")
-async def websocket_chat_endpoint_route(websocket: WebSocket, server_channel_id: int, token: str):
-    await websocket_chat_endpoint(websocket, server_channel_id, token)
+@app.websocket("/ws/chat/{text_channel_id}")
+async def websocket_chat_endpoint_route(websocket: WebSocket, text_channel_id: int, token: str):
+    await websocket_chat_endpoint(websocket, text_channel_id, token)
 
 @app.websocket("/ws/notifications")
 async def websocket_notifications_endpoint_route(websocket: WebSocket, token: str):
@@ -71,7 +71,7 @@ async def root():
         "endpoints": {
             "auth": "/api/auth",
             "channels": "/api/channels",
-            "websocket_chat": "/ws/chat/{server_channel_id}",
+            "websocket_chat": "/ws/chat/{text_channel_id}",
             "websocket_voice": "/ws/voice/{channel_id}",
             "websocket_notifications": "/ws/notifications"
         }

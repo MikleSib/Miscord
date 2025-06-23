@@ -25,7 +25,7 @@ class ChatService {
 
   private _connect() {
     if (!this.channelId || !this.token) return;
-    const url = `${WS_URL}/ws/chat?server_channel_id=${this.channelId}&token=${this.token}`;
+    const url = `${WS_URL}/ws/chat/${this.channelId}?token=${this.token}`;
     this.ws = new WebSocket(url);
     this.ws.onopen = () => {
       console.log('[ChatWS] Подключено к чату канала', this.channelId);
