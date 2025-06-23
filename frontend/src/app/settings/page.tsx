@@ -117,6 +117,9 @@ export default function SettingsPage() {
     try {
       await authService.deleteAvatar();
       setAvatarPreview(null);
+      setAvatarFile(null);
+      // Обновляем данные пользователя в store
+      updateUser({ ...user, avatar_url: undefined });
       console.log('Аватар удален');
     } catch (error) {
       console.error('Ошибка удаления аватара:', error);
