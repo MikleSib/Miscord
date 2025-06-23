@@ -4,6 +4,7 @@ import { Server, Channel, Message, User } from '../types';
 import channelService from '../services/channelService';
 import websocketService from '../services/websocketService';
 import uploadService from '../services/uploadService';
+import chatService from '../services/chatService';
 
 interface AppState {
   // Данные
@@ -75,11 +76,26 @@ export const useStore = create<AppState>()(
 
       // Выбор канала
       selectChannel: (channelId: number) => {
-        const { currentServer } = get();
+        const { currentServer, user } = get();
         if (currentServer) {
           const channel = currentServer.channels.find(c => c.id === channelId);
           if (channel) {
             set({ currentChannel: channel });
+            // Подключаемся к WebSocket чата
+            if (channel.type === 'text' && user) {
+              chatService.disconnect();
+              chatService.connect(channel.id, localStorage.getItem('access_token') || '');
+              chatService.onMessage((msg) => {
+                get().addMessage(msg);
+              });
+              chatService.onTyping((data) => {
+                if (data.user && data.text_channel_id) {
+                  get().setTyping(data.text_channel_id, data.user.username);
+                }
+              });
+            } else {
+              chatService.disconnect();
+            }
           }
         }
       },
@@ -169,9 +185,9 @@ export const useStore = create<AppState>()(
             console.log('[store] uploadFile ответ', response);
             attachmentUrls.push(response.file_url);
           }
-          console.log('[store] Перед отправкой в websocketService', { channelId: currentChannel.id, content, attachmentUrls });
-          websocketService.sendMessage(currentChannel.id, content, attachmentUrls);
-          console.log('[store] После вызова websocketService.sendMessage');
+          console.log('[store] Перед отправкой в chatService', { channelId: currentChannel.id, content, attachmentUrls });
+          chatService.sendMessage(content, attachmentUrls);
+          console.log('[store] После вызова chatService.sendMessage');
         } catch (error) {
           console.error('[store] Ошибка отправки сообщения:', error);
           get().setError("Не удалось отправить сообщение.");
@@ -195,7 +211,7 @@ export const useStore = create<AppState>()(
       sendTyping: () => {
         const { currentChannel } = get();
         if (currentChannel?.type === 'text') {
-          websocketService.sendTyping(currentChannel.id);
+          chatService.sendTyping();
         }
       },
       
