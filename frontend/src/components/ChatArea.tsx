@@ -33,49 +33,60 @@ export function ChatArea() {
   // Загрузка истории сообщений при смене канала
   useEffect(() => {
     if (currentChannel?.type === 'text') {
+      console.log('[ChatArea] Загружаем историю для канала', currentChannel.id);
       loadMessageHistory(currentChannel.id);
       
-      // Подключаемся к WebSocket чата
+      // Подключаемся к WebSocket чата только если еще не подключены
       const token = localStorage.getItem('access_token');
       if (token) {
+        console.log('[ChatArea] Подключаем WebSocket для канала', currentChannel.id);
+        
+        // Отключаемся от предыдущего соединения
         chatService.disconnect();
-        chatService.connect(currentChannel.id, token);
         
-        // Обработчик новых сообщений
-        chatService.onMessage((msg) => {
-          // Адаптируем Message к ChatMessage
-          const chatMessage = {
-            ...msg,
-            content: msg.content || '', // Гарантируем что content не null
-          };
-          addMessage(chatMessage);
-        });
-        
-        // Обработчик печати
-        chatService.onTyping((data) => {
-          if (data.user && data.user.username) {
-            setTypingUsers(prev => {
-              if (!prev.includes(data.user.username)) {
-                const newUsers = [...prev, data.user.username];
-                setTimeout(() => {
-                  setTypingUsers(current => current.filter(u => u !== data.user.username));
-                }, 2000);
-                return newUsers;
-              }
-              return prev;
-            });
-          }
-        });
+        // Небольшая задержка для завершения отключения
+        setTimeout(() => {
+          chatService.connect(currentChannel.id, token);
+          
+          // Обработчик новых сообщений
+          chatService.onMessage((msg) => {
+            console.log('[ChatArea] Получено сообщение через WebSocket:', msg);
+            // Адаптируем Message к ChatMessage
+            const chatMessage = {
+              ...msg,
+              content: msg.content || '', // Гарантируем что content не null
+            };
+            addMessage(chatMessage);
+          });
+          
+          // Обработчик печати
+          chatService.onTyping((data) => {
+            if (data.user && data.user.username) {
+              setTypingUsers(prev => {
+                if (!prev.includes(data.user.username)) {
+                  const newUsers = [...prev, data.user.username];
+                  setTimeout(() => {
+                    setTypingUsers(current => current.filter(u => u !== data.user.username));
+                  }, 2000);
+                  return newUsers;
+                }
+                return prev;
+              });
+            }
+          });
+        }, 100);
       }
     } else {
+      console.log('[ChatArea] Канал не текстовый, отключаем WebSocket');
       chatService.disconnect();
       setTypingUsers([]);
     }
     
+    // Cleanup function
     return () => {
-      if (currentChannel?.type !== 'text') {
-        chatService.disconnect();
-      }
+      console.log('[ChatArea] Cleanup - отключаем WebSocket');
+      chatService.disconnect();
+      setTypingUsers([]);
     };
   }, [currentChannel?.id, currentChannel?.type, loadMessageHistory, addMessage]);
   

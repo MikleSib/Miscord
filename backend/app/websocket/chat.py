@@ -12,14 +12,39 @@ from app.core.dependencies import get_current_user_ws
 import asyncio
 
 
+async def get_user_by_token_ws(token: str, db: AsyncSession) -> User | None:
+    """Получение пользователя по токену для WebSocket без создания новых сессий"""
+    try:
+        payload = decode_access_token(token)
+        if payload is None:
+            return None
+        
+        user_id = payload.get("sub")
+        if user_id is None:
+            return None
+
+        result = await db.execute(select(User).where(User.id == int(user_id)))
+        user = result.scalar_one_or_none()
+        return user if user and user.is_active else None
+    except Exception as e:
+        print(f"[WS_AUTH] Ошибка получения пользователя: {e}")
+        return None
+
+
 async def websocket_chat_endpoint(
     websocket: WebSocket,
     text_channel_id: int,
     token: str = Query(...),
 ):
     """WebSocket эндпоинт для чата в текстовых каналах"""
-    async with AsyncSessionLocal() as db:
-        user = await get_current_user_ws(token, db)
+    db = None
+    user = None
+    
+    try:
+        # Создаем единственную сессию для всего соединения
+        db = AsyncSessionLocal()
+        
+        user = await get_user_by_token_ws(token, db)
         if not user:
             print(f"[WS_CHAT] Неавторизованная попытка подключения с токеном {token[:20]}...")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
@@ -150,9 +175,20 @@ async def websocket_chat_endpoint(
             print(f"[WS_CHAT] Ошибка в чате: {e}")
             import traceback
             traceback.print_exc()
-        finally:
+            
+    except Exception as e:
+        print(f"[WS_CHAT] Критическая ошибка: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        # Гарантированно отключаем и закрываем сессию
+        if user:
             await manager.disconnect(websocket, user.id, text_channel_id)
             print(f"[WS_CHAT] Пользователь {user.username} отключён от текстового канала {text_channel_id}")
+        
+        if db:
+            await db.close()
+            print("[WS_CHAT] Сессия БД закрыта")
 
 
 async def websocket_notifications_endpoint(
@@ -160,35 +196,46 @@ async def websocket_notifications_endpoint(
     token: str = Query(...)
 ):
     """WebSocket эндпоинт для уведомлений (приглашения, синхронизация)"""
-    async with AsyncSessionLocal() as db:
-        try:
-            user = await get_current_user_ws(token, db)
-            if not user:
-                await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-                return
+    db = None
+    user = None
+    
+    try:
+        # Создаем единственную сессию для всего соединения  
+        db = AsyncSessionLocal()
+        
+        user = await get_user_by_token_ws(token, db)
+        if not user:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
 
-            await manager.connect(websocket, user.id)
-            print(f"[WS_NOTIFICATIONS] Пользователь {user.username} подключился к уведомлениям")
-            
-            try:
-                while True:
-                    try:
-                        data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
-                        message_data = json.loads(data)
+        await manager.connect(websocket, user.id)
+        print(f"[WS_NOTIFICATIONS] Пользователь {user.username} подключился к уведомлениям")
+        
+        try:
+            while True:
+                try:
+                    data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                    message_data = json.loads(data)
+                    
+                    if message_data.get("type") == "ping":
+                        await websocket.send_text(json.dumps({"type": "pong"}))
                         
-                        if message_data.get("type") == "ping":
-                            await websocket.send_text(json.dumps({"type": "pong"}))
-                            
-                    except asyncio.TimeoutError:
-                        await websocket.send_text(json.dumps({"type": "ping"}))
-                        
-            except WebSocketDisconnect:
-                print(f"[WS_NOTIFICATIONS] Пользователь {user.username} отключился от уведомлений")
-            except Exception as e:
-                print(f"[WS_NOTIFICATIONS] Ошибка: {e}")
-            finally:
-                await manager.disconnect(websocket, user.id)
-                
+                except asyncio.TimeoutError:
+                    await websocket.send_text(json.dumps({"type": "ping"}))
+                    
+        except WebSocketDisconnect:
+            print(f"[WS_NOTIFICATIONS] Пользователь {user.username} отключился от уведомлений")
         except Exception as e:
-            print(f"[WS_NOTIFICATIONS] Ошибка подключения: {e}")
-            await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
+            print(f"[WS_NOTIFICATIONS] Ошибка: {e}")
+            
+    except Exception as e:
+        print(f"[WS_NOTIFICATIONS] Критическая ошибка подключения: {e}")
+    finally:
+        # Гарантированно отключаем и закрываем сессию
+        if user:
+            await manager.disconnect(websocket, user.id)
+            print(f"[WS_NOTIFICATIONS] Пользователь {user.username} отключён от уведомлений")
+            
+        if db:
+            await db.close()
+            print("[WS_NOTIFICATIONS] Сессия БД закрыта")
