@@ -110,20 +110,25 @@ async def create_channel(
     }
 
 @router.get("/", response_model=List[ChannelSchema])
-async def get_user_channels(
-    current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Получение каналов пользователя"""
-    result = await db.execute(
-        select(Channel).join(ChannelMember).where(
-            ChannelMember.user_id == current_user.id
+async def get_all_channels(db: AsyncSession = Depends(get_db)):
+    """Получение всех каналов (серверов)"""
+    stmt = (
+        select(Channel)
+        .options(
+            selectinload(Channel.owner),
+            selectinload(Channel.members)
         )
     )
-    channels = result.scalars().all()
+    result = await db.execute(stmt)
+    channels = result.scalars().unique().all()
     
-    return [
-        {
+    response_channels = []
+    for channel in channels:
+        if not channel.owner:
+            # Пропускаем каналы без владельца, если такие есть в БД
+            continue
+            
+        response_channels.append({
             "id": channel.id,
             "name": channel.name,
             "description": channel.description,
@@ -131,43 +136,27 @@ async def get_user_channels(
             "created_at": channel.created_at,
             "updated_at": channel.updated_at,
             "owner": {
-                "id": current_user.id,
-                "username": current_user.username,
-                "email": current_user.email,
-                "is_active": current_user.is_active,
-                "is_online": current_user.is_online,
-                "created_at": current_user.created_at,
-                "updated_at": current_user.updated_at
+                "id": channel.owner.id,
+                "username": channel.owner.username,
+                "email": channel.owner.email,
+                "is_active": channel.owner.is_active,
+                "is_online": channel.owner.is_online,
+                "created_at": channel.owner.created_at,
+                "updated_at": channel.owner.updated_at
             },
             "text_channels": [],
             "voice_channels": [],
-            "members_count": 0
-        }
-        for channel in channels
-    ]
+            "members_count": len(channel.members)
+        })
+
+    return response_channels
 
 @router.get("/{channel_id}")
 async def get_channel_details(
     channel_id: int,
-    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Получение детальной информации о канале"""
-    # Проверяем членство
-    member_result = await db.execute(
-        select(ChannelMember).where(
-            and_(
-                ChannelMember.channel_id == channel_id,
-                ChannelMember.user_id == current_user.id
-            )
-        )
-    )
-    if not member_result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not a member of this channel"
-        )
-    
     # Получаем основной канал
     channel_result = await db.execute(
         select(Channel).where(Channel.id == channel_id)
@@ -255,18 +244,6 @@ async def create_text_channel(
     db: AsyncSession = Depends(get_db)
 ):
     """Создание текстового канала"""
-    # Проверка прав (только владелец)
-    channel_result = await db.execute(
-        select(Channel).where(Channel.id == channel_id)
-    )
-    channel = channel_result.scalar_one_or_none()
-    
-    if not channel or channel.owner_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only channel owner can create channels"
-        )
-    
     # Создание текстового канала
     new_text_channel = TextChannel(
         name=channel_data.name,
@@ -277,8 +254,8 @@ async def create_text_channel(
     await db.commit()
     await db.refresh(new_text_channel)
     
-    # Отправляем WebSocket уведомление всем участникам сервера
-    await manager.send_to_channel(channel_id, {
+    # Отправляем WebSocket уведомление всем пользователям
+    await manager.broadcast_to_all({
         "type": "text_channel_created",
         "channel_id": channel_id,
         "text_channel": {
@@ -286,7 +263,7 @@ async def create_text_channel(
             "name": new_text_channel.name,
             "type": "text",
             "position": new_text_channel.position,
-            "server_id": channel_id
+            "serverId": channel_id,
         },
         "created_by": {
             "id": current_user.id,
@@ -304,18 +281,6 @@ async def create_voice_channel(
     db: AsyncSession = Depends(get_db)
 ):
     """Создание голосового канала"""
-    # Проверка прав (только владелец)
-    channel_result = await db.execute(
-        select(Channel).where(Channel.id == channel_id)
-    )
-    channel = channel_result.scalar_one_or_none()
-    
-    if not channel or channel.owner_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only channel owner can create channels"
-        )
-    
     # Создание голосового канала
     new_voice_channel = VoiceChannel(
         name=channel_data.name,
@@ -327,8 +292,8 @@ async def create_voice_channel(
     await db.commit()
     await db.refresh(new_voice_channel)
     
-    # Отправляем WebSocket уведомление всем участникам сервера
-    await manager.send_to_channel(channel_id, {
+    # Отправляем WebSocket уведомление всем пользователям
+    await manager.broadcast_to_all({
         "type": "voice_channel_created",
         "channel_id": channel_id,
         "voice_channel": {
@@ -337,7 +302,7 @@ async def create_voice_channel(
             "type": "voice",
             "position": new_voice_channel.position,
             "max_users": new_voice_channel.max_users,
-            "server_id": channel_id
+            "serverId": channel_id,
         },
         "created_by": {
             "id": current_user.id,
@@ -356,21 +321,6 @@ async def invite_user_to_channel(
     db: AsyncSession = Depends(get_db)
 ):
     """Приглашение пользователя в канал (сервер)"""
-    # Проверяем, что текущий пользователь является участником канала
-    member_result = await db.execute(
-        select(ChannelMember).where(
-            and_(
-                ChannelMember.channel_id == channel_id,
-                ChannelMember.user_id == current_user.id
-            )
-        )
-    )
-    if not member_result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not a member of this channel"
-        )
-    
     # Находим пользователя по username
     user_result = await db.execute(
         select(User).where(User.username == username)
@@ -440,21 +390,6 @@ async def get_channel_members(
     db: AsyncSession = Depends(get_db)
 ):
     """Получение списка участников канала"""
-    # Проверяем членство
-    member_result = await db.execute(
-        select(ChannelMember).where(
-            and_(
-                ChannelMember.channel_id == channel_id,
-                ChannelMember.user_id == current_user.id
-            )
-        )
-    )
-    if not member_result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not a member of this channel"
-        )
-    
     # Получаем всех участников
     result = await db.execute(
         select(User).join(ChannelMember).where(
@@ -488,21 +423,6 @@ async def get_voice_channel_members(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Voice channel not found"
-        )
-    
-    # Проверяем членство в основном канале
-    member_result = await db.execute(
-        select(ChannelMember).where(
-            and_(
-                ChannelMember.channel_id == voice_channel.channel_id,
-                ChannelMember.user_id == current_user.id
-            )
-        )
-    )
-    if not member_result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not a member of this channel"
         )
     
     # Получаем всех участников голосового канала с информацией о пользователях
