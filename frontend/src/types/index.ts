@@ -50,6 +50,7 @@ export interface Message {
   timestamp: string;
   channelId: number; // В нашем случае это text_channel_id
   is_edited?: boolean;
+  is_deleted?: boolean;
   attachments: Attachment[];
   reactions?: Reaction[];
   reply_to?: Message; // Ответ на сообщение

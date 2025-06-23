@@ -22,6 +22,7 @@ class Message(BaseModel):
     author: UserResponse
     text_channel_id: int
     is_edited: bool
+    is_deleted: bool
     attachments: List[AttachmentSchema] = []
     reactions: List["ReactionResponse"] = []
     reply_to: Optional["Message"] = None

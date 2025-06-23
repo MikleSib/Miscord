@@ -21,6 +21,7 @@ class Message(Base):
     author_id: Mapped[int] = Column(Integer, ForeignKey("users.id"))
     text_channel_id: Mapped[int] = Column(Integer, ForeignKey("text_channels.id"))
     is_edited: Mapped[bool] = Column(Boolean, default=False)
+    is_deleted: Mapped[bool] = Column(Boolean, default=False)
     reply_to_id: Mapped[Optional[int]] = Column(Integer, ForeignKey("messages.id"), nullable=True)
     
     author: Mapped["User"] = relationship("User")

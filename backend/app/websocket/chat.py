@@ -138,6 +138,7 @@ async def websocket_chat_endpoint(
                         "channelId": full_message.text_channel_id,  # Важно: channelId для фронта
                         "timestamp": full_message.timestamp.replace(tzinfo=timezone.utc).isoformat(),
                         "is_edited": full_message.is_edited,
+                        "is_deleted": full_message.is_deleted,
                         "author": {
                             "id": full_message.author.id,
                             "username": full_message.author.display_name or full_message.author.username,
@@ -155,7 +156,8 @@ async def websocket_chat_endpoint(
                         "reactions": [],  # Пока пустой массив, реакции будут добавляться позже
                         "reply_to": None if not full_message.reply_to else {
                             "id": full_message.reply_to.id,
-                            "content": full_message.reply_to.content,
+                            "content": "Сообщение удалено" if full_message.reply_to.is_deleted else full_message.reply_to.content,
+                            "is_deleted": full_message.reply_to.is_deleted,
                             "author": {
                                 "id": full_message.reply_to.author.id,
                                 "username": full_message.reply_to.author.display_name or full_message.reply_to.author.username,

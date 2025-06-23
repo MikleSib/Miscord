@@ -174,9 +174,11 @@ export function ChatMessage({ message, showAuthor, onReply, onReaction, currentU
         {message.reply_to && (
           <div className="mb-1 pl-2 border-l-2 border-muted text-xs text-muted-foreground">
             <span className="font-medium">{message.reply_to.author.username}</span>: {
-              message.reply_to.content && message.reply_to.content.length > 50 
-                ? message.reply_to.content.substring(0, 50) + '...'
-                : message.reply_to.content || 'Вложение'
+              message.reply_to.is_deleted 
+                ? 'Сообщение удалено'
+                : message.reply_to.content && message.reply_to.content.length > 50 
+                  ? message.reply_to.content.substring(0, 50) + '...'
+                  : message.reply_to.content || 'Вложение'
             }
           </div>
         )}

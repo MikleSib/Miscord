@@ -634,8 +634,11 @@ async def get_channel_messages(
     # Согласно памяти - все пользователи имеют доступ к любым каналам
     # Убираем проверку членства
     
-    # Строим запрос для сообщений
-    query = select(Message).where(Message.text_channel_id == channel_id)
+    # Строим запрос для сообщений (показываем только не удаленные)
+    query = select(Message).where(
+        Message.text_channel_id == channel_id,
+        Message.is_deleted == False
+    )
     
     # Если указан before, загружаем сообщения до этого ID
     if before:
@@ -719,9 +722,10 @@ async def get_channel_messages(
             "reactions": list(reactions_dict.values()),
             "reply_to": None if not msg.reply_to else {
                 "id": msg.reply_to.id,
-                "content": msg.reply_to.content,
+                "content": "Сообщение удалено" if msg.reply_to.is_deleted else msg.reply_to.content,
                 "channelId": msg.reply_to.text_channel_id,
                 "timestamp": msg.reply_to.timestamp.replace(tzinfo=timezone.utc).isoformat(),
+                "is_deleted": msg.reply_to.is_deleted,
                 "author": {
                     "id": msg.reply_to.author.id,
                     "username": msg.reply_to.author.display_name or msg.reply_to.author.username,
@@ -773,8 +777,13 @@ async def delete_message(
     if time_since_creation > time_limit:
         raise HTTPException(status_code=403, detail="Сообщение можно удалить только в течение 2 часов после отправки")
     
-    # Удаляем сообщение (каскадно удалятся реакции и вложения)
-    await db.execute(delete(Message).where(Message.id == message_id))
+    # Помечаем сообщение как удаленное (не удаляем физически из-за ссылок)
+    message.is_deleted = True
+    message.content = None  # Очищаем контент
+    
+    # Удаляем реакции и вложения
+    await db.execute(delete(Reaction).where(Reaction.message_id == message_id))
+    
     await db.commit()
     
     # Отправляем WebSocket уведомление о удалении
@@ -860,6 +869,7 @@ async def edit_message(
         "channelId": message.text_channel_id,
         "timestamp": message.timestamp.replace(tzinfo=timezone.utc).isoformat(),
         "is_edited": message.is_edited,
+        "is_deleted": message.is_deleted,
         "author": {
             "id": message.author.id,
             "username": message.author.display_name or message.author.username,
@@ -877,9 +887,10 @@ async def edit_message(
         "reactions": list(reactions_dict.values()),
         "reply_to": None if not message.reply_to else {
             "id": message.reply_to.id,
-            "content": message.reply_to.content,
+            "content": "Сообщение удалено" if message.reply_to.is_deleted else message.reply_to.content,
             "channelId": message.reply_to.text_channel_id,
             "timestamp": message.reply_to.timestamp.replace(tzinfo=timezone.utc).isoformat(),
+            "is_deleted": message.reply_to.is_deleted,
             "author": {
                 "id": message.reply_to.author.id,
                 "username": message.reply_to.author.display_name or message.reply_to.author.username,
