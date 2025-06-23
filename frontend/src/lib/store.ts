@@ -573,4 +573,21 @@ export const useStore = create<AppState>()(
       })
     }
   )
-); 
+);
+
+// Автоматическое подключение к чату при инициализации store (например, после обновления страницы)
+if (typeof window !== 'undefined') {
+  const { currentChannel, user } = useStore.getState();
+  if (currentChannel && currentChannel.type === 'text' && user) {
+    chatService.disconnect();
+    chatService.connect(currentChannel.id, localStorage.getItem('access_token') || '');
+    chatService.onMessage((msg) => {
+      useStore.getState().addMessage(msg);
+    });
+    chatService.onTyping((data) => {
+      if (data.user && data.text_channel_id) {
+        useStore.getState().setTyping(data.text_channel_id, data.user.username);
+      }
+    });
+  }
+} 
