@@ -120,32 +120,64 @@ export const useStore = create<AppState>()(
       // Отправка сообщения
       sendMessage: async (content: string, files: File[]) => {
         const { currentChannel, user } = get();
-        if (!currentChannel || !user || currentChannel.type !== 'text') return;
-        if (!content.trim() && files.length === 0) return;
+        console.log('[store] sendMessage START', {
+          content,
+          files,
+          currentChannel,
+          user,
+          channelId: currentChannel?.id,
+          channelName: currentChannel?.name,
+          channelType: currentChannel?.type,
+          userId: user?.id,
+          username: user?.username,
+        });
+        if (!currentChannel || !user || currentChannel.type !== 'text') {
+          console.log('[store] return: нет канала, пользователя или не текстовый канал', {
+            currentChannel,
+            user,
+            channelId: currentChannel?.id,
+            channelName: currentChannel?.name,
+            channelType: currentChannel?.type,
+            userId: user?.id,
+            username: user?.username,
+          });
+          return;
+        }
+        if (!content.trim() && files.length === 0) {
+          console.log('[store] return: пустое сообщение и нет файлов');
+          return;
+        }
         if (content.length > 5000) {
+          console.log('[store] return: слишком длинное сообщение');
           get().setError("Сообщение не может быть длиннее 5000 символов.");
           return;
         }
         if (files.length > 3) {
+          console.log('[store] return: слишком много файлов');
           get().setError("Можно прикрепить не более 3 изображений.");
           return;
         }
 
         set({ isLoading: true });
+        console.log('[store] после setLoading');
         try {
-          const attachmentUrls = [];
+          const attachmentUrls: string[] = [];
+          console.log('[store] attachmentUrls перед циклом:', attachmentUrls, files);
           for (const file of files) {
+            console.log('[store] uploadFile вызов', file);
             const response = await uploadService.uploadFile(file);
+            console.log('[store] uploadFile ответ', response);
             attachmentUrls.push(response.file_url);
           }
-          
+          console.log('[store] Перед отправкой в websocketService', { channelId: currentChannel.id, content, attachmentUrls });
           websocketService.sendMessage(currentChannel.id, content, attachmentUrls);
-          
+          console.log('[store] После вызова websocketService.sendMessage');
         } catch (error) {
-          console.error("Ошибка отправки сообщения:", error);
+          console.error('[store] Ошибка отправки сообщения:', error);
           get().setError("Не удалось отправить сообщение.");
         } finally {
           set({ isLoading: false });
+          console.log('[store] sendMessage FINALLY');
         }
       },
 

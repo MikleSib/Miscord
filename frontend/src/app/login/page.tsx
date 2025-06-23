@@ -13,11 +13,13 @@ import {
   Alert,
 } from '@mui/material';
 import { useAuthStore } from '../../store/store';
+import { useStore } from '../../lib/store';
 import authService from '../../services/authService';
 
 const LoginPage: React.FC = () => {
   const router = useRouter();
   const { user, isAuthenticated, isLoading, error, loginStart, loginSuccess, loginFailure, clearError } = useAuthStore();
+  const { setUser: setStoreUser } = useStore();
   const [isMounted, setIsMounted] = useState(false);
   
   const [formData, setFormData] = useState({
@@ -49,7 +51,11 @@ const LoginPage: React.FC = () => {
       // Теперь делаем запрос с уже установленным токеном
       const user = await authService.getCurrentUser();
       
+      // Сохраняем пользователя в оба store
       loginSuccess(user, access_token);
+      setStoreUser(user);
+      
+      console.log('[LoginPage] Пользователь успешно авторизован и сохранен в оба store:', user);
     } catch (err: any) {
       const errorMessage = err.response?.data?.detail || 'Ошибка входа';
       loginFailure(errorMessage);

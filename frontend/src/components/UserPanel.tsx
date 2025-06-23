@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Avatar, Box, Typography, IconButton } from '@mui/material';
 import { Settings, LogOut, Mic, MicOff, Headphones, PhoneOff, Monitor, MonitorOff } from 'lucide-react';
 import { useAuthStore } from '../store/store';
+import { useStore } from '../lib/store';
 import { useRouter } from 'next/navigation';
 import { useVoiceStore } from '../store/slices/voiceSlice';
 import { Button } from './ui/button';
@@ -12,6 +13,7 @@ import voiceService from '../services/voiceService';
 
 export function UserPanel() {
   const { user, logout } = useAuthStore();
+  const { logout: logoutStore } = useStore();
   const { currentVoiceChannelId, isMuted, isDeafened, disconnectFromVoiceChannel } = useVoiceStore();
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [activeSharingUsers, setActiveSharingUsers] = useState<{ userId: number; username: string }[]>([]);
@@ -58,6 +60,7 @@ export function UserPanel() {
 
   const handleLogout = () => {
     logout();
+    logoutStore();
     router.push('/login');
   };
 

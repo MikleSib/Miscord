@@ -186,6 +186,7 @@ class WebSocketService {
 
   // Отправка сообщения
   sendMessage(textChannelId: number, content: string, attachments: string[] = []) {
+    console.log('[WS] Отправка сообщения:', { textChannelId, content, attachments });
     this.send({
       type: 'message',
       text_channel_id: textChannelId,
@@ -204,7 +205,10 @@ class WebSocketService {
   // Отправка сообщения
   send(data: any) {
     if (this.ws?.readyState === WebSocket.OPEN) {
+      console.log('[WS] raw send:', data);
       this.ws.send(JSON.stringify(data));
+    } else {
+      console.warn('[WS] WebSocket не открыт, сообщение не отправлено:', data);
     }
   }
 

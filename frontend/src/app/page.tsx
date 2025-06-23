@@ -14,10 +14,11 @@ import voiceService from '../services/voiceService'
 import websocketService from '../services/websocketService'
 import { Button } from '../components/ui/button'
 import { Monitor } from 'lucide-react'
+import { useAppInitialization } from '../hooks/redux'
 
 export default function HomePage() {
   const router = useRouter()
-  const { user, token, isAuthenticated } = useAuthStore()
+  const { user: authUser, token, isAuthenticated } = useAuthStore()
   const { 
     servers, 
     currentServer, 
@@ -25,9 +26,11 @@ export default function HomePage() {
     loadServers, 
     initializeWebSocket,
     disconnectWebSocket,
-    isLoading 
+    isLoading,
+    user: storeUser
   } = useStore()
   const { isConnected, currentVoiceChannelId } = useVoiceStore()
+  const { isInitialized } = useAppInitialization()
   const [isMounted, setIsMounted] = useState(false)
   const [sharingUsers, setSharingUsers] = useState<{ userId: number; username: string }[]>([])
   const [toastNotifications, setToastNotifications] = useState<{ userId: number; username: string; id: string }[]>([])
@@ -74,13 +77,13 @@ export default function HomePage() {
   }, [isMounted, token, isAuthenticated, router, initializeWebSocket, loadServers, disconnectWebSocket])
 
   useEffect(() => {
-    if (!user || !token) {
+    if (!authUser || !token) {
       router.push('/login')
       return
     }
     
     loadServers()
-  }, [user, token, router, loadServers])
+  }, [authUser, token, router, loadServers])
 
   useEffect(() => {
     // Подписываемся на изменения демонстрации экрана
@@ -126,7 +129,7 @@ export default function HomePage() {
       setSharingUsers(prev => {
         if (!prev.find(u => u.userId === user_id)) {
           // Показываем Toast уведомление только если это не мы сами
-          const currentUser = user;
+          const currentUser = authUser;
           if (currentUser && user_id !== currentUser.id) {
             const toastId = `${user_id}-${Date.now()}`;
             setToastNotifications(prevToasts => [
@@ -160,7 +163,7 @@ export default function HomePage() {
       window.removeEventListener('open_screen_share', handleOpenScreenShare);
       window.removeEventListener('screen_share_start', handleScreenShareStartEvent);
     };
-  }, [sharingUsers, user]);
+  }, [sharingUsers, authUser]);
 
   // Функции для работы с Toast уведомлениями
   const handleViewScreenShare = (userId: number, username: string) => {
@@ -182,7 +185,7 @@ export default function HomePage() {
     return null // Предотвращаем гидратацию
   }
 
-  if (!isAuthenticated || !user || !token) {
+  if (!isAuthenticated || !authUser || !token) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">

@@ -48,6 +48,7 @@ export function ChatArea() {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
+    console.log('[ChatArea] handleSendMessage', { messageInput, files });
     if (!messageInput.trim() && files.length === 0) return
 
     await sendMessage(messageInput, files)
