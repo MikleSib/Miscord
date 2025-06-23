@@ -199,6 +199,10 @@ class WebSocketService {
     this.messageHandlers['screen_share_stopped'] = handler;
   }
 
+  onUserStatusChanged(handler: (data: { user_id: number; username: string; is_online: boolean }) => void) {
+    this.messageHandlers['user_status_changed'] = handler;
+  }
+
   // Отправка сообщения
   send(data: any) {
     if (this.ws?.readyState === WebSocket.OPEN) {

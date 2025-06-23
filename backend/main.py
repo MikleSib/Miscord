@@ -11,6 +11,8 @@ from app.websocket import chat, voice
 from app.websocket.connection_manager import manager
 from app.websocket.chat import websocket_chat_endpoint, websocket_notifications_endpoint
 from app.websocket.voice import websocket_voice_endpoint
+from app.services.user_activity_service import user_activity_service
+from app.db.database import AsyncSessionLocal
 
 # Создание таблиц при старте
 @asynccontextmanager
@@ -22,8 +24,12 @@ async def lifespan(app: FastAPI):
     # Инициализация Redis для WebSocket
     await manager.init_redis()
     
+    # Запуск сервиса активности пользователей
+    await user_activity_service.start_cleanup_task(AsyncSessionLocal)
+    
     yield
     # Shutdown
+    await user_activity_service.stop_cleanup_task()
     if manager.redis_client:
         await manager.redis_client.close()
 

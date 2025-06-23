@@ -11,6 +11,7 @@ class ChatService {
   private typingHandler: ((data: any) => void) | null = null;
   private messageDeletedHandler: ((data: { message_id: number; text_channel_id: number }) => void) | null = null;
   private messageEditedHandler: ChatMessageHandler | null = null;
+  private heartbeatInterval: NodeJS.Timeout | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 2000;
@@ -60,6 +61,9 @@ class ChatService {
         console.log('[ChatService] Подключено к чату канала', this.channelId);
         this.reconnectAttempts = 0;
         this.isConnecting = false;
+        
+        // Запускаем heartbeat для поддержания активности (каждые 30 секунд)
+        this.startHeartbeat();
       };
       
       this.ws.onmessage = (event) => {
@@ -112,6 +116,9 @@ class ChatService {
     console.log('[ChatService] Отключаемся от WebSocket');
     this.shouldReconnect = false;
     this.isConnecting = false;
+    
+    // Останавливаем heartbeat
+    this.stopHeartbeat();
     
     if (this.ws) {
       this.ws.close(1000, 'Manual disconnect');
@@ -185,6 +192,25 @@ class ChatService {
 
   onMessageEdited(handler: ChatMessageHandler) {
     this.messageEditedHandler = handler;
+  }
+
+  private startHeartbeat() {
+    // Останавливаем предыдущий heartbeat, если есть
+    this.stopHeartbeat();
+    
+    // Запускаем новый heartbeat каждые 30 секунд
+    this.heartbeatInterval = setInterval(() => {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'heartbeat' }));
+      }
+    }, 30000);
+  }
+
+  private stopHeartbeat() {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
   }
 
   async loadMessageHistory(channelId: number, limit = 50, before?: number) {

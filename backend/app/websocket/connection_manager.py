@@ -3,6 +3,7 @@ from fastapi import WebSocket
 import json
 import redis.asyncio as redis
 from app.core.config import settings
+from sqlalchemy.ext.asyncio import AsyncSession
 
 class ConnectionManager:
     def __init__(self):
@@ -116,6 +117,18 @@ class ConnectionManager:
         # Удаляем пользователей без соединений
         for user_id in disconnected_users:
             del self.active_connections[user_id]
+
+    async def broadcast(self, message: dict):
+        """Алиас для broadcast_to_all"""
+        await self.broadcast_to_all(message)
+
+    def get_connected_users(self) -> Set[int]:
+        """Получает список ID подключенных пользователей"""
+        return set(self.active_connections.keys())
+
+    def is_user_connected(self, user_id: int) -> bool:
+        """Проверяет, подключен ли пользователь"""
+        return user_id in self.active_connections and len(self.active_connections[user_id]) > 0
     
     async def broadcast_to_text_channel(self, text_channel_id: int, message: dict):
         """Рассылка сообщения в текстовый канал"""

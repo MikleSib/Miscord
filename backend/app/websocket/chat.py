@@ -9,6 +9,7 @@ from app.schemas.message import MessageCreate, Message as MessageSchema
 from app.core.security import decode_access_token
 from app.websocket.connection_manager import manager
 from app.core.dependencies import get_current_user_ws
+from app.services.user_activity_service import user_activity_service
 import asyncio
 from datetime import timezone
 
@@ -63,6 +64,8 @@ async def websocket_chat_endpoint(
             return
 
         await manager.connect(websocket, user.id, text_channel_id)
+        # Обновляем активность пользователя
+        await user_activity_service.update_user_activity(user.id, db)
         print(f"[WS_CHAT] Пользователь {user.username} (id={user.id}) подключился к текстовому каналу {text_channel_id}")
         
         try:
@@ -77,6 +80,9 @@ async def websocket_chat_endpoint(
                     continue
                 
                 if message_data.get("type") == "message":
+                    # Обновляем активность пользователя при отправке сообщения
+                    await user_activity_service.update_user_activity(user.id, db)
+                    
                     content = message_data.get("content", "").strip()
                     msg_channel_id = message_data.get("text_channel_id")
                     attachments = message_data.get("attachments", [])
@@ -177,6 +183,9 @@ async def websocket_chat_endpoint(
                     })
                     
                 elif message_data.get("type") == "typing":
+                    # Обновляем активность при печати
+                    await user_activity_service.update_user_activity(user.id, db)
+                    
                     msg_channel_id = message_data.get("text_channel_id")
                     if msg_channel_id == text_channel_id:
                         print(f"[WS_CHAT] Статус печати от {user.username} в канал {text_channel_id}")
@@ -188,6 +197,12 @@ async def websocket_chat_endpoint(
                             },
                             "text_channel_id": text_channel_id
                         })
+                        
+                elif message_data.get("type") == "heartbeat":
+                    # Heartbeat для поддержания активности
+                    await user_activity_service.heartbeat_user(user.id, db)
+                    await websocket.send_text(json.dumps({"type": "heartbeat_ack"}))
+                    
                 else:
                     print(f"[WS_CHAT] Неизвестный тип сообщения: {message_data.get('type')}")
                         
@@ -206,6 +221,10 @@ async def websocket_chat_endpoint(
         # Гарантированно отключаем и закрываем сессию
         if user:
             await manager.disconnect(websocket, user.id, text_channel_id)
+            # Проверяем, есть ли у пользователя другие активные соединения
+            if not manager.is_user_connected(user.id):
+                # Если нет других соединений, устанавливаем пользователя как оффлайн
+                await user_activity_service.set_user_offline(user.id, db)
             print(f"[WS_CHAT] Пользователь {user.username} отключён от текстового канала {text_channel_id}")
         
         if db:
@@ -231,6 +250,8 @@ async def websocket_notifications_endpoint(
             return
 
         await manager.connect(websocket, user.id)
+        # Обновляем активность пользователя
+        await user_activity_service.update_user_activity(user.id, db)
         print(f"[WS_NOTIFICATIONS] Пользователь {user.username} подключился к уведомлениям")
         
         try:
@@ -240,6 +261,8 @@ async def websocket_notifications_endpoint(
                     message_data = json.loads(data)
                     
                     if message_data.get("type") == "ping":
+                        # Обновляем активность при ping
+                        await user_activity_service.heartbeat_user(user.id, db)
                         await websocket.send_text(json.dumps({"type": "pong"}))
                         
                 except asyncio.TimeoutError:
@@ -256,6 +279,10 @@ async def websocket_notifications_endpoint(
         # Гарантированно отключаем и закрываем сессию
         if user:
             await manager.disconnect(websocket, user.id)
+            # Проверяем, есть ли у пользователя другие активные соединения
+            if not manager.is_user_connected(user.id):
+                # Если нет других соединений, устанавливаем пользователя как оффлайн
+                await user_activity_service.set_user_offline(user.id, db)
             print(f"[WS_NOTIFICATIONS] Пользователь {user.username} отключён от уведомлений")
             
         if db:

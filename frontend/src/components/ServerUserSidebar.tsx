@@ -4,18 +4,65 @@ import channelService from '../services/channelService';
 import { UserAvatar } from './ui/user-avatar';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { User } from '../types';
+import { onlineUsersService, OnlineUser } from '../services/onlineUsersService';
+import websocketService from '../services/websocketService';
 
 export function ServerUserSidebar() {
   const { currentServerMembers, currentServer } = useStore();
   const [collapsed, setCollapsed] = useState(false);
+  const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
+
+  // Загружаем онлайн пользователей при монтировании
+  useEffect(() => {
+    const loadOnlineUsers = async () => {
+      try {
+        const response = await onlineUsersService.getOnlineUsers();
+        setOnlineUsers(response.online_users);
+      } catch (error) {
+        console.error('Ошибка загрузки онлайн пользователей:', error);
+      }
+    };
+
+    loadOnlineUsers();
+
+    // Подписываемся на изменения статуса пользователей
+    websocketService.onUserStatusChanged((data) => {
+      setOnlineUsers(prev => {
+        const updated = prev.filter(u => u.id !== data.user_id);
+        if (data.is_online) {
+          // Добавляем пользователя в онлайн
+          updated.push({
+            id: data.user_id,
+            username: data.username,
+            email: '', // Не передается в WebSocket
+            is_online: true
+          });
+        }
+        return updated;
+      });
+    });
+
+    // Периодически обновляем список (каждые 2 минуты)
+    const interval = setInterval(loadOnlineUsers, 2 * 60 * 1000);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, []);
 
   if (!currentServer || collapsed) {
     return null;
   }
 
-  const users: User[] = currentServerMembers || [];
-  const online: User[] = users.filter((u: User) => u.is_online);
-  const offline: User[] = users.filter((u: User) => !u.is_online);
+  // Объединяем участников сервера с онлайн статусом
+  const serverMembers: User[] = currentServerMembers || [];
+  const membersWithStatus = serverMembers.map(member => ({
+    ...member,
+    is_online: onlineUsers.some(ou => ou.id === member.id)
+  }));
+  
+  const online: User[] = membersWithStatus.filter((u: User) => u.is_online);
+  const offline: User[] = membersWithStatus.filter((u: User) => !u.is_online);
 
   return (
     <div className="w-64 bg-background border-l border-border flex flex-col h-full relative overflow-hidden">
