@@ -197,15 +197,16 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
 
   const handleReaction = async (messageId: number, emoji: string) => {
     try {
-      await reactionService.toggleReaction(messageId, emoji);
+      // toggleReaction возвращает обновленную реакцию
+      const updatedReaction = await reactionService.toggleReaction(messageId, emoji);
       
-      // Получаем обновленные реакции для сообщения
-      const updatedReactions = await reactionService.getMessageReactions(messageId);
+      // Получаем все реакции для сообщения, чтобы обновить состояние
+      const allReactions = await reactionService.getMessageReactions(messageId);
       
       // Обновляем локальное состояние
-      updateMessageReactions(messageId, updatedReactions);
+      updateMessageReactions(messageId, allReactions);
       
-      console.log('Реакция обновлена:', emoji, 'на сообщение:', messageId);
+      console.log('Реакция обновлена:', emoji, 'на сообщение:', messageId, updatedReaction);
     } catch (error) {
       console.error('Ошибка при изменении реакции:', error);
     }

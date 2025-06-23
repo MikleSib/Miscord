@@ -57,7 +57,19 @@ async def toggle_reaction(
         await db.refresh(new_reaction)
     
     # Возвращаем актуальные данные о реакциях на это сообщение
-    return await get_reaction_summary(db, message_id, reaction_data.emoji, current_user.id)
+    reaction_summary = await get_reaction_summary(db, message_id, reaction_data.emoji, current_user.id)
+    
+    # Если реакция была удалена (нет больше таких реакций), возвращаем пустую реакцию
+    if reaction_summary is None:
+        return ReactionResponse(
+            id=0,
+            emoji=reaction_data.emoji,
+            count=0,
+            users=[],
+            current_user_reacted=False
+        )
+    
+    return reaction_summary
 
 @router.get("/messages/{message_id}/reactions", response_model=List[ReactionResponse])
 async def get_message_reactions(
@@ -87,11 +99,12 @@ async def get_message_reactions(
     reactions = []
     for emoji in unique_emojis:
         reaction_summary = await get_reaction_summary(db, message_id, emoji, current_user.id)
-        reactions.append(reaction_summary)
+        if reaction_summary is not None:  # Фильтруем только существующие реакции
+            reactions.append(reaction_summary)
     
     return reactions
 
-async def get_reaction_summary(db: AsyncSession, message_id: int, emoji: str, current_user_id: int) -> ReactionResponse:
+async def get_reaction_summary(db: AsyncSession, message_id: int, emoji: str, current_user_id: int) -> ReactionResponse | None:
     """Получить сводку по конкретной реакции"""
     
     # Получаем всех пользователей, поставивших эту реакцию
@@ -105,11 +118,15 @@ async def get_reaction_summary(db: AsyncSession, message_id: int, emoji: str, cu
     )
     reactions = result.scalars().all()
     
+    # Если нет реакций, возвращаем None
+    if not reactions:
+        return None
+    
     users = [UserResponse.from_orm(reaction.user) for reaction in reactions]
     current_user_reacted = any(reaction.user_id == current_user_id for reaction in reactions)
     
     return ReactionResponse(
-        id=reactions[0].id if reactions else 0,  # Берем ID первой реакции
+        id=reactions[0].id,
         emoji=emoji,
         count=len(reactions),
         users=users,
