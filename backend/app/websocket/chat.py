@@ -10,6 +10,7 @@ from app.core.security import decode_access_token
 from app.websocket.connection_manager import manager
 from app.core.dependencies import get_current_user_ws
 import asyncio
+from datetime import timezone
 
 
 async def get_user_by_token_ws(token: str, db: AsyncSession) -> User | None:
@@ -135,7 +136,7 @@ async def websocket_chat_endpoint(
                         "id": full_message.id,
                         "content": full_message.content,
                         "channelId": full_message.text_channel_id,  # Важно: channelId для фронта
-                        "timestamp": full_message.timestamp.isoformat(),
+                        "timestamp": full_message.timestamp.replace(tzinfo=timezone.utc).isoformat(),
                         "author": {
                             "id": full_message.author.id,
                             "username": full_message.author.display_name or full_message.author.username,

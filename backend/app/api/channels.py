@@ -13,6 +13,7 @@ from app.schemas.channel import (
 from app.schemas.user import UserResponse
 from app.core.dependencies import get_current_active_user, get_current_user
 from app.websocket.connection_manager import manager
+from datetime import timezone
 
 router = APIRouter()
 
@@ -704,7 +705,7 @@ async def get_channel_messages(
             "id": msg.id,
             "content": msg.content,
             "channelId": msg.text_channel_id,
-            "timestamp": msg.timestamp.isoformat(),
+            "timestamp": msg.timestamp.replace(tzinfo=timezone.utc).isoformat(),
             "author": author_data,
             "attachments": [
                 {
@@ -718,7 +719,7 @@ async def get_channel_messages(
                 "id": msg.reply_to.id,
                 "content": msg.reply_to.content,
                 "channelId": msg.reply_to.text_channel_id,
-                "timestamp": msg.reply_to.timestamp.isoformat(),
+                "timestamp": msg.reply_to.timestamp.replace(tzinfo=timezone.utc).isoformat(),
                 "author": {
                     "id": msg.reply_to.author.id,
                     "username": msg.reply_to.author.display_name or msg.reply_to.author.username,
