@@ -111,13 +111,16 @@ async def create_channel(
 
 @router.get("/", response_model=List[ChannelSchema])
 async def get_all_channels(db: AsyncSession = Depends(get_db)):
-    """Получение всех каналов (серверов)"""
+    """Получение всех каналов (серверов) с вложенными текстовыми и голосовыми каналами"""
     stmt = (
         select(Channel)
         .options(
             selectinload(Channel.owner),
-            selectinload(Channel.members)
+            selectinload(Channel.members),
+            selectinload(Channel.text_channels),
+            selectinload(Channel.voice_channels)
         )
+        .order_by(Channel.created_at)
     )
     result = await db.execute(stmt)
     channels = result.scalars().unique().all()
@@ -125,9 +128,12 @@ async def get_all_channels(db: AsyncSession = Depends(get_db)):
     response_channels = []
     for channel in channels:
         if not channel.owner:
-            # Пропускаем каналы без владельца, если такие есть в БД
             continue
             
+        # Преобразуем модели SQLAlchemy в Pydantic схемы
+        text_channels_schema = [TextChannelSchema.from_orm(tc) for tc in channel.text_channels]
+        voice_channels_schema = [VoiceChannelSchema.from_orm(vc) for vc in channel.voice_channels]
+
         response_channels.append({
             "id": channel.id,
             "name": channel.name,
@@ -144,8 +150,8 @@ async def get_all_channels(db: AsyncSession = Depends(get_db)):
                 "created_at": channel.owner.created_at,
                 "updated_at": channel.owner.updated_at
             },
-            "text_channels": [],
-            "voice_channels": [],
+            "text_channels": text_channels_schema,
+            "voice_channels": voice_channels_schema,
             "members_count": len(channel.members)
         })
 

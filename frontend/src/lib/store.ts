@@ -157,16 +157,42 @@ export const useStore = create<AppState>()(
       loadServers: async () => {
         set({ isLoading: true, error: null });
         try {
-          const channels = await channelService.getChannels();
+          const backendChannels = await channelService.getChannels();
           
-          const servers: Server[] = channels.map((channel: any) => ({
-            id: channel.id,
-            name: channel.name,
-            description: channel.description,
-            channels: []
+          const servers: Server[] = backendChannels.map((s: any) => ({
+            id: s.id,
+            name: s.name,
+            description: s.description,
+            channels: [
+              ...(s.text_channels || []).map((c: any) => ({
+                id: c.id,
+                name: c.name,
+                type: 'text' as const,
+                serverId: s.id,
+              })),
+              ...(s.voice_channels || []).map((c: any) => ({
+                id: c.id,
+                name: c.name,
+                type: 'voice' as const,
+                serverId: s.id,
+              })),
+            ]
           }));
           
           set({ servers, isLoading: false });
+
+          // Если был выбран сервер, обновляем его данные, чтобы он не "моргнул"
+          const { currentServer } = get();
+          if (currentServer) {
+            const updatedCurrentServer = servers.find(s => s.id === currentServer.id);
+            if (updatedCurrentServer) {
+              set({ currentServer: updatedCurrentServer });
+            } else {
+              // Если текущего сервера больше нет, сбрасываем его
+              set({ currentServer: null, currentChannel: null });
+            }
+          }
+
         } catch (error: any) {
           console.error('Ошибка загрузки серверов:', error);
           set({ 
