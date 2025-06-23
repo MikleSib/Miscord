@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     # CORS
     CORS_ORIGINS: List[str] = ["http://localhost:3000"]
     
+    # Сервер
+    SERVER_HOST: str = "https://miscord.ru"
+    
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # Обработка CORS_ORIGINS из переменной окружения
