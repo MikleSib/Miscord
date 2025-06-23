@@ -27,7 +27,8 @@ async def get_full_server_data(db: AsyncSession = Depends(get_db)):
         .options(
             selectinload(Channel.owner),
             selectinload(Channel.members).selectinload(ChannelMember.user),
-            selectinload(Channel.text_channels).selectinload(TextChannel.messages),
+            selectinload(Channel.text_channels).selectinload(TextChannel.messages).selectinload(Message.author),
+            selectinload(Channel.text_channels).selectinload(TextChannel.messages).selectinload(Message.attachments),
             selectinload(Channel.voice_channels).selectinload(VoiceChannel.active_users).selectinload(VoiceChannelUser.user)
         )
         .order_by(Channel.created_at)
@@ -75,7 +76,7 @@ async def get_full_server_data(db: AsyncSession = Depends(get_db)):
                         {
                             "id": att.id,
                             "file_url": att.file_url
-                        } for att in getattr(msg, 'attachments', [])
+                        } for att in msg.attachments
                     ]
                 }
                 for msg in messages
