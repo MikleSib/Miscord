@@ -10,6 +10,7 @@ export function ServerUserSidebar() {
   const { currentServerMembers, currentServer } = useStore();
   const [collapsed, setCollapsed] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
+  const [updateCounter, setUpdateCounter] = useState(0);
 
   // Отладочная информация
   console.log('ServerUserSidebar render:', {
@@ -35,9 +36,21 @@ export function ServerUserSidebar() {
 
     // Подписываемся на изменения статуса пользователей через глобальные события
     const handleUserStatusChanged = (event: any) => {
-      const data = event.detail;
-      console.log('ServerUserSidebar получил событие изменения статуса:', data);
+      const eventData = event.detail;
+      console.log('ServerUserSidebar получил событие изменения статуса:', eventData);
+      
+      // Данные могут быть в event.detail.data или напрямую в event.detail
+      const data = eventData.data || eventData;
+      console.log('ServerUserSidebar извлеченные данные:', data);
+      
       setOnlineUsers(prev => {
+        console.log('ServerUserSidebar обновление onlineUsers:', {
+          prevCount: prev.length,
+          userId: data.user_id,
+          username: data.username,
+          isOnline: data.is_online
+        });
+        
         const updated = prev.filter(u => u.id !== data.user_id);
         if (data.is_online) {
           // Добавляем пользователя в онлайн
@@ -48,8 +61,13 @@ export function ServerUserSidebar() {
             is_online: true
           });
         }
+        
+        console.log('ServerUserSidebar новый список onlineUsers:', updated);
         return updated;
       });
+      
+      // Принудительно обновляем компонент
+      setUpdateCounter(prev => prev + 1);
     };
 
     window.addEventListener('user_status_changed', handleUserStatusChanged);
