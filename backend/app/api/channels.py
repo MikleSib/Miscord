@@ -43,8 +43,12 @@ async def get_full_server_data(db: AsyncSession = Depends(get_db)):
     servers = []
     for channel in channels:
         # Участники сервера
-        members = [
-            {
+        members = []
+        for m in channel.members:
+            if m.user is None:
+                # Пропускаем удаленных пользователей из списка участников
+                continue
+            members.append({
                 "id": m.user.id,
                 "username": m.user.display_name or m.user.username,
                 "email": m.user.email,
@@ -52,9 +56,7 @@ async def get_full_server_data(db: AsyncSession = Depends(get_db)):
                 "is_online": m.user.is_online,
                 "created_at": m.user.created_at,
                 "updated_at": m.user.updated_at
-            }
-            for m in channel.members
-        ]
+            })
         # Текстовые каналы с последними сообщениями
         text_channels = []
         for tc in channel.text_channels:
@@ -113,7 +115,7 @@ async def get_full_server_data(db: AsyncSession = Depends(get_db)):
                         "is_muted": vcu.is_muted,
                         "is_deafened": vcu.is_deafened
                     }
-                    for vcu in vc.active_users
+                    for vcu in vc.active_users if vcu.user is not None
                 ]
             })
         servers.append({
@@ -125,13 +127,13 @@ async def get_full_server_data(db: AsyncSession = Depends(get_db)):
             "updated_at": channel.updated_at,
             "owner": {
                 "id": channel.owner.id,
-                "username": channel.owner.username,
+                "username": channel.owner.display_name or channel.owner.username,
                 "email": channel.owner.email,
                 "is_active": channel.owner.is_active,
                 "is_online": channel.owner.is_online,
                 "created_at": channel.owner.created_at,
                 "updated_at": channel.owner.updated_at
-            },
+            } if channel.owner else None,
             "members": members,
             "text_channels": text_channels,
             "voice_channels": voice_channels
