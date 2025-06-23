@@ -102,9 +102,15 @@ async def websocket_voice_endpoint(
             participants = []
             for uid, conn_info in voice_connections[channel_id].items():
                 if uid != user.id:
+                    # Получаем полную информацию о пользователе
+                    user_info_result = await db.execute(select(User).where(User.id == uid))
+                    user_info = user_info_result.scalar_one_or_none()
+                    
                     participants.append({
                         "user_id": uid,
                         "username": conn_info["username"],
+                        "display_name": user_info.display_name if user_info else None,
+                        "avatar_url": user_info.avatar_url if user_info else None,
                         "is_muted": conn_info["is_muted"],
                         "is_deafened": conn_info["is_deafened"]
                     })
@@ -119,7 +125,9 @@ async def websocket_voice_endpoint(
             join_message = {
                 "type": "user_joined_voice",
                 "user_id": user.id,
-                "username": user.display_name or user.username
+                "username": user.display_name or user.username,
+                "display_name": user.display_name,
+                "avatar_url": user.avatar_url
             }
             
             for uid, conn_info in voice_connections[channel_id].items():

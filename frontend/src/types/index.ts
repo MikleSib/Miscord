@@ -104,6 +104,8 @@ export interface RegisterData {
 export interface VoiceUser {
   user_id: number;
   username: string;
+  display_name?: string;
+  avatar_url?: string;
   is_muted: boolean;
   is_deafened: boolean;
 }

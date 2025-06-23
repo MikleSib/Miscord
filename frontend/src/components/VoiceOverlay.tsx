@@ -5,15 +5,20 @@ import { X, Monitor, UserPlus, Mic, MicOff, Volume2, VolumeX } from 'lucide-reac
 import { useVoiceStore } from '../store/slices/voiceSlice';
 import { useAuthStore } from '../store/store';
 import { useStore } from '../lib/store';
+import { UserAvatar } from './ui/user-avatar';
 
 // Компонент для аватарки с анимацией при разговоре
 interface SpeakingAvatarProps {
-  username: string;
+  user: {
+    username?: string;
+    display_name?: string;
+    avatar_url?: string | null;
+  };
   isSpeaking: boolean;
   size?: number;
 }
 
-function SpeakingAvatar({ username, isSpeaking, size = 24 }: SpeakingAvatarProps) {
+function SpeakingAvatar({ user, isSpeaking, size = 24 }: SpeakingAvatarProps) {
   return (
     <Box
       sx={{
@@ -52,12 +57,11 @@ function SpeakingAvatar({ username, isSpeaking, size = 24 }: SpeakingAvatarProps
       )}
       
       {/* Основная аватарка */}
-      <Avatar 
+      <UserAvatar
+        user={user}
+        size={size}
         sx={{ 
-          width: size, 
-          height: size, 
-          fontSize: `${size * 0.4}px`,
-          backgroundColor: isSpeaking ? '#00ff88' : '#5865f2',
+          backgroundColor: isSpeaking ? '#00ff88' : (!user.avatar_url ? '#5865f2' : 'transparent'),
           color: 'white',
           fontWeight: 600,
           zIndex: 1,
@@ -65,9 +69,7 @@ function SpeakingAvatar({ username, isSpeaking, size = 24 }: SpeakingAvatarProps
           border: isSpeaking ? '2px solid #00ff88' : '2px solid transparent',
           transition: 'all 0.2s ease-in-out',
         }}
-      >
-        {username[0].toUpperCase()}
-      </Avatar>
+      />
     </Box>
   );
 }
@@ -101,6 +103,8 @@ export function VoiceOverlay() {
     ...(user ? [{
       user_id: user.id,
       username: user.username,
+      display_name: user.display_name,
+      avatar_url: user.avatar_url,
       is_muted: isMuted,
       is_deafened: isDeafened,
     }] : []),
@@ -170,7 +174,7 @@ export function VoiceOverlay() {
               }}
             >
               <SpeakingAvatar 
-                username={participant.username} 
+                user={participant} 
                 isSpeaking={isSpeaking}
                 size={24}
               />
@@ -184,7 +188,7 @@ export function VoiceOverlay() {
                   transition: 'all 0.2s ease-in-out',
                 }}
               >
-                {participant.username}
+                {participant.display_name || participant.username}
                 {participant.user_id === user?.id && (
                   <Typography
                     component="span"
