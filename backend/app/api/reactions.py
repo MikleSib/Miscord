@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import and_, select
+from sqlalchemy import and_, select, delete
 from sqlalchemy.orm import selectinload
 from typing import List
 
@@ -43,7 +43,15 @@ async def toggle_reaction(
     
     if existing_reaction:
         # Если реакция уже есть - удаляем её
-        db.delete(existing_reaction)
+        await db.execute(
+            delete(Reaction).where(
+                and_(
+                    Reaction.message_id == message_id,
+                    Reaction.user_id == current_user.id,
+                    Reaction.emoji == reaction_data.emoji
+                )
+            )
+        )
         await db.commit()
     else:
         # Если реакции нет - добавляем
