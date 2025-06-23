@@ -39,7 +39,7 @@ export const channelApi = {
       params.before = before;
     }
     
-    const response = await api.get(`/channels/text/${channelId}/messages`, { params });
+    const response = await api.get(`/api/channels/text/${channelId}/messages`, { params });
     return response.data;
   },
 };
