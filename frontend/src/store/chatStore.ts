@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import chatService from '../services/chatService';
-import { Message } from '../types';
+import { Message, Reaction } from '../types';
 
 type ChatMessage = Message;
 
@@ -17,6 +17,7 @@ interface ChatState {
   setError: (error: string | null) => void;
   setCurrentChannel: (channelId: number | null) => void;
   loadMessageHistory: (channelId: number) => Promise<void>;
+  updateMessageReactions: (messageId: number, reactions: Reaction[]) => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -67,4 +68,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       });
     }
   },
+
+  updateMessageReactions: (messageId, reactions) => set((state) => ({
+    messages: state.messages.map(message => 
+      message.id === messageId 
+        ? { ...message, reactions }
+        : message
+    ),
+  })),
 })); 

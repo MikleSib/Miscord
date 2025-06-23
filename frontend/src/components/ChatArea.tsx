@@ -21,12 +21,13 @@ import reactionService from '../services/reactionService'
 export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSidebar: boolean, setShowUserSidebar: (v: boolean) => void }) {
   const { currentChannel } = useStore()
   const { user, token } = useAuthStore()
-  const { 
+    const {
     messages, 
     isLoading: chatLoading, 
     error: chatError,
     loadMessageHistory,
-    addMessage 
+    addMessage,
+    updateMessageReactions
   } = useChatStore()
   
   // Логируем изменения currentChannel
@@ -197,7 +198,13 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   const handleReaction = async (messageId: number, emoji: string) => {
     try {
       await reactionService.toggleReaction(messageId, emoji);
-      // TODO: Обновить реакции в реальном времени через WebSocket
+      
+      // Получаем обновленные реакции для сообщения
+      const updatedReactions = await reactionService.getMessageReactions(messageId);
+      
+      // Обновляем локальное состояние
+      updateMessageReactions(messageId, updatedReactions);
+      
       console.log('Реакция обновлена:', emoji, 'на сообщение:', messageId);
     } catch (error) {
       console.error('Ошибка при изменении реакции:', error);
