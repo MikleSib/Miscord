@@ -183,6 +183,29 @@ async def create_channel(
         "members_count": 1
     }
 
+@router.get("/online-users")
+async def get_online_users(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Получение списка онлайн пользователей"""
+    online_users = await user_activity_service.get_online_users(db)
+    
+    return {
+        "online_users": [
+            {
+                "id": user.id,
+                "username": user.display_name or user.username,
+                "email": user.email,
+                "avatar_url": user.avatar_url,
+                "is_online": user.is_online,
+                "last_activity": user.last_activity.isoformat() if user.last_activity else None
+            }
+            for user in online_users
+        ],
+        "count": len(online_users)
+    }
+
 @router.get("/", response_model=List[ChannelSchema])
 async def get_all_channels(
     current_user: User = Depends(get_current_active_user),
@@ -917,27 +940,3 @@ async def edit_message(
     })
     
     return updated_message
-
-
-@router.get("/online-users")
-async def get_online_users(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Получение списка онлайн пользователей"""
-    online_users = await user_activity_service.get_online_users(db)
-    
-    return {
-        "online_users": [
-            {
-                "id": user.id,
-                "username": user.display_name or user.username,
-                "email": user.email,
-                "avatar_url": user.avatar_url,
-                "is_online": user.is_online,
-                "last_activity": user.last_activity.isoformat() if user.last_activity else None
-            }
-            for user in online_users
-        ],
-        "count": len(online_users)
-    }
