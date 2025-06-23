@@ -11,11 +11,20 @@ export function ServerUserSidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
 
+  // Отладочная информация
+  console.log('ServerUserSidebar render:', {
+    currentServer: currentServer?.name,
+    currentServerMembers: currentServerMembers?.length,
+    onlineUsers: onlineUsers.length,
+    serverMembers: currentServerMembers
+  });
+
   // Загружаем онлайн пользователей при монтировании
   useEffect(() => {
     const loadOnlineUsers = async () => {
       try {
         const response = await onlineUsersService.getOnlineUsers();
+        console.log('Загружены онлайн пользователи:', response.online_users);
         setOnlineUsers(response.online_users);
       } catch (error) {
         console.error('Ошибка загрузки онлайн пользователей:', error);
@@ -52,7 +61,7 @@ export function ServerUserSidebar() {
       clearInterval(interval);
       window.removeEventListener('user_status_changed', handleUserStatusChanged);
     };
-  }, []);
+  }, [currentServer?.id]);
 
   if (!currentServer || collapsed) {
     return null;
