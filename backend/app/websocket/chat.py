@@ -106,7 +106,7 @@ async def websocket_chat_endpoint(
                         "id": full_message.id,
                         "content": full_message.content,
                         "channelId": full_message.text_channel_id,  # Важно: channelId для фронта
-                        "timestamp": full_message.created_at.isoformat(),
+                        "timestamp": full_message.timestamp.isoformat(),
                         "author": {
                             "id": full_message.author.id,
                             "username": full_message.author.username,
