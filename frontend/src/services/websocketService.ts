@@ -76,6 +76,18 @@ class WebSocketService {
           const data = JSON.parse(event.data);
           console.log('🔔 Получено уведомление:', data);
           
+          // Универсальная обработка новых сообщений
+          if ((data.type === 'new_message' || data.type === 'message') && data.data) {
+            // data.data — это объект сообщения
+            if (this.messageHandlers['new_message']) {
+              this.messageHandlers['new_message'](data.data);
+            }
+            // Для обратной совместимости
+            if (this.messageHandlers['message']) {
+              this.messageHandlers['message'](data.data);
+            }
+          }
+
           // Вызываем соответствующий обработчик
           if (data.type && this.messageHandlers[data.type]) {
             this.messageHandlers[data.type](data);
