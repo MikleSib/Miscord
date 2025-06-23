@@ -70,6 +70,7 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf
       - ./certbot/conf:/etc/letsencrypt
       - ./certbot/www:/var/www/certbot
+      - ./backend/static:/app/static
     depends_on:
       - frontend
       - backend

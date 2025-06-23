@@ -118,6 +118,14 @@ http {
             proxy_read_timeout 7d;
         }
         
+        # Статические файлы (вложения)
+        location /static/ {
+            alias /app/static/;
+            access_log off;
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
+        
         # Фронтенд (все остальное)
         location / {
             proxy_pass http://frontend;
