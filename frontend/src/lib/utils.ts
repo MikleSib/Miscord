@@ -19,10 +19,8 @@ export function getUserTimezone(): string {
  */
 export function convertToUserTimezone(utcDate: string | Date): Date {
   if (typeof utcDate === 'string') {
-    // Если строка не содержит timezone информацию, добавляем Z для UTC
-    if (!utcDate.includes('Z') && !utcDate.includes('+') && !utcDate.includes('-')) {
-      utcDate = utcDate.endsWith('Z') ? utcDate : utcDate + 'Z'
-    }
+    // Создаём Date объект из ISO строки с timezone информацией
+    // JavaScript автоматически конвертирует в локальное время
     return new Date(utcDate)
   }
   

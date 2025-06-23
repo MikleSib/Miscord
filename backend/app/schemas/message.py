@@ -28,9 +28,9 @@ class Message(BaseModel):
 
     @field_serializer('timestamp')
     def serialize_timestamp(self, dt: datetime) -> str:
-        # Убеждаемся что время в UTC и сериализуем в ISO формате
+        # Время в базе хранится в UTC, добавляем timezone и сериализуем
         if dt.tzinfo is None:
-            # Если timezone не указан, считаем что это UTC
+            # Добавляем UTC timezone
             dt = dt.replace(tzinfo=timezone.utc)
         return dt.isoformat()
 

@@ -17,7 +17,7 @@ class Message(Base):
 
     id: Mapped[int] = Column(Integer, primary_key=True, index=True)
     content: Mapped[Optional[str]] = Column(String(5000))
-    timestamp: Mapped[datetime] = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    timestamp: Mapped[datetime] = Column(DateTime, default=datetime.utcnow)
     author_id: Mapped[int] = Column(Integer, ForeignKey("users.id"))
     text_channel_id: Mapped[int] = Column(Integer, ForeignKey("text_channels.id"))
     is_edited: Mapped[bool] = Column(Boolean, default=False)
