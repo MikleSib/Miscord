@@ -1,14 +1,16 @@
-from app.models.user import User
-from app.models.channel import Channel, TextChannel, VoiceChannel, ChannelMember, VoiceChannelUser, ChannelType
-from app.models.message import Message
+from .user import User
+from .channel import Channel, ChannelMember, TextChannel, VoiceChannel, VoiceChannelUser, ChannelType
+from .message import Message
+from .attachment import Attachment
 
 __all__ = [
     "User",
     "Channel",
-    "TextChannel", 
-    "VoiceChannel",
     "ChannelMember",
+    "TextChannel",
+    "VoiceChannel",
     "VoiceChannelUser",
     "ChannelType",
-    "Message"
+    "Message",
+    "Attachment",
 ]

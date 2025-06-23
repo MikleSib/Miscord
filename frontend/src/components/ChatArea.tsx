@@ -1,167 +1,86 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Send, Hash, Monitor, MonitorOff, X, Maximize2, Minimize2, Volume2, VolumeX } from 'lucide-react'
+import { Hash, Send, PlusCircle, X } from 'lucide-react'
 import { useStore } from '../lib/store'
-import { useAuthStore } from '../store/store'
-import { formatDate } from '../lib/utils'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from './ui/button'
-import voiceService from '../services/voiceService'
-import { cn } from '../lib/utils'
+import { format } from 'date-fns'
+import { ru } from 'date-fns/locale'
 
 export function ChatArea() {
-  const { currentChannel, messages, sendMessage, addMessage } = useStore()
-  const { user } = useAuthStore()
-  const [messageInput, setMessageInput] = useState('')
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const { 
+    currentChannel, 
+    messages: allMessages, 
+    user, 
+    sendMessage,
+    isLoading,
+    sendTyping,
+    typingStatus
+  } = useStore()
   
-  // Состояние для демонстрации экрана
-  const [sharingUsers, setSharingUsers] = useState<{ userId: number; username: string }[]>([])
-  const [selectedUser, setSelectedUser] = useState<number | null>(null)
-  const [isScreenShareVisible, setIsScreenShareVisible] = useState(false)
-  const [isMuted, setIsMuted] = useState(false)
-  const [isScreenSharing, setIsScreenSharing] = useState(false)
+  const [messageInput, setMessageInput] = useState('')
+  const [files, setFiles] = useState<File[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const channelMessages = currentChannel ? messages[currentChannel.id] || [] : []
-
+  const messages = currentChannel ? allMessages[currentChannel.id] || [] : []
+  const currentTypingUsers = (currentChannel ? typingStatus[currentChannel.id] : []) || [];
+  
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [channelMessages])
+  }, [messages])
 
-  // Обработчики для демонстрации экрана
-  useEffect(() => {
-    // Подписываемся на изменения статуса демонстрации экрана
-    const updateScreenShareStatus = () => {
-      setIsScreenSharing(voiceService.getScreenSharingStatus());
-    };
-
-    // Обработчики событий демонстрации экрана
-    const handleScreenShareStart = (event: any) => {
-      const { user_id, username } = event.detail;
-      setSharingUsers(prev => {
-        if (!prev.find(u => u.userId === user_id)) {
-          const newUsers = [...prev, { userId: user_id, username }];
-          // Автоматически показываем демонстрацию если это первый пользователь
-          if (newUsers.length === 1) {
-            setSelectedUser(user_id);
-            setIsScreenShareVisible(true);
-          }
-          return newUsers;
-        }
-        return prev;
-      });
-    };
-
-    const handleScreenShareStop = (event: any) => {
-      const { user_id } = event.detail;
-      setSharingUsers(prev => {
-        const newUsers = prev.filter(u => u.userId !== user_id);
-        // Если убрали выбранного пользователя, переключаемся на другого или скрываем
-        if (selectedUser === user_id) {
-          if (newUsers.length > 0) {
-            setSelectedUser(newUsers[0].userId);
-          } else {
-            setIsScreenShareVisible(false);
-            setSelectedUser(null);
-            // Очищаем контейнер когда никого не осталось
-            const videoContainer = document.getElementById('screen-share-container-chat');
-            if (videoContainer) {
-              videoContainer.innerHTML = '';
-              console.log('🖥️ Очищен контейнер - никого не осталось');
-            }
-          }
-        }
-        return newUsers;
-      });
-    };
-
-    const handleOpenScreenShare = (event: any) => {
-      const { userId, username } = event.detail;
-      // Добавляем пользователя в список если его нет
-      setSharingUsers(prev => {
-        if (!prev.find(u => u.userId === userId)) {
-          return [...prev, { userId, username }];
-        }
-        return prev;
-      });
-      // Открываем демонстрацию
-      setSelectedUser(userId);
-      setIsScreenShareVisible(true);
-    };
-
-    // Проверяем статус при загрузке
-    updateScreenShareStatus();
-
-    // Подписываемся на события
-    window.addEventListener('screen_share_start', handleScreenShareStart);
-    window.addEventListener('screen_share_stop', handleScreenShareStop);
-    window.addEventListener('open_screen_share', handleOpenScreenShare);
-
-    const interval = setInterval(updateScreenShareStatus, 1000);
-    
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('screen_share_start', handleScreenShareStart);
-      window.removeEventListener('screen_share_stop', handleScreenShareStop);
-      window.removeEventListener('open_screen_share', handleOpenScreenShare);
-    };
-  }, [selectedUser]);
-
-  // Функции для управления демонстрацией экрана
-  const toggleMute = () => {
-    const newMuted = !isMuted;
-    setIsMuted(newMuted);
-    
-    // Заглушаем/включаем все видео элементы
-    sharingUsers.forEach(({ userId }) => {
-      const videoElement = document.getElementById(`remote-video-${userId}`) as HTMLVideoElement;
-      if (videoElement) {
-        videoElement.muted = newMuted;
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const selectedFiles = Array.from(e.target.files);
+      if (files.length + selectedFiles.length > 3) {
+        alert("Можно прикрепить не более 3 изображений.");
+        return;
       }
-    });
-  };
-
-  const startScreenShare = async () => {
-    const success = await voiceService.startScreenShare();
-    if (!success) {
-      console.error('Не удалось начать демонстрацию экрана');
-    }
-  };
-
-  const stopScreenShare = () => {
-    voiceService.stopScreenShare();
-  };
-
-  const closeScreenShare = () => {
-    setIsScreenShareVisible(false);
-    
-    // Дополнительная очистка контейнера
-    const videoContainer = document.getElementById('screen-share-container-chat');
-    if (videoContainer) {
-      videoContainer.innerHTML = '';
-      console.log('🖥️ Очищен контейнер при закрытии демонстрации');
-    }
-  };
-
-  // Отладка состояния (только при изменениях)
-  useEffect(() => {
-    console.log('🖥️ ChatArea состояние изменилось:', {
-      isScreenShareVisible,
-      sharingUsersLength: sharingUsers.length,
-      sharingUsers,
-      selectedUser,
-      shouldShowScreenShare: isScreenShareVisible && sharingUsers.length > 0
-    });
-  }, [isScreenShareVisible, sharingUsers.length, selectedUser]);
-
-  const handleSendMessage = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (messageInput.trim() && currentChannel && user && currentChannel.type === 'text') {
-      // Отправляем сообщение через store
-      sendMessage(messageInput)
-      setMessageInput('')
+      setFiles(prev => [...prev, ...selectedFiles]);
     }
   }
+
+  const handleRemoveFile = (index: number) => {
+    setFiles(prev => prev.filter((_, i) => i !== index));
+  }
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!messageInput.trim() && files.length === 0) return
+
+    await sendMessage(messageInput, files)
+    
+    setMessageInput('')
+    setFiles([])
+    if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+    }
+  }
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setMessageInput(e.target.value);
+    sendTyping();
+  }
+  
+  const TypingIndicator = () => {
+    if (currentTypingUsers.length === 0) return null;
+    
+    const users = currentTypingUsers.map(u => u.username);
+    
+    let text = '';
+    if (users.length === 1) {
+      text = `${users[0]} печатает...`;
+    } else if (users.length > 1 && users.length < 4) {
+      text = `${users.join(', ')} печатают...`;
+    } else {
+      text = 'Несколько человек печатают...';
+    }
+
+    return <div className="px-4 text-xs text-muted-foreground h-4 mb-1">{text}</div>;
+  }
+
 
   if (!currentChannel) {
     return (
@@ -175,231 +94,132 @@ export function ChatArea() {
   }
 
   return (
-    <div className="flex-1 bg-background flex flex-col">
+    <div className="flex-1 bg-background flex flex-col h-screen">
       {/* Channel Header */}
-      <div className="h-12 px-4 flex items-center border-b border-border">
+      <div className="h-12 px-4 flex items-center border-b border-border flex-shrink-0">
         <Hash className="w-5 h-5 text-muted-foreground mr-2" />
         <span className="font-semibold">{currentChannel.name}</span>
       </div>
 
-      {/* Screen Share Area - занимает всё пространство чата */}
-      {isScreenShareVisible && sharingUsers.length > 0 && (
-        <div className="flex-1 bg-gray-900 flex flex-col">
-          {/* Заголовок демонстрации */}
-          <div className="flex items-center justify-between px-4 py-2 bg-gray-800/90 backdrop-blur-sm border-b border-gray-700 flex-shrink-0">
-            <div className="flex items-center gap-3 min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                <span className="text-red-400 font-semibold text-sm uppercase tracking-wide">В ЭФИРЕ</span>
-              </div>
-              <div className="w-px h-4 bg-gray-600" />
-              <Monitor className="w-4 h-4 text-green-400 flex-shrink-0" />
-              <span className="text-white font-medium text-sm truncate">
-                {sharingUsers.find(u => u.userId === selectedUser)?.username === 'Вы' 
-                  ? 'Вы демонстрируете экран' 
-                  : `${sharingUsers.find(u => u.userId === selectedUser)?.username} демонстрирует экран`}
-              </span>
-            </div>
-            
-            <div className="flex items-center gap-2">
-              {/* Переключение между пользователями */}
-              {sharingUsers.length > 1 && (
-                <div className="flex items-center gap-2">
-                  <span className="text-gray-400 text-xs">Просмотр:</span>
-                  <select 
-                    value={selectedUser || ''} 
-                    onChange={(e) => setSelectedUser(Number(e.target.value))}
-                    className="bg-gray-700 text-white px-3 py-1 rounded-md border border-gray-600 text-sm hover:bg-gray-600 transition-colors"
-                  >
-                    {sharingUsers.map(({ userId, username }) => (
-                      <option key={userId} value={userId}>{username}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              
-              {/* Кнопка звука */}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={toggleMute}
-                className={cn(
-                  "w-8 h-8 p-0 transition-all duration-200",
-                  isMuted 
-                    ? "text-red-400 hover:text-red-300 hover:bg-red-400/20" 
-                    : "text-gray-300 hover:text-white hover:bg-gray-700"
-                )}
-                title={isMuted ? 'Включить звук' : 'Отключить звук'}
-              >
-                {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-              </Button>
-              
-              {/* Кнопка начать/остановить демонстрацию */}
-              {isScreenSharing ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={stopScreenShare}
-                  className="flex items-center gap-2 text-sm px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-md transition-colors"
-                >
-                  <MonitorOff className="w-4 h-4" />
-                  Остановить
-                </Button>
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-1">
+        {messages.map((msg, index) => {
+           const prevMsg = messages[index - 1];
+           const showAuthor = !prevMsg || prevMsg.author.id !== msg.author.id || (new Date(msg.timestamp).getTime() - new Date(prevMsg.timestamp).getTime()) > 5 * 60 * 1000;
+
+          return (
+            <div key={msg.id} className={`flex items-start gap-3 py-1 ${showAuthor ? 'mt-3' : ''}`}>
+              {showAuthor ? (
+                <Avatar>
+                  <AvatarImage src={msg.author.avatar} />
+                  <AvatarFallback>{msg.author.username.substring(0, 2).toUpperCase()}</AvatarFallback>
+                </Avatar>
               ) : (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={startScreenShare}
-                  className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white text-sm px-3 py-1 rounded-md transition-colors"
-                >
-                  <Monitor className="w-4 h-4" />
-                  Поделиться
-                </Button>
+                 <div className="w-10 flex-shrink-0" /> 
               )}
               
-              {/* Кнопка развернуть */}
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-8 h-8 p-0 text-gray-300 hover:text-white hover:bg-gray-700 transition-colors"
-                title="Развернуть"
-              >
-                <Maximize2 className="w-4 h-4" />
-              </Button>
-              
-              {/* Кнопка закрытия */}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={closeScreenShare}
-                className="w-8 h-8 p-0 text-gray-300 hover:text-white hover:bg-gray-700 transition-colors"
-                title="Закрыть демонстрацию"
-              >
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
-          </div>
-
-          {/* Область для видео - занимает всё оставшееся пространство */}
-          <div className="flex-1 relative bg-black">
-            <div 
-              id="screen-share-container-chat" 
-              className="absolute inset-0 bg-black"
-            >
-              {/* Видео элементы будут добавлены сюда через VoiceService */}
-            </div>
-
-            {/* Информационная панель внизу */}
-            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4 pointer-events-none">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center">
-                      <span className="text-white text-sm font-semibold">
-                        {sharingUsers.find(u => u.userId === selectedUser)?.username[0].toUpperCase()}
-                      </span>
-                    </div>
-                    <div>
-                      <div className="text-white font-medium text-sm">
-                        {sharingUsers.find(u => u.userId === selectedUser)?.username === 'Вы' 
-                          ? 'Вы' 
-                          : sharingUsers.find(u => u.userId === selectedUser)?.username}
-                      </div>
-                      <div className="text-gray-400 text-xs flex items-center gap-1">
-                        <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-                        {sharingUsers.find(u => u.userId === selectedUser)?.username === 'Вы' 
-                          ? 'Демонстрируете экран' 
-                          : 'Демонстрирует экран'}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="flex items-center gap-2">
-                  {/* Счетчик зрителей */}
-                  <div className="flex items-center gap-1 bg-black/40 px-2 py-1 rounded-md">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full" />
-                    <span className="text-gray-300 text-xs">
-                      {sharingUsers.length} {sharingUsers.length === 1 ? 'стример' : 'стримера'}
+              <div className="flex flex-col">
+                {showAuthor && (
+                  <div className="flex items-baseline gap-2">
+                    <span className="font-semibold">{msg.author.username}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {format(new Date(msg.timestamp), 'd MMM yyyy, HH:mm', { locale: ru })}
                     </span>
                   </div>
-                  
-                  {/* Качество */}
-                  <div className="bg-black/40 px-2 py-1 rounded-md">
-                    <span className="text-gray-300 text-xs">HD</span>
+                )}
+                
+                {msg.content && <p className="text-sm leading-relaxed">{msg.content}</p>}
+
+                {msg.attachments && msg.attachments.length > 0 && (
+                  <div className="mt-2 flex flex-col gap-2">
+                    {msg.attachments.map(att => (
+                      <a key={att.id} href={att.file_url} target="_blank" rel="noopener noreferrer">
+                        <img 
+                          src={att.file_url} 
+                          alt="Вложение"
+                          className="max-w-xs max-h-80 rounded-md object-cover"
+                        />
+                      </a>
+                    ))}
                   </div>
-                </div>
+                )}
               </div>
             </div>
-          </div>
-        </div>
-      )}
+          )
+        })}
+        <div ref={messagesEndRef} />
+      </div>
+      
+      <TypingIndicator />
 
-      {/* Messages Area - скрываем когда показывается демонстрация экрана */}
-      {!(isScreenShareVisible && sharingUsers.length > 0) && (
-        <div className="flex-1 overflow-y-auto scrollbar-thin">
-          <div className="p-4 space-y-4">
-            {channelMessages.length === 0 ? (
-              <div className="text-center text-muted-foreground py-8">
-                <p>Пока что здесь нет сообщений</p>
-                <p className="text-sm">Начните общение в канале #{currentChannel.name}</p>
+      {/* Message Input */}
+      {currentChannel.type === 'text' && (
+        <div className="p-4 border-t border-border flex-shrink-0">
+          <form onSubmit={handleSendMessage} className="bg-secondary rounded-lg p-2 flex flex-col">
+            
+            {/* File Previews */}
+            {files.length > 0 && (
+              <div className="flex gap-2 mb-2 p-2 border-b border-border">
+                {files.map((file, index) => (
+                  <div key={index} className="relative">
+                    <img 
+                      src={URL.createObjectURL(file)} 
+                      alt="preview"
+                      className="w-20 h-20 object-cover rounded"
+                    />
+                    <button 
+                      type="button"
+                      onClick={() => handleRemoveFile(index)} 
+                      className="absolute top-0 right-0 bg-black/50 text-white rounded-full p-0.5"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
               </div>
-            ) : (
-              channelMessages.map((message) => (
-                <div key={message.id} className="flex gap-3 hover:bg-accent/5 px-2 py-1 rounded">
-                  <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
-                    {message.author.avatar ? (
-                      <img src={message.author.avatar} alt="" className="w-full h-full rounded-full" />
-                    ) : (
-                      <span className="text-sm font-semibold">
-                        {message.author.username[0].toUpperCase()}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-baseline gap-2">
-                      <span className="font-semibold text-sm">
-                        {message.author.username}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {formatDate(message.timestamp)}
-                      </span>
-                    </div>
-                    <p className="text-sm mt-0.5">{message.content}</p>
-                  </div>
-                </div>
-              ))
             )}
-            <div ref={messagesEndRef} />
-          </div>
+            
+            <div className="flex items-center">
+              <input 
+                type="file"
+                ref={fileInputRef}
+                multiple
+                accept="image/*"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+              <Button 
+                type="button"
+                size="icon"
+                variant="ghost"
+                onClick={() => fileInputRef.current?.click()}
+                className="mr-2"
+                disabled={files.length >= 3}
+              >
+                <PlusCircle className="w-5 h-5" />
+              </Button>
+              <input
+                type="text"
+                value={messageInput}
+                onChange={handleInputChange}
+                placeholder={`Написать в #${currentChannel.name}`}
+                className="flex-1 bg-transparent outline-none text-sm"
+                disabled={isLoading}
+              />
+              <Button
+                type="submit"
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8"
+                disabled={(!messageInput.trim() && files.length === 0) || isLoading}
+              >
+                {isLoading ? '...' : <Send className="w-4 h-4" />}
+              </Button>
+            </div>
+          </form>
         </div>
       )}
 
-      {/* Message Input - скрываем когда показывается демонстрация экрана */}
-      {currentChannel.type === 'text' && !(isScreenShareVisible && sharingUsers.length > 0) && (
-        <form onSubmit={handleSendMessage} className="p-4">
-          <div className="bg-secondary rounded-lg flex items-center px-4">
-            <input
-              type="text"
-              value={messageInput}
-              onChange={(e) => setMessageInput(e.target.value)}
-              placeholder={`Написать в #${currentChannel.name}`}
-              className="flex-1 bg-transparent py-3 outline-none text-sm"
-            />
-            <Button
-              type="submit"
-              size="icon"
-              variant="ghost"
-              className="h-8 w-8"
-              disabled={!messageInput.trim()}
-            >
-              <Send className="w-4 h-4" />
-            </Button>
-          </div>
-        </form>
-      )}
-
-      {/* Voice Channel Info */}
       {currentChannel.type === 'voice' && (
         <div className="p-4 text-center text-muted-foreground">
           <p>Голосовой канал: {currentChannel.name}</p>

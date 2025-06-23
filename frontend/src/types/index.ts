@@ -28,13 +28,20 @@ export interface Channel {
   max_users?: number; // Для голосовых каналов
 }
 
+export interface Attachment {
+  id: number;
+  file_url: string;
+  message_id: number;
+}
+
 export interface Message {
   id: number;
-  content: string;
+  content: string | null;
   author: User;
   timestamp: string;
-  channelId: number;
+  channelId: number; // В нашем случае это text_channel_id
   is_edited?: boolean;
+  attachments: Attachment[];
 }
 
 // Бэкенд типы (для API)

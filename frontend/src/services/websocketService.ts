@@ -167,6 +167,14 @@ class WebSocketService {
     this.messageHandlers['voice_channel_leave'] = handler;
   }
 
+  onNewMessage(handler: (message: Message) => void) {
+    this.messageHandlers['new_message'] = handler;
+  }
+
+  onTyping(handler: (data: { user: { id: number; username: string }, text_channel_id: number }) => void) {
+    this.messageHandlers['typing'] = handler;
+  }
+
   // Демонстрация экрана
   onScreenShareStarted(handler: (data: { user_id: number; username: string }) => void) {
     this.messageHandlers['screen_share_started'] = handler;
@@ -174,6 +182,23 @@ class WebSocketService {
 
   onScreenShareStopped(handler: (data: { user_id: number; username: string }) => void) {
     this.messageHandlers['screen_share_stopped'] = handler;
+  }
+
+  // Отправка сообщения
+  sendMessage(textChannelId: number, content: string, attachments: string[] = []) {
+    this.send({
+      type: 'message',
+      text_channel_id: textChannelId,
+      content,
+      attachments,
+    });
+  }
+
+  sendTyping(textChannelId: number) {
+    this.send({
+      type: 'typing',
+      text_channel_id: textChannelId,
+    });
   }
 
   // Отправка сообщения

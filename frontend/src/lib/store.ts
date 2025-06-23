@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import { Server, Channel, Message, User } from '../types';
 import channelService from '../services/channelService';
 import websocketService from '../services/websocketService';
+import uploadService from '../services/uploadService';
 
 interface AppState {
   // Данные
@@ -13,6 +14,7 @@ interface AppState {
   user: User | null;
   isLoading: boolean;
   error: string | null;
+  typingStatus: { [channelId: number]: { username: string; timeoutId: NodeJS.Timeout }[] };
 
   // Действия для серверов
   selectServer: (serverId: number) => Promise<void>;
@@ -24,8 +26,11 @@ interface AppState {
   addChannel: (serverId: number, channel: Channel) => void;
 
   // Сообщения
-  sendMessage: (content: string) => void;
-  addMessage: (channelId: number, message: Message) => void;
+  sendMessage: (content: string, files: File[]) => Promise<void>;
+  addMessage: (message: Message) => void;
+  sendTyping: () => void;
+  setTyping: (channelId: number, username: string) => void;
+  clearTyping: (channelId: number, username: string) => void;
 
   // Пользователь
   setUser: (user: User | null) => void;
@@ -55,6 +60,7 @@ export const useStore = create<AppState>()(
       user: null,
       isLoading: false,
       error: null,
+      typingStatus: {},
 
       // Выбор сервера
       selectServer: async (serverId: number) => {
@@ -112,28 +118,91 @@ export const useStore = create<AppState>()(
       },
 
       // Отправка сообщения
-      sendMessage: (content: string) => {
+      sendMessage: async (content: string, files: File[]) => {
         const { currentChannel, user } = get();
-        if (currentChannel && user) {
-          const message: Message = {
-            id: Date.now(),
-            content,
-            author: user,
-            timestamp: new Date().toISOString(),
-            channelId: currentChannel.id,
-          };
-          get().addMessage(currentChannel.id, message);
+        if (!currentChannel || !user || currentChannel.type !== 'text') return;
+        if (!content.trim() && files.length === 0) return;
+        if (content.length > 5000) {
+          get().setError("Сообщение не может быть длиннее 5000 символов.");
+          return;
+        }
+        if (files.length > 3) {
+          get().setError("Можно прикрепить не более 3 изображений.");
+          return;
+        }
+
+        set({ isLoading: true });
+        try {
+          const attachmentUrls = [];
+          for (const file of files) {
+            const response = await uploadService.uploadFile(file);
+            attachmentUrls.push(response.file_url);
+          }
+          
+          websocketService.sendMessage(currentChannel.id, content, attachmentUrls);
+          
+        } catch (error) {
+          console.error("Ошибка отправки сообщения:", error);
+          get().setError("Не удалось отправить сообщение.");
+        } finally {
+          set({ isLoading: false });
         }
       },
 
       // Добавление сообщения
-      addMessage: (channelId: number, message: Message) => {
+      addMessage: (message: Message) => {
         set((state) => ({
           messages: {
             ...state.messages,
-            [channelId]: [...(state.messages[channelId] || []), message],
+            [message.channelId]: [...(state.messages[message.channelId] || []), message],
           },
         }));
+      },
+
+      // Отправка статуса печати
+      sendTyping: () => {
+        const { currentChannel } = get();
+        if (currentChannel?.type === 'text') {
+          websocketService.sendTyping(currentChannel.id);
+        }
+      },
+      
+      // Установка статуса печати
+      setTyping: (channelId, username) => {
+        const { typingStatus, clearTyping } = get();
+        
+        const timeoutId = setTimeout(() => {
+          clearTyping(channelId, username);
+        }, 2000); // 2 секунды
+
+        const existingUser = (typingStatus[channelId] || []).find(u => u.username === username);
+        if (existingUser) {
+          clearTimeout(existingUser.timeoutId);
+        }
+
+        const newTypingUsers = [
+          ...(typingStatus[channelId] || []).filter(u => u.username !== username),
+          { username, timeoutId }
+        ];
+
+        set({
+          typingStatus: {
+            ...typingStatus,
+            [channelId]: newTypingUsers
+          }
+        });
+      },
+
+      clearTyping: (channelId, username) => {
+        set(state => {
+          const newTypingUsers = (state.typingStatus[channelId] || []).filter(u => u.username !== username);
+          return {
+            typingStatus: {
+              ...state.typingStatus,
+              [channelId]: newTypingUsers
+            }
+          }
+        });
       },
 
       // Установка пользователя
@@ -420,6 +489,24 @@ export const useStore = create<AppState>()(
           
           // Генерируем глобальное событие для обновления UI
           window.dispatchEvent(new CustomEvent('screen_share_stop', { detail: data }));
+        });
+
+        websocketService.onNewMessage((message) => {
+          console.log('Новое сообщение:', message);
+          get().addMessage(message);
+
+          // Убираем пользователя из списка печатающих, когда он отправил сообщение
+          if (message.author) {
+            get().clearTyping(message.channelId, message.author.username);
+          }
+        });
+
+        websocketService.onTyping((data) => {
+          const { user } = get();
+          // Не показывать свой собственный статус печати
+          if (user?.id !== data.user.id) {
+            get().setTyping(data.text_channel_id, data.user.username);
+          }
         });
       },
 
