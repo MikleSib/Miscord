@@ -52,6 +52,10 @@ class WebSocketService {
   }
 
   connect(token: string) {
+    if (typeof window === 'undefined') {
+      return; // Не подключаемся на сервере
+    }
+    
     if (this.ws?.readyState === WebSocket.OPEN) {
       return;
     }

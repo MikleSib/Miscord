@@ -1,7 +1,8 @@
 'use client'
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import { useAuthStore } from '../../store/store';
 import { Button } from '../../components/ui/button';
 import { Avatar } from '@mui/material';
@@ -17,18 +18,36 @@ const SIDEBAR_ITEMS = [
   }
 ];
 
-export default function SettingsPage() {
+function SettingsPageComponent() {
   const router = useRouter();
   const { user, updateUser } = useAuthStore();
   const [activeTab, setActiveTab] = useState('profile');
-  const [displayName, setDisplayName] = useState(user?.display_name || user?.username || '');
+  const [displayName, setDisplayName] = useState('');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Исправляем гидратацию для SSR
+  useEffect(() => {
+    setMounted(true);
+    if (user) {
+      setDisplayName(user.display_name || user.username || '');
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (mounted && !user) {
+      router.push('/login');
+    }
+  }, [mounted, user, router]);
+
+  if (!mounted) {
+    return null; // Предотвращаем рендеринг до гидратации
+  }
+
   if (!user) {
-    router.push('/login');
     return null;
   }
 
@@ -260,4 +279,8 @@ export default function SettingsPage() {
       </div>
     </div>
   );
-} 
+}
+
+export default dynamic(() => Promise.resolve(SettingsPageComponent), {
+  ssr: false,
+}); 

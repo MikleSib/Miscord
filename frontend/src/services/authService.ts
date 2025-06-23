@@ -13,7 +13,9 @@ class AuthService {
       },
     });
     
-    localStorage.setItem('access_token', response.data.access_token);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('access_token', response.data.access_token);
+    }
     return response.data;
   }
 
@@ -49,11 +51,16 @@ class AuthService {
   }
 
   logout(): void {
-    localStorage.removeItem('access_token');
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('access_token');
+    }
   }
 
   getToken(): string | null {
-    return localStorage.getItem('access_token');
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('access_token');
+    }
+    return null;
   }
 }
 
