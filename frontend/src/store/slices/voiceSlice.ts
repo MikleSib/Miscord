@@ -50,11 +50,13 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       console.log('🎙️ Токен получен, настраиваем обработчики событий');
 
       // Настраиваем обработчики событий
-      voiceService.onParticipantJoin((userId, username) => {
-        console.log('🎙️ Участник присоединился:', userId, username);
+      voiceService.onParticipantJoin((participant) => {
+        console.log('🎙️ Участник присоединился:', participant);
         get().addParticipant({
-          user_id: userId,
-          username,
+          user_id: participant.user_id,
+          username: participant.username,
+          display_name: participant.display_name,
+          avatar_url: participant.avatar_url,
           is_muted: false,
           is_deafened: false,
         });
@@ -180,7 +182,9 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     if (currentUser) {
       get().updateParticipant({
         user_id: currentUser.id,
-        username: currentUser.username,
+        username: currentUser.display_name || currentUser.username,
+        display_name: currentUser.display_name,
+        avatar_url: currentUser.avatar_url,
         is_muted: newMuted,
         is_deafened: newDeafened,
       });
@@ -217,7 +221,9 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     if (currentUser) {
       get().updateParticipant({
         user_id: currentUser.id,
-        username: currentUser.username,
+        username: currentUser.display_name || currentUser.username,
+        display_name: currentUser.display_name,
+        avatar_url: currentUser.avatar_url,
         is_muted: newMuted,
         is_deafened: newDeafened,
       });

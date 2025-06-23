@@ -15,7 +15,7 @@ class VoiceService {
   private iceServers: RTCIceServer[] = [];
   private voiceChannelId: number | null = null;
   private token: string | null = null;
-  private onParticipantJoined: ((userId: number, username: string) => void) | null = null;
+  private onParticipantJoined: ((participant: any) => void) | null = null;
   private onParticipantLeft: ((userId: number) => void) | null = null;
   private onSpeakingChanged: ((userId: number, isSpeaking: boolean) => void) | null = null;
   private audioContext: AudioContext | null = null;
@@ -123,7 +123,12 @@ class VoiceService {
       case 'user_joined_voice':
         console.log('🔊 Пользователь присоединился к голосовому каналу:', data.user_id, data.username);
         if (this.onParticipantJoined) {
-          this.onParticipantJoined(data.user_id, data.username);
+          this.onParticipantJoined({
+            user_id: data.user_id,
+            username: data.username,
+            display_name: data.display_name,
+            avatar_url: data.avatar_url
+          });
         }
         // Создаем соединение только если это не мы сами
         const currentUserId2 = this.getCurrentUserId();
@@ -507,7 +512,7 @@ class VoiceService {
     this.sendMessage({ type: 'deafen', is_deafened: deafened });
   }
 
-  onParticipantJoin(callback: (userId: number, username: string) => void) {
+  onParticipantJoin(callback: (participant: any) => void) {
     this.onParticipantJoined = callback;
   }
 
