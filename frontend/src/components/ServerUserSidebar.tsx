@@ -5,7 +5,6 @@ import { UserAvatar } from './ui/user-avatar';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { User } from '../types';
 import { onlineUsersService, OnlineUser } from '../services/onlineUsersService';
-import websocketService from '../services/websocketService';
 
 export function ServerUserSidebar() {
   const { currentServerMembers, currentServer } = useStore();
@@ -25,8 +24,10 @@ export function ServerUserSidebar() {
 
     loadOnlineUsers();
 
-    // Подписываемся на изменения статуса пользователей
-    websocketService.onUserStatusChanged((data) => {
+    // Подписываемся на изменения статуса пользователей через глобальные события
+    const handleUserStatusChanged = (event: any) => {
+      const data = event.detail;
+      console.log('ServerUserSidebar получил событие изменения статуса:', data);
       setOnlineUsers(prev => {
         const updated = prev.filter(u => u.id !== data.user_id);
         if (data.is_online) {
@@ -40,13 +41,16 @@ export function ServerUserSidebar() {
         }
         return updated;
       });
-    });
+    };
+
+    window.addEventListener('user_status_changed', handleUserStatusChanged);
 
     // Периодически обновляем список (каждые 2 минуты)
     const interval = setInterval(loadOnlineUsers, 2 * 60 * 1000);
 
     return () => {
       clearInterval(interval);
+      window.removeEventListener('user_status_changed', handleUserStatusChanged);
     };
   }, []);
 

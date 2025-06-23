@@ -563,6 +563,14 @@ export const useStore = create<AppState>()(
           // Генерируем глобальное событие для обновления UI
           window.dispatchEvent(new CustomEvent('screen_share_stop', { detail: data }));
         });
+
+        // Обработка изменения статуса пользователя
+        websocketService.onUserStatusChanged((data) => {
+          console.log('Изменился статус пользователя:', data);
+          
+          // Генерируем глобальное событие для обновления UI
+          window.dispatchEvent(new CustomEvent('user_status_changed', { detail: data }));
+        });
       },
 
       // Отключение WebSocket
