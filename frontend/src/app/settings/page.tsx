@@ -2,7 +2,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import dynamic from 'next/dynamic';
 import { useAuthStore } from '../../store/store';
 import { Button } from '../../components/ui/button';
 import { Avatar } from '@mui/material';
@@ -18,9 +17,11 @@ const SIDEBAR_ITEMS = [
   }
 ];
 
-function SettingsPageComponent() {
+export default function SettingsPage() {
+  console.log('SettingsPage рендерится');
   const router = useRouter();
   const { user, updateUser } = useAuthStore();
+  console.log('Текущий пользователь в настройках:', user);
   const [activeTab, setActiveTab] = useState('profile');
   const [displayName, setDisplayName] = useState('');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -281,6 +282,3 @@ function SettingsPageComponent() {
   );
 }
 
-export default dynamic(() => Promise.resolve(SettingsPageComponent), {
-  ssr: false,
-}); 

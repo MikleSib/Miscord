@@ -22,6 +22,7 @@ const RegisterPage: React.FC = () => {
   
   const [formData, setFormData] = useState({
     username: '',
+    display_name: '',
     email: '',
     password: '',
     confirmPassword: '',
@@ -97,6 +98,19 @@ const RegisterPage: React.FC = () => {
               autoFocus
               value={formData.username}
               onChange={handleChange}
+              helperText="Уникальное имя для входа в систему"
+            />
+            <TextField
+              margin="normal"
+              required
+              fullWidth
+              id="display_name"
+              label="Отображаемое имя"
+              name="display_name"
+              autoComplete="name"
+              value={formData.display_name}
+              onChange={handleChange}
+              helperText="Имя, которое будут видеть другие пользователи"
             />
             <TextField
               margin="normal"

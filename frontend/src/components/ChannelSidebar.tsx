@@ -753,6 +753,10 @@ export function ChannelSidebar() {
               <Button
                 variant="ghost"
                 size="sm"
+                onClick={() => {
+                  console.log('ШЕСТЕРЕНКА В CHANNELSIDEBAR НАЖАТА!');
+                  router.push('/settings');
+                }}
                 className="w-8 h-8 p-0 text-muted-foreground hover:text-foreground hover:bg-accent/50"
                 title="Настройки"
               >

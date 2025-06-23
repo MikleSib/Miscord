@@ -37,6 +37,7 @@ async def register(
     new_user = User(
         username=user_data.username,
         email=user_data.email,
+        display_name=user_data.display_name,
         hashed_password=hashed_password
     )
     

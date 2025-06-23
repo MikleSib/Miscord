@@ -7,6 +7,7 @@ class UserBase(BaseModel):
     email: EmailStr
 
 class UserCreate(UserBase):
+    display_name: str
     password: str
 
 class UserUpdate(BaseModel):
