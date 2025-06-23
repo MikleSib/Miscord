@@ -26,7 +26,9 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     error: chatError,
     loadMessageHistory,
     addMessage,
-    updateMessageReactions
+    updateMessageReactions,
+    deleteMessage,
+    editMessage
   } = useChatStore()
   
   // Логируем изменения currentChannel
@@ -96,6 +98,18 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
               });
             }
           });
+
+          // Обработчик удаления сообщений
+          chatService.onMessageDeleted((data) => {
+            console.log('[ChatArea] Сообщение удалено:', data.message_id);
+            deleteMessage(data.message_id);
+          });
+
+          // Обработчик редактирования сообщений
+          chatService.onMessageEdited((msg) => {
+            console.log('[ChatArea] Сообщение отредактировано:', msg);
+            editMessage(msg.id, msg.content || '');
+          });
         }, 100);
       }
     } else {
@@ -110,7 +124,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
       chatService.disconnect();
       setTypingUsers([]);
     };
-  }, [currentChannel?.id, currentChannel?.type, loadMessageHistory, addMessage, token]);
+  }, [currentChannel?.id, currentChannel?.type, loadMessageHistory, addMessage, deleteMessage, editMessage, token]);
   
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })

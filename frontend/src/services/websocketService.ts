@@ -182,6 +182,14 @@ class WebSocketService {
     this.messageHandlers['typing'] = handler;
   }
 
+  onMessageDeleted(handler: (data: { message_id: number; text_channel_id: number }) => void) {
+    this.messageHandlers['message_deleted'] = handler;
+  }
+
+  onMessageEdited(handler: (message: Message) => void) {
+    this.messageHandlers['message_edited'] = handler;
+  }
+
   // Демонстрация экрана
   onScreenShareStarted(handler: (data: { user_id: number; username: string }) => void) {
     this.messageHandlers['screen_share_started'] = handler;

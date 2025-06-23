@@ -18,6 +18,8 @@ interface ChatState {
   setCurrentChannel: (channelId: number | null) => void;
   loadMessageHistory: (channelId: number) => Promise<void>;
   updateMessageReactions: (messageId: number, reactions: Reaction[]) => void;
+  deleteMessage: (messageId: number) => void;
+  editMessage: (messageId: number, content: string) => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -73,6 +75,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
     messages: state.messages.map(message => 
       message.id === messageId 
         ? { ...message, reactions }
+        : message
+    ),
+  })),
+
+  deleteMessage: (messageId) => set((state) => ({
+    messages: state.messages.filter(message => message.id !== messageId),
+  })),
+
+  editMessage: (messageId, content) => set((state) => ({
+    messages: state.messages.map(message => 
+      message.id === messageId 
+        ? { ...message, content, is_edited: true }
         : message
     ),
   })),

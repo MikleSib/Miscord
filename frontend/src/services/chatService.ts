@@ -9,6 +9,8 @@ class ChatService {
   private ws: WebSocket | null = null;
   private messageHandler: ChatMessageHandler | null = null;
   private typingHandler: ((data: any) => void) | null = null;
+  private messageDeletedHandler: ((data: { message_id: number; text_channel_id: number }) => void) | null = null;
+  private messageEditedHandler: ChatMessageHandler | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 2000;
@@ -68,6 +70,12 @@ class ChatService {
           }
           if (data.type === 'typing' && this.typingHandler) {
             this.typingHandler(data);
+          }
+          if (data.type === 'message_deleted' && this.messageDeletedHandler) {
+            this.messageDeletedHandler(data.data);
+          }
+          if (data.type === 'message_edited' && this.messageEditedHandler) {
+            this.messageEditedHandler(data.data);
           }
         } catch (e) {
           console.error('[ChatService] Ошибка обработки сообщения:', e);
@@ -169,6 +177,14 @@ class ChatService {
 
   onTyping(handler: (data: any) => void) {
     this.typingHandler = handler;
+  }
+
+  onMessageDeleted(handler: (data: { message_id: number; text_channel_id: number }) => void) {
+    this.messageDeletedHandler = handler;
+  }
+
+  onMessageEdited(handler: ChatMessageHandler) {
+    this.messageEditedHandler = handler;
   }
 
   async loadMessageHistory(channelId: number, limit = 50, before?: number) {

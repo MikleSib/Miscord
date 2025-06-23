@@ -1,11 +1,13 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Reply, MoreHorizontal, Smile } from 'lucide-react'
+import { Reply, MoreHorizontal, Smile, Trash2, Edit3 } from 'lucide-react'
 import { Message, User } from '../types'
 import { UserAvatar } from './ui/user-avatar'
 import { Button } from './ui/button'
 import { formatMessageTime, formatMessageFullTime } from '../lib/utils'
+import { messageService } from '../services/messageService'
+import { useChatStore } from '../store/chatStore'
 
 interface ChatMessageProps {
   message: Message;
@@ -21,10 +23,56 @@ const AVAILABLE_EMOJIS = ['😀', '😂', '❤️', '👍', '👎', '😢', '�
 export function ChatMessage({ message, showAuthor, onReply, onReaction, currentUser }: ChatMessageProps) {
   const [isHovered, setIsHovered] = useState(false)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editContent, setEditContent] = useState(message.content || '')
+  const [showMoreMenu, setShowMoreMenu] = useState(false)
+  
+  const { deleteMessage, editMessage } = useChatStore()
 
   const handleReaction = (emoji: string) => {
     onReaction(message.id, emoji);
     setShowEmojiPicker(false);
+  }
+
+  // Проверяем, может ли текущий пользователь редактировать/удалять это сообщение
+  const canEditDelete = currentUser && 
+    message.author.id === currentUser.id && 
+    (new Date().getTime() - new Date(message.timestamp).getTime()) < 2 * 60 * 60 * 1000; // 2 часа
+
+  const handleDelete = async () => {
+    if (!canEditDelete) return;
+    
+    try {
+      await messageService.deleteMessage(message.id);
+      deleteMessage(message.id);
+      setShowMoreMenu(false);
+    } catch (error) {
+      console.error('Ошибка удаления сообщения:', error);
+    }
+  }
+
+  const handleEditStart = () => {
+    if (!canEditDelete) return;
+    setIsEditing(true);
+    setEditContent(message.content || '');
+    setShowMoreMenu(false);
+  }
+
+  const handleEditSave = async () => {
+    if (!editContent.trim()) return;
+    
+    try {
+      await messageService.editMessage(message.id, { content: editContent });
+      editMessage(message.id, editContent);
+      setIsEditing(false);
+    } catch (error) {
+      console.error('Ошибка редактирования сообщения:', error);
+    }
+  }
+
+  const handleEditCancel = () => {
+    setIsEditing(false);
+    setEditContent(message.content || '');
   }
 
   return (
@@ -34,7 +82,7 @@ export function ChatMessage({ message, showAuthor, onReply, onReaction, currentU
       onMouseLeave={() => setIsHovered(false)}
     >
       {/* Hover menu */}
-      {isHovered && (
+      {isHovered && !isEditing && (
         <div className="absolute top-1 right-2 bg-background border border-border rounded-lg shadow-lg flex items-center z-10">
           <Button
             size="sm"
@@ -54,14 +102,28 @@ export function ChatMessage({ message, showAuthor, onReply, onReaction, currentU
           >
             <Reply className="w-4 h-4" />
           </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-8 px-2"
-            title="Ещё"
-          >
-            <MoreHorizontal className="w-4 h-4" />
-          </Button>
+          {canEditDelete && (
+            <>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 px-2"
+                onClick={handleEditStart}
+                title="Редактировать"
+              >
+                <Edit3 className="w-4 h-4" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 px-2 text-destructive hover:text-destructive"
+                onClick={handleDelete}
+                title="Удалить"
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            </>
+          )}
         </div>
       )}
 
@@ -102,6 +164,9 @@ export function ChatMessage({ message, showAuthor, onReply, onReaction, currentU
             >
               {formatMessageTime(message.timestamp)}
             </span>
+            {message.is_edited && (
+              <span className="text-xs text-muted-foreground">(изменено)</span>
+            )}
           </div>
         )}
 
@@ -117,7 +182,27 @@ export function ChatMessage({ message, showAuthor, onReply, onReaction, currentU
         )}
         
         {/* Message content */}
-        {message.content && <p className="text-sm leading-relaxed">{message.content}</p>}
+        {isEditing ? (
+          <div className="mt-1">
+            <textarea
+              value={editContent}
+              onChange={(e) => setEditContent(e.target.value)}
+              className="w-full p-2 text-sm border border-border rounded resize-none focus:outline-none focus:ring-2 focus:ring-primary"
+              rows={3}
+              placeholder="Введите сообщение..."
+            />
+            <div className="flex gap-2 mt-2">
+              <Button size="sm" onClick={handleEditSave}>
+                Сохранить
+              </Button>
+              <Button size="sm" variant="ghost" onClick={handleEditCancel}>
+                Отмена
+              </Button>
+            </div>
+          </div>
+        ) : (
+          message.content && <p className="text-sm leading-relaxed">{message.content}</p>
+        )}
 
         {/* Attachments */}
         {message.attachments && message.attachments.length > 0 && (

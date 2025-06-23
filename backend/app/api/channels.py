@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, delete
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from app.db.database import get_db
@@ -13,7 +13,8 @@ from app.schemas.channel import (
 from app.schemas.user import UserResponse
 from app.core.dependencies import get_current_active_user, get_current_user
 from app.websocket.connection_manager import manager
-from datetime import timezone
+from datetime import timezone, datetime, timedelta
+from app.schemas.message import MessageUpdate
 
 router = APIRouter()
 
@@ -706,6 +707,7 @@ async def get_channel_messages(
             "content": msg.content,
             "channelId": msg.text_channel_id,
             "timestamp": msg.timestamp.replace(tzinfo=timezone.utc).isoformat(),
+            "is_edited": msg.is_edited,
             "author": author_data,
             "attachments": [
                 {
@@ -743,3 +745,163 @@ async def get_channel_messages(
         "messages": message_list,
         "has_more": len(messages) == limit  # Есть ли еще сообщения
     }
+
+@router.delete("/messages/{message_id}")
+async def delete_message(
+    message_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Удаление сообщения (только автор, в течение 2 часов)"""
+    # Получаем сообщение
+    message_result = await db.execute(
+        select(Message).where(Message.id == message_id)
+    )
+    message = message_result.scalar_one_or_none()
+    
+    if not message:
+        raise HTTPException(status_code=404, detail="Сообщение не найдено")
+    
+    # Проверяем авторство
+    if message.author_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Вы можете удалять только свои сообщения")
+    
+    # Проверяем временное ограничение (2 часа)
+    time_limit = timedelta(hours=2)
+    time_since_creation = datetime.utcnow() - message.timestamp
+    
+    if time_since_creation > time_limit:
+        raise HTTPException(status_code=403, detail="Сообщение можно удалить только в течение 2 часов после отправки")
+    
+    # Удаляем сообщение (каскадно удалятся реакции и вложения)
+    await db.execute(delete(Message).where(Message.id == message_id))
+    await db.commit()
+    
+    # Отправляем WebSocket уведомление о удалении
+    await manager.send_to_channel(message.text_channel_id, {
+        "type": "message_deleted",
+        "data": {
+            "message_id": message_id,
+            "text_channel_id": message.text_channel_id
+        }
+    })
+    
+    return {"message": "Сообщение удалено"}
+
+@router.put("/messages/{message_id}")
+async def edit_message(
+    message_id: int,
+    message_data: MessageUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Редактирование сообщения (только автор, в течение 2 часов)"""
+    # Получаем сообщение с полными данными
+    message_result = await db.execute(
+        select(Message)
+        .where(Message.id == message_id)
+        .options(
+            selectinload(Message.author),
+            selectinload(Message.attachments),
+            selectinload(Message.reactions).selectinload(Reaction.user),
+            selectinload(Message.reply_to).selectinload(Message.author)
+        )
+    )
+    message = message_result.scalar_one_or_none()
+    
+    if not message:
+        raise HTTPException(status_code=404, detail="Сообщение не найдено")
+    
+    # Проверяем авторство
+    if message.author_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Вы можете редактировать только свои сообщения")
+    
+    # Проверяем временное ограничение (2 часа)
+    time_limit = timedelta(hours=2)
+    time_since_creation = datetime.utcnow() - message.timestamp
+    
+    if time_since_creation > time_limit:
+        raise HTTPException(status_code=403, detail="Сообщение можно редактировать только в течение 2 часов после отправки")
+    
+    # Обновляем контент и помечаем как отредактированное
+    message.content = message_data.content.strip()
+    message.is_edited = True
+    
+    await db.commit()
+    await db.refresh(message)
+    
+    # Формируем реакции
+    reactions_dict = {}
+    for reaction in message.reactions:
+        emoji = reaction.emoji
+        if emoji not in reactions_dict:
+            reactions_dict[emoji] = {
+                "id": reaction.id,
+                "emoji": emoji,
+                "count": 0,
+                "users": [],
+                "current_user_reacted": False
+            }
+        reactions_dict[emoji]["count"] += 1
+        reactions_dict[emoji]["users"].append({
+            "id": reaction.user.id,
+            "username": reaction.user.display_name or reaction.user.username,
+            "email": reaction.user.email,
+            "display_name": reaction.user.display_name,
+            "avatar_url": getattr(reaction.user, 'avatar_url', None)
+        })
+        if reaction.user_id == current_user.id:
+            reactions_dict[emoji]["current_user_reacted"] = True
+    
+    # Формируем обновленное сообщение
+    updated_message = {
+        "id": message.id,
+        "content": message.content,
+        "channelId": message.text_channel_id,
+        "timestamp": message.timestamp.replace(tzinfo=timezone.utc).isoformat(),
+        "is_edited": message.is_edited,
+        "author": {
+            "id": message.author.id,
+            "username": message.author.display_name or message.author.username,
+            "email": message.author.email,
+            "display_name": message.author.display_name,
+            "avatar_url": getattr(message.author, 'avatar_url', None)
+        },
+        "attachments": [
+            {
+                "id": att.id,
+                "file_url": att.file_url,
+                "filename": getattr(att, 'filename', None)
+            } for att in message.attachments
+        ],
+        "reactions": list(reactions_dict.values()),
+        "reply_to": None if not message.reply_to else {
+            "id": message.reply_to.id,
+            "content": message.reply_to.content,
+            "channelId": message.reply_to.text_channel_id,
+            "timestamp": message.reply_to.timestamp.replace(tzinfo=timezone.utc).isoformat(),
+            "author": {
+                "id": message.reply_to.author.id,
+                "username": message.reply_to.author.display_name or message.reply_to.author.username,
+                "email": message.reply_to.author.email,
+                "display_name": message.reply_to.author.display_name,
+                "avatar_url": getattr(message.reply_to.author, 'avatar_url', None)
+            } if message.reply_to.author else {
+                "id": -1,
+                "username": "УДАЛЕННЫЙ АККАУНТ",
+                "email": "",
+                "display_name": "УДАЛЕННЫЙ АККАУНТ",
+                "avatar_url": None
+            },
+            "attachments": [],
+            "reactions": []
+        }
+    }
+    
+    # Отправляем WebSocket уведомление об изменении
+    await manager.send_to_channel(message.text_channel_id, {
+        "type": "message_edited", 
+        "data": updated_message
+    })
+    
+    return updated_message
