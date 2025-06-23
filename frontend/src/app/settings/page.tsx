@@ -56,12 +56,30 @@ export default function SettingsPage() {
     router.back();
   };
 
-  const handleAvatarSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       setAvatarFile(file);
       const previewUrl = URL.createObjectURL(file);
       setAvatarPreview(previewUrl);
+      
+      // Автоматически загружаем аватар
+      setIsLoading(true);
+      try {
+        const response = await authService.uploadAvatar(file);
+        updateUser({ ...user, avatar_url: response.avatar_url });
+        console.log('Аватар загружен:', response.avatar_url);
+      } catch (error) {
+        console.error('Ошибка загрузки аватара:', error);
+        // Откатываем изменения при ошибке
+        setAvatarFile(null);
+        setAvatarPreview(null);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+      } finally {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -79,15 +97,9 @@ export default function SettingsPage() {
       // Обновляем отображаемое имя
       if (displayName !== (user.display_name || user.username)) {
         await authService.updateProfile({ display_name: displayName });
+        // Обновляем локальные данные пользователя
+        updateUser({ ...user, display_name: displayName });
       }
-
-      // Загружаем аватар если выбран
-      if (avatarFile) {
-        await authService.uploadAvatar(avatarFile);
-      }
-
-      // Обновляем локальные данные пользователя
-      updateUser({ ...user, display_name: displayName });
       
       // Показываем успешное сообщение (можно добавить toast)
       console.log('Профиль обновлен');
@@ -268,7 +280,7 @@ export default function SettingsPage() {
               <div className="flex justify-end">
                 <Button
                   onClick={handleSaveProfile}
-                  disabled={isLoading || displayName === (user.display_name || user.username)}
+                  disabled={isLoading || (displayName === (user.display_name || user.username) && !avatarFile)}
                   className="bg-primary text-primary-foreground hover:bg-primary/90"
                 >
                   {isLoading ? 'Сохранение...' : 'Сохранить изменения'}

@@ -92,7 +92,7 @@ async def websocket_voice_endpoint(
         voice_connections[channel_id][user.id] = {
             "websocket": websocket,
             "user_id": user.id,
-            "username": user.username,
+            "username": user.display_name or user.username,
             "is_muted": False,
             "is_deafened": False
         }
@@ -119,7 +119,7 @@ async def websocket_voice_endpoint(
             join_message = {
                 "type": "user_joined_voice",
                 "user_id": user.id,
-                "username": user.username
+                "username": user.display_name or user.username
             }
             
             for uid, conn_info in voice_connections[channel_id].items():
@@ -133,7 +133,7 @@ async def websocket_voice_endpoint(
             global_join_message = {
                 "type": "voice_channel_join",
                 "user_id": user.id,
-                "username": user.username,
+                "username": user.display_name or user.username,
                 "voice_channel_id": channel_id,
                 "voice_channel_name": voice_channel.name
             }
@@ -262,7 +262,7 @@ async def websocket_voice_endpoint(
                     screen_share_message = {
                         "type": "screen_share_started",
                         "user_id": user.id,
-                        "username": user.username
+                        "username": user.display_name or user.username
                     }
                     
                     for uid, conn_info in voice_connections[channel_id].items():
@@ -279,7 +279,7 @@ async def websocket_voice_endpoint(
                     screen_share_message = {
                         "type": "screen_share_stopped",
                         "user_id": user.id,
-                        "username": user.username
+                        "username": user.display_name or user.username
                     }
                     
                     for uid, conn_info in voice_connections[channel_id].items():
@@ -339,7 +339,7 @@ async def websocket_voice_endpoint(
             global_leave_message = {
                 "type": "voice_channel_leave",
                 "user_id": user.id,
-                "username": user.username,
+                "username": user.display_name or user.username,
                 "voice_channel_id": channel_id
             }
             await manager.broadcast_to_all(global_leave_message)

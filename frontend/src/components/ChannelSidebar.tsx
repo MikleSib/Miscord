@@ -725,7 +725,7 @@ export function ChannelSidebar() {
                   fontWeight: 600,
                 }}
               >
-                {user?.username[0].toUpperCase()}
+                {(user?.display_name || user?.username)?.[0].toUpperCase()}
               </Avatar>
               <div className="flex-1 min-w-0">
                 <Typography 
@@ -736,7 +736,7 @@ export function ChannelSidebar() {
                     lineHeight: 1.2,
                   }}
                 >
-                  {user?.username}
+                  {user?.display_name || user?.username}
                 </Typography>
                 <Typography 
                   sx={{ 

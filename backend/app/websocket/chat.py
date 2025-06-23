@@ -134,7 +134,7 @@ async def websocket_chat_endpoint(
                         "timestamp": full_message.timestamp.isoformat(),
                         "author": {
                             "id": full_message.author.id,
-                            "username": full_message.author.username,
+                            "username": full_message.author.display_name or full_message.author.username,
                             "avatar": getattr(full_message.author, 'avatar', None)
                         },
                         "attachments": [
@@ -162,7 +162,7 @@ async def websocket_chat_endpoint(
                             "type": "typing",
                             "user": {
                                 "id": user.id,
-                                "username": user.username
+                                "username": user.display_name or user.username
                             },
                             "text_channel_id": text_channel_id
                         })

@@ -46,7 +46,7 @@ async def get_full_server_data(db: AsyncSession = Depends(get_db)):
         members = [
             {
                 "id": m.user.id,
-                "username": m.user.username,
+                "username": m.user.display_name or m.user.username,
                 "email": m.user.email,
                 "is_active": m.user.is_active,
                 "is_online": m.user.is_online,
@@ -73,7 +73,7 @@ async def get_full_server_data(db: AsyncSession = Depends(get_db)):
                 else:
                     author_data = {
                         "id": msg.author.id,
-                        "username": msg.author.username,
+                        "username": msg.author.display_name or msg.author.username,
                         "avatar": getattr(msg.author, 'avatar', None)
                     }
                 
@@ -109,7 +109,7 @@ async def get_full_server_data(db: AsyncSession = Depends(get_db)):
                 "active_users": [
                     {
                         "id": vcu.user.id,
-                        "username": vcu.user.username,
+                        "username": vcu.user.display_name or vcu.user.username,
                         "is_muted": vcu.is_muted,
                         "is_deafened": vcu.is_deafened
                     }
@@ -141,7 +141,7 @@ async def get_full_server_data(db: AsyncSession = Depends(get_db)):
     sidebar_users = [
         {
             "id": u.id,
-            "username": u.username,
+            "username": u.display_name or u.username,
             "email": u.email,
             "is_active": u.is_active,
             "is_online": u.is_online,
@@ -582,7 +582,7 @@ async def get_voice_channel_members(
     return [
         {
             "id": user.id,
-            "username": user.username,
+            "username": user.display_name or user.username,
             "email": user.email,
             "is_active": user.is_active,
             "is_online": user.is_online,
@@ -648,11 +648,11 @@ async def get_channel_messages(
                 "avatar": None
             }
         else:
-            author_data = {
-                "id": msg.author.id,
-                "username": msg.author.username,
-                "avatar": getattr(msg.author, 'avatar', None)
-            }
+                                author_data = {
+                        "id": msg.author.id,
+                        "username": msg.author.display_name or msg.author.username,
+                        "avatar": getattr(msg.author, 'avatar', None)
+                    }
         
         message_dict = {
             "id": msg.id,
