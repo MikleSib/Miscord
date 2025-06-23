@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { Hash, Send, PlusCircle, X } from 'lucide-react'
-import { useStore } from '../store/store'
+import { useStore } from '../lib/store'
 import { useAuthStore } from '../store/store'
 import { useChatStore } from '../store/chatStore'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
