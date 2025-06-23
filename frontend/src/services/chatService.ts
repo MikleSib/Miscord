@@ -18,6 +18,15 @@ class ChatService {
   private shouldReconnect = true;
 
   connect(channelId: number, token: string) {
+    console.log('[ChatService] connect() вызван', { 
+      channelId, 
+      hasToken: !!token, 
+      tokenLength: token?.length,
+      currentChannelId: this.channelId,
+      wsState: this.ws?.readyState,
+      isConnecting: this.isConnecting 
+    });
+    
     if (this.ws && this.ws.readyState === WebSocket.OPEN && this.channelId === channelId) {
       console.log('[ChatService] Уже подключены к каналу', channelId);
       return;
