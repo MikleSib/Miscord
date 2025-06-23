@@ -76,17 +76,8 @@ class WebSocketService {
           const data = JSON.parse(event.data);
           console.log('🔔 Получено уведомление:', data);
           
-          // Универсальная обработка новых сообщений
-          if ((data.type === 'new_message' || data.type === 'message') && data.data) {
-            // data.data — это объект сообщения
-            if (this.messageHandlers['new_message']) {
-              this.messageHandlers['new_message'](data.data);
-            }
-            // Для обратной совместимости
-            if (this.messageHandlers['message']) {
-              this.messageHandlers['message'](data.data);
-            }
-          }
+          // Убираем обработку сообщений чата - за это отвечает chatService
+          // Оставляем только обработку уведомлений (создание каналов, серверов и т.д.)
 
           // Вызываем соответствующий обработчик
           if (data.type && this.messageHandlers[data.type]) {
@@ -194,24 +185,6 @@ class WebSocketService {
 
   onScreenShareStopped(handler: (data: { user_id: number; username: string }) => void) {
     this.messageHandlers['screen_share_stopped'] = handler;
-  }
-
-  // Отправка сообщения
-  sendMessage(textChannelId: number, content: string, attachments: string[] = []) {
-    console.log('[WS] Отправка сообщения:', { textChannelId, content, attachments });
-    this.send({
-      type: 'message',
-      text_channel_id: textChannelId,
-      content,
-      attachments,
-    });
-  }
-
-  sendTyping(textChannelId: number) {
-    this.send({
-      type: 'typing',
-      text_channel_id: textChannelId,
-    });
   }
 
   // Отправка сообщения

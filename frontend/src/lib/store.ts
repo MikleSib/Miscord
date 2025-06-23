@@ -538,24 +538,6 @@ export const useStore = create<AppState>()(
           // Генерируем глобальное событие для обновления UI
           window.dispatchEvent(new CustomEvent('screen_share_stop', { detail: data }));
         });
-
-        websocketService.onNewMessage((message) => {
-          console.log('Новое сообщение:', message);
-          get().addMessage(message);
-
-          // Убираем пользователя из списка печатающих, когда он отправил сообщение
-          if (message.author) {
-            get().clearTyping(message.channelId, message.author.username);
-          }
-        });
-
-        websocketService.onTyping((data) => {
-          const { user } = get();
-          // Не показывать свой собственный статус печати
-          if (user?.id !== data.user.id) {
-            get().setTyping(data.text_channel_id, data.user.username);
-          }
-        });
       },
 
       // Отключение WebSocket
