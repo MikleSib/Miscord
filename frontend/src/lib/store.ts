@@ -323,9 +323,16 @@ export const useStore = create<AppState>()(
             const updatedCurrentServer = servers.find(s => s.id === currentServer.id);
             if (updatedCurrentServer) {
               set({ currentServer: updatedCurrentServer });
+              // Автоматически загружаем детали текущего сервера (включая участников)
+              await get().loadServerDetails(currentServer.id);
             } else {
               set({ currentServer: null, currentChannel: null });
             }
+          } else if (servers.length > 0) {
+            // Если нет текущего сервера, но есть серверы - выбираем первый
+            const firstServer = servers[0];
+            set({ currentServer: firstServer });
+            await get().loadServerDetails(firstServer.id);
           }
         } catch (error: any) {
           console.error('Ошибка загрузки серверов:', error);
