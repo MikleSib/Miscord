@@ -382,7 +382,9 @@ export function ChannelSidebar() {
       const allParticipants = [
         ...(user ? [{
           user_id: user.id,
-          username: user.username,
+          username: user.display_name || user.username,
+          display_name: user.display_name,
+          avatar_url: user.avatar_url,
           is_muted: currentUserParticipant?.is_muted ?? false,
           is_deafened: currentUserParticipant?.is_deafened ?? false,
         }] : []),
