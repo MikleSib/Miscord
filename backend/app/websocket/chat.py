@@ -26,10 +26,12 @@ async def websocket_chat_endpoint(
             return
 
         await manager.connect(websocket, user.id, server_channel_id)
+        print(f"[WS] Пользователь {user.username} (id={user.id}) подключился к чату сервера {server_channel_id}")
         
         try:
             while True:
                 data = await websocket.receive_text()
+                print(f"[WS] Получено сообщение от пользователя {user.username} (id={user.id}): {data}")
                 message_data = json.loads(data)
                 
                 if message_data.get("type") == "message":
@@ -37,15 +39,17 @@ async def websocket_chat_endpoint(
                     text_channel_id = message_data.get("text_channel_id")
                     attachments = message_data.get("attachments", [])
 
+                    print(f"[WS] Обработка текстового сообщения: content='{content}', channel_id={text_channel_id}, attachments={attachments}")
+
                     # Валидация
                     if not content and not attachments:
-                        # Игнорируем или отправляем ошибку
+                        print("[WS] Отклонено: пустое сообщение и нет вложений")
                         continue 
                     if len(content) > 5000:
-                        # Игнорируем или отправляем ошибку
+                        print("[WS] Отклонено: слишком длинное сообщение")
                         continue
                     if len(attachments) > 3:
-                        # Игнорируем или отправляем ошибку
+                        print("[WS] Отклонено: слишком много вложений")
                         continue
                     
                     text_channel_result = await db.execute(
@@ -68,6 +72,7 @@ async def websocket_chat_endpoint(
                         db.add(db_message)
                         await db.commit()
                         await db.refresh(db_message)
+                        print(f"[WS] Сообщение сохранено в БД: id={db_message.id}")
                         
                         # Загружаем связанные данные для схемы
                         await db.execute(
@@ -78,16 +83,19 @@ async def websocket_chat_endpoint(
                         )
                         
                         message_schema = MessageSchema.from_orm(db_message)
-                        
+                        print(f"[WS] Отправка broadcast: {message_schema.dict()}")
                         # Отправляем сообщение всем участникам сервера
                         await manager.broadcast_to_all({
                             "type": "new_message",
                             "data": message_schema.dict()
                         })
+                    else:
+                        print(f"[WS] Канал с id={text_channel_id} не найден!")
                 
                 elif message_data.get("type") == "typing":
                     text_channel_id = message_data.get("text_channel_id")
                     if text_channel_id:
+                        print(f"[WS] Статус печати от пользователя {user.username} (id={user.id}) в канал {text_channel_id}")
                         await manager.broadcast_to_all({
                             "type": "typing",
                             "user": {
@@ -98,11 +106,13 @@ async def websocket_chat_endpoint(
                         })
                         
         except WebSocketDisconnect:
+            print(f"[WS] Отключение пользователя {user.username} (id={user.id}) от чата сервера {server_channel_id}")
             pass # Просто выходим из цикла
         except Exception as e:
-            print(f"Ошибка в WebSocket чата: {e}")
+            print(f"[WS] Ошибка в WebSocket чата: {e}")
         finally:
             await manager.disconnect(websocket, user.id, server_channel_id)
+            print(f"[WS] Пользователь {user.username} (id={user.id}) отключён от чата сервера {server_channel_id}")
             
 
 async def websocket_notifications_endpoint(
