@@ -3,7 +3,7 @@ import api from './api';
 class ReactionService {
   async toggleReaction(messageId: number, emoji: string) {
     try {
-      const response = await api.post(`/messages/${messageId}/reactions`, {
+      const response = await api.post(`/api/messages/${messageId}/reactions`, {
         emoji
       });
       return response.data;
@@ -15,7 +15,7 @@ class ReactionService {
 
   async getMessageReactions(messageId: number) {
     try {
-      const response = await api.get(`/messages/${messageId}/reactions`);
+      const response = await api.get(`/api/messages/${messageId}/reactions`);
       return response.data;
     } catch (error) {
       console.error('Ошибка при получении реакций:', error);
