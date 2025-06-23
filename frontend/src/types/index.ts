@@ -57,6 +57,7 @@ export interface BackendChannel {
   text_channels?: TextChannel[];
   voice_channels?: VoiceChannel[];
   members_count?: number;
+  members?: User[];
   channels?: Array<{
     id: number;
     name: string;
@@ -147,5 +148,4 @@ export interface FullServer {
 
 export interface FullServerData {
   servers: FullServer[];
-  sidebar_users: User[];
 }

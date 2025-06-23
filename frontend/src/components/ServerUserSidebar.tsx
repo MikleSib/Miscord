@@ -6,14 +6,14 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { User } from '../types';
 
 export function ServerUserSidebar() {
-  const { sidebarUsers, currentServer } = useStore();
+  const { currentServerMembers, currentServer } = useStore();
   const [collapsed, setCollapsed] = useState(false);
 
   if (!currentServer || collapsed) {
     return null;
   }
 
-  const users: User[] = sidebarUsers || [];
+  const users: User[] = currentServerMembers || [];
   const online: User[] = users.filter((u: User) => u.is_online);
   const offline: User[] = users.filter((u: User) => !u.is_online);
 

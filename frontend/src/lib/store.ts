@@ -16,7 +16,7 @@ interface AppState {
   isLoading: boolean;
   error: string | null;
   typingStatus: { [channelId: number]: { username: string; timeoutId: NodeJS.Timeout }[] };
-  sidebarUsers: User[];
+  currentServerMembers: User[];
 
   // Действия для серверов
   selectServer: (serverId: number) => Promise<void>;
@@ -63,7 +63,7 @@ export const useStore = create<AppState>()(
       isLoading: false,
       error: null,
       typingStatus: {},
-      sidebarUsers: [],
+      currentServerMembers: [],
 
       // Выбор сервера
       selectServer: async (serverId: number) => {
@@ -317,7 +317,7 @@ export const useStore = create<AppState>()(
               })),
             ]
           }));
-          set({ servers, sidebarUsers: fullData.sidebar_users, isLoading: false });
+          set({ servers, isLoading: false });
           const { currentServer } = get();
           if (currentServer) {
             const updatedCurrentServer = servers.find(s => s.id === currentServer.id);
@@ -359,7 +359,8 @@ export const useStore = create<AppState>()(
             servers: state.servers.map(server =>
               server.id === serverId ? updatedServer : server
             ),
-            currentServer: updatedServer
+            currentServer: updatedServer,
+            currentServerMembers: serverDetails.members || []
           }))
         } catch (error) {
           console.error('Ошибка загрузки деталей сервера:', error)

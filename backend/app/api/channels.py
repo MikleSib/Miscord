@@ -31,81 +31,27 @@ async def get_full_server_data(
         .where(ChannelMember.user_id == current_user.id)
         .options(
             selectinload(Channel.owner),
-            selectinload(Channel.members).selectinload(ChannelMember.user),
-            selectinload(Channel.text_channels).selectinload(TextChannel.messages).selectinload(Message.author),
-            selectinload(Channel.text_channels).selectinload(TextChannel.messages).selectinload(Message.attachments),
-            selectinload(Channel.voice_channels).selectinload(VoiceChannel.active_users).selectinload(VoiceChannelUser.user)
+            selectinload(Channel.text_channels),
+            selectinload(Channel.voice_channels)
         )
         .order_by(Channel.created_at)
     )
     result = await db.execute(stmt)
     channels = result.scalars().unique().all()
 
-    # Получаем всех пользователей для сайдбара
-    users_result = await db.execute(select(User))
-    all_users = users_result.scalars().all()
-
     servers = []
     for channel in channels:
-        # Участники сервера
-        members = []
-        for m in channel.members:
-            if m.user is None:
-                # Пропускаем удаленных пользователей из списка участников
-                continue
-            members.append({
-                "id": m.user.id,
-                "username": m.user.display_name or m.user.username,
-                "email": m.user.email,
-                "is_active": m.user.is_active,
-                "is_online": m.user.is_online,
-                "avatar_url": m.user.avatar_url,
-                "created_at": m.user.created_at,
-                "updated_at": m.user.updated_at
-            })
-        # Текстовые каналы с последними сообщениями
+        # Текстовые каналы без сообщений
         text_channels = []
         for tc in channel.text_channels:
-            # Берём последние 50 сообщений
-            messages = sorted(tc.messages, key=lambda m: m.timestamp, reverse=True)[:50]
-            messages = list(reversed(messages))
-            msg_list = []
-            for msg in messages:
-                # Обрабатываем случай удаленного пользователя
-                if msg.author is None:
-                    author_data = {
-                        "id": -1,  # Специальный ID для удаленных пользователей
-                        "username": "УДАЛЕННЫЙ АККАУНТ",
-                        "avatar_url": None
-                    }
-                else:
-                    author_data = {
-                        "id": msg.author.id,
-                        "username": msg.author.display_name or msg.author.username,
-                        "avatar_url": getattr(msg.author, 'avatar_url', None)
-                    }
-                
-                msg_list.append({
-                    "id": msg.id,
-                    "content": msg.content,
-                    "channelId": msg.text_channel_id,
-                    "timestamp": msg.timestamp.isoformat(),
-                    "author": author_data,
-                    "attachments": [
-                        {
-                            "id": att.id,
-                            "file_url": att.file_url
-                        } for att in msg.attachments
-                    ]
-                })
             text_channels.append({
                 "id": tc.id,
                 "name": tc.name,
                 "position": tc.position,
-                "created_at": tc.created_at,
-                "messages": msg_list
+                "created_at": tc.created_at
             })
-        # Голосовые каналы с активными пользователями
+        
+        # Голосовые каналы без активных пользователей
         voice_channels = []
         for vc in channel.voice_channels:
             voice_channels.append({
@@ -113,18 +59,9 @@ async def get_full_server_data(
                 "name": vc.name,
                 "position": vc.position,
                 "max_users": vc.max_users,
-                "created_at": vc.created_at,
-                "active_users": [
-                    {
-                        "id": vcu.user.id,
-                        "username": vcu.user.display_name or vcu.user.username,
-                        "avatar_url": vcu.user.avatar_url,
-                        "is_muted": vcu.is_muted,
-                        "is_deafened": vcu.is_deafened
-                    }
-                    for vcu in vc.active_users if vcu.user is not None
-                ]
+                "created_at": vc.created_at
             })
+            
         servers.append({
             "id": channel.id,
             "name": channel.name,
@@ -142,29 +79,12 @@ async def get_full_server_data(
                 "created_at": channel.owner.created_at,
                 "updated_at": channel.owner.updated_at
             } if channel.owner else None,
-            "members": members,
             "text_channels": text_channels,
             "voice_channels": voice_channels
         })
 
-    # Данные для сайдбара (все пользователи)
-    sidebar_users = [
-        {
-            "id": u.id,
-            "username": u.display_name or u.username,
-            "email": u.email,
-            "is_active": u.is_active,
-            "is_online": u.is_online,
-            "avatar_url": u.avatar_url,
-            "created_at": u.created_at,
-            "updated_at": u.updated_at
-        }
-        for u in all_users
-    ]
-
     return {
-        "servers": servers,
-        "sidebar_users": sidebar_users
+        "servers": servers
     }
 
 @router.post("/", response_model=ChannelSchema)
@@ -316,12 +236,15 @@ async def get_all_channels(
 @router.get("/{channel_id}")
 async def get_channel_details(
     channel_id: int,
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Получение детальной информации о канале"""
+    """Получение детальной информации о канале и участниках сервера"""
     # Получаем основной канал
     channel_result = await db.execute(
-        select(Channel).where(Channel.id == channel_id)
+        select(Channel)
+        .options(selectinload(Channel.owner))
+        .where(Channel.id == channel_id)
     )
     channel = channel_result.scalar_one_or_none()
     if not channel:
@@ -342,18 +265,49 @@ async def get_channel_details(
     )
     voice_channels = voice_result.scalars().all()
     
+    # Получаем участников сервера
+    members_result = await db.execute(
+        select(User)
+        .join(ChannelMember, User.id == ChannelMember.user_id)
+        .where(ChannelMember.channel_id == channel_id)
+    )
+    members = members_result.scalars().all()
+    
     return {
         "id": channel.id,
         "name": channel.name,
         "description": channel.description,
         "owner_id": channel.owner_id,
         "type": "server",  # Это сервер, содержащий каналы
+        "owner": {
+            "id": channel.owner.id,
+            "username": channel.owner.display_name or channel.owner.username,
+            "email": channel.owner.email,
+            "is_active": channel.owner.is_active,
+            "is_online": channel.owner.is_online,
+            "avatar_url": channel.owner.avatar_url,
+            "created_at": channel.owner.created_at,
+            "updated_at": channel.owner.updated_at
+        } if channel.owner else None,
         "channels": [
             {"id": tc.id, "name": tc.name, "type": "text", "position": tc.position}
             for tc in text_channels
         ] + [
             {"id": vc.id, "name": vc.name, "type": "voice", "position": vc.position, "max_users": vc.max_users}
             for vc in voice_channels
+        ],
+        "members": [
+            {
+                "id": member.id,
+                "username": member.display_name or member.username,
+                "email": member.email,
+                "is_active": member.is_active,
+                "is_online": member.is_online,
+                "avatar_url": member.avatar_url,
+                "created_at": member.created_at,
+                "updated_at": member.updated_at
+            }
+            for member in members
         ]
     }
 
