@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { Server, Channel, Message, User } from '../types';
+import { Server, Channel, Message, User, FullServerData } from '../types';
 import channelService from '../services/channelService';
 import websocketService from '../services/websocketService';
 import uploadService from '../services/uploadService';
@@ -16,6 +16,7 @@ interface AppState {
   isLoading: boolean;
   error: string | null;
   typingStatus: { [channelId: number]: { username: string; timeoutId: NodeJS.Timeout }[] };
+  sidebarUsers: User[];
 
   // Действия для серверов
   selectServer: (serverId: number) => Promise<void>;
@@ -62,6 +63,7 @@ export const useStore = create<AppState>()(
       isLoading: false,
       error: null,
       typingStatus: {},
+      sidebarUsers: [],
 
       // Выбор сервера
       selectServer: async (serverId: number) => {
@@ -274,9 +276,8 @@ export const useStore = create<AppState>()(
       loadServers: async () => {
         set({ isLoading: true, error: null });
         try {
-          const backendChannels = await channelService.getChannels();
-          
-          const servers: Server[] = backendChannels.map((s: any) => ({
+          const fullData: FullServerData = await channelService.getFullServerData();
+          const servers: Server[] = fullData.servers.map((s: any) => ({
             id: s.id,
             name: s.name,
             description: s.description,
@@ -295,21 +296,16 @@ export const useStore = create<AppState>()(
               })),
             ]
           }));
-          
-          set({ servers, isLoading: false });
-
-          // Если был выбран сервер, обновляем его данные, чтобы он не "моргнул"
+          set({ servers, sidebarUsers: fullData.sidebar_users, isLoading: false });
           const { currentServer } = get();
           if (currentServer) {
             const updatedCurrentServer = servers.find(s => s.id === currentServer.id);
             if (updatedCurrentServer) {
               set({ currentServer: updatedCurrentServer });
             } else {
-              // Если текущего сервера больше нет, сбрасываем его
               set({ currentServer: null, currentChannel: null });
             }
           }
-
         } catch (error: any) {
           console.error('Ошибка загрузки серверов:', error);
           set({ 

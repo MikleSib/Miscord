@@ -1,7 +1,8 @@
 'use client'
 
+import React from 'react'
 import { useState, useRef, useEffect } from 'react'
-import { Hash, Send, PlusCircle, X } from 'lucide-react'
+import { Hash, Send, PlusCircle, X, Users } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { useAuthStore } from '../store/store'
 import { useChatStore } from '../store/chatStore'
@@ -12,7 +13,7 @@ import { ru } from 'date-fns/locale'
 import chatService from '../services/chatService'
 import uploadService from '../services/uploadService'
 
-export function ChatArea() {
+export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSidebar: boolean, setShowUserSidebar: (v: boolean) => void }) {
   const { currentChannel } = useStore()
   const { user, token } = useAuthStore()
   const { 
@@ -206,13 +207,22 @@ export function ChatArea() {
   return (
     <div className="flex-1 bg-background flex flex-col h-screen">
       {/* Channel Header */}
-      <div className="h-12 px-4 flex items-center border-b border-border flex-shrink-0">
-        <Hash className="w-5 h-5 text-muted-foreground mr-2" />
-        <span className="font-semibold">{currentChannel.name}</span>
+      <div className="h-12 px-4 flex items-center border-b border-border flex-shrink-0 justify-between">
+        <div className="flex items-center">
+          <Hash className="w-5 h-5 text-muted-foreground mr-2" />
+          <span className="font-semibold">{currentChannel.name}</span>
+        </div>
+        <button
+          className="ml-auto p-2 rounded hover:bg-muted transition flex items-center"
+          title={showUserSidebar ? 'Скрыть список участников' : 'Показать список участников'}
+          onClick={() => setShowUserSidebar(!showUserSidebar)}
+        >
+          <Users className="w-6 h-6 text-muted-foreground" />
+        </button>
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-1">
+      <div className="flex-1 overflow-y-auto p-4 space-y-1 chat-scroll">
         {chatLoading && (
           <div className="text-center text-muted-foreground py-4">
             Загрузка истории сообщений...
@@ -226,47 +236,59 @@ export function ChatArea() {
         )}
         
         {messages.map((msg, index) => {
-           const prevMsg = messages[index - 1];
-           const showAuthor = !prevMsg || prevMsg.author.id !== msg.author.id || (new Date(msg.timestamp).getTime() - new Date(prevMsg.timestamp).getTime()) > 5 * 60 * 1000;
+          const prevMsg = messages[index - 1];
+          const showAuthor = !prevMsg || prevMsg.author.id !== msg.author.id || (new Date(msg.timestamp).getTime() - new Date(prevMsg.timestamp).getTime()) > 5 * 60 * 1000;
+          const showDateDivider =
+            !prevMsg ||
+            new Date(prevMsg.timestamp).toDateString() !== new Date(msg.timestamp).toDateString();
 
           return (
-            <div key={msg.id} className={`flex items-start gap-3 py-1 ${showAuthor ? 'mt-3' : ''}`}>
-              {showAuthor ? (
-                <Avatar>
-                  <AvatarImage src={msg.author.avatar} />
-                  <AvatarFallback>{msg.author.username.substring(0, 2).toUpperCase()}</AvatarFallback>
-                </Avatar>
-              ) : (
-                 <div className="w-10 flex-shrink-0" /> 
+            <React.Fragment key={msg.id}>
+              {showDateDivider && (
+                <div className="date-divider">
+                  <span>
+                    {format(new Date(msg.timestamp), 'd MMMM yyyy', { locale: ru })}
+                  </span>
+                </div>
               )}
-              
-              <div className="flex flex-col">
-                {showAuthor && (
-                  <div className="flex items-baseline gap-2">
-                    <span className="font-semibold">{msg.author.username}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {format(new Date(msg.timestamp), 'd MMM yyyy, HH:mm', { locale: ru })}
-                    </span>
-                  </div>
+              <div className={`flex items-start gap-3 py-1 ${showAuthor ? 'mt-3' : ''}`}>
+                {showAuthor ? (
+                  <Avatar>
+                    <AvatarImage src={msg.author.avatar} />
+                    <AvatarFallback>{msg.author.username.substring(0, 2).toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                ) : (
+                   <div className="w-10 flex-shrink-0" /> 
                 )}
                 
-                {msg.content && <p className="text-sm leading-relaxed">{msg.content}</p>}
+                <div className="flex flex-col">
+                  {showAuthor && (
+                    <div className="flex items-baseline gap-2">
+                      <span className="font-semibold">{msg.author.username}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {format(new Date(msg.timestamp), 'd MMM yyyy, HH:mm', { locale: ru })}
+                      </span>
+                    </div>
+                  )}
+                  
+                  {msg.content && <p className="text-sm leading-relaxed">{msg.content}</p>}
 
-                {msg.attachments && msg.attachments.length > 0 && (
-                  <div className="mt-2 flex flex-col gap-2">
-                    {msg.attachments.map(att => (
-                      <a key={att.id} href={att.file_url} target="_blank" rel="noopener noreferrer">
-                        <img 
-                          src={att.file_url} 
-                          alt="Вложение"
-                          className="max-w-xs max-h-80 rounded-md object-cover"
-                        />
-                      </a>
-                    ))}
-                  </div>
-                )}
+                  {msg.attachments && msg.attachments.length > 0 && (
+                    <div className="mt-2 flex flex-col gap-2">
+                      {msg.attachments.map(att => (
+                        <a key={att.id} href={att.file_url} target="_blank" rel="noopener noreferrer">
+                          <img 
+                            src={att.file_url} 
+                            alt="Вложение"
+                            className="max-w-xs max-h-80 rounded-md object-cover"
+                          />
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
+            </React.Fragment>
           )
         })}
         <div ref={messagesEndRef} />

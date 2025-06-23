@@ -524,3 +524,133 @@ async def get_channel_messages(
         "messages": message_list,
         "has_more": len(messages) == limit  # Есть ли еще сообщения
     }
+
+@router.get("/full")
+async def get_full_server_data(db: AsyncSession = Depends(get_db)):
+    """
+    Возвращает всю информацию о серверах, каналах, участниках, последних сообщениях и всех пользователях для сайдбара одним запросом.
+    """
+    # Получаем все серверы с вложенными каналами и участниками
+    stmt = (
+        select(Channel)
+        .options(
+            selectinload(Channel.owner),
+            selectinload(Channel.members).selectinload(ChannelMember.user),
+            selectinload(Channel.text_channels).selectinload(TextChannel.messages),
+            selectinload(Channel.voice_channels).selectinload(VoiceChannel.active_users).selectinload(VoiceChannelUser.user)
+        )
+        .order_by(Channel.created_at)
+    )
+    result = await db.execute(stmt)
+    channels = result.scalars().unique().all()
+
+    # Получаем всех пользователей для сайдбара
+    users_result = await db.execute(select(User))
+    all_users = users_result.scalars().all()
+
+    servers = []
+    for channel in channels:
+        # Участники сервера
+        members = [
+            {
+                "id": m.user.id,
+                "username": m.user.username,
+                "email": m.user.email,
+                "is_active": m.user.is_active,
+                "is_online": m.user.is_online,
+                "created_at": m.user.created_at,
+                "updated_at": m.user.updated_at
+            }
+            for m in channel.members
+        ]
+        # Текстовые каналы с последними сообщениями
+        text_channels = []
+        for tc in channel.text_channels:
+            # Берём последние 50 сообщений
+            messages = sorted(tc.messages, key=lambda m: m.timestamp, reverse=True)[:50]
+            messages = list(reversed(messages))
+            msg_list = [
+                {
+                    "id": msg.id,
+                    "content": msg.content,
+                    "channelId": msg.text_channel_id,
+                    "timestamp": msg.timestamp.isoformat(),
+                    "author": {
+                        "id": msg.author.id,
+                        "username": msg.author.username,
+                        "avatar": getattr(msg.author, 'avatar', None)
+                    },
+                    "attachments": [
+                        {
+                            "id": att.id,
+                            "file_url": att.file_url
+                        } for att in getattr(msg, 'attachments', [])
+                    ]
+                }
+                for msg in messages
+            ]
+            text_channels.append({
+                "id": tc.id,
+                "name": tc.name,
+                "position": tc.position,
+                "created_at": tc.created_at,
+                "messages": msg_list
+            })
+        # Голосовые каналы с активными пользователями
+        voice_channels = []
+        for vc in channel.voice_channels:
+            voice_channels.append({
+                "id": vc.id,
+                "name": vc.name,
+                "position": vc.position,
+                "max_users": vc.max_users,
+                "created_at": vc.created_at,
+                "active_users": [
+                    {
+                        "id": vcu.user.id,
+                        "username": vcu.user.username,
+                        "is_muted": vcu.is_muted,
+                        "is_deafened": vcu.is_deafened
+                    }
+                    for vcu in vc.active_users
+                ]
+            })
+        servers.append({
+            "id": channel.id,
+            "name": channel.name,
+            "description": channel.description,
+            "owner_id": channel.owner_id,
+            "created_at": channel.created_at,
+            "updated_at": channel.updated_at,
+            "owner": {
+                "id": channel.owner.id,
+                "username": channel.owner.username,
+                "email": channel.owner.email,
+                "is_active": channel.owner.is_active,
+                "is_online": channel.owner.is_online,
+                "created_at": channel.owner.created_at,
+                "updated_at": channel.owner.updated_at
+            },
+            "members": members,
+            "text_channels": text_channels,
+            "voice_channels": voice_channels
+        })
+
+    # Данные для сайдбара (все пользователи)
+    sidebar_users = [
+        {
+            "id": u.id,
+            "username": u.username,
+            "email": u.email,
+            "is_active": u.is_active,
+            "is_online": u.is_online,
+            "created_at": u.created_at,
+            "updated_at": u.updated_at
+        }
+        for u in all_users
+    ]
+
+    return {
+        "servers": servers,
+        "sidebar_users": sidebar_users
+    }

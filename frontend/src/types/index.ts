@@ -105,3 +105,43 @@ export interface VoiceUser {
   is_muted: boolean;
   is_deafened: boolean;
 }
+
+export interface FullTextChannel {
+  id: number;
+  name: string;
+  position: number;
+  created_at: string;
+  messages: Message[];
+}
+
+export interface FullVoiceChannel {
+  id: number;
+  name: string;
+  position: number;
+  max_users: number;
+  created_at: string;
+  active_users: Array<{
+    id: number;
+    username: string;
+    is_muted: boolean;
+    is_deafened: boolean;
+  }>;
+}
+
+export interface FullServer {
+  id: number;
+  name: string;
+  description?: string;
+  owner_id: number;
+  created_at: string;
+  updated_at?: string;
+  owner: User;
+  members: User[];
+  text_channels: FullTextChannel[];
+  voice_channels: FullVoiceChannel[];
+}
+
+export interface FullServerData {
+  servers: FullServer[];
+  sidebar_users: User[];
+}

@@ -15,6 +15,7 @@ import websocketService from '../services/websocketService'
 import { Button } from '../components/ui/button'
 import { Monitor } from 'lucide-react'
 import { useAppInitialization } from '../hooks/redux'
+import { ServerUserSidebar } from '../components/ServerUserSidebar'
 
 export default function HomePage() {
   const router = useRouter()
@@ -41,6 +42,7 @@ export default function HomePage() {
     maxReconnectAttempts: 60,
     lastError: undefined as string | undefined
   })
+  const [showUserSidebar, setShowUserSidebar] = useState(true)
 
   useEffect(() => {
     setIsMounted(true)
@@ -212,9 +214,9 @@ export default function HomePage() {
       <ServerList />
       <ChannelSidebar />
       <div className="flex-1 flex flex-col">
-        <ChatArea />
+        <ChatArea showUserSidebar={showUserSidebar} setShowUserSidebar={setShowUserSidebar} />
       </div>
-      
+      {showUserSidebar && <ServerUserSidebar />}
       {/* Индикатор состояния подключения */}
       <ConnectionStatus
         isConnected={connectionStatus.isConnected}
@@ -223,7 +225,6 @@ export default function HomePage() {
         maxReconnectAttempts={connectionStatus.maxReconnectAttempts}
         lastError={connectionStatus.lastError}
       />
-
       {/* Toast уведомления */}
       <div className="fixed top-4 right-4 z-50 space-y-2">
         {toastNotifications.map((toast) => (

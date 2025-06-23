@@ -1,5 +1,5 @@
 import api from './api';
-import { BackendChannel, Channel, TextChannel, VoiceChannel, User } from '../types';
+import { BackendChannel, Channel, TextChannel, VoiceChannel, User, FullServerData } from '../types';
 
 export interface CreateChannelRequest {
   name: string;
@@ -87,6 +87,11 @@ class ChannelService {
 
   async getVoiceChannelMembers(voiceChannelId: number): Promise<User[]> {
     const response = await api.get<User[]>(`/api/channels/voice/${voiceChannelId}/members`);
+    return response.data;
+  }
+
+  async getFullServerData(): Promise<FullServerData> {
+    const response = await api.get<FullServerData>('/api/channels/full');
     return response.data;
   }
 }
