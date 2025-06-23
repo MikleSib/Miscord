@@ -17,13 +17,18 @@ from app.websocket.connection_manager import manager
 router = APIRouter()
 
 @router.get("/full")
-async def get_full_server_data(db: AsyncSession = Depends(get_db)):
+async def get_full_server_data(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
     """
-    Возвращает всю информацию о серверах, каналах, участниках, последних сообщениях и всех пользователях для сайдбара одним запросом.
+    Возвращает информацию о серверах, где пользователь является участником.
     """
-    # Получаем все серверы с вложенными каналами и участниками
+    # Получаем только серверы, где пользователь является участником
     stmt = (
         select(Channel)
+        .join(ChannelMember, Channel.id == ChannelMember.channel_id)
+        .where(ChannelMember.user_id == current_user.id)
         .options(
             selectinload(Channel.owner),
             selectinload(Channel.members).selectinload(ChannelMember.user),
@@ -205,8 +210,8 @@ async def create_channel(
     
     await db.commit()
     
-    # Отправляем WebSocket уведомление всем пользователям о новом сервере
-    await manager.broadcast_to_all({
+    # Отправляем WebSocket уведомление только создателю (участнику) о новом сервере
+    await manager.send_to_user(current_user.id, {
         "type": "server_created",
         "server": {
             "id": db_channel.id,
@@ -256,10 +261,15 @@ async def create_channel(
     }
 
 @router.get("/", response_model=List[ChannelSchema])
-async def get_all_channels(db: AsyncSession = Depends(get_db)):
-    """Получение всех каналов (серверов) с вложенными текстовыми и голосовыми каналами"""
+async def get_all_channels(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Получение каналов (серверов) где пользователь является участником"""
     stmt = (
         select(Channel)
+        .join(ChannelMember, Channel.id == ChannelMember.channel_id)
+        .where(ChannelMember.user_id == current_user.id)
         .options(
             selectinload(Channel.owner),
             selectinload(Channel.members),
@@ -513,12 +523,58 @@ async def invite_user_to_channel(
     )
     channel = channel_result.scalar_one()
     
-    # Отправляем WebSocket уведомление приглашенному пользователю
+    # Получаем полную информацию о сервере для приглашенного пользователя
+    channel_with_details = await db.execute(
+        select(Channel)
+        .options(
+            selectinload(Channel.owner),
+            selectinload(Channel.text_channels),
+            selectinload(Channel.voice_channels)
+        )
+        .where(Channel.id == channel_id)
+    )
+    server_details = channel_with_details.scalar_one()
+    
+    # Отправляем WebSocket уведомление приглашенному пользователю о новом сервере
     await manager.send_to_user(target_user.id, {
-        "type": "channel_invitation",
-        "channel_id": channel_id,
-        "channel_name": channel.name,
-        "invited_by": current_user.username
+        "type": "server_created",
+        "server": {
+            "id": server_details.id,
+            "name": server_details.name,
+            "description": server_details.description,
+            "owner_id": server_details.owner_id,
+            "created_at": server_details.created_at.isoformat(),
+            "updated_at": server_details.updated_at.isoformat() if server_details.updated_at else None,
+            "owner": {
+                "id": server_details.owner.id,
+                "username": server_details.owner.display_name or server_details.owner.username,
+                "email": server_details.owner.email,
+                "is_active": server_details.owner.is_active,
+                "is_online": server_details.owner.is_online,
+                "avatar_url": server_details.owner.avatar_url,
+                "created_at": server_details.owner.created_at.isoformat(),
+                "updated_at": server_details.owner.updated_at.isoformat() if server_details.owner.updated_at else None
+            },
+            "text_channels": [
+                {
+                    "id": tc.id,
+                    "name": tc.name,
+                    "position": tc.position,
+                    "created_at": tc.created_at.isoformat()
+                } for tc in server_details.text_channels
+            ],
+            "voice_channels": [
+                {
+                    "id": vc.id,
+                    "name": vc.name,
+                    "position": vc.position,
+                    "max_users": vc.max_users,
+                    "created_at": vc.created_at.isoformat()
+                } for vc in server_details.voice_channels
+            ],
+            "members_count": len(server_details.members)
+        },
+        "invited_by": current_user.display_name or current_user.username
     })
     
     # Уведомляем всех участников канала о новом участнике
