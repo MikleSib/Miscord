@@ -1,4 +1,5 @@
 import { Message } from '../types';
+import { channelApi } from './api';
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://miscord.ru';
 
@@ -94,6 +95,16 @@ class ChatService {
 
   onTyping(handler: (data: any) => void) {
     this.typingHandler = handler;
+  }
+
+  async loadMessageHistory(channelId: number, limit = 50, before?: number) {
+    try {
+      const result = await channelApi.getChannelMessages(channelId, limit, before);
+      return result;
+    } catch (error) {
+      console.error('[ChatService] Ошибка загрузки истории сообщений:', error);
+      throw error;
+    }
   }
 }
 

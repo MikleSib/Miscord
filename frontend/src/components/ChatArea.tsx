@@ -2,30 +2,82 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { Hash, Send, PlusCircle, X } from 'lucide-react'
-import { useStore } from '../lib/store'
+import { useStore } from '../store/store'
+import { useAuthStore } from '../store/store'
+import { useChatStore } from '../store/chatStore'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from './ui/button'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
+import chatService from '../services/chatService'
+import uploadService from '../services/uploadService'
 
 export function ChatArea() {
+  const { currentChannel } = useStore()
+  const { user } = useAuthStore()
   const { 
-    currentChannel, 
-    messages: allMessages, 
-    user, 
-    sendMessage,
-    isLoading,
-    sendTyping,
-    typingStatus
-  } = useStore()
+    messages, 
+    isLoading: chatLoading, 
+    error: chatError,
+    loadMessageHistory,
+    addMessage 
+  } = useChatStore()
   
   const [messageInput, setMessageInput] = useState('')
   const [files, setFiles] = useState<File[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [typingUsers, setTypingUsers] = useState<string[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const messages = currentChannel ? allMessages[currentChannel.id] || [] : []
-  const currentTypingUsers = (currentChannel ? typingStatus[currentChannel.id] : []) || [];
+  // Загрузка истории сообщений при смене канала
+  useEffect(() => {
+    if (currentChannel?.type === 'text') {
+      loadMessageHistory(currentChannel.id);
+      
+      // Подключаемся к WebSocket чата
+      const token = localStorage.getItem('access_token');
+      if (token) {
+        chatService.disconnect();
+        chatService.connect(currentChannel.id, token);
+        
+        // Обработчик новых сообщений
+        chatService.onMessage((msg) => {
+          // Адаптируем Message к ChatMessage
+          const chatMessage = {
+            ...msg,
+            content: msg.content || '', // Гарантируем что content не null
+          };
+          addMessage(chatMessage);
+        });
+        
+        // Обработчик печати
+        chatService.onTyping((data) => {
+          if (data.user && data.user.username) {
+            setTypingUsers(prev => {
+              if (!prev.includes(data.user.username)) {
+                const newUsers = [...prev, data.user.username];
+                setTimeout(() => {
+                  setTypingUsers(current => current.filter(u => u !== data.user.username));
+                }, 2000);
+                return newUsers;
+              }
+              return prev;
+            });
+          }
+        });
+      }
+    } else {
+      chatService.disconnect();
+      setTypingUsers([]);
+    }
+    
+    return () => {
+      if (currentChannel?.type !== 'text') {
+        chatService.disconnect();
+      }
+    };
+  }, [currentChannel?.id, currentChannel?.type, loadMessageHistory, addMessage]);
   
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -48,40 +100,51 @@ export function ChatArea() {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
-    console.log('[ChatArea] handleSendMessage', { messageInput, files });
     if (!messageInput.trim() && files.length === 0) return
+    if (!currentChannel || currentChannel.type !== 'text') return
 
-    await sendMessage(messageInput, files)
-    
-    setMessageInput('')
-    setFiles([])
-    if (fileInputRef.current) {
+    setIsLoading(true)
+    try {
+      const attachmentUrls: string[] = [];
+      for (const file of files) {
+        const response = await uploadService.uploadFile(file);
+        attachmentUrls.push(response.file_url);
+      }
+      
+      chatService.sendMessage(messageInput, attachmentUrls);
+      setMessageInput('')
+      setFiles([])
+      if (fileInputRef.current) {
         fileInputRef.current.value = "";
+      }
+    } catch (error) {
+      console.error('Ошибка отправки сообщения:', error);
+    } finally {
+      setIsLoading(false)
     }
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setMessageInput(e.target.value);
-    sendTyping();
+    if (currentChannel?.type === 'text') {
+      chatService.sendTyping();
+    }
   }
   
   const TypingIndicator = () => {
-    if (currentTypingUsers.length === 0) return null;
-    
-    const users = currentTypingUsers.map(u => u.username);
+    if (typingUsers.length === 0) return null;
     
     let text = '';
-    if (users.length === 1) {
-      text = `${users[0]} печатает...`;
-    } else if (users.length > 1 && users.length < 4) {
-      text = `${users.join(', ')} печатают...`;
+    if (typingUsers.length === 1) {
+      text = `${typingUsers[0]} печатает...`;
+    } else if (typingUsers.length > 1 && typingUsers.length < 4) {
+      text = `${typingUsers.join(', ')} печатают...`;
     } else {
       text = 'Несколько человек печатают...';
     }
 
     return <div className="px-4 text-xs text-muted-foreground h-4 mb-1">{text}</div>;
   }
-
 
   if (!currentChannel) {
     return (
@@ -104,6 +167,18 @@ export function ChatArea() {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-1">
+        {chatLoading && (
+          <div className="text-center text-muted-foreground py-4">
+            Загрузка истории сообщений...
+          </div>
+        )}
+        
+        {chatError && (
+          <div className="text-center text-red-400 py-4">
+            {chatError}
+          </div>
+        )}
+        
         {messages.map((msg, index) => {
            const prevMsg = messages[index - 1];
            const showAuthor = !prevMsg || prevMsg.author.id !== msg.author.id || (new Date(msg.timestamp).getTime() - new Date(prevMsg.timestamp).getTime()) > 5 * 60 * 1000;

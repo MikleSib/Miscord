@@ -32,4 +32,16 @@ api.interceptors.response.use(
   }
 );
 
+export const channelApi = {
+  getChannelMessages: async (channelId: number, limit = 50, before?: number) => {
+    const params: any = { limit };
+    if (before) {
+      params.before = before;
+    }
+    
+    const response = await api.get(`/channels/text/${channelId}/messages`, { params });
+    return response.data;
+  },
+};
+
 export default api;

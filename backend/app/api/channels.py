@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 from sqlalchemy.orm import selectinload
-from typing import List
+from typing import List, Optional
 from app.db.database import get_db
-from app.models import Channel, ChannelMember, TextChannel, VoiceChannel, User, ChannelType, VoiceChannelUser
+from app.models import Channel, ChannelMember, TextChannel, VoiceChannel, User, ChannelType, VoiceChannelUser, Message
 from app.schemas.channel import (
     ChannelCreate, Channel as ChannelSchema, ChannelUpdate,
     TextChannelCreate, TextChannel as TextChannelSchema,
@@ -453,3 +453,74 @@ async def get_voice_channel_members(
         }
         for voice_user, user in voice_members
     ]
+
+@router.get("/text/{channel_id}/messages")
+async def get_channel_messages(
+    channel_id: int,
+    limit: int = 50,
+    before: Optional[int] = None,  # ID сообщения, до которого загружать
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Получение сообщений текстового канала"""
+    # Проверяем существование канала
+    channel_result = await db.execute(
+        select(TextChannel).where(TextChannel.id == channel_id)
+    )
+    channel = channel_result.scalar_one_or_none()
+    
+    if not channel:
+        raise HTTPException(status_code=404, detail="Текстовый канал не найден")
+    
+    # Согласно памяти - все пользователи имеют доступ к любым каналам
+    # Убираем проверку членства
+    
+    # Строим запрос для сообщений
+    query = select(Message).where(Message.text_channel_id == channel_id)
+    
+    # Если указан before, загружаем сообщения до этого ID
+    if before:
+        query = query.where(Message.id < before)
+    
+    # Сортируем по времени (новые сначала для пагинации, потом развернем)
+    query = query.order_by(Message.timestamp.desc()).limit(limit)
+    
+    # Загружаем связанные данные
+    query = query.options(
+        selectinload(Message.author),
+        selectinload(Message.attachments)
+    )
+    
+    result = await db.execute(query)
+    messages = result.scalars().all()
+    
+    # Разворачиваем порядок (старые сообщения сначала)
+    messages = list(reversed(messages))
+    
+    # Преобразуем в формат для фронтенда
+    message_list = []
+    for msg in messages:
+        message_dict = {
+            "id": msg.id,
+            "content": msg.content,
+            "channelId": msg.text_channel_id,
+            "timestamp": msg.timestamp.isoformat(),
+            "author": {
+                "id": msg.author.id,
+                "username": msg.author.username,
+                "avatar": getattr(msg.author, 'avatar', None)
+            },
+            "attachments": [
+                {
+                    "id": att.id,
+                    "file_url": att.file_url,
+                    "filename": getattr(att, 'filename', None)
+                } for att in msg.attachments
+            ]
+        }
+        message_list.append(message_dict)
+    
+    return {
+        "messages": message_list,
+        "has_more": len(messages) == limit  # Есть ли еще сообщения
+    }
