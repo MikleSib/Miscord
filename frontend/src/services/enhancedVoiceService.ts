@@ -338,7 +338,7 @@ class EnhancedVoiceService {
     };
 
     // Создание P2P соединений с новыми участниками
-    for (const [userId] of participants) {
+    for (const userId of Array.from(participants.keys())) {
       if (userId !== this.getCurrentUserId() && !this.peerConnections.has(userId)) {
         this.createPeerConnection(userId, true);
       }
