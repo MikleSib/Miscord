@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, Home, UserPlus, Settings, Copy, UserCheck } from 'lucide-react'
+import { Plus, Home, UserPlus, Settings, Copy, UserCheck, X, ChevronRight, Users, Gamepad2, Heart, Apple, BookOpen } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { useAuthStore } from '../store/store'
 import { cn } from '../lib/utils'
@@ -33,6 +33,45 @@ export function ServerList() {
   const [isCreating, setIsCreating] = useState(false)
   const [isInviting, setIsInviting] = useState(false)
   const [inviteError, setInviteError] = useState('')
+  const [createStep, setCreateStep] = useState<'template' | 'custom'>('template')
+
+  const serverTemplates = [
+    {
+      id: 'custom',
+      name: 'Свой шаблон',
+      description: 'Создайте свой собственный сервер и настройте его по своему вкусу',
+      icon: '🛠️',
+      color: '#5865f2'
+    },
+    {
+      id: 'gaming',
+      name: 'Игры',
+      description: 'Играйте вместе с друзьями',
+      icon: '🎮',
+      color: '#57f287'
+    },
+    {
+      id: 'friends',
+      name: 'Друзья',
+      description: 'Общайтесь с друзьями и семьей',
+      icon: '💕',
+      color: '#eb459e'
+    },
+    {
+      id: 'study',
+      name: 'Учебная группа',
+      description: 'Получите помощь с домашним заданием, поделитесь заметками и многое другое',
+      icon: '🍎',
+      color: '#fee75c'
+    },
+    {
+      id: 'club',
+      name: 'Школьный клуб',
+      description: 'Общайтесь с одноклассниками в школьном клубе',
+      icon: '📚',
+      color: '#4f545c'
+    }
+  ]
 
   const handleCreateServer = async () => {
     if (!newServerName.trim()) return
@@ -56,10 +95,24 @@ export function ServerList() {
 
       setIsCreateModalOpen(false)
       setNewServerName('')
+      setCreateStep('template')
     } catch (error) {
       console.error('Ошибка создания сервера:', error)
     } finally {
       setIsCreating(false)
+    }
+  }
+
+  const handleTemplateSelect = (templateId: string) => {
+    if (templateId === 'custom') {
+      setCreateStep('custom')
+    } else {
+      // Для других шаблонов можно установить предустановленные названия
+      const template = serverTemplates.find(t => t.id === templateId)
+      if (template) {
+        setNewServerName(template.name)
+        setCreateStep('custom')
+      }
     }
   }
 
@@ -73,7 +126,6 @@ export function ServerList() {
       await channelService.inviteUserToServer(currentServer.id, inviteUsername)
       setIsInviteModalOpen(false)
       setInviteUsername('')
-      // Можно добавить уведомление об успешном приглашении
     } catch (error: any) {
       console.error('Ошибка приглашения пользователя:', error)
       if (error.response?.data?.detail) {
@@ -98,18 +150,9 @@ export function ServerList() {
       isOwner: user && server.owner_id === user.id
     })
     
-    // Временно показываем меню для всех серверов для тестирования
-    // TODO: Убрать после отладки и оставить только владельцам
     setContextMenuPosition({ x: e.clientX, y: e.clientY })
     setContextMenuOpen(server.id)
     setSelectedServer(server)
-    
-    // Проверяем, является ли текущий пользователь владельцем сервера
-    // if (user && server.owner_id === user.id) {
-    //   setContextMenuPosition({ x: e.clientX, y: e.clientY })
-    //   setContextMenuOpen(server.id)
-    //   setSelectedServer(server)
-    // }
   }
 
   const handleServerSettings = () => {
@@ -131,7 +174,6 @@ export function ServerList() {
     if (selectedServer) {
       navigator.clipboard.writeText(selectedServer.id.toString())
       setContextMenuOpen(null)
-      // Можно добавить уведомление о копировании
     }
   }
 
@@ -144,7 +186,6 @@ export function ServerList() {
     setSelectedServer(null)
   }
 
-  // Добавляем обработчик для закрытия контекстного меню при клике вне его
   useEffect(() => {
     const handleGlobalClick = () => {
       if (contextMenuOpen) {
@@ -236,49 +277,150 @@ export function ServerList() {
               )}
             </div>
           ))}
+          
+          {/* Add Server Button */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="w-12 h-12 rounded-full transition-all hover:rounded-2xl hover:bg-primary hover:text-primary-foreground"
+            onClick={() => setIsCreateModalOpen(true)}
+          >
+            <Plus className="w-5 h-5" />
+          </Button>
         </div>
 
         <div className="w-8 h-[2px] bg-border rounded-full" />
-
-        {/* Add Server Button */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="w-12 h-12 rounded-full transition-all hover:rounded-2xl hover:bg-primary hover:text-primary-foreground"
-          onClick={() => setIsCreateModalOpen(true)}
-        >
-          <Plus className="w-5 h-5" />
-        </Button>
       </div>
 
       {/* Create Server Modal */}
-      <Dialog open={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)}>
-        <DialogContent>
-          <DialogTitle>Создать сервер</DialogTitle>
-          <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <TextField
-              label="Название сервера"
-              value={newServerName}
-              onChange={(e) => setNewServerName(e.target.value)}
-              fullWidth
-              required
-            />
-            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', mt: 2 }}>
-              <Button
-                variant="outline"
-                onClick={() => setIsCreateModalOpen(false)}
-                disabled={isCreating}
-              >
-                Отмена
-              </Button>
-              <Button
-                onClick={handleCreateServer}
-                disabled={!newServerName.trim() || isCreating}
-              >
-                {isCreating ? 'Создание...' : 'Создать'}
-              </Button>
-            </Box>
-          </Box>
+      <Dialog 
+        open={isCreateModalOpen} 
+        onClose={() => {
+          setIsCreateModalOpen(false)
+          setCreateStep('template')
+          setNewServerName('')
+        }}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            backgroundColor: '#313338',
+            color: 'white',
+            borderRadius: '8px',
+            minHeight: '500px'
+          }
+        }}
+      >
+        <DialogContent sx={{ padding: 0 }}>
+          {createStep === 'template' ? (
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h2 className="text-2xl font-bold text-white mb-2">Создайте свой сервер</h2>
+                  <p className="text-[#b5bac1] text-sm">Ваш сервер — это место, где вы можете тусоваться со своими друзьями. Создайте сервер и начните общаться.</p>
+                </div>
+                <IconButton
+                  onClick={() => {
+                    setIsCreateModalOpen(false)
+                    setCreateStep('template')
+                    setNewServerName('')
+                  }}
+                  sx={{ color: '#b5bac1' }}
+                >
+                  <X size={24} />
+                </IconButton>
+              </div>
+
+              <div className="space-y-3">
+                {serverTemplates.map((template) => (
+                  <div
+                    key={template.id}
+                    onClick={() => handleTemplateSelect(template.id)}
+                    className="flex items-center p-4 bg-[#2b2d31] hover:bg-[#35373c] rounded-lg cursor-pointer transition-colors group"
+                  >
+                    <div className="flex items-center justify-center w-12 h-12 bg-[#404249] rounded-lg mr-4">
+                      <span className="text-2xl">{template.icon}</span>
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-white text-base">{template.name}</h3>
+                      <p className="text-[#b5bac1] text-sm">{template.description}</p>
+                    </div>
+                    <ChevronRight size={20} className="text-[#b5bac1] group-hover:text-white transition-colors" />
+                  </div>
+                ))}
+              </div>
+
+            
+            </div>
+          ) : (
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h2 className="text-2xl font-bold text-white mb-2">Создать сервер</h2>
+                  <p className="text-[#b5bac1] text-sm">Дайте серверу индивидуальность с именем и значком. Вы всегда можете изменить это позже.</p>
+                </div>
+                <IconButton
+                  onClick={() => {
+                    setIsCreateModalOpen(false)
+                    setCreateStep('template')
+                    setNewServerName('')
+                  }}
+                  sx={{ color: '#b5bac1' }}
+                >
+                  <X size={24} />
+                </IconButton>
+              </div>
+
+              <div className="mb-6">
+                <TextField
+                  label="Название сервера"
+                  value={newServerName}
+                  onChange={(e) => setNewServerName(e.target.value)}
+                  fullWidth
+                  required
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      backgroundColor: '#1e1f22',
+                      color: 'white',
+                      '& fieldset': {
+                        borderColor: '#383a40',
+                      },
+                      '&:hover fieldset': {
+                        borderColor: '#5865f2',
+                      },
+                      '&.Mui-focused fieldset': {
+                        borderColor: '#5865f2',
+                      },
+                    },
+                    '& .MuiInputLabel-root': {
+                      color: '#b5bac1',
+                      '&.Mui-focused': {
+                        color: '#5865f2',
+                      },
+                    },
+                  }}
+                />
+              </div>
+
+              <div className="flex gap-3 justify-end">
+                <Button
+                  variant="outline"
+                  onClick={() => setCreateStep('template')}
+                  disabled={isCreating}
+                  className="bg-transparent border-[#4e5058] text-white hover:bg-[#4e5058] hover:border-[#4e5058]"
+                >
+                  Назад
+                </Button>
+                <Button
+                  onClick={() => handleCreateServer()}
+                  disabled={!newServerName.trim() || isCreating}
+                  className="bg-[#5865f2] hover:bg-[#4752c4] text-white"
+                >
+                  {isCreating ? 'Создание...' : 'Создать'}
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

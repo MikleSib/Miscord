@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useRef } from 'react'
-import { X, Camera, Upload } from 'lucide-react'
+import { X, Camera, Upload, Trash2 } from 'lucide-react'
 import { Button } from './ui/button'
 import { Server } from '../types'
 import channelService from '../services/channelService'
@@ -23,6 +23,8 @@ export function ServerSettingsModal({ isOpen, onClose, server, onServerUpdate }:
   const [iconPreview, setIconPreview] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -95,6 +97,24 @@ export function ServerSettingsModal({ isOpen, onClose, server, onServerUpdate }:
     }
   }
 
+  const handleDeleteServer = async () => {
+    setIsDeleting(true)
+    try {
+      await channelService.deleteServer(server.id)
+      // Здесь нужно добавить логику для удаления сервера из списка
+      // Возможно, передать колбэк onServerDelete через пропсы
+      onClose()
+      // TODO: Обновить список серверов после удаления
+      window.location.reload() // Временное решение
+    } catch (error: any) {
+      console.error('Ошибка удаления сервера:', error)
+      setError(error.response?.data?.detail || 'Не удалось удалить сервер')
+    } finally {
+      setIsDeleting(false)
+      setShowDeleteConfirm(false)
+    }
+  }
+
   const handleCancel = () => {
     setServerName(server.name)
     setServerDescription(server.description || '')
@@ -102,6 +122,7 @@ export function ServerSettingsModal({ isOpen, onClose, server, onServerUpdate }:
     setIconFile(null)
     setIconPreview(null)
     setError('')
+    setShowDeleteConfirm(false)
     onClose()
   }
 
@@ -163,6 +184,17 @@ export function ServerSettingsModal({ isOpen, onClose, server, onServerUpdate }:
                 Виджеты сервера
               </button>
             </div>
+          </div>
+
+          {/* Delete Server Button */}
+          <div className="p-2 border-t border-border">
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="w-full text-left px-3 py-2 rounded text-sm text-red-500 hover:bg-red-500/10 transition flex items-center gap-2"
+            >
+              <Trash2 className="w-4 h-4" />
+              Удалить сервер
+            </button>
           </div>
         </div>
 
@@ -294,6 +326,35 @@ export function ServerSettingsModal({ isOpen, onClose, server, onServerUpdate }:
           </div>
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-60">
+          <div className="bg-background p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4 text-red-500">Удалить сервер</h3>
+            <p className="text-sm text-muted-foreground mb-6">
+              Вы уверены, что хотите удалить сервер <strong>"{server.name}"</strong>? 
+              Это действие нельзя отменить. Все каналы и сообщения будут удалены навсегда.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <Button 
+                variant="outline" 
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={isDeleting}
+              >
+                Отмена
+              </Button>
+              <Button 
+                onClick={handleDeleteServer}
+                disabled={isDeleting}
+                className="bg-red-500 hover:bg-red-600 text-white"
+              >
+                {isDeleting ? 'Удаление...' : 'Удалить сервер'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 } 

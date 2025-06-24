@@ -105,6 +105,10 @@ class ChannelService {
     const response = await api.put<BackendChannel>(`/api/channels/${serverId}`, data);
     return response.data;
   }
+
+  async deleteServer(serverId: number): Promise<void> {
+    await api.delete(`/api/channels/${serverId}`);
+  }
 }
 
 export default new ChannelService();
