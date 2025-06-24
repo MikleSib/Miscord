@@ -20,13 +20,14 @@ import reactionService from '../services/reactionService'
 export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSidebar: boolean, setShowUserSidebar: (v: boolean) => void }) {
   const { currentChannel } = useStore()
   const { user, token } = useAuthStore()
-    const {
+  const { 
     messages, 
     isLoading: chatLoading, 
     error: chatError,
     loadMessageHistory,
     addMessage,
     updateMessageReactions,
+    updateSingleReaction,
     deleteMessage,
     editMessage
   } = useChatStore()
@@ -109,6 +110,12 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
           chatService.onMessageEdited((msg) => {
             console.log('[ChatArea] Сообщение отредактировано:', msg);
             editMessage(msg.id, msg.content || '');
+          });
+
+          // Обработчик обновления реакций
+          chatService.onReactionUpdated((data) => {
+            console.log('[ChatArea] Реакция обновлена через WebSocket:', data);
+            updateSingleReaction(data.message_id, data.emoji, data.reaction);
           });
         }, 100);
       }
@@ -213,15 +220,20 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
       // toggleReaction возвращает обновленную реакцию
       const updatedReaction = await reactionService.toggleReaction(messageId, emoji);
       
-      // Получаем все реакции для сообщения, чтобы обновить состояние
-      const allReactions = await reactionService.getMessageReactions(messageId);
-      
-      // Обновляем локальное состояние
-      updateMessageReactions(messageId, allReactions);
+      // Не обновляем локальное состояние здесь - оно будет обновлено через WebSocket
+      // WebSocket получит событие reaction_updated и обновит состояние автоматически
       
       console.log('Реакция обновлена:', emoji, 'на сообщение:', messageId, updatedReaction);
     } catch (error) {
       console.error('Ошибка при изменении реакции:', error);
+      
+      // Если произошла ошибка, можем попробовать обновить локально
+      try {
+        const allReactions = await reactionService.getMessageReactions(messageId);
+        updateMessageReactions(messageId, allReactions);
+      } catch (fallbackError) {
+        console.error('Ошибка при получении реакций:', fallbackError);
+      }
     }
   }
   

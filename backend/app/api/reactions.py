@@ -8,6 +8,7 @@ from app.core.dependencies import get_db, get_current_user
 from app.models import User, Message, Reaction
 from app.schemas.reaction import ReactionToggleRequest, ReactionResponse
 from app.schemas.user import UserResponse
+from app.websocket.connection_manager import manager
 
 router = APIRouter()
 
@@ -21,7 +22,9 @@ async def toggle_reaction(
     """Добавить или убрать реакцию на сообщение"""
     
     # Проверяем, существует ли сообщение
-    result = await db.execute(select(Message).filter(Message.id == message_id))
+    result = await db.execute(
+        select(Message).filter(Message.id == message_id)
+    )
     message = result.scalar_one_or_none()
     if not message:
         raise HTTPException(
@@ -41,6 +44,7 @@ async def toggle_reaction(
     )
     existing_reaction = result.scalar_one_or_none()
     
+    was_removed = False
     if existing_reaction:
         # Если реакция уже есть - удаляем её
         await db.execute(
@@ -53,6 +57,7 @@ async def toggle_reaction(
             )
         )
         await db.commit()
+        was_removed = True
     else:
         # Если реакции нет - добавляем
         new_reaction = Reaction(
@@ -69,13 +74,35 @@ async def toggle_reaction(
     
     # Если реакция была удалена (нет больше таких реакций), возвращаем пустую реакцию
     if reaction_summary is None:
-        return ReactionResponse(
+        reaction_summary = ReactionResponse(
             id=0,
             emoji=reaction_data.emoji,
             count=0,
             users=[],
             current_user_reacted=False
         )
+    
+    # Отправляем WebSocket уведомление всем пользователям в канале
+    await manager.send_to_channel(message.text_channel_id, {
+        "type": "reaction_updated",
+        "data": {
+            "message_id": message_id,
+            "emoji": reaction_data.emoji,
+            "reaction": {
+                "id": reaction_summary.id,
+                "emoji": reaction_summary.emoji,
+                "count": reaction_summary.count,
+                "users": [{"id": u.id, "username": u.username, "display_name": u.display_name, "avatar_url": getattr(u, 'avatar_url', None)} for u in reaction_summary.users],
+                "current_user_reacted": reaction_summary.current_user_reacted
+            },
+            "was_removed": was_removed,
+            "user": {
+                "id": current_user.id,
+                "username": current_user.username,
+                "display_name": current_user.display_name
+            }
+        }
+    })
     
     return reaction_summary
 

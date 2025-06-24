@@ -199,6 +199,17 @@ class WebSocketService {
     this.messageHandlers['screen_share_stopped'] = handler;
   }
 
+  // Реакции
+  onReactionUpdated(handler: (data: { 
+    message_id: number; 
+    emoji: string; 
+    reaction: any; 
+    was_removed: boolean; 
+    user: { id: number; username: string; display_name: string } 
+  }) => void) {
+    this.messageHandlers['reaction_updated'] = handler;
+  }
+
   onUserStatusChanged(handler: (data: { user_id: number; username: string; is_online: boolean }) => void) {
     this.messageHandlers['user_status_changed'] = handler;
   }

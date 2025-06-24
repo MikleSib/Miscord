@@ -14,7 +14,7 @@ class AuthService {
     });
     
     if (typeof window !== 'undefined') {
-      localStorage.setItem('access_token', response.data.access_token);
+    localStorage.setItem('access_token', response.data.access_token);
     }
     return response.data;
   }
@@ -52,13 +52,13 @@ class AuthService {
 
   logout(): void {
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('access_token');
+    localStorage.removeItem('access_token');
     }
   }
 
   getToken(): string | null {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('access_token');
+    return localStorage.getItem('access_token');
     }
     return null;
   }

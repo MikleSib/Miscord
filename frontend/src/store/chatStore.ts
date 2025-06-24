@@ -18,6 +18,7 @@ interface ChatState {
   setCurrentChannel: (channelId: number | null) => void;
   loadMessageHistory: (channelId: number) => Promise<void>;
   updateMessageReactions: (messageId: number, reactions: Reaction[]) => void;
+  updateSingleReaction: (messageId: number, emoji: string, reaction: Reaction) => void;
   deleteMessage: (messageId: number) => void;
   editMessage: (messageId: number, content: string) => void;
 }
@@ -77,6 +78,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ? { ...message, reactions }
         : message
     ),
+  })),
+
+  updateSingleReaction: (messageId: number, emoji: string, reaction: Reaction) => set((state) => ({
+    messages: state.messages.map(message => {
+      if (message.id === messageId) {
+        const existingReactions = message.reactions || [];
+        const existingReactionIndex = existingReactions.findIndex(r => r.emoji === emoji);
+        
+        let updatedReactions;
+        if (reaction.count === 0) {
+          // Убираем реакцию если count = 0
+          updatedReactions = existingReactions.filter(r => r.emoji !== emoji);
+        } else if (existingReactionIndex >= 0) {
+          // Обновляем существующую реакцию
+          updatedReactions = [...existingReactions];
+          updatedReactions[existingReactionIndex] = reaction;
+        } else {
+          // Добавляем новую реакцию
+          updatedReactions = [...existingReactions, reaction];
+        }
+        
+        return { ...message, reactions: updatedReactions };
+      }
+      return message;
+    }),
   })),
 
   deleteMessage: (messageId) => set((state) => ({

@@ -11,6 +11,13 @@ class ChatService {
   private typingHandler: ((data: any) => void) | null = null;
   private messageDeletedHandler: ((data: { message_id: number; text_channel_id: number }) => void) | null = null;
   private messageEditedHandler: ChatMessageHandler | null = null;
+  private reactionUpdatedHandler: ((data: { 
+    message_id: number; 
+    emoji: string; 
+    reaction: any; 
+    was_removed: boolean; 
+    user: { id: number; username: string; display_name: string } 
+  }) => void) | null = null;
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
@@ -80,6 +87,9 @@ class ChatService {
           }
           if (data.type === 'message_edited' && this.messageEditedHandler) {
             this.messageEditedHandler(data.data);
+          }
+          if (data.type === 'reaction_updated' && this.reactionUpdatedHandler) {
+            this.reactionUpdatedHandler(data.data);
           }
         } catch (e) {
           console.error('[ChatService] Ошибка обработки сообщения:', e);
@@ -192,6 +202,16 @@ class ChatService {
 
   onMessageEdited(handler: ChatMessageHandler) {
     this.messageEditedHandler = handler;
+  }
+
+  onReactionUpdated(handler: (data: { 
+    message_id: number; 
+    emoji: string; 
+    reaction: any; 
+    was_removed: boolean; 
+    user: { id: number; username: string; display_name: string } 
+  }) => void) {
+    this.reactionUpdatedHandler = handler;
   }
 
   private startHeartbeat() {
