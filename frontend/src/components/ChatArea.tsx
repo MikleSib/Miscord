@@ -119,19 +119,21 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
           });
         }, 100);
       }
-    } else {
-      console.log('[ChatArea] Канал не текстовый, отключаем WebSocket');
-      chatService.disconnect();
+    } else if (currentChannel?.type === 'voice') {
+      console.log('[ChatArea] Канал голосовой, но оставляем текстовый WebSocket подключенным');
+      // НЕ отключаемся от текстового WebSocket при переходе на голосовой канал
       setTypingUsers([]);
     }
-    
-    // Cleanup function
+  }, [currentChannel?.id, currentChannel?.type, loadMessageHistory, addMessage, deleteMessage, editMessage, token]);
+  
+  // Отдельный cleanup только при размонтировании компонента
+  useEffect(() => {
     return () => {
-      console.log('[ChatArea] Cleanup - отключаем WebSocket');
+      console.log('[ChatArea] Cleanup при размонтировании - отключаем WebSocket');
       chatService.disconnect();
       setTypingUsers([]);
     };
-  }, [currentChannel?.id, currentChannel?.type, loadMessageHistory, addMessage, deleteMessage, editMessage, token]);
+  }, []);
   
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
