@@ -17,6 +17,7 @@ import { Monitor } from 'lucide-react'
 import { useAppInitialization } from '../hooks/redux'
 import { ServerUserSidebar } from '../components/ServerUserSidebar'
 import { UserProfileBar } from '../components/UserProfileBar'
+import { VoiceConnectionPanel } from '../components/VoiceConnectionPanel'
 
 export default function HomePage() {
   const router = useRouter()
@@ -218,6 +219,11 @@ export default function HomePage() {
         <ChatArea showUserSidebar={showUserSidebar} setShowUserSidebar={setShowUserSidebar} />
       </div>
       {showUserSidebar && <ServerUserSidebar />}
+      
+      {/* Панель голосового подключения над профилем пользователя */}
+      <div className="absolute bottom-20 left-2 z-10">
+        <VoiceConnectionPanel />
+      </div>
       
       {/* Общий профиль пользователя внизу под серверами и каналами */}
       <div className="absolute bottom-2 left-2 z-10">

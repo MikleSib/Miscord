@@ -78,7 +78,26 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       // Обработчик получения списка участников
       voiceService.onParticipantsReceived((participants) => {
         console.log('🎙️ Получен список участников:', participants);
+        
+        // Добавляем текущего пользователя если его нет в списке
+        const currentUser = useAuthStore.getState().user;
+        if (currentUser) {
+          const hasCurrentUser = participants.some((p: any) => p.user_id === currentUser.id);
+          if (!hasCurrentUser) {
+            console.log('🎙️ Добавляем текущего пользователя в полученный список участников');
+            participants.push({
+              user_id: currentUser.id,
+              username: currentUser.display_name || currentUser.username,
+              display_name: currentUser.display_name,
+              avatar_url: currentUser.avatar_url,
+              is_muted: get().isMuted,
+              is_deafened: get().isDeafened,
+            });
+          }
+        }
+        
         get().setParticipants(participants);
+        console.log('🎙️ Итоговое количество участников:', participants.length);
       });
       
       // Обработчик изменения статуса участников
@@ -101,6 +120,20 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       
       console.log('🎙️ Успешно подключились к голосовому каналу');
       
+      // Добавляем текущего пользователя в список участников
+      const currentUser = useAuthStore.getState().user;
+      if (currentUser) {
+        console.log('🎙️ Добавляем текущего пользователя в список участников:', currentUser);
+        get().addParticipant({
+          user_id: currentUser.id,
+          username: currentUser.display_name || currentUser.username,
+          display_name: currentUser.display_name,
+          avatar_url: currentUser.avatar_url,
+          is_muted: get().isMuted,
+          is_deafened: get().isDeafened,
+        });
+      }
+      
       set({
         currentVoiceChannelId: channelId,
         isConnected: true,
@@ -110,6 +143,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       console.log('🎙️ Состояние обновлено:', {
         currentVoiceChannelId: channelId,
         isConnected: true,
+        participantsCount: get().participants.length,
       });
     } catch (error: any) {
       console.error('🎙️ Ошибка подключения к голосовому каналу:', error);
@@ -180,14 +214,30 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     // Обновляем состояние текущего пользователя в списке участников
     const currentUser = useAuthStore.getState().user;
     if (currentUser) {
-      get().updateParticipant({
-        user_id: currentUser.id,
-        username: currentUser.display_name || currentUser.username,
-        display_name: currentUser.display_name,
-        avatar_url: currentUser.avatar_url,
-        is_muted: newMuted,
-        is_deafened: newDeafened,
-      });
+      const currentParticipants = get().participants;
+      const existingParticipant = currentParticipants.find(p => p.user_id === currentUser.id);
+      
+      if (existingParticipant) {
+        // Обновляем существующего участника
+        get().updateParticipant({
+          user_id: currentUser.id,
+          username: currentUser.display_name || currentUser.username,
+          display_name: currentUser.display_name,
+          avatar_url: currentUser.avatar_url,
+          is_muted: newMuted,
+          is_deafened: newDeafened,
+        });
+      } else {
+        // Добавляем участника если его нет в списке
+        get().addParticipant({
+          user_id: currentUser.id,
+          username: currentUser.display_name || currentUser.username,
+          display_name: currentUser.display_name,
+          avatar_url: currentUser.avatar_url,
+          is_muted: newMuted,
+          is_deafened: newDeafened,
+        });
+      }
     }
   },
   
@@ -219,14 +269,30 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     // Обновляем состояние текущего пользователя в списке участников
     const currentUser = useAuthStore.getState().user;
     if (currentUser) {
-      get().updateParticipant({
-        user_id: currentUser.id,
-        username: currentUser.display_name || currentUser.username,
-        display_name: currentUser.display_name,
-        avatar_url: currentUser.avatar_url,
-        is_muted: newMuted,
-        is_deafened: newDeafened,
-      });
+      const currentParticipants = get().participants;
+      const existingParticipant = currentParticipants.find(p => p.user_id === currentUser.id);
+      
+      if (existingParticipant) {
+        // Обновляем существующего участника
+        get().updateParticipant({
+          user_id: currentUser.id,
+          username: currentUser.display_name || currentUser.username,
+          display_name: currentUser.display_name,
+          avatar_url: currentUser.avatar_url,
+          is_muted: newMuted,
+          is_deafened: newDeafened,
+        });
+      } else {
+        // Добавляем участника если его нет в списке
+        get().addParticipant({
+          user_id: currentUser.id,
+          username: currentUser.display_name || currentUser.username,
+          display_name: currentUser.display_name,
+          avatar_url: currentUser.avatar_url,
+          is_muted: newMuted,
+          is_deafened: newDeafened,
+        });
+      }
     }
   },
   
