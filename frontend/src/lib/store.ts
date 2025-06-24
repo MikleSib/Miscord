@@ -433,21 +433,19 @@ export const useStore = create<AppState>()(
 
         // Обработка обновления сервера
         websocketService.onServerUpdated((data) => {
-          // Берём payload из data.data, если есть, иначе из data
-          const payload = data.data || data;
           console.log('Сервер обновлен:', data);
 
-          get().updateServer(payload.server_id, {
-            name: payload.name,
-            description: payload.description,
-            icon: payload.icon
+          get().updateServer(data.server_id, {
+            name: data.name,
+            description: data.description,
+            icon: data.icon
           });
 
           const currentUser = get().user;
-          if (currentUser && payload.updated_by && payload.updated_by.id !== currentUser.id) {
+          if (currentUser && data.updated_by && data.updated_by.id !== currentUser.id) {
             if ('Notification' in window && Notification.permission === 'granted') {
               new Notification(`Сервер обновлен`, {
-                body: `${payload.updated_by.username} обновил настройки сервера "${payload.name}"`,
+                body: `${data.updated_by.username} обновил настройки сервера "${data.name}"`,
                 icon: '/favicon.ico'
               });
             }
