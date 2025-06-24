@@ -23,6 +23,7 @@ interface AppState {
   selectChannel: (channelId: number) => void;
   addServer: (server: Server) => void;
   updateServer: (serverId: number, updates: Partial<Server>) => void;
+  removeServer: (serverId: number) => void;
 
   // Действия для каналов
   addChannel: (serverId: number, channel: Channel) => void;
@@ -127,6 +128,24 @@ export const useStore = create<AppState>()(
             ? { ...state.currentServer, ...updates }
             : state.currentServer
         }));
+      },
+
+      // Удаление сервера
+      removeServer: (serverId: number) => {
+        set((state) => {
+          const filteredServers = state.servers.filter(server => server.id !== serverId);
+          
+          // Если удаляется текущий сервер, сбрасываем выбор
+          const newCurrentServer = state.currentServer?.id === serverId ? null : state.currentServer;
+          const newCurrentChannel = state.currentServer?.id === serverId ? null : state.currentChannel;
+          
+          return {
+            servers: filteredServers,
+            currentServer: newCurrentServer,
+            currentChannel: newCurrentChannel,
+            currentServerMembers: newCurrentServer ? state.currentServerMembers : []
+          };
+        });
       },
 
       // Добавление канала
@@ -446,6 +465,23 @@ export const useStore = create<AppState>()(
             if ('Notification' in window && Notification.permission === 'granted') {
               new Notification(`Сервер обновлен`, {
                 body: `${data.updated_by.username} обновил настройки сервера "${data.name}"`,
+                icon: '/favicon.ico'
+              });
+            }
+          }
+        });
+
+        // Обработка удаления сервера
+        websocketService.onServerDeleted((data) => {
+          console.log('Сервер удален:', data);
+
+          get().removeServer(data.server_id);
+
+          const currentUser = get().user;
+          if (currentUser && data.deleted_by && data.deleted_by.id !== currentUser.id) {
+            if ('Notification' in window && Notification.permission === 'granted') {
+              new Notification(`Сервер удален`, {
+                body: `${data.deleted_by.username} удалил сервер "${data.server_name}"`,
                 icon: '/favicon.ico'
               });
             }

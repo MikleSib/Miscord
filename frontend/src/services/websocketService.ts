@@ -221,6 +221,15 @@ class WebSocketService {
     this.messageHandlers['server_updated'] = handler;
   }
 
+  // Удаление сервера
+  onServerDeleted(handler: (data: { 
+    server_id: number; 
+    server_name: string; 
+    deleted_by: { id: number; username: string } 
+  }) => void) {
+    this.messageHandlers['server_deleted'] = handler;
+  }
+
   onUserStatusChanged(handler: (data: { user_id: number; username: string; is_online: boolean }) => void) {
     this.messageHandlers['user_status_changed'] = handler;
   }
