@@ -9,6 +9,8 @@ import { ChannelSidebar } from '../components/ChannelSidebar'
 import { ChatArea } from '../components/ChatArea'
 import { ScreenShareToast } from '../components/ScreenShareToast'
 import { ConnectionStatus } from '../components/ConnectionStatus'
+import EnhancedConnectionStatus from '../components/EnhancedConnectionStatus'
+import enhancedWebSocketService from '../services/enhancedWebSocketService'
 import { useVoiceStore } from '../store/slices/voiceSlice'
 import voiceService from '../services/voiceService'
 import websocketService from '../services/websocketService'
@@ -45,6 +47,7 @@ export default function HomePage() {
     lastError: undefined as string | undefined
   })
   const [showUserSidebar, setShowUserSidebar] = useState(true)
+  const [useEnhancedWebSocket, setUseEnhancedWebSocket] = useState(true) // 🚀 Enhanced mode по умолчанию
 
   useEffect(() => {
     setIsMounted(true)
@@ -60,8 +63,27 @@ export default function HomePage() {
         return
       }
 
-      // Инициализируем WebSocket для уведомлений
-      initializeWebSocket(token)
+      if (useEnhancedWebSocket) {
+        // 🚀 Инициализируем Enhanced WebSocket
+        const connected = await enhancedWebSocketService.connect(token)
+        if (connected) {
+          // Подписываемся на события
+          enhancedWebSocketService.onMessage('new_message', (data) => {
+            // Здесь можно добавить обработку новых сообщений
+          })
+          
+          enhancedWebSocketService.onMessage('user_status_changed', (data) => {
+            // Обработка изменения статуса пользователей
+          })
+          
+          enhancedWebSocketService.onMessage('typing', (data) => {
+            // Обработка статуса печати
+          })
+        }
+      } else {
+        // Legacy WebSocket
+        initializeWebSocket(token)
+      }
 
       // Загружаем серверы пользователя
       await loadServers()
@@ -71,7 +93,11 @@ export default function HomePage() {
 
     // Очистка при размонтировании
     return () => {
-      disconnectWebSocket()
+      if (useEnhancedWebSocket) {
+        enhancedWebSocketService.disconnect()
+      } else {
+        disconnectWebSocket()
+      }
     }
   }, [isMounted, token, isAuthenticated, router, initializeWebSocket, loadServers, disconnectWebSocket])
 
@@ -226,13 +252,32 @@ export default function HomePage() {
       </div>
       
       {/* Индикатор состояния подключения */}
-      <ConnectionStatus
-        isConnected={connectionStatus.isConnected}
-        isReconnecting={connectionStatus.isReconnecting}
-        reconnectAttempts={connectionStatus.reconnectAttempts}
-        maxReconnectAttempts={connectionStatus.maxReconnectAttempts}
-        lastError={connectionStatus.lastError}
-      />
+      {useEnhancedWebSocket ? (
+        <EnhancedConnectionStatus />
+      ) : (
+        <ConnectionStatus
+          isConnected={connectionStatus.isConnected}
+          isReconnecting={connectionStatus.isReconnecting}
+          reconnectAttempts={connectionStatus.reconnectAttempts}
+          maxReconnectAttempts={connectionStatus.maxReconnectAttempts}
+          lastError={connectionStatus.lastError}
+        />
+      )}
+      
+      {/* 🚀 Enterprise Mode Toggle */}
+      <div className="fixed top-4 left-4 z-50">
+        <Button
+          onClick={() => setUseEnhancedWebSocket(!useEnhancedWebSocket)}
+          className={`text-xs px-3 py-1 ${
+            useEnhancedWebSocket 
+              ? 'bg-green-600 hover:bg-green-700' 
+              : 'bg-gray-600 hover:bg-gray-700'
+          }`}
+          title={useEnhancedWebSocket ? 'Enhanced WebSocket (1000+ users)' : 'Legacy WebSocket'}
+        >
+          {useEnhancedWebSocket ? '🚀 Enhanced' : '📞 Legacy'}
+        </Button>
+      </div>
       {/* Toast уведомления */}
       <div className="fixed top-4 right-4 z-50 space-y-2">
         {toastNotifications.map((toast) => (

@@ -16,3 +16,4 @@ python-dotenv==1.0.0
 psycopg2-binary==2.9.9
 email-validator==2.1.0
 pydantic[email]
+psutil==5.9.6
