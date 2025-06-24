@@ -181,7 +181,7 @@ export function ChannelSidebar() {
 
   if (!currentServer) {
     return (
-      <div className="w-64 bg-secondary/50 flex flex-col items-center justify-center">
+      <div className="w-64 flex flex-col items-center justify-center" style={{ backgroundColor: '#2c2d32' }}>
         <div className="text-sm text-muted-foreground">Выберите сервер</div>
       </div>
     )
@@ -284,7 +284,7 @@ export function ChannelSidebar() {
                           setSelectedChannel(channel);
                           setChannelName(channel.name);
                           setChannelUserLimit(channel.max_users || null);
-                          setSlowModeSeconds(channel.slow_mode_seconds || 0);
+                          setSlowModeSeconds((channel as any).slow_mode_seconds || 0);
                           setIsChannelSettingsOpen(true);
                         }}
                         title="Настройки канала"
@@ -376,7 +376,7 @@ export function ChannelSidebar() {
                             setSelectedChannel(channel);
                             setChannelName(channel.name);
                             setChannelUserLimit(channel.max_users || null);
-                            setSlowModeSeconds(channel.slow_mode_seconds || 0);
+                            setSlowModeSeconds((channel as any).slow_mode_seconds || 0);
                             setIsChannelSettingsOpen(true);
                           }}
                           title="Настройки канала"
