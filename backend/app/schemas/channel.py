@@ -30,14 +30,14 @@ class TextChannelUpdate(BaseModel):
 class VoiceChannelBase(BaseModel):
     name: str
     position: int = 0
-    max_users: int = 10
+    user_limit: Optional[int] = None  # None = без ограничений
 
 class VoiceChannelCreate(VoiceChannelBase):
     channel_id: int
 
 class VoiceChannelUpdate(BaseModel):
     name: Optional[str] = None
-    max_users: Optional[int] = Field(None, ge=1, le=99)  # 1-99 пользователей
+    user_limit: Optional[int] = Field(None, ge=1, le=99)  # 1-99 пользователей или None = без ограничений
 
 class TextChannel(TextChannelBase):
     id: int

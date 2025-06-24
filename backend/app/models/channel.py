@@ -47,7 +47,7 @@ class VoiceChannel(Base):
     name = Column(String, nullable=False)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False)
     position = Column(Integer, default=0)
-    max_users = Column(Integer, default=10)
+    user_limit = Column(Integer, nullable=True)  # None = без ограничений
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Отношения

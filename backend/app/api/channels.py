@@ -63,7 +63,7 @@ async def get_full_server_data(
                 "id": vc.id,
                 "name": vc.name,
                 "position": vc.position,
-                "max_users": vc.max_users,
+                "user_limit": vc.user_limit,
                 "created_at": vc.created_at
             })
             
@@ -130,7 +130,7 @@ async def create_channel(
         name="General",
         channel_id=db_channel.id,
         position=0,
-        max_users=10
+        user_limit=None  # Без ограничений по умолчанию
     )
     db.add(default_voice)
     
@@ -406,7 +406,7 @@ async def get_channel_details(
             {"id": tc.id, "name": tc.name, "type": "text", "position": tc.position}
             for tc in text_channels
         ] + [
-            {"id": vc.id, "name": vc.name, "type": "voice", "position": vc.position, "max_users": vc.max_users}
+            {"id": vc.id, "name": vc.name, "type": "voice", "position": vc.position, "user_limit": vc.user_limit}
             for vc in voice_channels
         ],
         "members": [
@@ -515,7 +515,7 @@ async def create_voice_channel(
         name=channel_data.name,
         channel_id=channel_id,
         position=channel_data.position,
-        max_users=channel_data.max_users
+        user_limit=channel_data.user_limit
     )
     db.add(new_voice_channel)
     await db.commit()
@@ -530,7 +530,7 @@ async def create_voice_channel(
             "name": new_voice_channel.name,
             "type": "voice",
             "position": new_voice_channel.position,
-            "max_users": new_voice_channel.max_users,
+            "user_limit": new_voice_channel.user_limit,
             "serverId": channel_id,
         },
         "created_by": {
@@ -635,7 +635,7 @@ async def invite_user_to_channel(
                     "id": vc.id,
                     "name": vc.name,
                     "position": vc.position,
-                    "max_users": vc.max_users,
+                    "user_limit": vc.user_limit,
                     "created_at": vc.created_at.isoformat()
                 } for vc in server_details.voice_channels
             ],
@@ -1207,7 +1207,7 @@ async def update_voice_channel(
     
     # Обновляем данные
     update_data = channel_data.dict(exclude_unset=True)
-    old_max_users = voice_channel.max_users
+    old_user_limit = voice_channel.user_limit
     
     for field, value in update_data.items():
         setattr(voice_channel, field, value)
@@ -1216,7 +1216,7 @@ async def update_voice_channel(
     await db.refresh(voice_channel)
     
     # Если уменьшили лимит пользователей, отключаем лишних
-    if voice_channel.max_users < old_max_users:
+    if voice_channel.user_limit is not None and (old_user_limit is None or voice_channel.user_limit < old_user_limit):
         # Получаем текущих пользователей в канале
         current_users_result = await db.execute(
             select(VoiceChannelUser).where(
@@ -1226,8 +1226,8 @@ async def update_voice_channel(
         current_users = current_users_result.scalars().all()
         
         # Если превышен лимит, отключаем лишних пользователей
-        if len(current_users) > voice_channel.max_users:
-            users_to_disconnect = current_users[voice_channel.max_users:]
+        if len(current_users) > voice_channel.user_limit:
+            users_to_disconnect = current_users[voice_channel.user_limit:]
             
             for voice_user in users_to_disconnect:
                 # Удаляем из голосового канала
@@ -1260,7 +1260,7 @@ async def update_voice_channel(
                 "voice_channel_id": voice_channel.id,
                 "server_id": voice_channel.channel_id,
                 "name": voice_channel.name,
-                "max_users": voice_channel.max_users,
+                "user_limit": voice_channel.user_limit,
                 "updated_by": {
                     "id": current_user.id,
                     "username": current_user.display_name or current_user.username
@@ -1273,7 +1273,7 @@ async def update_voice_channel(
         "name": voice_channel.name,
         "channel_id": voice_channel.channel_id,
         "position": voice_channel.position,
-        "max_users": voice_channel.max_users,
+        "user_limit": voice_channel.user_limit,
         "created_at": voice_channel.created_at
     }
 
