@@ -425,20 +425,106 @@ export function ServerList() {
       </Dialog>
 
       {/* Invite User Modal */}
-      <Dialog open={isInviteModalOpen} onClose={() => setIsInviteModalOpen(false)}>
-        <DialogContent>
-          <DialogTitle>Пригласить пользователя</DialogTitle>
-          <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <TextField
-              label="Имя пользователя"
-              value={inviteUsername}
-              onChange={(e) => setInviteUsername(e.target.value)}
-              fullWidth
-              required
-              error={!!inviteError}
-              helperText={inviteError}
-            />
-            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', mt: 2 }}>
+      <Dialog 
+        open={isInviteModalOpen} 
+        onClose={() => {
+          setIsInviteModalOpen(false)
+          setInviteError('')
+          setInviteUsername('')
+        }}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            backgroundColor: '#313338',
+            color: 'white',
+            borderRadius: '8px',
+            minWidth: '440px'
+          }
+        }}
+      >
+        <DialogContent sx={{ padding: 0 }}>
+          <div className="p-6">
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h2 className="text-xl font-bold text-white mb-1">Пригласить пользователя</h2>
+                <p className="text-[#b5bac1] text-sm">
+                  {currentServer ? `на сервер ${currentServer.name}` : 'на сервер'}
+                </p>
+              </div>
+              <IconButton
+                onClick={() => {
+                  setIsInviteModalOpen(false)
+                  setInviteError('')
+                  setInviteUsername('')
+                }}
+                sx={{ color: '#b5bac1' }}
+              >
+                <X size={24} />
+              </IconButton>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-[#b5bac1] mb-2">
+                  Имя пользователя *
+                </label>
+                <TextField
+                  value={inviteUsername}
+                  onChange={(e) => setInviteUsername(e.target.value)}
+                  fullWidth
+                  placeholder="Введите имя пользователя..."
+                  error={!!inviteError}
+                  helperText={inviteError}
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      backgroundColor: '#1e1f22',
+                      color: 'white',
+                      fontSize: '16px',
+                      '& fieldset': {
+                        borderColor: '#383a40',
+                      },
+                      '&:hover fieldset': {
+                        borderColor: '#5865f2',
+                      },
+                      '&.Mui-focused fieldset': {
+                        borderColor: '#5865f2',
+                      },
+                      '&.Mui-error fieldset': {
+                        borderColor: '#ed4245',
+                      },
+                    },
+                    '& .MuiInputBase-input': {
+                      padding: '12px 16px',
+                    },
+                    '& .MuiFormHelperText-root': {
+                      color: '#ed4245',
+                      marginLeft: 0,
+                      marginTop: '8px',
+                    },
+                  }}
+                />
+              </div>
+
+              {!inviteError && (
+                <div className="bg-[#2b2d31] p-4 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 bg-[#5865f2] rounded-full flex items-center justify-center text-white font-semibold">
+                      ?
+                    </div>
+                    <div>
+                      <h4 className="text-white font-medium text-sm mb-1">Как пригласить пользователя</h4>
+                      <p className="text-[#b5bac1] text-xs leading-relaxed">
+                        Введите точное имя пользователя. После приглашения пользователь получит уведомление 
+                        и сможет присоединиться к серверу.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 justify-end mt-6 pt-6 border-t border-[#393a3f]">
               <Button
                 variant="outline"
                 onClick={() => {
@@ -447,17 +533,19 @@ export function ServerList() {
                   setInviteUsername('')
                 }}
                 disabled={isInviting}
+                className="bg-transparent border-[#4e5058] text-white hover:bg-[#4e5058] hover:border-[#4e5058] px-6"
               >
                 Отмена
               </Button>
               <Button
                 onClick={handleInviteUser}
                 disabled={!inviteUsername.trim() || isInviting}
+                className="bg-[#5865f2] hover:bg-[#4752c4] text-white px-6"
               >
                 {isInviting ? 'Приглашение...' : 'Пригласить'}
               </Button>
-            </Box>
-          </Box>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 

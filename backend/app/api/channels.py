@@ -1022,3 +1022,82 @@ async def edit_message(
     })
     
     return updated_message
+
+@router.delete("/{channel_id}")
+async def delete_channel(
+    channel_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Удаление сервера (только для владельца)"""
+    # Находим сервер
+    stmt = select(Channel).options(selectinload(Channel.owner)).where(Channel.id == channel_id)
+    result = await db.execute(stmt)
+    channel = result.scalar_one_or_none()
+    
+    if not channel:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Сервер не найден"
+        )
+    
+    # Проверяем права (только владелец может удалить сервер)
+    if channel.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Только владелец сервера может его удалить"
+        )
+    
+    # Получаем всех участников сервера для уведомления
+    members_stmt = select(ChannelMember.user_id).where(ChannelMember.channel_id == channel_id)
+    members_result = await db.execute(members_stmt)
+    member_ids = [row[0] for row in members_result.fetchall()]
+    
+    # Удаляем все связанные данные
+    # 1. Реакции на сообщения
+    messages_stmt = select(Message.id).join(TextChannel).where(TextChannel.channel_id == channel_id)
+    messages_result = await db.execute(messages_stmt)
+    message_ids = [row[0] for row in messages_result.fetchall()]
+    
+    if message_ids:
+        await db.execute(delete(Reaction).where(Reaction.message_id.in_(message_ids)))
+    
+    # 2. Сообщения в текстовых каналах
+    await db.execute(delete(Message).where(Message.text_channel_id.in_(
+        select(TextChannel.id).where(TextChannel.channel_id == channel_id)
+    )))
+    
+    # 3. Пользователи в голосовых каналах
+    await db.execute(delete(VoiceChannelUser).where(VoiceChannelUser.voice_channel_id.in_(
+        select(VoiceChannel.id).where(VoiceChannel.channel_id == channel_id)
+    )))
+    
+    # 4. Текстовые каналы
+    await db.execute(delete(TextChannel).where(TextChannel.channel_id == channel_id))
+    
+    # 5. Голосовые каналы
+    await db.execute(delete(VoiceChannel).where(VoiceChannel.channel_id == channel_id))
+    
+    # 6. Участники сервера
+    await db.execute(delete(ChannelMember).where(ChannelMember.channel_id == channel_id))
+    
+    # 7. Сам сервер
+    await db.execute(delete(Channel).where(Channel.id == channel_id))
+    
+    await db.commit()
+    
+    # Отправляем WebSocket уведомление всем участникам о удалении сервера
+    for member_id in member_ids:
+        await manager.send_to_user(member_id, {
+            "type": "server_deleted",
+            "data": {
+                "server_id": channel_id,
+                "server_name": channel.name,
+                "deleted_by": {
+                    "id": current_user.id,
+                    "username": current_user.display_name or current_user.username
+                }
+            }
+        })
+    
+    return {"detail": "Сервер успешно удален"}
