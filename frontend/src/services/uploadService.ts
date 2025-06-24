@@ -2,7 +2,7 @@ import api from './api';
 
 class UploadService {
   async uploadFile(file: File): Promise<{ file_url: string }> {
-    console.log('[uploadService] uploadFile', file);
+ 
     const formData = new FormData();
     formData.append('file', file);
 

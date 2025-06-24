@@ -19,12 +19,12 @@ export const useAppInitialization = () => {
       // Если есть токен, но нет пользователя в auth store
       if (token && !authUser) {
         try {
-          console.log('[useAppInitialization] Восстановление пользователя из API');
+       
           const user = await authService.getCurrentUser();
           setAuthUser(user);
-          console.log('[useAppInitialization] Пользователь восстановлен из API:', user);
+       
         } catch (error) {
-          console.error('[useAppInitialization] Ошибка восстановления пользователя из API:', error);
+        
           // Если не удалось восстановить из API, очищаем токен
           localStorage.removeItem('access_token');
         }
@@ -32,7 +32,7 @@ export const useAppInitialization = () => {
 
       // Синхронизация между store
       if (authUser && !storeUser) {
-        console.log('[useAppInitialization] Синхронизация пользователя в store:', authUser);
+      
         setStoreUser(authUser);
       }
     };

@@ -13,22 +13,16 @@ export function ServerUserSidebar() {
   const [updateCounter, setUpdateCounter] = useState(0);
 
   // Отладочная информация
-  console.log('ServerUserSidebar render:', {
-    currentServer: currentServer?.name,
-    currentServerMembers: currentServerMembers?.length,
-    onlineUsers: onlineUsers.length,
-    serverMembers: currentServerMembers
-  });
 
   // Загружаем онлайн пользователей при монтировании
   useEffect(() => {
     const loadOnlineUsers = async () => {
       try {
         const response = await onlineUsersService.getOnlineUsers();
-        console.log('Загружены онлайн пользователи:', response.online_users);
+     
         setOnlineUsers(response.online_users);
       } catch (error) {
-        console.error('Ошибка загрузки онлайн пользователей:', error);
+       
       }
     };
 
@@ -37,19 +31,14 @@ export function ServerUserSidebar() {
     // Подписываемся на изменения статуса пользователей через глобальные события
     const handleUserStatusChanged = (event: any) => {
       const eventData = event.detail;
-      console.log('ServerUserSidebar получил событие изменения статуса:', eventData);
+   
       
       // Данные могут быть в event.detail.data или напрямую в event.detail
       const data = eventData.data || eventData;
-      console.log('ServerUserSidebar извлеченные данные:', data);
+
       
       setOnlineUsers(prev => {
-        console.log('ServerUserSidebar обновление onlineUsers:', {
-          prevCount: prev.length,
-          userId: data.user_id,
-          username: data.username,
-          isOnline: data.is_online
-        });
+     
         
         const updated = prev.filter(u => u.id !== data.user_id);
         if (data.is_online) {
@@ -62,7 +51,7 @@ export function ServerUserSidebar() {
           });
         }
         
-        console.log('ServerUserSidebar новый список onlineUsers:', updated);
+ 
         return updated;
       });
       

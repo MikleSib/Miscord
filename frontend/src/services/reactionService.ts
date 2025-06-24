@@ -8,7 +8,7 @@ class ReactionService {
       });
       return response.data;
     } catch (error) {
-      console.error('Ошибка при добавлении/удалении реакции:', error);
+   
       throw error;
     }
   }
@@ -18,7 +18,7 @@ class ReactionService {
       const response = await api.get(`/api/messages/${messageId}/reactions`);
       return response.data;
     } catch (error) {
-      console.error('Ошибка при получении реакций:', error);
+    
       throw error;
     }
   }

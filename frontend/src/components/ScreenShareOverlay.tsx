@@ -75,7 +75,7 @@ export function ScreenShareOverlay({ isVisible, onClose, sharingUsers }: ScreenS
   const startScreenShare = async () => {
     const success = await voiceService.startScreenShare();
     if (!success) {
-      console.error('Не удалось начать демонстрацию экрана');
+   
     }
   };
 

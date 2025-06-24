@@ -68,7 +68,6 @@ class WebSocketService {
       this.ws = new WebSocket(`${WS_URL}/ws/notifications?token=${token}`);
       
       this.ws.onopen = () => {
-        console.log('🔔 WebSocket уведомлений подключен');
         this.reconnectAttempts = 0;
         this.isReconnecting = false;
         this.lastError = null;
@@ -78,7 +77,6 @@ class WebSocketService {
       this.ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          console.log('🔔 Получено уведомление:', data);
           
           // Убираем обработку сообщений чата - за это отвечает chatService
           // Оставляем только обработку уведомлений (создание каналов, серверов и т.д.)
@@ -88,14 +86,12 @@ class WebSocketService {
             this.messageHandlers[data.type](data);
           }
         } catch (error) {
-          console.error('Ошибка обработки WebSocket сообщения:', error);
           this.lastError = 'Ошибка обработки сообщения';
           this.notifyConnectionStatus();
         }
       };
 
       this.ws.onclose = (event) => {
-        console.log('🔔 WebSocket уведомлений отключен', event.code, event.reason);
         this.isReconnecting = false;
         this.lastError = event.reason || 'Соединение закрыто';
         this.notifyConnectionStatus();
@@ -103,13 +99,11 @@ class WebSocketService {
       };
 
       this.ws.onerror = (error) => {
-        console.error('🔔 Ошибка WebSocket уведомлений:', error);
         this.lastError = 'Ошибка соединения';
         this.isReconnecting = false;
         this.notifyConnectionStatus();
       };
     } catch (error) {
-      console.error('Ошибка подключения WebSocket уведомлений:', error);
       this.lastError = 'Не удалось подключиться';
       this.isReconnecting = false;
       this.notifyConnectionStatus();
@@ -123,7 +117,7 @@ class WebSocketService {
       this.lastError = `Попытка ${this.reconnectAttempts}/${this.maxReconnectAttempts}`;
       this.notifyConnectionStatus();
       
-      console.log(`�� Попытка переподключения ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
+
       
       setTimeout(() => {
         this.connect(token);
@@ -237,10 +231,7 @@ class WebSocketService {
   // Отправка сообщения
   send(data: any) {
     if (this.ws?.readyState === WebSocket.OPEN) {
-      console.log('[WS] raw send:', data);
       this.ws.send(JSON.stringify(data));
-    } else {
-      console.warn('[WS] WebSocket не открыт, сообщение не отправлено:', data);
     }
   }
 

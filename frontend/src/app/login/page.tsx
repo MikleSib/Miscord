@@ -55,7 +55,7 @@ const LoginPage: React.FC = () => {
       loginSuccess(user, access_token);
       setStoreUser(user);
       
-      console.log('[LoginPage] Пользователь успешно авторизован и сохранен в оба store:', user);
+    
     } catch (err: any) {
       const errorMessage = err.response?.data?.detail || 'Ошибка входа';
       loginFailure(errorMessage);

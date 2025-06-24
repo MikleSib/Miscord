@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Phone, PhoneOff, Monitor, MonitorOff, Wifi, WifiOff, Loader } from 'lucide-react';
 import { useVoiceStore } from '../store/slices/voiceSlice';
 import { useStore } from '../lib/store';
+import { getParticipantsText } from '../lib/utils';
 import voiceService from '../services/voiceService';
 
 export function VoiceConnectionPanel() {
@@ -55,15 +56,7 @@ export function VoiceConnectionPanel() {
     }
   }, [isConnected, currentVoiceChannelId]);
 
-  // Отладочная информация
-  console.log('🎙️ [VoiceConnectionPanel] Состояние:', {
-    currentVoiceChannelId,
-    isConnected,
-    participantsCount: participants.length,
-    participants: participants.map(p => ({ id: p.user_id, username: p.username })),
-    currentChannel: currentChannel?.name,
-    connectionStatus
-  });
+
 
   // Не показываем панель если не подключены к голосовому каналу
   if (!currentVoiceChannelId) {
@@ -74,11 +67,7 @@ export function VoiceConnectionPanel() {
     if (isScreenSharing) {
       voiceService.stopScreenShare();
     } else {
-      const success = await voiceService.startScreenShare();
-      if (!success) {
-        console.error('Не удалось начать демонстрацию экрана');
-        // Здесь можно добавить уведомление об ошибке
-      }
+      await voiceService.startScreenShare();
     }
   };
 
@@ -86,25 +75,7 @@ export function VoiceConnectionPanel() {
     disconnectFromVoiceChannel();
   };
 
-  // Функция для склонения слова "участник"
-  const getParticipantsCountText = (count: number): string => {
-    const lastDigit = count % 10;
-    const lastTwoDigits = count % 100;
-    
-    // Особые случаи для 11, 12, 13, 14
-    if (lastTwoDigits >= 11 && lastTwoDigits <= 14) {
-      return `${count} участников`;
-    }
-    
-    // Обычные правила склонения
-    if (lastDigit === 1) {
-      return `${count} участник`;
-    } else if (lastDigit >= 2 && lastDigit <= 4) {
-      return `${count} участника`;
-    } else {
-      return `${count} участников`;
-    }
-  };
+
 
   const getConnectionStatusText = () => {
     switch (connectionStatus) {
@@ -142,7 +113,7 @@ export function VoiceConnectionPanel() {
               {currentChannel?.name || `Голосовой канал ${currentVoiceChannelId}`}
             </div>
             <div className="text-xs text-[#b5bac1]">
-              {getConnectionStatusText()} • {getParticipantsCountText(participants.length)}
+              {getConnectionStatusText()} • {getParticipantsText(participants.length)}
             </div>
           </div>
         </div>

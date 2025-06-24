@@ -34,7 +34,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   
   // Логируем изменения currentChannel
   useEffect(() => {
-    console.log('[ChatArea] currentChannel изменился:', currentChannel);
+   
   }, [currentChannel]);
   
   const [messageInput, setMessageInput] = useState('')
@@ -48,21 +48,15 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   // Загрузка истории сообщений при смене канала
   useEffect(() => {
     if (currentChannel?.type === 'text') {
-      console.log('[ChatArea] Загружаем историю для канала', currentChannel.id);
+  
       loadMessageHistory(currentChannel.id);
       
       // Подключаемся к WebSocket чата только если еще не подключены
       const accessToken = token || localStorage.getItem('access_token');
-      console.log('[ChatArea] Проверяем токен для WebSocket:', { 
-        hasToken: !!accessToken, 
-        tokenLength: accessToken?.length,
-        channelId: currentChannel.id,
-        tokenFromStore: !!token,
-        tokenFromStorage: !!localStorage.getItem('access_token')
-      });
+   
       
       if (accessToken) {
-        console.log('[ChatArea] Подключаем WebSocket для канала', currentChannel.id);
+   
         
         // Отключаемся от предыдущего соединения
         chatService.disconnect();
@@ -75,7 +69,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
           
           // Обработчик новых сообщений
           chatService.onMessage((msg) => {
-            console.log('[ChatArea] Получено сообщение через WebSocket:', msg);
+        
             // Адаптируем Message к ChatMessage
             const chatMessage = {
               ...msg,
@@ -102,32 +96,32 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
 
           // Обработчик удаления сообщений
           chatService.onMessageDeleted((data) => {
-            console.log('[ChatArea] Сообщение удалено:', data.message_id);
+         
             deleteMessage(data.message_id);
           });
 
           // Обработчик редактирования сообщений
           chatService.onMessageEdited((msg) => {
-            console.log('[ChatArea] Сообщение отредактировано:', msg);
+     
             editMessage(msg.id, msg.content || '');
           });
 
           // Обработчик обновления реакций
           chatService.onReactionUpdated((data) => {
-            console.log('[ChatArea] Реакция обновлена через WebSocket:', data);
+         
             updateSingleReaction(data.message_id, data.emoji, data.reaction);
           });
         }, 100);
       }
     } else {
-      console.log('[ChatArea] Канал не текстовый, отключаем WebSocket');
+    
       chatService.disconnect();
       setTypingUsers([]);
     }
     
     // Cleanup function
     return () => {
-      console.log('[ChatArea] Cleanup - отключаем WebSocket');
+     
       chatService.disconnect();
       setTypingUsers([]);
     };
@@ -154,38 +148,33 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
-    console.log('[ChatArea] handleSendMessage вызван', { messageInput, files, currentChannel });
+   
     
     if (!messageInput.trim() && files.length === 0) {
-      console.log('[ChatArea] Пустое сообщение, отмена отправки');
+    
       return;
     }
     if (!currentChannel || currentChannel.type !== 'text') {
-      console.log('[ChatArea] Нет канала или канал не текстовый', { currentChannel });
+   
       return;
     }
 
-    console.log('[ChatArea] Начинаем отправку сообщения');
+
     setIsLoading(true)
     try {
       const attachmentUrls: string[] = [];
       for (const file of files) {
-        console.log('[ChatArea] Загружаем файл:', file.name);
+   
         const response = await uploadService.uploadFile(file);
         attachmentUrls.push(response.file_url);
-        console.log('[ChatArea] Файл загружен:', response.file_url);
+  
       }
       
-      console.log('[ChatArea] Отправляем сообщение через chatService', { 
-        content: messageInput, 
-        attachments: attachmentUrls,
-        channelId: currentChannel.id,
-        replyTo: replyingTo?.id 
-      });
+   
       
       chatService.sendMessage(messageInput, attachmentUrls, replyingTo?.id);
       
-      console.log('[ChatArea] Сообщение отправлено, очищаем форму');
+    
       setMessageInput('')
       setFiles([])
       setReplyingTo(null)
@@ -193,10 +182,10 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
         fileInputRef.current.value = "";
       }
     } catch (error) {
-      console.error('[ChatArea] Ошибка отправки сообщения:', error);
+    
     } finally {
       setIsLoading(false)
-      console.log('[ChatArea] Отправка завершена');
+    
     }
   }
 
@@ -223,16 +212,16 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
       // Не обновляем локальное состояние здесь - оно будет обновлено через WebSocket
       // WebSocket получит событие reaction_updated и обновит состояние автоматически
       
-      console.log('Реакция обновлена:', emoji, 'на сообщение:', messageId, updatedReaction);
+    
     } catch (error) {
-      console.error('Ошибка при изменении реакции:', error);
+    
       
       // Если произошла ошибка, можем попробовать обновить локально
       try {
         const allReactions = await reactionService.getMessageReactions(messageId);
         updateMessageReactions(messageId, allReactions);
       } catch (fallbackError) {
-        console.error('Ошибка при получении реакций:', fallbackError);
+      
       }
     }
   }

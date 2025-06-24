@@ -39,7 +39,6 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   
   connectToVoiceChannel: async (channelId) => {
     try {
-      console.log('🎙️ Попытка подключения к голосовому каналу:', channelId);
       set({ error: null });
       
       const token = useAuthStore.getState().token;
@@ -47,11 +46,8 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         throw new Error('Не авторизован');
       }
 
-      console.log('🎙️ Токен получен, настраиваем обработчики событий');
-
       // Настраиваем обработчики событий
       voiceService.onParticipantJoin((participant) => {
-        console.log('🎙️ Участник присоединился:', participant);
         get().addParticipant({
           user_id: participant.user_id,
           username: participant.username,
@@ -63,28 +59,21 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       });
 
       voiceService.onParticipantLeave((userId) => {
-        console.log('🎙️ Участник покинул канал:', userId);
         get().removeParticipant(userId);
       });
-
-      console.log('🎙️ Подключаемся к голосовому каналу через voiceService');
       
       // Обработчик изменения голосовой активности
       voiceService.onSpeakingChange((userId, isSpeaking) => {
-        console.log('🎙️ Изменение голосовой активности:', userId, isSpeaking);
         get().setSpeaking(userId, isSpeaking);
       });
       
       // Обработчик получения списка участников
       voiceService.onParticipantsReceived((participants) => {
-        console.log('🎙️ Получен список участников:', participants);
-        
         // Добавляем текущего пользователя если его нет в списке
         const currentUser = useAuthStore.getState().user;
         if (currentUser) {
           const hasCurrentUser = participants.some((p: any) => p.user_id === currentUser.id);
           if (!hasCurrentUser) {
-            console.log('🎙️ Добавляем текущего пользователя в полученный список участников');
             participants.push({
               user_id: currentUser.id,
               username: currentUser.display_name || currentUser.username,
@@ -97,12 +86,10 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         }
         
         get().setParticipants(participants);
-        console.log('🎙️ Итоговое количество участников:', participants.length);
       });
       
       // Обработчик изменения статуса участников
       voiceService.onParticipantStatusChanged((userId, status) => {
-        console.log('🎙️ Изменение статуса участника:', userId, status);
         const currentParticipants = get().participants;
         const participantIndex = currentParticipants.findIndex(p => p.user_id === userId);
         
@@ -118,12 +105,9 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       // Подключаемся к голосовому каналу
       await voiceService.connect(channelId, token);
       
-      console.log('🎙️ Успешно подключились к голосовому каналу');
-      
       // Добавляем текущего пользователя в список участников
       const currentUser = useAuthStore.getState().user;
       if (currentUser) {
-        console.log('🎙️ Добавляем текущего пользователя в список участников:', currentUser);
         get().addParticipant({
           user_id: currentUser.id,
           username: currentUser.display_name || currentUser.username,
@@ -139,14 +123,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         isConnected: true,
         error: null,
       });
-
-      console.log('🎙️ Состояние обновлено:', {
-        currentVoiceChannelId: channelId,
-        isConnected: true,
-        participantsCount: get().participants.length,
-      });
     } catch (error: any) {
-      console.error('🎙️ Ошибка подключения к голосовому каналу:', error);
       set({ 
         error: error.message || 'Ошибка подключения к голосовому каналу',
         isConnected: false,

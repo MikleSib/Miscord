@@ -12,12 +12,12 @@ export function UserProfileBar() {
   const [showCopiedTooltip, setShowCopiedTooltip] = useState(false);
 
   const handleMuteToggle = () => {
-    console.log('🎙️ Переключение микрофона, текущее состояние:', isMuted);
+  
     toggleMute();
   };
 
   const handleDeafenToggle = () => {
-    console.log('🎧 Переключение наушников, текущее состояние:', isDeafened);
+   
     toggleDeafen();
   };
 
@@ -32,7 +32,7 @@ export function UserProfileBar() {
         setShowCopiedTooltip(true);
         setTimeout(() => setShowCopiedTooltip(false), 2000);
       } catch (err) {
-        console.error('Ошибка копирования:', err);
+     
       }
     }
   };

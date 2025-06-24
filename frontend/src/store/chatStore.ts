@@ -64,7 +64,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
         isLoading: false 
       });
     } catch (error) {
-      console.error('Ошибка загрузки истории сообщений:', error);
       set({ 
         error: 'Не удалось загрузить историю сообщений',
         isLoading: false 

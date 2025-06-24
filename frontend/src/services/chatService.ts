@@ -28,22 +28,15 @@ class ChatService {
   private shouldReconnect = true;
 
   connect(channelId: number, token: string) {
-    console.log('[ChatService] connect() вызван', { 
-      channelId, 
-      hasToken: !!token, 
-      tokenLength: token?.length,
-      currentChannelId: this.channelId,
-      wsState: this.ws?.readyState,
-      isConnecting: this.isConnecting 
-    });
+  
     
     if (this.ws && this.ws.readyState === WebSocket.OPEN && this.channelId === channelId) {
-      console.log('[ChatService] Уже подключены к каналу', channelId);
+   
       return;
     }
     
     if (this.isConnecting) {
-      console.log('[ChatService] Подключение уже выполняется');
+    
       return;
     }
 
@@ -59,13 +52,13 @@ class ChatService {
     this.isConnecting = true;
     const url = `${WS_URL}/ws/chat/${this.channelId}?token=${this.token}`;
     
-    console.log('[ChatService] Подключаемся к', url);
+  
     
     try {
       this.ws = new WebSocket(url);
       
       this.ws.onopen = () => {
-        console.log('[ChatService] Подключено к чату канала', this.channelId);
+      
         this.reconnectAttempts = 0;
         this.isConnecting = false;
         
@@ -92,16 +85,16 @@ class ChatService {
             this.reactionUpdatedHandler(data.data);
           }
         } catch (e) {
-          console.error('[ChatService] Ошибка обработки сообщения:', e);
+        
         }
       };
       
       this.ws.onclose = (event) => {
-        console.log('[ChatService] Соединение закрыто', event.code, event.reason);
+      
         this.isConnecting = false;
         
         if (this.shouldReconnect && event.code !== 1000 && this.reconnectAttempts < this.maxReconnectAttempts) {
-          console.log('[ChatService] Попытка переподключения через', this.reconnectDelay, 'мс');
+        
           setTimeout(() => {
             if (this.shouldReconnect) {
               this.reconnectAttempts++;
@@ -112,18 +105,18 @@ class ChatService {
       };
       
       this.ws.onerror = (e) => {
-        console.error('[ChatService] Ошибка WebSocket:', e);
+      
         this.isConnecting = false;
       };
       
     } catch (error) {
-      console.error('[ChatService] Ошибка создания WebSocket:', error);
+     
       this.isConnecting = false;
     }
   }
 
   disconnect() {
-    console.log('[ChatService] Отключаемся от WebSocket');
+  
     this.shouldReconnect = false;
     this.isConnecting = false;
     
@@ -141,15 +134,7 @@ class ChatService {
   }
 
   sendMessage(content: string, attachments: string[] = [], replyToId?: number) {
-    console.log('[ChatService] sendMessage вызван', { 
-      content, 
-      attachments, 
-      replyToId,
-      channelId: this.channelId,
-      wsState: this.ws?.readyState,
-      wsOpen: this.ws?.readyState === WebSocket.OPEN 
-    });
-    
+   
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       console.warn('[ChatService] WebSocket не открыт, сообщение не отправлено', {
         ws: !!this.ws,
@@ -170,12 +155,12 @@ class ChatService {
       ...(replyToId && { reply_to_id: replyToId }),
     };
     
-    console.log('[ChatService] Отправляем сообщение через WebSocket:', message);
+  
     try {
       this.ws.send(JSON.stringify(message));
-      console.log('[ChatService] Сообщение успешно отправлено');
+   
     } catch (error) {
-      console.error('[ChatService] Ошибка отправки сообщения:', error);
+     
     }
   }
 
@@ -238,7 +223,7 @@ class ChatService {
       const result = await channelApi.getChannelMessages(channelId, limit, before);
       return result;
     } catch (error) {
-      console.error('[ChatService] Ошибка загрузки истории сообщений:', error);
+    
       throw error;
     }
   }

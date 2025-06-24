@@ -132,27 +132,13 @@ export const useStore = create<AppState>()(
 
       // Удаление сервера
       removeServer: (serverId: number) => {
-        console.log('🗑️ removeServer вызван для сервера ID:', serverId);
         set((state) => {
-          console.log('🗑️ Состояние до удаления:', {
-            serversCount: state.servers.length,
-            currentServerId: state.currentServer?.id,
-            currentChannelId: state.currentChannel?.id
-          });
-          
           const filteredServers = state.servers.filter(server => server.id !== serverId);
           
           // Если удаляется текущий сервер, сбрасываем выбор
           const isCurrentServer = state.currentServer?.id === serverId;
           const newCurrentServer = isCurrentServer ? null : state.currentServer;
           const newCurrentChannel = isCurrentServer ? null : state.currentChannel;
-          
-          console.log('🗑️ Новое состояние:', {
-            serversCount: filteredServers.length,
-            isCurrentServer,
-            newCurrentServerId: newCurrentServer?.id,
-            newCurrentChannelId: newCurrentChannel?.id
-          });
           
           return {
             servers: filteredServers,
@@ -161,7 +147,6 @@ export const useStore = create<AppState>()(
             currentServerMembers: newCurrentServer ? state.currentServerMembers : []
           };
         });
-        console.log('🗑️ removeServer завершен');
       },
 
       // Добавление канала
@@ -194,64 +179,33 @@ export const useStore = create<AppState>()(
       // Отправка сообщения
       sendMessage: async (content: string, files: File[]) => {
         const { currentChannel, user } = get();
-        console.log('[store] sendMessage START', {
-          content,
-          files,
-          currentChannel,
-          user,
-          channelId: currentChannel?.id,
-          channelName: currentChannel?.name,
-          channelType: currentChannel?.type,
-          userId: user?.id,
-          username: user?.username,
-        });
         if (!currentChannel || !user || currentChannel.type !== 'text') {
-          console.log('[store] return: нет канала, пользователя или не текстовый канал', {
-            currentChannel,
-            user,
-            channelId: currentChannel?.id,
-            channelName: currentChannel?.name,
-            channelType: currentChannel?.type,
-            userId: user?.id,
-            username: user?.username,
-          });
           return;
         }
         if (!content.trim() && files.length === 0) {
-          console.log('[store] return: пустое сообщение и нет файлов');
           return;
         }
         if (content.length > 5000) {
-          console.log('[store] return: слишком длинное сообщение');
           get().setError("Сообщение не может быть длиннее 5000 символов.");
           return;
         }
         if (files.length > 3) {
-          console.log('[store] return: слишком много файлов');
           get().setError("Можно прикрепить не более 3 изображений.");
           return;
         }
 
         set({ isLoading: true });
-        console.log('[store] после setLoading');
         try {
           const attachmentUrls: string[] = [];
-          console.log('[store] attachmentUrls перед циклом:', attachmentUrls, files);
           for (const file of files) {
-            console.log('[store] uploadFile вызов', file);
             const response = await uploadService.uploadFile(file);
-            console.log('[store] uploadFile ответ', response);
             attachmentUrls.push(response.file_url);
           }
-          console.log('[store] Перед отправкой в chatService', { channelId: currentChannel.id, content, attachmentUrls });
           chatService.sendMessage(content, attachmentUrls);
-          console.log('[store] После вызова chatService.sendMessage');
         } catch (error) {
-          console.error('[store] Ошибка отправки сообщения:', error);
           get().setError("Не удалось отправить сообщение.");
         } finally {
           set({ isLoading: false });
-          console.log('[store] sendMessage FINALLY');
         }
       },
 
@@ -372,7 +326,6 @@ export const useStore = create<AppState>()(
             await get().loadServerDetails(firstServer.id);
           }
         } catch (error: any) {
-          console.error('Ошибка загрузки серверов:', error);
           set({ 
             error: error.response?.data?.detail || 'Ошибка загрузки серверов', 
             isLoading: false 
@@ -408,7 +361,7 @@ export const useStore = create<AppState>()(
             currentServerMembers: serverDetails.members || []
           }))
         } catch (error) {
-          console.error('Ошибка загрузки деталей сервера:', error)
+          // Ошибка загрузки деталей сервера
         }
       },
 
@@ -428,32 +381,12 @@ export const useStore = create<AppState>()(
         
         // Обработка приглашения в канал
         websocketService.onChannelInvitation((data) => {
-          console.log('Получено приглашение в канал:', data);
-          
-          // Показываем уведомление
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification(`Приглашение в канал`, {
-              body: `${data.invited_by} пригласил вас в канал "${data.channel_name}"`,
-              icon: '/favicon.ico'
-            });
-          }
-          
           // Перезагружаем список серверов
           get().loadServers();
         });
         
         // Обработка создания нового сервера
         websocketService.onServerCreated((data) => {
-          console.log('Создан новый сервер:', data);
-          
-          // Показываем уведомление
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification(`Новый сервер`, {
-              body: `${data.created_by.username} создал сервер "${data.server.name}"`,
-              icon: '/favicon.ico'
-            });
-          }
-          
           // Добавляем новый сервер в список
           const newServer: Server = {
             id: data.server.id,
@@ -468,74 +401,26 @@ export const useStore = create<AppState>()(
 
         // Обработка обновления сервера
         websocketService.onServerUpdated((data) => {
-          console.log('Сервер обновлен:', data);
-
           get().updateServer(data.server_id, {
             name: data.name,
             description: data.description,
             icon: data.icon
           });
-
-          const currentUser = get().user;
-          if (currentUser && data.updated_by && data.updated_by.id !== currentUser.id) {
-            if ('Notification' in window && Notification.permission === 'granted') {
-              new Notification(`Сервер обновлен`, {
-                body: `${data.updated_by.username} обновил настройки сервера "${data.name}"`,
-                icon: '/favicon.ico'
-              });
-            }
-          }
         });
 
         // Обработка удаления сервера
         websocketService.onServerDeleted((data) => {
-          console.log('🔔 Получено событие server_deleted:', data);
-          console.log('🔔 Структура data:', JSON.stringify(data, null, 2));
-          
           // WebSocket событие имеет структуру: { type: 'server_deleted', data: { server_id, server_name, deleted_by } }
           const eventData = (data as any).data || data;
           const serverId = eventData.server_id;
           
-          console.log('🔔 Извлеченный server_id:', serverId);
-          
-          const { servers, currentServer } = get();
-          console.log('🔔 Текущее состояние - серверы:', servers.length, 'текущий сервер:', currentServer?.id);
-          
           if (serverId) {
             get().removeServer(serverId);
-            
-            const newState = get();
-            console.log('🔔 Новое состояние после removeServer - серверы:', newState.servers.length, 'текущий сервер:', newState.currentServer?.id);
-
-            const currentUser = get().user;
-            if (currentUser && eventData.deleted_by && eventData.deleted_by.id !== currentUser.id) {
-              console.log('🔔 Показываем уведомление о удалении сервера другим пользователем');
-              if ('Notification' in window && Notification.permission === 'granted') {
-                new Notification(`Сервер удален`, {
-                  body: `${eventData.deleted_by.username} удалил сервер "${eventData.server_name}"`,
-                  icon: '/favicon.ico'
-                });
-              }
-            } else {
-              console.log('🔔 Сервер удален текущим пользователем, уведомление не показываем');
-            }
-          } else {
-            console.error('🔔 Не удалось извлечь server_id из события:', data);
           }
         });
         
         // Обработка создания текстового канала
         websocketService.onTextChannelCreated((data) => {
-          console.log('Создан новый текстовый канал:', data);
-          
-          // Показываем уведомление
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification(`Новый текстовый канал`, {
-              body: `${data.created_by.username} создал канал #${data.text_channel.name}`,
-              icon: '/favicon.ico'
-            });
-          }
-          
           // Добавляем новый канал в соответствующий сервер
           const newChannel: Channel = {
             id: data.text_channel.id,
@@ -548,16 +433,6 @@ export const useStore = create<AppState>()(
         
         // Обработка создания голосового канала
         websocketService.onVoiceChannelCreated((data) => {
-          console.log('Создан новый голосовой канал:', data);
-          
-          // Показываем уведомление
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification(`Новый голосовой канал`, {
-              body: `${data.created_by.username} создал голосовой канал ${data.voice_channel.name}`,
-              icon: '/favicon.ico'
-            });
-          }
-          
           // Добавляем новый канал в соответствующий сервер
           const newChannel: Channel = {
             id: data.voice_channel.id,
@@ -570,8 +445,6 @@ export const useStore = create<AppState>()(
         
         // Обработка присоединения пользователя
         websocketService.onUserJoinedChannel((data) => {
-          console.log('Пользователь присоединился к каналу:', data);
-          
           const { currentServer } = get();
           if (currentServer?.id === data.channel_id) {
             get().loadServerDetails(data.channel_id);
@@ -580,8 +453,6 @@ export const useStore = create<AppState>()(
         
         // Обработка выхода пользователя
         websocketService.onUserLeftChannel((data) => {
-          console.log('Пользователь покинул канал:', data);
-          
           const { currentServer } = get();
           if (currentServer?.id === data.channel_id) {
             get().loadServerDetails(data.channel_id);
@@ -590,8 +461,6 @@ export const useStore = create<AppState>()(
         
         // Обработка обновления канала
         websocketService.onChannelUpdated((data) => {
-          console.log('Канал обновлен:', data);
-          
           const { currentServer } = get();
           if (currentServer?.id === data.channel_id) {
             get().loadServerDetails(data.channel_id);
@@ -600,72 +469,30 @@ export const useStore = create<AppState>()(
         
         // Обработка присоединения к голосовому каналу
         websocketService.onVoiceChannelJoin((data) => {
-          console.log('Пользователь присоединился к голосовому каналу:', data);
-          
-          // Показываем уведомление
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification(`Голосовой канал`, {
-              body: `${data.username} присоединился к каналу "${data.voice_channel_name}"`,
-              icon: '/favicon.ico'
-            });
-          }
-          
           // Генерируем глобальное событие для обновления UI
           window.dispatchEvent(new CustomEvent('voice_channel_join', { detail: data }));
         });
         
         // Обработка выхода из голосового канала
         websocketService.onVoiceChannelLeave((data) => {
-          console.log('Пользователь покинул голосовой канал:', data);
-          
-          // Показываем уведомление
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification(`Голосовой канал`, {
-              body: `${data.username} покинул голосовой канал`,
-              icon: '/favicon.ico'
-            });
-          }
-          
           // Генерируем глобальное событие для обновления UI
           window.dispatchEvent(new CustomEvent('voice_channel_leave', { detail: data }));
         });
 
         // Обработка начала демонстрации экрана
         websocketService.onScreenShareStarted((data) => {
-          console.log('Пользователь начал демонстрацию экрана:', data);
-          
-          // Показываем уведомление
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification(`Демонстрация экрана`, {
-              body: `${data.username} начал демонстрацию экрана`,
-              icon: '/favicon.ico'
-            });
-          }
-          
           // Генерируем глобальное событие для обновления UI
           window.dispatchEvent(new CustomEvent('screen_share_start', { detail: data }));
         });
 
         // Обработка остановки демонстрации экрана
         websocketService.onScreenShareStopped((data) => {
-          console.log('Пользователь остановил демонстрацию экрана:', data);
-          
-          // Показываем уведомление
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification(`Демонстрация экрана`, {
-              body: `${data.username} остановил демонстрацию экрана`,
-              icon: '/favicon.ico'
-            });
-          }
-          
           // Генерируем глобальное событие для обновления UI
           window.dispatchEvent(new CustomEvent('screen_share_stop', { detail: data }));
         });
 
         // Обработка изменения статуса пользователя
         websocketService.onUserStatusChanged((data) => {
-          console.log('Изменился статус пользователя:', data);
-          
           // Генерируем глобальное событие для обновления UI
           window.dispatchEvent(new CustomEvent('user_status_changed', { detail: data }));
         });

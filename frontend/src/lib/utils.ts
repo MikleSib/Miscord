@@ -111,4 +111,28 @@ export function formatDate(dateString: string): string {
       month: '2-digit' 
     });
   }
-} 
+}
+
+/**
+ * Функция для правильного склонения слова "участник"
+ * @param count - количество участников
+ * @returns строку с правильным склонением
+ */
+export function getParticipantsText(count: number): string {
+  const lastDigit = count % 10;
+  const lastTwoDigits = count % 100;
+  
+  // Особые случаи для 11, 12, 13, 14
+  if (lastTwoDigits >= 11 && lastTwoDigits <= 14) {
+    return `${count} участников`;
+  }
+  
+  // Обычные правила склонения
+  if (lastDigit === 1) {
+    return `${count} участник`;
+  } else if (lastDigit >= 2 && lastDigit <= 4) {
+    return `${count} участника`;
+  } else {
+    return `${count} участников`;
+  }
+}

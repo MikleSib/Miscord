@@ -19,10 +19,10 @@ const SIDEBAR_ITEMS = [
 ];
 
 export default function SettingsPage() {
-  console.log('SettingsPage рендерится');
+ 
   const router = useRouter();
   const { user, updateUser } = useAuthStore();
-  console.log('Текущий пользователь в настройках:', user);
+
   const [activeTab, setActiveTab] = useState('profile');
   const [displayName, setDisplayName] = useState('');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -69,10 +69,7 @@ export default function SettingsPage() {
       try {
         const response = await authService.uploadAvatar(file);
         updateUser({ ...user, avatar_url: response.avatar_url });
-        console.log('Аватар загружен:', response.avatar_url);
       } catch (error) {
-        console.error('Ошибка загрузки аватара:', error);
-        // Откатываем изменения при ошибке
         setAvatarFile(null);
         setAvatarPreview(null);
         if (fileInputRef.current) {
@@ -102,11 +99,9 @@ export default function SettingsPage() {
         updateUser({ ...user, display_name: displayName });
       }
       
-      // Показываем успешное сообщение (можно добавить toast)
-      console.log('Профиль обновлен');
-      
+
     } catch (error) {
-      console.error('Ошибка обновления профиля:', error);
+
     } finally {
       setIsLoading(false);
     }
@@ -120,9 +115,8 @@ export default function SettingsPage() {
       setAvatarFile(null);
       // Обновляем данные пользователя в store
       updateUser({ ...user, avatar_url: undefined });
-      console.log('Аватар удален');
     } catch (error) {
-      console.error('Ошибка удаления аватара:', error);
+
     } finally {
       setIsLoading(false);
     }

@@ -252,7 +252,7 @@ async def websocket_notifications_endpoint(
         await manager.connect(websocket, user.id)
         # Обновляем активность пользователя
         await user_activity_service.update_user_activity(user.id, db)
-        print(f"[WS_NOTIFICATIONS] Пользователь {user.username} подключился к уведомлениям")
+
         
         try:
             while True:
@@ -269,12 +269,12 @@ async def websocket_notifications_endpoint(
                     await websocket.send_text(json.dumps({"type": "ping"}))
                     
         except WebSocketDisconnect:
-            print(f"[WS_NOTIFICATIONS] Пользователь {user.username} отключился от уведомлений")
+            pass
         except Exception as e:
-            print(f"[WS_NOTIFICATIONS] Ошибка: {e}")
+            pass
             
     except Exception as e:
-        print(f"[WS_NOTIFICATIONS] Критическая ошибка подключения: {e}")
+        pass
     finally:
         # Гарантированно отключаем и закрываем сессию
         if user:
@@ -283,8 +283,6 @@ async def websocket_notifications_endpoint(
             if not manager.is_user_connected(user.id):
                 # Если нет других соединений, устанавливаем пользователя как оффлайн
                 await user_activity_service.set_user_offline(user.id, db)
-            print(f"[WS_NOTIFICATIONS] Пользователь {user.username} отключён от уведомлений")
             
         if db:
             await db.close()
-            print("[WS_NOTIFICATIONS] Сессия БД закрыта")

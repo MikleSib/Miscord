@@ -65,11 +65,6 @@ export default function HomePage() {
 
       // Загружаем серверы пользователя
       await loadServers()
-
-      // Запрашиваем разрешение на уведомления
-      if ('Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission()
-      }
     }
 
     initializeApp()

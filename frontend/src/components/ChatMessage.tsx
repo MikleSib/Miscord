@@ -47,7 +47,7 @@ export function ChatMessage({ message, showAuthor, onReply, onReaction, currentU
       deleteMessage(message.id);
       setShowMoreMenu(false);
     } catch (error) {
-      console.error('Ошибка удаления сообщения:', error);
+   
     }
   }
 
@@ -66,7 +66,7 @@ export function ChatMessage({ message, showAuthor, onReply, onReaction, currentU
       editMessage(message.id, editContent);
       setIsEditing(false);
     } catch (error) {
-      console.error('Ошибка редактирования сообщения:', error);
+    
     }
   }
 

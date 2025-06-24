@@ -90,7 +90,7 @@ export function ServerSettingsModal({ isOpen, onClose, server, onServerUpdate }:
 
       onClose()
     } catch (error: any) {
-      console.error('Ошибка сохранения настроек сервера:', error)
+    
       setError(error.response?.data?.detail || 'Не удалось сохранить настройки сервера')
     } finally {
       setIsLoading(false)
@@ -103,9 +103,9 @@ export function ServerSettingsModal({ isOpen, onClose, server, onServerUpdate }:
       await channelService.deleteServer(server.id)
       // Закрываем модальное окно - WebSocket уведомление автоматически обновит состояние
       onClose()
-      console.log('Сервер успешно удален, ожидаем WebSocket уведомление для обновления состояния')
+   
     } catch (error: any) {
-      console.error('Ошибка удаления сервера:', error)
+   
       setError(error.response?.data?.detail || 'Не удалось удалить сервер')
     } finally {
       setIsDeleting(false)

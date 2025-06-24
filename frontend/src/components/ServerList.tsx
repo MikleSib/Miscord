@@ -97,7 +97,7 @@ export function ServerList() {
       setNewServerName('')
       setCreateStep('template')
     } catch (error) {
-      console.error('Ошибка создания сервера:', error)
+
     } finally {
       setIsCreating(false)
     }
@@ -127,7 +127,7 @@ export function ServerList() {
       setIsInviteModalOpen(false)
       setInviteUsername('')
     } catch (error: any) {
-      console.error('Ошибка приглашения пользователя:', error)
+
       if (error.response?.data?.detail) {
         setInviteError(error.response.data.detail)
       } else {
@@ -142,13 +142,7 @@ export function ServerList() {
     e.preventDefault()
     e.stopPropagation()
     
-    console.log('Context menu triggered:', {
-      user: user,
-      server: server,
-      server_owner_id: server.owner_id,
-      user_id: user?.id,
-      isOwner: user && server.owner_id === user.id
-    })
+
     
     setContextMenuPosition({ x: e.clientX, y: e.clientY })
     setContextMenuOpen(server.id)
@@ -250,31 +244,7 @@ export function ServerList() {
                 <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary rounded-r-full -ml-2" />
               )}
               
-              {/* Кнопка приглашения при наведении на активный сервер */}
-              {currentServer?.id === server.id && (
-                <div className="absolute -right-1 top-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Tooltip title="Пригласить пользователя">
-                    <IconButton
-                      size="small"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setIsInviteModalOpen(true)
-                      }}
-                      sx={{
-                        backgroundColor: 'rgba(67, 181, 129, 0.1)',
-                        color: '#43b581',
-                        width: 24,
-                        height: 24,
-                        '&:hover': {
-                          backgroundColor: 'rgba(67, 181, 129, 0.2)',
-                        }
-                      }}
-                    >
-                      <UserPlus size={14} />
-                    </IconButton>
-                  </Tooltip>
-                </div>
-              )}
+            
             </div>
           ))}
           
