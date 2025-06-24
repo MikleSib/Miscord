@@ -17,6 +17,7 @@ export interface Server {
   name: string;
   description?: string;
   icon?: string;
+  owner_id?: number;
   channels: Channel[];
 }
 
@@ -61,6 +62,7 @@ export interface BackendChannel {
   id: number;
   name: string;
   description?: string;
+  icon?: string;
   owner_id: number;
   owner?: User;
   created_at: string;

@@ -210,6 +210,17 @@ class WebSocketService {
     this.messageHandlers['reaction_updated'] = handler;
   }
 
+  // Обновление сервера
+  onServerUpdated(handler: (data: { 
+    server_id: number; 
+    name: string; 
+    description?: string; 
+    icon?: string; 
+    updated_by: { id: number; username: string; display_name: string } 
+  }) => void) {
+    this.messageHandlers['server_updated'] = handler;
+  }
+
   onUserStatusChanged(handler: (data: { user_id: number; username: string; is_online: boolean }) => void) {
     this.messageHandlers['user_status_changed'] = handler;
   }

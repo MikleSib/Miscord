@@ -302,6 +302,8 @@ export const useStore = create<AppState>()(
             id: s.id,
             name: s.name,
             description: s.description,
+            icon: s.icon,
+            owner_id: s.owner_id,
             channels: [
               ...(s.text_channels || []).map((c: any) => ({
                 id: c.id,
@@ -421,9 +423,34 @@ export const useStore = create<AppState>()(
             id: data.server.id,
             name: data.server.name,
             description: data.server.description,
+            icon: data.server.icon,
+            owner_id: data.server.owner_id,
             channels: []
           };
           get().addServer(newServer);
+        });
+
+        // Обработка обновления сервера
+        websocketService.onServerUpdated((data) => {
+          console.log('Сервер обновлен:', data);
+          
+          // Обновляем сервер в списке
+          get().updateServer(data.server_id, {
+            name: data.name,
+            description: data.description,
+            icon: data.icon
+          });
+          
+          // Показываем уведомление (если обновлял не текущий пользователь)
+          const currentUser = get().user;
+          if (currentUser && data.updated_by.id !== currentUser.id) {
+            if ('Notification' in window && Notification.permission === 'granted') {
+              new Notification(`Сервер обновлен`, {
+                body: `${data.updated_by.username} обновил настройки сервера "${data.name}"`,
+                icon: '/favicon.ico'
+              });
+            }
+          }
         });
         
         // Обработка создания текстового канала

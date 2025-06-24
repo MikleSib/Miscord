@@ -1,8 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { Plus, Home, UserPlus } from 'lucide-react'
+import { Plus, Home, UserPlus, Settings, Copy, UserCheck } from 'lucide-react'
 import { useStore } from '../lib/store'
+import { useAuthStore } from '../store/store'
 import { cn } from '../lib/utils'
 import { Button } from './ui/button'
 import {
@@ -15,11 +16,18 @@ import {
   Tooltip
 } from '@mui/material'
 import channelService from '../services/channelService'
+import { ServerSettingsModal } from './ServerSettingsModal'
+import { Server } from '../types'
 
 export function ServerList() {
-  const { servers, currentServer, selectServer, addServer } = useStore()
+  const { servers, currentServer, selectServer, addServer, updateServer } = useStore()
+  const { user } = useAuthStore()
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false)
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false)
+  const [contextMenuOpen, setContextMenuOpen] = useState<number | null>(null)
+  const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 })
+  const [selectedServer, setSelectedServer] = useState<Server | null>(null)
   const [newServerName, setNewServerName] = useState('')
   const [inviteUsername, setInviteUsername] = useState('')
   const [isCreating, setIsCreating] = useState(false)
@@ -78,6 +86,50 @@ export function ServerList() {
     }
   }
 
+  const handleContextMenu = (e: React.MouseEvent, server: Server) => {
+    e.preventDefault()
+    e.stopPropagation()
+    
+    // Проверяем, является ли текущий пользователь владельцем сервера
+    if (user && server.owner_id === user.id) {
+      setContextMenuPosition({ x: e.clientX, y: e.clientY })
+      setContextMenuOpen(server.id)
+      setSelectedServer(server)
+    }
+  }
+
+  const handleServerSettings = () => {
+    if (selectedServer) {
+      setIsSettingsModalOpen(true)
+      setContextMenuOpen(null)
+    }
+  }
+
+  const handleInviteToServer = () => {
+    if (selectedServer) {
+      selectServer(selectedServer.id)
+      setIsInviteModalOpen(true)
+      setContextMenuOpen(null)
+    }
+  }
+
+  const handleCopyServerId = () => {
+    if (selectedServer) {
+      navigator.clipboard.writeText(selectedServer.id.toString())
+      setContextMenuOpen(null)
+      // Можно добавить уведомление о копировании
+    }
+  }
+
+  const handleServerUpdate = (updatedServer: Server) => {
+    updateServer(updatedServer.id, updatedServer)
+  }
+
+  const closeContextMenu = () => {
+    setContextMenuOpen(null)
+    setSelectedServer(null)
+  }
+
   return (
     <>
       <div className="w-[72px] bg-card flex flex-col items-center py-3 gap-2 border-r border-border">
@@ -104,15 +156,24 @@ export function ServerList() {
                 variant="ghost"
                 size="icon"
                 className={cn(
-                  "w-12 h-12 rounded-2xl bg-secondary hover:bg-accent transition-all duration-200",
+                  "w-12 h-12 rounded-2xl bg-secondary hover:bg-accent transition-all duration-200 overflow-hidden",
                   currentServer?.id === server.id && "bg-primary text-primary-foreground hover:bg-primary/90",
                   "hover:rounded-xl"
                 )}
                 onClick={() => selectServer(server.id)}
+                onContextMenu={(e) => handleContextMenu(e, server)}
               >
-                <span className="font-semibold text-lg">
-                  {server.name.slice(0, 2).toUpperCase()}
-                </span>
+                {server.icon ? (
+                  <img 
+                    src={server.icon} 
+                    alt={server.name} 
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span className="font-semibold text-lg">
+                    {server.name.slice(0, 2).toUpperCase()}
+                  </span>
+                )}
               </Button>
               
               {/* Индикатор активного сервера */}
@@ -229,6 +290,59 @@ export function ServerList() {
           </Box>
         </DialogContent>
       </Dialog>
+
+      {/* Context Menu */}
+      {contextMenuOpen && (
+        <>
+          <div 
+            className="fixed inset-0 z-40" 
+            onClick={closeContextMenu}
+          />
+          <div 
+            className="fixed z-50 bg-background border border-border rounded-md shadow-lg min-w-[200px]"
+            style={{ 
+              left: contextMenuPosition.x, 
+              top: contextMenuPosition.y 
+            }}
+          >
+            <div className="py-1">
+              <button
+                onClick={handleInviteToServer}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition flex items-center gap-2"
+              >
+                <UserPlus className="w-4 h-4" />
+                Пригласить людей
+              </button>
+              <div className="border-t border-border my-1" />
+              <button
+                onClick={handleServerSettings}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition flex items-center gap-2"
+              >
+                <Settings className="w-4 h-4" />
+                Настройки сервера
+              </button>
+              <div className="border-t border-border my-1" />
+              <button
+                onClick={handleCopyServerId}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition flex items-center gap-2"
+              >
+                <Copy className="w-4 h-4" />
+                Копировать ID
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Server Settings Modal */}
+      {selectedServer && (
+        <ServerSettingsModal
+          isOpen={isSettingsModalOpen}
+          onClose={() => setIsSettingsModalOpen(false)}
+          server={selectedServer}
+          onServerUpdate={handleServerUpdate}
+        />
+      )}
     </>
   )
 }

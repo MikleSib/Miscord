@@ -22,6 +22,12 @@ export interface CreateVoiceChannelRequest {
   max_users: number;
 }
 
+export interface UpdateServerRequest {
+  name?: string;
+  description?: string;
+  icon?: string;
+}
+
 class ChannelService {
   async getUserChannels(): Promise<Channel[]> {
     const response = await api.get<Channel[]>('/api/channels/');
@@ -92,6 +98,11 @@ class ChannelService {
 
   async getFullServerData(): Promise<FullServerData> {
     const response = await api.get<FullServerData>('/api/channels/full');
+    return response.data;
+  }
+
+  async updateServer(serverId: number, data: UpdateServerRequest): Promise<BackendChannel> {
+    const response = await api.put<BackendChannel>(`/api/channels/${serverId}`, data);
     return response.data;
   }
 }

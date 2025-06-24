@@ -6,6 +6,7 @@ from app.schemas.user import User
 class ChannelBase(BaseModel):
     name: str
     description: Optional[str] = None
+    icon: Optional[str] = None
 
 class ChannelCreate(ChannelBase):
     pass
@@ -13,6 +14,7 @@ class ChannelCreate(ChannelBase):
 class ChannelUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    icon: Optional[str] = None
 
 class TextChannelBase(BaseModel):
     name: str

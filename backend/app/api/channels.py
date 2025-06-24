@@ -69,6 +69,7 @@ async def get_full_server_data(
             "id": channel.id,
             "name": channel.name,
             "description": channel.description,
+            "icon": channel.icon,
             "owner_id": channel.owner_id,
             "created_at": channel.created_at,
             "updated_at": channel.updated_at,
@@ -258,6 +259,86 @@ async def get_all_channels(
         })
 
     return response_channels
+
+@router.put("/{channel_id}", response_model=ChannelSchema)
+async def update_channel(
+    channel_id: int,
+    channel_data: ChannelUpdate,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Обновление настроек сервера (только для владельца)"""
+    # Находим канал
+    stmt = select(Channel).options(selectinload(Channel.owner)).where(Channel.id == channel_id)
+    result = await db.execute(stmt)
+    channel = result.scalar_one_or_none()
+    
+    if not channel:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Сервер не найден"
+        )
+    
+    # Проверяем права (только владелец может изменять настройки)
+    if channel.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Только владелец сервера может изменять его настройки"
+        )
+    
+    # Обновляем данные
+    update_data = channel_data.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(channel, field, value)
+    
+    channel.updated_at = func.now()
+    await db.commit()
+    await db.refresh(channel)
+    
+    # Отправляем WebSocket уведомление всем участникам сервера о обновлении
+    # Получаем всех участников сервера
+    members_stmt = select(ChannelMember.user_id).where(ChannelMember.channel_id == channel_id)
+    members_result = await db.execute(members_stmt)
+    member_ids = [row[0] for row in members_result.fetchall()]
+    
+    # Отправляем уведомление каждому участнику
+    for member_id in member_ids:
+        await manager.send_to_user(member_id, {
+            "type": "server_updated",
+            "data": {
+                "server_id": channel.id,
+                "name": channel.name,
+                "description": channel.description,
+                "icon": channel.icon,
+                "updated_by": {
+                    "id": current_user.id,
+                    "username": current_user.username,
+                    "display_name": current_user.display_name
+                }
+            }
+        })
+    
+    return {
+        "id": channel.id,
+        "name": channel.name,
+        "description": channel.description,
+        "icon": channel.icon,
+        "owner_id": channel.owner_id,
+        "created_at": channel.created_at,
+        "updated_at": channel.updated_at,
+        "owner": {
+            "id": channel.owner.id,
+            "username": channel.owner.username,
+            "email": channel.owner.email,
+            "is_active": channel.owner.is_active,
+            "is_online": channel.owner.is_online,
+            "created_at": channel.owner.created_at,
+            "updated_at": channel.owner.updated_at
+        },
+        "text_channels": [],
+        "voice_channels": [],
+        "members_count": 0
+    }
 
 @router.get("/{channel_id}")
 async def get_channel_details(
