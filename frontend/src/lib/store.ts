@@ -132,12 +132,27 @@ export const useStore = create<AppState>()(
 
       // Удаление сервера
       removeServer: (serverId: number) => {
+        console.log('🗑️ removeServer вызван для сервера ID:', serverId);
         set((state) => {
+          console.log('🗑️ Состояние до удаления:', {
+            serversCount: state.servers.length,
+            currentServerId: state.currentServer?.id,
+            currentChannelId: state.currentChannel?.id
+          });
+          
           const filteredServers = state.servers.filter(server => server.id !== serverId);
           
           // Если удаляется текущий сервер, сбрасываем выбор
-          const newCurrentServer = state.currentServer?.id === serverId ? null : state.currentServer;
-          const newCurrentChannel = state.currentServer?.id === serverId ? null : state.currentChannel;
+          const isCurrentServer = state.currentServer?.id === serverId;
+          const newCurrentServer = isCurrentServer ? null : state.currentServer;
+          const newCurrentChannel = isCurrentServer ? null : state.currentChannel;
+          
+          console.log('🗑️ Новое состояние:', {
+            serversCount: filteredServers.length,
+            isCurrentServer,
+            newCurrentServerId: newCurrentServer?.id,
+            newCurrentChannelId: newCurrentChannel?.id
+          });
           
           return {
             servers: filteredServers,
@@ -146,6 +161,7 @@ export const useStore = create<AppState>()(
             currentServerMembers: newCurrentServer ? state.currentServerMembers : []
           };
         });
+        console.log('🗑️ removeServer завершен');
       },
 
       // Добавление канала
@@ -473,18 +489,38 @@ export const useStore = create<AppState>()(
 
         // Обработка удаления сервера
         websocketService.onServerDeleted((data) => {
-          console.log('Сервер удален:', data);
+          console.log('🔔 Получено событие server_deleted:', data);
+          console.log('🔔 Структура data:', JSON.stringify(data, null, 2));
+          
+          // WebSocket событие имеет структуру: { type: 'server_deleted', data: { server_id, server_name, deleted_by } }
+          const eventData = (data as any).data || data;
+          const serverId = eventData.server_id;
+          
+          console.log('🔔 Извлеченный server_id:', serverId);
+          
+          const { servers, currentServer } = get();
+          console.log('🔔 Текущее состояние - серверы:', servers.length, 'текущий сервер:', currentServer?.id);
+          
+          if (serverId) {
+            get().removeServer(serverId);
+            
+            const newState = get();
+            console.log('🔔 Новое состояние после removeServer - серверы:', newState.servers.length, 'текущий сервер:', newState.currentServer?.id);
 
-          get().removeServer(data.server_id);
-
-          const currentUser = get().user;
-          if (currentUser && data.deleted_by && data.deleted_by.id !== currentUser.id) {
-            if ('Notification' in window && Notification.permission === 'granted') {
-              new Notification(`Сервер удален`, {
-                body: `${data.deleted_by.username} удалил сервер "${data.server_name}"`,
-                icon: '/favicon.ico'
-              });
+            const currentUser = get().user;
+            if (currentUser && eventData.deleted_by && eventData.deleted_by.id !== currentUser.id) {
+              console.log('🔔 Показываем уведомление о удалении сервера другим пользователем');
+              if ('Notification' in window && Notification.permission === 'granted') {
+                new Notification(`Сервер удален`, {
+                  body: `${eventData.deleted_by.username} удалил сервер "${eventData.server_name}"`,
+                  icon: '/favicon.ico'
+                });
+              }
+            } else {
+              console.log('🔔 Сервер удален текущим пользователем, уведомление не показываем');
             }
+          } else {
+            console.error('🔔 Не удалось извлечь server_id из события:', data);
           }
         });
         

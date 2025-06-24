@@ -101,11 +101,9 @@ export function ServerSettingsModal({ isOpen, onClose, server, onServerUpdate }:
     setIsDeleting(true)
     try {
       await channelService.deleteServer(server.id)
-      // Здесь нужно добавить логику для удаления сервера из списка
-      // Возможно, передать колбэк onServerDelete через пропсы
+      // Закрываем модальное окно - WebSocket уведомление автоматически обновит состояние
       onClose()
-      // TODO: Обновить список серверов после удаления
-      window.location.reload() // Временное решение
+      console.log('Сервер успешно удален, ожидаем WebSocket уведомление для обновления состояния')
     } catch (error: any) {
       console.error('Ошибка удаления сервера:', error)
       setError(error.response?.data?.detail || 'Не удалось удалить сервер')
