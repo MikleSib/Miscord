@@ -591,7 +591,8 @@ async def invite_user_to_channel(
         .options(
             selectinload(Channel.owner),
             selectinload(Channel.text_channels),
-            selectinload(Channel.voice_channels)
+            selectinload(Channel.voice_channels),
+            selectinload(Channel.members)
         )
         .where(Channel.id == channel_id)
     )
