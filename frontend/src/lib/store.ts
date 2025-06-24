@@ -361,6 +361,7 @@ export const useStore = create<AppState>()(
             id: serverDetails.id,
             name: serverDetails.name,
             description: serverDetails.description,
+            icon: serverDetails.icon,
             channels
           }
           
@@ -432,21 +433,21 @@ export const useStore = create<AppState>()(
 
         // Обработка обновления сервера
         websocketService.onServerUpdated((data) => {
+          // Берём payload из data.data, если есть, иначе из data
+          const payload = data.data || data;
           console.log('Сервер обновлен:', data);
-          
-          // Обновляем сервер в списке
-          get().updateServer(data.server_id, {
-            name: data.name,
-            description: data.description,
-            icon: data.icon
+
+          get().updateServer(payload.server_id, {
+            name: payload.name,
+            description: payload.description,
+            icon: payload.icon
           });
-          
-          // Показываем уведомление (если обновлял не текущий пользователь)
+
           const currentUser = get().user;
-          if (currentUser && data.updated_by.id !== currentUser.id) {
+          if (currentUser && payload.updated_by && payload.updated_by.id !== currentUser.id) {
             if ('Notification' in window && Notification.permission === 'granted') {
               new Notification(`Сервер обновлен`, {
-                body: `${data.updated_by.username} обновил настройки сервера "${data.name}"`,
+                body: `${payload.updated_by.username} обновил настройки сервера "${payload.name}"`,
                 icon: '/favicon.ico'
               });
             }

@@ -384,6 +384,7 @@ async def get_channel_details(
         "id": channel.id,
         "name": channel.name,
         "description": channel.description,
+        "icon": channel.icon,
         "owner_id": channel.owner_id,
         "type": "server",  # Это сервер, содержащий каналы
         "owner": {

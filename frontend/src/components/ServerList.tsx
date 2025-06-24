@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Plus, Home, UserPlus, Settings, Copy, UserCheck } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { useAuthStore } from '../store/store'
@@ -90,12 +90,26 @@ export function ServerList() {
     e.preventDefault()
     e.stopPropagation()
     
+    console.log('Context menu triggered:', {
+      user: user,
+      server: server,
+      server_owner_id: server.owner_id,
+      user_id: user?.id,
+      isOwner: user && server.owner_id === user.id
+    })
+    
+    // Временно показываем меню для всех серверов для тестирования
+    // TODO: Убрать после отладки и оставить только владельцам
+    setContextMenuPosition({ x: e.clientX, y: e.clientY })
+    setContextMenuOpen(server.id)
+    setSelectedServer(server)
+    
     // Проверяем, является ли текущий пользователь владельцем сервера
-    if (user && server.owner_id === user.id) {
-      setContextMenuPosition({ x: e.clientX, y: e.clientY })
-      setContextMenuOpen(server.id)
-      setSelectedServer(server)
-    }
+    // if (user && server.owner_id === user.id) {
+    //   setContextMenuPosition({ x: e.clientX, y: e.clientY })
+    //   setContextMenuOpen(server.id)
+    //   setSelectedServer(server)
+    // }
   }
 
   const handleServerSettings = () => {
@@ -129,6 +143,20 @@ export function ServerList() {
     setContextMenuOpen(null)
     setSelectedServer(null)
   }
+
+  // Добавляем обработчик для закрытия контекстного меню при клике вне его
+  useEffect(() => {
+    const handleGlobalClick = () => {
+      if (contextMenuOpen) {
+        closeContextMenu()
+      }
+    }
+
+    if (contextMenuOpen) {
+      document.addEventListener('click', handleGlobalClick)
+      return () => document.removeEventListener('click', handleGlobalClick)
+    }
+  }, [contextMenuOpen])
 
   return (
     <>
@@ -167,7 +195,7 @@ export function ServerList() {
                   <img 
                     src={server.icon} 
                     alt={server.name} 
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-cover rounded-2xl" 
                   />
                 ) : (
                   <span className="font-semibold text-lg">
