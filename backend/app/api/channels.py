@@ -7,8 +7,8 @@ from app.db.database import get_db
 from app.models import Channel, ChannelMember, TextChannel, VoiceChannel, User, ChannelType, VoiceChannelUser, Message, Reaction
 from app.schemas.channel import (
     ChannelCreate, Channel as ChannelSchema, ChannelUpdate,
-    TextChannelCreate, TextChannel as TextChannelSchema,
-    VoiceChannelCreate, VoiceChannel as VoiceChannelSchema
+    TextChannelCreate, TextChannel as TextChannelSchema, TextChannelUpdate,
+    VoiceChannelCreate, VoiceChannel as VoiceChannelSchema, VoiceChannelUpdate
 )
 from app.schemas.user import UserResponse
 from app.core.dependencies import get_current_active_user, get_current_user
@@ -44,15 +44,17 @@ async def get_full_server_data(
 
     servers = []
     for channel in channels:
-        # Текстовые каналы без сообщений
+        # Текстовые каналы без сообщений (только не скрытые)
         text_channels = []
         for tc in channel.text_channels:
-            text_channels.append({
-                "id": tc.id,
-                "name": tc.name,
-                "position": tc.position,
-                "created_at": tc.created_at
-            })
+            if not tc.is_hidden:  # Показываем только не скрытые каналы
+                text_channels.append({
+                    "id": tc.id,
+                    "name": tc.name,
+                    "position": tc.position,
+                    "slow_mode_seconds": tc.slow_mode_seconds,
+                    "created_at": tc.created_at
+                })
         
         # Голосовые каналы без активных пользователей
         voice_channels = []
@@ -360,9 +362,12 @@ async def get_channel_details(
             detail="Channel not found"
         )
     
-    # Получаем текстовые каналы
+    # Получаем текстовые каналы (только не скрытые)
     text_result = await db.execute(
-        select(TextChannel).where(TextChannel.channel_id == channel_id).order_by(TextChannel.position)
+        select(TextChannel).where(
+            TextChannel.channel_id == channel_id,
+            TextChannel.is_hidden == False
+        ).order_by(TextChannel.position)
     )
     text_channels = text_result.scalars().all()
     
@@ -1101,3 +1106,315 @@ async def delete_channel(
         })
     
     return {"detail": "Сервер успешно удален"}
+
+# Новые эндпоинты для управления каналами
+
+@router.put("/text/{text_channel_id}")
+async def update_text_channel(
+    text_channel_id: int,
+    channel_data: TextChannelUpdate,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Обновление настроек текстового канала (только для владельца сервера)"""
+    # Получаем текстовый канал с сервером
+    text_channel_result = await db.execute(
+        select(TextChannel).options(
+            selectinload(TextChannel.channel).selectinload(Channel.owner)
+        ).where(TextChannel.id == text_channel_id)
+    )
+    text_channel = text_channel_result.scalar_one_or_none()
+    
+    if not text_channel:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Текстовый канал не найден"
+        )
+    
+    # Проверяем права (только владелец сервера может изменять каналы)
+    if text_channel.channel.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Только владелец сервера может изменять каналы"
+        )
+    
+    # Обновляем данные
+    update_data = channel_data.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(text_channel, field, value)
+    
+    await db.commit()
+    await db.refresh(text_channel)
+    
+    # Отправляем WebSocket уведомление всем участникам сервера
+    members_stmt = select(ChannelMember.user_id).where(ChannelMember.channel_id == text_channel.channel_id)
+    members_result = await db.execute(members_stmt)
+    member_ids = [row[0] for row in members_result.fetchall()]
+    
+    for member_id in member_ids:
+        await manager.send_to_user(member_id, {
+            "type": "text_channel_updated",
+            "data": {
+                "text_channel_id": text_channel.id,
+                "server_id": text_channel.channel_id,
+                "name": text_channel.name,
+                "slow_mode_seconds": text_channel.slow_mode_seconds,
+                "updated_by": {
+                    "id": current_user.id,
+                    "username": current_user.display_name or current_user.username
+                }
+            }
+        })
+    
+    return {
+        "id": text_channel.id,
+        "name": text_channel.name,
+        "channel_id": text_channel.channel_id,
+        "position": text_channel.position,
+        "slow_mode_seconds": text_channel.slow_mode_seconds,
+        "is_hidden": text_channel.is_hidden,
+        "created_at": text_channel.created_at
+    }
+
+@router.put("/voice/{voice_channel_id}")
+async def update_voice_channel(
+    voice_channel_id: int,
+    channel_data: VoiceChannelUpdate,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Обновление настроек голосового канала (только для владельца сервера)"""
+    # Получаем голосовой канал с сервером
+    voice_channel_result = await db.execute(
+        select(VoiceChannel).options(
+            selectinload(VoiceChannel.channel).selectinload(Channel.owner)
+        ).where(VoiceChannel.id == voice_channel_id)
+    )
+    voice_channel = voice_channel_result.scalar_one_or_none()
+    
+    if not voice_channel:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Голосовой канал не найден"
+        )
+    
+    # Проверяем права (только владелец сервера может изменять каналы)
+    if voice_channel.channel.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Только владелец сервера может изменять каналы"
+        )
+    
+    # Обновляем данные
+    update_data = channel_data.dict(exclude_unset=True)
+    old_max_users = voice_channel.max_users
+    
+    for field, value in update_data.items():
+        setattr(voice_channel, field, value)
+    
+    await db.commit()
+    await db.refresh(voice_channel)
+    
+    # Если уменьшили лимит пользователей, отключаем лишних
+    if voice_channel.max_users < old_max_users:
+        # Получаем текущих пользователей в канале
+        current_users_result = await db.execute(
+            select(VoiceChannelUser).where(
+                VoiceChannelUser.voice_channel_id == voice_channel_id
+            ).order_by(VoiceChannelUser.joined_at.desc())  # Новые пользователи первыми
+        )
+        current_users = current_users_result.scalars().all()
+        
+        # Если превышен лимит, отключаем лишних пользователей
+        if len(current_users) > voice_channel.max_users:
+            users_to_disconnect = current_users[voice_channel.max_users:]
+            
+            for voice_user in users_to_disconnect:
+                # Удаляем из голосового канала
+                await db.execute(delete(VoiceChannelUser).where(
+                    VoiceChannelUser.voice_channel_id == voice_channel_id,
+                    VoiceChannelUser.user_id == voice_user.user_id
+                ))
+                
+                # Уведомляем пользователя об отключении
+                await manager.send_to_user(voice_user.user_id, {
+                    "type": "voice_channel_disconnected",
+                    "data": {
+                        "voice_channel_id": voice_channel_id,
+                        "voice_channel_name": voice_channel.name,
+                        "reason": "channel_limit_reduced"
+                    }
+                })
+            
+            await db.commit()
+    
+    # Отправляем WebSocket уведомление всем участникам сервера
+    members_stmt = select(ChannelMember.user_id).where(ChannelMember.channel_id == voice_channel.channel_id)
+    members_result = await db.execute(members_stmt)
+    member_ids = [row[0] for row in members_result.fetchall()]
+    
+    for member_id in member_ids:
+        await manager.send_to_user(member_id, {
+            "type": "voice_channel_updated",
+            "data": {
+                "voice_channel_id": voice_channel.id,
+                "server_id": voice_channel.channel_id,
+                "name": voice_channel.name,
+                "max_users": voice_channel.max_users,
+                "updated_by": {
+                    "id": current_user.id,
+                    "username": current_user.display_name or current_user.username
+                }
+            }
+        })
+    
+    return {
+        "id": voice_channel.id,
+        "name": voice_channel.name,
+        "channel_id": voice_channel.channel_id,
+        "position": voice_channel.position,
+        "max_users": voice_channel.max_users,
+        "created_at": voice_channel.created_at
+    }
+
+@router.delete("/text/{text_channel_id}")
+async def delete_text_channel(
+    text_channel_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Удаление (скрытие) текстового канала (только для владельца сервера)"""
+    # Получаем текстовый канал с сервером
+    text_channel_result = await db.execute(
+        select(TextChannel).options(
+            selectinload(TextChannel.channel).selectinload(Channel.owner)
+        ).where(TextChannel.id == text_channel_id)
+    )
+    text_channel = text_channel_result.scalar_one_or_none()
+    
+    if not text_channel:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Текстовый канал не найден"
+        )
+    
+    # Проверяем права (только владелец сервера может удалять каналы)
+    if text_channel.channel.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Только владелец сервера может удалять каналы"
+        )
+    
+    # Проверяем, что это не последний текстовый канал
+    text_channels_count_result = await db.execute(
+        select(func.count(TextChannel.id)).where(
+            TextChannel.channel_id == text_channel.channel_id,
+            TextChannel.is_hidden == False
+        )
+    )
+    text_channels_count = text_channels_count_result.scalar()
+    
+    if text_channels_count <= 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Нельзя удалить последний текстовый канал на сервере"
+        )
+    
+    # Скрываем канал (не удаляем физически)
+    text_channel.is_hidden = True
+    await db.commit()
+    
+    # Отправляем WebSocket уведомление всем участникам сервера
+    members_stmt = select(ChannelMember.user_id).where(ChannelMember.channel_id == text_channel.channel_id)
+    members_result = await db.execute(members_stmt)
+    member_ids = [row[0] for row in members_result.fetchall()]
+    
+    for member_id in member_ids:
+        await manager.send_to_user(member_id, {
+            "type": "text_channel_deleted",
+            "data": {
+                "text_channel_id": text_channel.id,
+                "server_id": text_channel.channel_id,
+                "deleted_by": {
+                    "id": current_user.id,
+                    "username": current_user.display_name or current_user.username
+                }
+            }
+        })
+    
+    return {"detail": f"Текстовый канал '{text_channel.name}' скрыт"}
+
+@router.delete("/voice/{voice_channel_id}")
+async def delete_voice_channel(
+    voice_channel_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Удаление голосового канала (только для владельца сервера)"""
+    # Получаем голосовой канал с сервером
+    voice_channel_result = await db.execute(
+        select(VoiceChannel).options(
+            selectinload(VoiceChannel.channel).selectinload(Channel.owner)
+        ).where(VoiceChannel.id == voice_channel_id)
+    )
+    voice_channel = voice_channel_result.scalar_one_or_none()
+    
+    if not voice_channel:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Голосовой канал не найден"
+        )
+    
+    # Проверяем права (только владелец сервера может удалять каналы)
+    if voice_channel.channel.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Только владелец сервера может удалять каналы"
+        )
+    
+    # Получаем всех пользователей в голосовом канале
+    voice_users_result = await db.execute(
+        select(VoiceChannelUser).where(VoiceChannelUser.voice_channel_id == voice_channel_id)
+    )
+    voice_users = voice_users_result.scalars().all()
+    
+    # Отключаем всех пользователей от голосового канала
+    for voice_user in voice_users:
+        await manager.send_to_user(voice_user.user_id, {
+            "type": "voice_channel_disconnected",
+            "data": {
+                "voice_channel_id": voice_channel_id,
+                "voice_channel_name": voice_channel.name,
+                "reason": "channel_deleted"
+            }
+        })
+    
+    # Удаляем всех пользователей из голосового канала
+    await db.execute(delete(VoiceChannelUser).where(
+        VoiceChannelUser.voice_channel_id == voice_channel_id
+    ))
+    
+    # Получаем участников сервера для уведомления
+    members_stmt = select(ChannelMember.user_id).where(ChannelMember.channel_id == voice_channel.channel_id)
+    members_result = await db.execute(members_stmt)
+    member_ids = [row[0] for row in members_result.fetchall()]
+    
+    # Удаляем голосовой канал
+    await db.execute(delete(VoiceChannel).where(VoiceChannel.id == voice_channel_id))
+    await db.commit()
+    
+    # Отправляем WebSocket уведомление всем участникам сервера
+    for member_id in member_ids:
+        await manager.send_to_user(member_id, {
+            "type": "voice_channel_deleted",
+            "data": {
+                "voice_channel_id": voice_channel_id,
+                "server_id": voice_channel.channel_id,
+                "deleted_by": {
+                    "id": current_user.id,
+                    "username": current_user.display_name or current_user.username
+                }
+            }
+        })
+    
+    return {"detail": f"Голосовой канал '{voice_channel.name}' удален"}

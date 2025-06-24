@@ -392,11 +392,15 @@ export const useStore = create<AppState>()(
             serverId: serverId
           }))
           
+          // Получаем owner_id из текущего сервера или из serverDetails
+          const currentServer = get().currentServer;
+          
           const updatedServer: Server = {
             id: serverDetails.id,
             name: serverDetails.name,
             description: serverDetails.description,
             icon: serverDetails.icon,
+            owner_id: serverDetails.owner_id || currentServer?.owner_id,
             channels
           }
           

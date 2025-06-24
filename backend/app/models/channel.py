@@ -32,6 +32,8 @@ class TextChannel(Base):
     name = Column(String, nullable=False)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False)
     position = Column(Integer, default=0)
+    is_hidden = Column(Boolean, default=False)  # Скрытый канал (удаленный, но остается в базе)
+    slow_mode_seconds = Column(Integer, default=0)  # Медленный режим в секундах (0 = выключен)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Отношения

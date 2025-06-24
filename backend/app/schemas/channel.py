@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Optional, List
 from app.schemas.user import User
@@ -23,6 +23,10 @@ class TextChannelBase(BaseModel):
 class TextChannelCreate(TextChannelBase):
     channel_id: int
 
+class TextChannelUpdate(BaseModel):
+    name: Optional[str] = None
+    slow_mode_seconds: Optional[int] = Field(None, ge=0, le=21600)  # 0-6 часов
+
 class VoiceChannelBase(BaseModel):
     name: str
     position: int = 0
@@ -31,9 +35,15 @@ class VoiceChannelBase(BaseModel):
 class VoiceChannelCreate(VoiceChannelBase):
     channel_id: int
 
+class VoiceChannelUpdate(BaseModel):
+    name: Optional[str] = None
+    max_users: Optional[int] = Field(None, ge=1, le=99)  # 1-99 пользователей
+
 class TextChannel(TextChannelBase):
     id: int
     channel_id: int
+    is_hidden: bool = False
+    slow_mode_seconds: int = 0
     created_at: datetime
 
     class Config:
