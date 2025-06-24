@@ -16,6 +16,7 @@ import { Button } from '../components/ui/button'
 import { Monitor } from 'lucide-react'
 import { useAppInitialization } from '../hooks/redux'
 import { ServerUserSidebar } from '../components/ServerUserSidebar'
+import { UserProfileBar } from '../components/UserProfileBar'
 
 export default function HomePage() {
   const router = useRouter()
@@ -210,13 +211,19 @@ export default function HomePage() {
   }
 
   return (
-    <div className="h-screen flex bg-background">
+    <div className="h-screen flex bg-background relative">
       <ServerList />
       <ChannelSidebar />
       <div className="flex-1 flex flex-col">
         <ChatArea showUserSidebar={showUserSidebar} setShowUserSidebar={setShowUserSidebar} />
       </div>
       {showUserSidebar && <ServerUserSidebar />}
+      
+      {/* Общий профиль пользователя внизу под серверами и каналами */}
+      <div className="absolute bottom-2 left-2 z-10">
+        <UserProfileBar />
+      </div>
+      
       {/* Индикатор состояния подключения */}
       <ConnectionStatus
         isConnected={connectionStatus.isConnected}

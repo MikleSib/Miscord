@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Hash, Volume2, ChevronDown, Settings, Plus, Mic, MicOff, Headphones, PhoneOff, VolumeX, Monitor, MonitorOff, UserX, UserCheck, Shield, Volume1, LogOut } from 'lucide-react'
+import { Hash, Volume2, ChevronDown, Settings, Plus, Mic, MicOff, Headphones, PhoneOff, VolumeX, Monitor, MonitorOff, UserX, UserCheck, Shield, Volume1, LogOut, UserPlus, Copy } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { useVoiceStore } from '../store/slices/voiceSlice'
 import { useAuthStore } from '../store/store'
@@ -27,6 +27,7 @@ import {
 } from '@mui/material'
 import channelService from '../services/channelService'
 import { UserAvatar } from './ui/user-avatar'
+import { ServerSettingsModal } from './ServerSettingsModal'
 
 // Компонент для аватарки с анимацией при разговоре
 interface SpeakingAvatarProps {
@@ -165,6 +166,15 @@ export function ChannelSidebar() {
   // Состояние для UserPanel функциональности
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [activeSharingUsers, setActiveSharingUsers] = useState<{ userId: number; username: string }[]>([]);
+
+  // Состояние для контекстного меню заголовка сервера
+  const [serverContextMenu, setServerContextMenu] = useState<{ mouseX: number; mouseY: number } | null>(null);
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+
+  const [inviteUsername, setInviteUsername] = useState('');
+  const [inviteError, setInviteError] = useState('');
+  const [isInviting, setIsInviting] = useState(false);
 
   // Загружаем участников голосового канала
   const loadVoiceChannelMembers = async (voiceChannelId: number) => {
@@ -533,6 +543,53 @@ export function ChannelSidebar() {
     }
   }
 
+  const handleServerHeaderContextMenu = (event: React.MouseEvent) => {
+    event.preventDefault();
+    setServerContextMenu({ mouseX: event.clientX, mouseY: event.clientY });
+  };
+
+  const handleServerContextMenuClose = () => {
+    setServerContextMenu(null);
+  };
+
+  const handleInviteToServer = () => {
+    setIsInviteModalOpen(true);
+    handleServerContextMenuClose();
+  };
+
+  const handleServerSettings = () => {
+    setIsSettingsModalOpen(true);
+    handleServerContextMenuClose();
+  };
+
+  const handleCopyServerId = () => {
+    if (currentServer) {
+      navigator.clipboard.writeText(currentServer.id.toString());
+    }
+    handleServerContextMenuClose();
+  };
+
+  const handleInviteUser = async () => {
+    if (!inviteUsername.trim() || !currentServer) return;
+    setIsInviting(true);
+    setInviteError('');
+    try {
+      await channelService.inviteUserToServer(currentServer.id, inviteUsername);
+      setIsInviteModalOpen(false);
+      setInviteUsername('');
+      // Можно добавить уведомление об успешном приглашении
+    } catch (error: any) {
+      console.error('Ошибка приглашения пользователя:', error);
+      if (error.response?.data?.detail) {
+        setInviteError(error.response.data.detail);
+      } else {
+        setInviteError('Не удалось пригласить пользователя');
+      }
+    } finally {
+      setIsInviting(false);
+    }
+  };
+
   if (!currentServer) {
     return (
       <div className="w-60 bg-secondary flex flex-col">
@@ -548,9 +605,12 @@ export function ChannelSidebar() {
 
   return (
     <>
-      <div className="w-60 bg-secondary flex flex-col">
+      <div className="w-64 bg-[#2c2d32] flex flex-col h-screen">
         {/* Server Header */}
-        <div className="h-12 px-4 flex items-center justify-between border-b border-border cursor-pointer hover:bg-accent/50">
+        <div
+          className="h-12 px-4 flex items-center justify-between border-b border-[#393a3f] cursor-pointer hover:bg-[#35373c]"
+          onClick={handleServerHeaderContextMenu}
+        >
           <span className="font-semibold">{currentServer.name}</span>
           <ChevronDown className="w-4 h-4" />
         </div>
@@ -713,148 +773,6 @@ export function ChannelSidebar() {
               )}
             </div>
           </div>
-        </div>
-
-        {/* Панель пользователя внизу */}
-        <div className="mt-auto border-t border-border">
-          {/* Информация о пользователе */}
-          <div className="p-3 bg-secondary/50">
-            <div className="flex items-center gap-3">
-              <UserAvatar 
-                user={user || undefined}
-                size={32}
-                sx={{ 
-                  fontSize: '14px',
-                  backgroundColor: 'rgb(88, 101, 242)',
-                  fontWeight: 600,
-                }}
-              />
-              <div className="flex-1 min-w-0">
-                <Typography 
-                  sx={{ 
-                    fontWeight: 600, 
-                    fontSize: '14px', 
-                    color: 'rgb(220, 221, 222)',
-                    lineHeight: 1.2,
-                  }}
-                >
-                  {user?.display_name || user?.username}
-                </Typography>
-                <Typography 
-                  sx={{ 
-                    fontSize: '12px', 
-                    color: 'rgb(163, 166, 170)',
-                    lineHeight: 1,
-                  }}
-                >
-                  {currentVoiceChannelId ? 'В голосовом канале' : 'Онлайн'}
-                </Typography>
-              </div>
-              
-              {/* Кнопка настроек */}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  console.log('ШЕСТЕРЕНКА В CHANNELSIDEBAR НАЖАТА!');
-                  router.push('/settings');
-                }}
-                className="w-8 h-8 p-0 text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                title="Настройки"
-              >
-                <Settings className="w-4 h-4" />
-              </Button>
-              
-              {/* Кнопка выхода */}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleLogout}
-                className="w-8 h-8 p-0 text-muted-foreground hover:text-red-400 hover:bg-red-400/10"
-                title="Выйти"
-              >
-                <LogOut className="w-4 h-4" />
-              </Button>
-            </div>
-          </div>
-
-          {/* Кнопки управления голосом (если подключен) */}
-          {currentVoiceChannelId && (
-            <div className="px-3 pb-3">
-              <div className="flex items-center gap-1">
-                {/* Кнопка микрофона */}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleMuteToggle}
-                  className={cn(
-                    "flex-1 h-8",
-                    isMuted ? 'bg-red-600 hover:bg-red-700 text-white' : 'hover:bg-accent'
-                  )}
-                  title={isMuted ? 'Включить микрофон' : 'Отключить микрофон'}
-                >
-                  {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                </Button>
-
-                {/* Кнопка наушников */}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleDeafenToggle}
-                  className={cn(
-                    "flex-1 h-8",
-                    isDeafened ? 'bg-red-600 hover:bg-red-700 text-white' : 'hover:bg-accent'
-                  )}
-                  title={isDeafened ? 'Включить звук' : 'Отключить звук'}
-                >
-                  {isDeafened ? <VolumeX className="w-4 h-4" /> : <Headphones className="w-4 h-4" />}
-                </Button>
-
-                {/* Кнопка демонстрации экрана */}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleScreenShareToggle}
-                  className={cn(
-                    "flex-1 h-8",
-                    isScreenSharing ? 'bg-green-600 hover:bg-green-700 text-white' : 'hover:bg-accent'
-                  )}
-                  title={isScreenSharing ? 'Остановить демонстрацию экрана' : 'Начать демонстрацию экрана'}
-                >
-                  {isScreenSharing ? <MonitorOff className="w-4 h-4" /> : <Monitor className="w-4 h-4" />}
-                </Button>
-
-                {/* Кнопка просмотра активных демонстраций */}
-                {activeSharingUsers.length > 0 && !isScreenSharing && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleViewScreenShare}
-                    className="flex-1 h-8 bg-blue-600 hover:bg-blue-700 text-white relative"
-                    title={`Смотреть демонстрацию экрана: ${activeSharingUsers.map(u => u.username).join(', ')}`}
-                  >
-                    <Monitor className="w-4 h-4" />
-                    {activeSharingUsers.length > 1 && (
-                      <div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center font-bold">
-                        {activeSharingUsers.length}
-                      </div>
-                    )}
-                  </Button>
-                )}
-
-                {/* Кнопка отключения */}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleDisconnect}
-                  className="w-8 h-8 p-0 hover:bg-red-600 hover:text-white"
-                  title="Отключиться от голосового канала"
-                >
-                  <PhoneOff className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
@@ -1100,6 +1018,106 @@ export function ChannelSidebar() {
           </>
         )}
       </Menu>
+
+      {/* Контекстное меню для заголовка сервера */}
+      <Menu
+        open={!!serverContextMenu}
+        onClose={handleServerContextMenuClose}
+        anchorReference="anchorPosition"
+        anchorPosition={
+          serverContextMenu !== null
+            ? { top: serverContextMenu.mouseY, left: serverContextMenu.mouseX }
+            : undefined
+        }
+        PaperProps={{
+          sx: {
+            backgroundColor: 'rgb(47, 49, 54)',
+            border: '1px solid rgb(60, 63, 69)',
+            borderRadius: '8px',
+            minWidth: '200px',
+            boxShadow: '0 8px 16px rgba(0, 0, 0, 0.24)',
+            '& .MuiMenuItem-root': {
+              color: 'rgb(220, 221, 222)',
+              fontSize: '14px',
+              padding: '8px 12px',
+              '&:hover': {
+                backgroundColor: 'rgb(64, 68, 75)',
+              },
+              '&.Mui-disabled': {
+                color: 'rgb(114, 118, 125)',
+              },
+            },
+            '& .MuiDivider-root': {
+              borderColor: 'rgb(60, 63, 69)',
+              margin: '4px 0',
+            },
+          },
+        }}
+      >
+        <MenuItem onClick={handleInviteToServer}>
+          <ListItemIcon sx={{ minWidth: '36px' }}>
+            <UserPlus size={18} color="rgb(163, 166, 170)" />
+          </ListItemIcon>
+          <ListItemText primary="Пригласить людей" />
+        </MenuItem>
+        <Divider />
+        <MenuItem onClick={handleServerSettings}>
+          <ListItemIcon sx={{ minWidth: '36px' }}>
+            <Settings size={18} color="rgb(163, 166, 170)" />
+          </ListItemIcon>
+          <ListItemText primary="Настройки сервера" />
+        </MenuItem>
+        <Divider />
+        <MenuItem onClick={handleCopyServerId}>
+          <ListItemIcon sx={{ minWidth: '36px' }}>
+            <Copy size={18} color="rgb(163, 166, 170)" />
+          </ListItemIcon>
+          <ListItemText primary="Копировать ID" />
+        </MenuItem>
+      </Menu>
+
+      <ServerSettingsModal
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        server={currentServer}
+        onServerUpdate={() => {}}
+      />
+
+      <Dialog open={isInviteModalOpen} onClose={() => setIsInviteModalOpen(false)}>
+        <DialogContent>
+          <DialogTitle>Пригласить пользователя</DialogTitle>
+          <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <TextField
+              label="Имя пользователя"
+              value={inviteUsername}
+              onChange={(e) => setInviteUsername(e.target.value)}
+              fullWidth
+              required
+              error={!!inviteError}
+              helperText={inviteError}
+            />
+            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', mt: 2 }}>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setIsInviteModalOpen(false);
+                  setInviteError('');
+                  setInviteUsername('');
+                }}
+                disabled={isInviting}
+              >
+                Отмена
+              </Button>
+              <Button
+                onClick={handleInviteUser}
+                disabled={!inviteUsername.trim() || isInviting}
+              >
+                {isInviting ? 'Приглашение...' : 'Пригласить'}
+              </Button>
+            </Box>
+          </Box>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

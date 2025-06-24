@@ -160,7 +160,7 @@ export function ServerList() {
 
   return (
     <>
-      <div className="w-[72px] bg-card flex flex-col items-center py-3 gap-2 border-r border-border">
+      <div className="w-[72px] bg-[#2c2d32] flex flex-col items-center py-3 gap-2 border-r border-[#393a3f] h-screen">
         {/* Home Button */}
         <Button
           variant="ghost"
@@ -177,7 +177,7 @@ export function ServerList() {
         <div className="w-8 h-[2px] bg-border rounded-full" />
 
         {/* Server Icons */}
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 flex-1">
           {servers.map((server) => (
             <div key={server.id} className="relative group">
               <Button
