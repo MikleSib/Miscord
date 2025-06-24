@@ -65,15 +65,17 @@ async def websocket_voice_endpoint(
         
         # Убираем проверку членства - все пользователи могут заходить в любые каналы
         
-        # Проверка лимита пользователей
-        active_users_count = await db.execute(
-            select(VoiceChannelUser).where(
-                VoiceChannelUser.voice_channel_id == channel_id
+        # Проверка лимита пользователей (если установлен)
+        if voice_channel.user_limit is not None:
+            active_users_count = await db.execute(
+                select(VoiceChannelUser).where(
+                    VoiceChannelUser.voice_channel_id == channel_id
+                )
             )
-        )
-        if len(active_users_count.scalars().all()) >= voice_channel.max_users:
-            await websocket.close(code=4005, reason="Voice channel is full")
-            return
+            current_users = len(active_users_count.scalars().all())
+            if current_users >= voice_channel.user_limit:
+                await websocket.close(code=4005, reason="Voice channel is full")
+                return
         
         await websocket.accept()
         
