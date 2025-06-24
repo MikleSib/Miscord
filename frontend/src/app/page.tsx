@@ -49,6 +49,21 @@ export default function HomePage() {
   const [showUserSidebar, setShowUserSidebar] = useState(true)
   const [useEnhancedWebSocket, setUseEnhancedWebSocket] = useState(true) // 🚀 Enhanced mode по умолчанию
 
+  // Обработка смены режимов Enhanced/Legacy
+  const handleToggleWebSocketMode = () => {
+    console.log('[App] Switching WebSocket mode from', useEnhancedWebSocket ? 'Enhanced' : 'Legacy', 'to', useEnhancedWebSocket ? 'Legacy' : 'Enhanced');
+    
+    // Отключаем текущий режим
+    if (useEnhancedWebSocket) {
+      enhancedWebSocketService.disconnect();
+    } else {
+      disconnectWebSocket();
+    }
+    
+    // Переключаем режим
+    setUseEnhancedWebSocket(!useEnhancedWebSocket);
+  };
+
   useEffect(() => {
     setIsMounted(true)
   }, [])
@@ -63,24 +78,55 @@ export default function HomePage() {
         return
       }
 
+      // 🚀 Устанавливаем основное WebSocket соединение один раз
       if (useEnhancedWebSocket) {
-        // 🚀 Инициализируем Enhanced WebSocket
-        const connected = await enhancedWebSocketService.connect(token)
-        if (connected) {
-          // Подписываемся на события
-          enhancedWebSocketService.onMessage('new_message', (data) => {
-            // Здесь можно добавить обработку новых сообщений
-          })
+        console.log('[App] Establishing main WebSocket connection', { 
+          token: token ? `${token.substring(0, 20)}...` : 'NO_TOKEN',
+          hasToken: !!token,
+          tokenLength: token?.length
+        });
+        
+        try {
+          const connected = await enhancedWebSocketService.connect(token);
+          console.log('[App] Main WebSocket connected:', connected);
           
-          enhancedWebSocketService.onMessage('user_status_changed', (data) => {
-            // Обработка изменения статуса пользователей
-          })
-          
-          enhancedWebSocketService.onMessage('typing', (data) => {
-            // Обработка статуса печати
-          })
+          if (!connected) {
+            console.error('[App] Failed to establish WebSocket connection');
+            // Попробуем получить метрики для диагностики
+            const metrics = enhancedWebSocketService.getMetrics();
+            console.log('[App] WebSocket metrics:', metrics);
+          }
+        
+          if (connected) {
+            console.log('[App] WebSocket successfully connected, setting up global event handlers');
+            
+            // Подписываемся на глобальные события уведомлений
+            enhancedWebSocketService.onMessage('server_created', (data) => {
+              console.log('[App] Server created:', data);
+              loadServers(); // Перезагружаем список серверов
+            });
+            
+            enhancedWebSocketService.onMessage('server_updated', (data) => {
+              console.log('[App] Server updated:', data);
+              loadServers();
+            });
+            
+            enhancedWebSocketService.onMessage('server_deleted', (data) => {
+              console.log('[App] Server deleted:', data);
+              loadServers();
+            });
+            
+            // Подписываемся на статус подключения
+            enhancedWebSocketService.onConnectionStatusChange((status) => {
+              console.log('[App] WebSocket status changed:', status);
+            });
+          }
+        } catch (error) {
+          console.error('[App] WebSocket connection error:', error);
         }
-      } else {
+      }
+      
+      if (!useEnhancedWebSocket) {
         // Legacy WebSocket
         initializeWebSocket(token)
       }
@@ -94,12 +140,14 @@ export default function HomePage() {
     // Очистка при размонтировании
     return () => {
       if (useEnhancedWebSocket) {
-        enhancedWebSocketService.disconnect()
-      } else {
+        console.log('[App] Disconnecting main WebSocket');
+        enhancedWebSocketService.destroy();
+      }
+      if (!useEnhancedWebSocket) {
         disconnectWebSocket()
       }
     }
-  }, [isMounted, token, isAuthenticated, router, initializeWebSocket, loadServers, disconnectWebSocket])
+  }, [isMounted, token, isAuthenticated, router, useEnhancedWebSocket, initializeWebSocket, loadServers, disconnectWebSocket])
 
   useEffect(() => {
     if (!authUser || !token) {
@@ -169,16 +217,18 @@ export default function HomePage() {
       });
     };
 
-    // Подписываемся на изменения статуса подключения WebSocket
-    websocketService.onConnectionStatusChange((status) => {
-      setConnectionStatus({
-        isConnected: status.isConnected,
-        isReconnecting: status.isReconnecting,
-        reconnectAttempts: status.reconnectAttempts,
-        maxReconnectAttempts: status.maxReconnectAttempts,
-        lastError: status.lastError
+    // Подписываемся на изменения статуса подключения WebSocket только в Legacy режиме
+    if (!useEnhancedWebSocket) {
+      websocketService.onConnectionStatusChange((status) => {
+        setConnectionStatus({
+          isConnected: status.isConnected,
+          isReconnecting: status.isReconnecting,
+          reconnectAttempts: status.reconnectAttempts,
+          maxReconnectAttempts: status.maxReconnectAttempts,
+          lastError: status.lastError
+        });
       });
-    });
+    }
 
     voiceService.onScreenShareChange(handleScreenShareChange);
     window.addEventListener('open_screen_share', handleOpenScreenShare);
@@ -267,16 +317,16 @@ export default function HomePage() {
       {/* 🚀 Enterprise Mode Toggle */}
       <div className="fixed top-4 left-4 z-50">
         <Button
-          onClick={() => setUseEnhancedWebSocket(!useEnhancedWebSocket)}
+          onClick={handleToggleWebSocketMode}
           className={`text-xs px-3 py-1 ${
-            useEnhancedWebSocket 
-              ? 'bg-green-600 hover:bg-green-700' 
-              : 'bg-gray-600 hover:bg-gray-700'
-          }`}
-          title={useEnhancedWebSocket ? 'Enhanced WebSocket (1000+ users)' : 'Legacy WebSocket'}
-        >
-          {useEnhancedWebSocket ? '🚀 Enhanced' : '📞 Legacy'}
-        </Button>
+             useEnhancedWebSocket 
+               ? 'bg-green-600 hover:bg-green-700' 
+               : 'bg-gray-600 hover:bg-gray-700'
+           }`}
+           title={useEnhancedWebSocket ? 'Enhanced WebSocket (1000+ users)' : 'Legacy WebSocket'}
+         >
+           {useEnhancedWebSocket ? '🚀 Enhanced' : '📞 Legacy'}
+         </Button>
       </div>
       {/* Toast уведомления */}
       <div className="fixed top-4 right-4 z-50 space-y-2">

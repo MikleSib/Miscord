@@ -1,6 +1,7 @@
 import { create } from 'zustand';
-import chatService from '../services/chatService';
+// import chatService from '../services/chatService';
 import { Message, Reaction } from '../types';
+import { channelApi } from '../services/api';
 
 type ChatMessage = Message;
 
@@ -58,9 +59,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ isLoading: true, error: null });
     
     try {
-      const result = await chatService.loadMessageHistory(channelId);
+      const result = await channelApi.getChannelMessages(channelId, 50);
       set({ 
-        messages: result.messages,
+        messages: result.messages || [],
         isLoading: false 
       });
     } catch (error) {

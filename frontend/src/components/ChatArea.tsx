@@ -13,8 +13,8 @@ import { ChatMessage } from './ChatMessage'
 import { ReplyInput } from './ReplyInput'
 import { Message } from '../types'
 import { formatDateDivider } from '../lib/utils'
-import chatService from '../services/chatService'
 import uploadService from '../services/uploadService'
+import enhancedWebSocketService from '../services/enhancedWebSocketService'
 import reactionService from '../services/reactionService'
 
 export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSidebar: boolean, setShowUserSidebar: (v: boolean) => void }) {
@@ -47,84 +47,98 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
 
   // Загрузка истории сообщений при смене канала
   useEffect(() => {
+    console.log('[ChatArea] useEffect triggered', { 
+      currentChannel: currentChannel?.id, 
+      type: currentChannel?.type, 
+      token: !!token 
+    });
+
     if (currentChannel?.type === 'text') {
-  
       loadMessageHistory(currentChannel.id);
       
-      // Подключаемся к WebSocket чата только если еще не подключены
-      const accessToken = token || localStorage.getItem('access_token');
-   
+      console.log('[ChatArea] Joining text channel:', currentChannel.id);
       
-      if (accessToken) {
-   
-        
-        // Отключаемся от предыдущего соединения
-        chatService.disconnect();
-        
-        // Небольшая задержка для завершения отключения
-        setTimeout(() => {
-          if (accessToken) {
-            chatService.connect(currentChannel.id, accessToken);
-          }
-          
-          // Обработчик новых сообщений
-          chatService.onMessage((msg) => {
-        
-            // Адаптируем Message к ChatMessage
-            const chatMessage = {
-              ...msg,
-              content: msg.content || '', // Гарантируем что content не null
-            };
-            addMessage(chatMessage);
-          });
-          
-          // Обработчик печати
-          chatService.onTyping((data) => {
-            if (data.user && data.user.username) {
-              setTypingUsers(prev => {
-                if (!prev.includes(data.user.username)) {
-                  const newUsers = [...prev, data.user.username];
-                  setTimeout(() => {
-                    setTypingUsers(current => current.filter(u => u !== data.user.username));
-                  }, 2000);
-                  return newUsers;
-                }
-                return prev;
-              });
-            }
-          });
-
-          // Обработчик удаления сообщений
-          chatService.onMessageDeleted((data) => {
-         
-            deleteMessage(data.message_id);
-          });
-
-          // Обработчик редактирования сообщений
-          chatService.onMessageEdited((msg) => {
-     
-            editMessage(msg.id, msg.content || '');
-          });
-
-          // Обработчик обновления реакций
-          chatService.onReactionUpdated((data) => {
-         
-            updateSingleReaction(data.message_id, data.emoji, data.reaction);
-          });
-        }, 100);
+      // Присоединяемся к каналу (WebSocket соединение уже установлено в App)
+      if (enhancedWebSocketService.isConnected()) {
+        enhancedWebSocketService.joinChannel(currentChannel.id);
+        console.log('[ChatArea] Joined channel:', currentChannel.id);
+      } else {
+        console.warn('[ChatArea] WebSocket not connected, cannot join channel');
+        // WebSocket должен быть подключен в App.tsx, если нет - это проблема
       }
+
+      // Подписка на новые сообщения для этого канала
+      const unsubMsg = enhancedWebSocketService.onMessage('chat_message', (msg) => {
+        // Проверяем, что сообщение для текущего канала
+        if (msg.text_channel_id === currentChannel.id || msg.channel_id === currentChannel.id) {
+          console.log('[ChatArea] Received chat_message for channel:', currentChannel.id, msg);
+          const chatMessage = {
+            ...msg,
+            content: msg.content || '',
+          };
+          addMessage(chatMessage);
+        }
+      });
+
+      // Подписка на печать для этого канала
+      const unsubTyping = enhancedWebSocketService.onMessage('typing', (data) => {
+        // Проверяем, что печать для текущего канала
+        if (data.channel_id === currentChannel.id || data.text_channel_id === currentChannel.id) {
+          console.log('[ChatArea] Received typing for channel:', currentChannel.id, data);
+          if (data.user && data.user.username) {
+            setTypingUsers(prev => {
+              if (!prev.includes(data.user.username)) {
+                const newUsers = [...prev, data.user.username];
+                setTimeout(() => {
+                  setTypingUsers(current => current.filter(u => u !== data.user.username));
+                }, 2000);
+                return newUsers;
+              }
+              return prev;
+            });
+          }
+        }
+      });
+
+      // Подписка на удаление сообщений для этого канала
+      const unsubDeleted = enhancedWebSocketService.onMessage('message_deleted', (data) => {
+        if (data.text_channel_id === currentChannel.id || data.channel_id === currentChannel.id) {
+          console.log('[ChatArea] Received message_deleted for channel:', currentChannel.id, data);
+          deleteMessage(data.message_id);
+        }
+      });
+
+      // Подписка на редактирование сообщений для этого канала
+      const unsubEdited = enhancedWebSocketService.onMessage('message_edited', (msg) => {
+        if (msg.text_channel_id === currentChannel.id || msg.channel_id === currentChannel.id) {
+          console.log('[ChatArea] Received message_edited for channel:', currentChannel.id, msg);
+          editMessage(msg.id, msg.content || '');
+        }
+      });
+
+      // Подписка на обновление реакций для этого канала
+      const unsubReaction = enhancedWebSocketService.onMessage('reaction_updated', (data) => {
+        if (data.text_channel_id === currentChannel.id || data.channel_id === currentChannel.id) {
+          console.log('[ChatArea] Received reaction_updated for channel:', currentChannel.id, data);
+          updateSingleReaction(data.message_id, data.emoji, data.reaction);
+        }
+      });
+
+      // Очистка подписок при смене канала/размонтировании
+      return () => {
+        console.log('[ChatArea] Cleaning up channel subscriptions for channel:', currentChannel.id);
+        unsubMsg();
+        unsubTyping();
+        unsubDeleted();
+        unsubEdited();
+        unsubReaction();
+        enhancedWebSocketService.leaveChannel(currentChannel.id);
+        setTypingUsers([]);
+      };
     } else {
-    
-      chatService.disconnect();
+      console.log('[ChatArea] Not a text channel, clearing typing users');
       setTypingUsers([]);
     }
-    
-    // Cleanup function
-    return () => {
-     
-      chatService.disconnect();
-      setTypingUsers([]);
-    };
   }, [currentChannel?.id, currentChannel?.type, loadMessageHistory, addMessage, deleteMessage, editMessage, token]);
   
   useEffect(() => {
@@ -148,33 +162,20 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
-   
-    
     if (!messageInput.trim() && files.length === 0) {
-    
       return;
     }
     if (!currentChannel || currentChannel.type !== 'text') {
-   
       return;
     }
-
-
     setIsLoading(true)
     try {
       const attachmentUrls: string[] = [];
       for (const file of files) {
-   
         const response = await uploadService.uploadFile(file);
         attachmentUrls.push(response.file_url);
-  
       }
-      
-   
-      
-      chatService.sendMessage(messageInput, attachmentUrls, replyingTo?.id);
-      
-    
+      enhancedWebSocketService.sendChatMessage(currentChannel.id, messageInput, attachmentUrls, replyingTo?.id);
       setMessageInput('')
       setFiles([])
       setReplyingTo(null)
@@ -182,17 +183,15 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
         fileInputRef.current.value = "";
       }
     } catch (error) {
-    
     } finally {
       setIsLoading(false)
-    
     }
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setMessageInput(e.target.value);
     if (currentChannel?.type === 'text') {
-      chatService.sendTyping();
+      enhancedWebSocketService.sendTyping(currentChannel.id);
     }
   }
 

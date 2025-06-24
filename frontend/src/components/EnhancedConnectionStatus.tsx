@@ -28,17 +28,20 @@ const EnhancedConnectionStatus: React.FC = () => {
     // Подписка на изменения статуса соединения
     const unsubscribeStatus = enhancedWebSocketService.onConnectionStatusChange((status) => {
       setConnectionStatus(status);
+      // Обновление метрик при изменении статуса
+      if (status === 'connected') {
+        const currentMetrics = enhancedWebSocketService.getMetrics();
+        setMetrics(currentMetrics);
+      }
     });
 
-    // Обновление метрик каждую секунду
-    const metricsInterval = setInterval(() => {
-      const currentMetrics = enhancedWebSocketService.getMetrics();
-      setMetrics(currentMetrics);
-    }, 1000);
+    // Проверяем текущее состояние
+    if (enhancedWebSocketService.isConnected()) {
+      setConnectionStatus('connected');
+    }
 
     return () => {
       unsubscribeStatus();
-      clearInterval(metricsInterval);
     };
   }, []);
 

@@ -102,17 +102,50 @@ class EnhancedWebSocketService {
    * 🔌 Подключение к WebSocket серверу
    */
   async connect(token: string): Promise<boolean> {
-    if (this.isConnecting || this.isDestroyed) {
+    console.log('[EnhancedWS] connect() called', {
+      isConnecting: this.isConnecting,
+      isDestroyed: this.isDestroyed,
+      isCurrentlyConnected: this.isConnected(),
+      currentWsState: this.ws?.readyState,
+      currentToken: this.token ? `${this.token.substring(0, 20)}...` : 'NO_TOKEN',
+      newToken: token ? `${token.substring(0, 20)}...` : 'NO_TOKEN'
+    });
+    
+    // Если уже подключены с тем же токеном, возвращаем true
+    if (this.isConnected() && this.token === token) {
+      console.log('[EnhancedWS] Already connected with same token, reusing connection');
+      return true;
+    }
+    
+    // Если подключены с другим токеном, отключаемся сначала
+    if (this.isConnected() && this.token !== token) {
+      console.log('[EnhancedWS] Connected with different token, disconnecting first');
+      this.disconnect();
+    }
+    
+    if (this.isConnecting) {
+      console.log('[EnhancedWS] Already connecting, skipping...');
       return false;
+    }
+    
+    // Если сервис был уничтожен, сбрасываем состояние для возможности переподключения
+    if (this.isDestroyed) {
+      console.log('[EnhancedWS] Service was destroyed, resetting state for reconnection');
+      this.reset();
     }
 
     this.token = token;
     this.url = `${process.env.NEXT_PUBLIC_WS_URL || 'wss://miscord.ru'}/ws/main?token=${token}`;
     this.isConnecting = true;
+    
+    console.log('[EnhancedWS] Attempting to connect to:', this.url);
 
     try {
-      return await this.createConnection();
+      const result = await this.createConnection();
+      console.log('[EnhancedWS] Connection result:', result);
+      return result;
     } catch (error) {
+      console.error('[EnhancedWS] Connection failed with error:', error);
       this.handleConnectionError(error);
       return false;
     }
@@ -122,30 +155,39 @@ class EnhancedWebSocketService {
    * 🔌 Создание WebSocket соединения
    */
   private async createConnection(): Promise<boolean> {
+    console.log('[EnhancedWS] createConnection() called');
+    
     return new Promise((resolve, reject) => {
       try {
+        console.log('[EnhancedWS] Creating WebSocket instance for URL:', this.url);
         this.ws = new WebSocket(this.url);
+        console.log('[EnhancedWS] WebSocket instance created, readyState:', this.ws.readyState);
         
         this.ws.onopen = () => {
+          console.log('[EnhancedWS] WebSocket onopen triggered');
           this.isConnecting = false;
           this.reconnectAttempts = 0;
           this.metrics.connectionQuality = 'excellent';
           this.notifyConnectionStatus('connected');
           this.startHeartbeat();
           this.processQueuedMessages();
+          console.log('[EnhancedWS] WebSocket successfully opened, resolving with true');
           resolve(true);
         };
 
         this.ws.onmessage = (event) => {
+          console.log('[EnhancedWS] Received message:', event.data);
           this.handleMessage(event);
         };
 
         this.ws.onclose = (event) => {
+          console.log('[EnhancedWS] WebSocket onclose triggered', { code: event.code, reason: event.reason });
           this.handleDisconnection(event);
           resolve(false);
         };
 
         this.ws.onerror = (error) => {
+          console.error('[EnhancedWS] WebSocket onerror triggered:', error);
           this.handleConnectionError(error);
           reject(error);
         };
@@ -153,12 +195,14 @@ class EnhancedWebSocketService {
         // Connection timeout
         setTimeout(() => {
           if (this.isConnecting) {
+            console.warn('[EnhancedWS] Connection timeout reached');
             this.ws?.close();
             reject(new Error('Connection timeout'));
           }
         }, 10000); // 10 second timeout
 
       } catch (error) {
+        console.error('[EnhancedWS] Error creating WebSocket:', error);
         reject(error);
       }
     });
@@ -589,10 +633,10 @@ class EnhancedWebSocketService {
   }
 
   /**
-   * 🛑 Отключение и очистка ресурсов
+   * 🛑 Отключение WebSocket (с возможностью переподключения)
    */
   disconnect() {
-    this.isDestroyed = true;
+    console.log('[EnhancedWS] disconnect() called');
     
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
@@ -602,13 +646,59 @@ class EnhancedWebSocketService {
     this.stopHeartbeat();
     
     if (this.ws) {
+      console.log('[EnhancedWS] Closing WebSocket connection');
       this.ws.close(1000, 'Client disconnecting');
       this.ws = null;
     }
     
+    this.metrics.connectionQuality = 'disconnected';
+    this.notifyConnectionStatus('disconnected');
+    
+    console.log('[EnhancedWS] WebSocket disconnected');
+  }
+
+  /**
+   * 💀 Полное уничтожение сервиса (без возможности переподключения)
+   */
+  destroy() {
+    console.log('[EnhancedWS] destroy() called - permanent shutdown');
+    
+    this.isDestroyed = true;
+    this.disconnect();
+    
+    // Очищаем все обработчики и очереди
     this.messageQueue.clear();
     this.messageHandlers.clear();
     this.connectionStatusHandlers.length = 0;
+    
+    console.log('[EnhancedWS] Service permanently destroyed');
+  }
+
+  /**
+   * 🔄 Сброс состояния сервиса для возможности переподключения
+   */
+  private reset() {
+    console.log('[EnhancedWS] Resetting service state');
+    this.isDestroyed = false;
+    this.isConnecting = false;
+    this.reconnectAttempts = 0;
+    
+    // Очищаем таймеры
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+    
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+    
+    // Сбрасываем метрики
+    this.metrics.connectionQuality = 'disconnected';
+    this.metrics.reconnectionAttempts = 0;
+    
+    console.log('[EnhancedWS] Service state reset complete');
   }
 }
 

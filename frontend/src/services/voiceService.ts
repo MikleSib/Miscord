@@ -27,14 +27,18 @@ class VoiceService {
   private onScreenShareChanged: ((userId: number, isSharing: boolean) => void) | null = null;
 
   async connect(voiceChannelId: number, token: string) {
+    console.log('[VoiceService] Попытка подключения к голосовому каналу', voiceChannelId);
+    
     // Проверяем, не подключены ли мы уже к этому каналу
     if (this.voiceChannelId === voiceChannelId && this.ws && this.ws.readyState === WebSocket.OPEN) {
+      console.log('[VoiceService] Уже подключен к этому каналу');
       return;
     }
     
-    // Если подключены к другому каналу или соединение закрыто, сначала очищаем
+    // Если подключены к другому каналу или соединение закрыто, сначала отключаемся
     if (this.ws || this.voiceChannelId) {
-      this.cleanup();
+      console.log('[VoiceService] Отключаюсь от предыдущего канала перед новым подключением');
+      this.disconnect();
     }
     
     this.voiceChannelId = voiceChannelId;
@@ -59,14 +63,17 @@ class VoiceService {
 
     // Подключаемся к WebSocket
     const wsUrl = `${WS_URL}/ws/voice/${voiceChannelId}?token=${token}`;
+    console.log('[VoiceService] Создаю WebSocket соединение:', wsUrl);
     this.ws = new WebSocket(wsUrl);
 
     return new Promise<void>((resolve, reject) => {
       this.ws!.onopen = () => {
+        console.log('[VoiceService] WebSocket соединение открыто');
         resolve();
       };
 
       this.ws!.onerror = (error) => {
+        console.error('[VoiceService] Ошибка WebSocket:', error);
         reject(new Error('Ошибка подключения WebSocket'));
       };
 
@@ -76,6 +83,7 @@ class VoiceService {
       };
 
       this.ws!.onclose = (event) => {
+        console.log('[VoiceService] WebSocket соединение закрыто, код:', event.code, 'причина:', event.reason);
         this.cleanup();
       };
     });
@@ -427,17 +435,34 @@ class VoiceService {
   }
 
   disconnect() {
+    console.log('[VoiceService] Начинаю отключение от голосового канала...');
+    
     if (this.ws) {
-      this.ws.close();
+      console.log('[VoiceService] Закрываю WebSocket соединение, текущее состояние:', this.ws.readyState);
+      
+      // Удаляем обработчики событий, чтобы избежать вызова cleanup дважды
+      this.ws.onclose = null;
+      this.ws.onerror = null;
+      this.ws.onmessage = null;
+      
+      // Закрываем соединение
+      if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+        this.ws.close(1000, 'User disconnected');
+      }
     }
+    
     this.cleanup();
+    console.log('[VoiceService] Отключение завершено');
   }
 
   private cleanup() {
+    console.log('[VoiceService] Начинаю очистку ресурсов...');
+    
     // Останавливаем детекцию голосовой активности
     this.cleanupVoiceActivityDetection();
 
     // Закрываем все peer connections
+    console.log('[VoiceService] Закрываю', this.peerConnections.size, 'peer connections');
     this.peerConnections.forEach((peerConnection, userId) => {
       peerConnection.pc.close();
       
@@ -457,12 +482,14 @@ class VoiceService {
 
     // Останавливаем локальный поток
     if (this.localStream) {
+      console.log('[VoiceService] Останавливаю локальный медиа поток');
       this.localStream.getTracks().forEach(track => track.stop());
       this.localStream = null;
     }
 
     // Останавливаем поток демонстрации экрана
     if (this.screenStream) {
+      console.log('[VoiceService] Останавливаю поток демонстрации экрана');
       this.screenStream.getTracks().forEach(track => track.stop());
       this.screenStream = null;
       this.isScreenSharing = false;
@@ -476,14 +503,20 @@ class VoiceService {
 
     // Удаляем все остаточные видео элементы
     const remainingVideos = document.querySelectorAll('video[id^="remote-video-"]');
-    remainingVideos.forEach(video => {
-      video.remove();
-    });
+    if (remainingVideos.length > 0) {
+      console.log('[VoiceService] Удаляю', remainingVideos.length, 'остаточных видео элементов');
+      remainingVideos.forEach(video => {
+        video.remove();
+      });
+    }
 
+    // Очищаем состояние
     this.ws = null;
     this.voiceChannelId = null;
     this.token = null;
     this.iceServers = [];
+    
+    console.log('[VoiceService] Очистка ресурсов завершена');
   }
 
   private initVoiceActivityDetection() {

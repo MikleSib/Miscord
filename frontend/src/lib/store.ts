@@ -4,7 +4,7 @@ import { Server, Channel, Message, User, FullServerData } from '../types';
 import channelService from '../services/channelService';
 import websocketService from '../services/websocketService';
 import uploadService from '../services/uploadService';
-import chatService from '../services/chatService';
+import enhancedWebSocketService from '../services/enhancedWebSocketService';
 
 interface AppState {
   // Данные
@@ -84,21 +84,7 @@ export const useStore = create<AppState>()(
           const channel = currentServer.channels.find(c => c.id === channelId);
           if (channel) {
             set({ currentChannel: channel });
-            // Подключаемся к WebSocket чата
-            if (channel.type === 'text' && user) {
-              chatService.disconnect();
-              chatService.connect(channel.id, localStorage.getItem('access_token') || '');
-              chatService.onMessage((msg) => {
-                get().addMessage(msg);
-              });
-              chatService.onTyping((data) => {
-                if (data.user && data.text_channel_id) {
-                  get().setTyping(data.text_channel_id, data.user.username);
-                }
-              });
-            } else {
-              chatService.disconnect();
-            }
+            // WebSocket подключение теперь обрабатывается в ChatArea.tsx
           }
         }
       },
@@ -201,7 +187,7 @@ export const useStore = create<AppState>()(
             const response = await uploadService.uploadFile(file);
             attachmentUrls.push(response.file_url);
           }
-          chatService.sendMessage(content, attachmentUrls);
+          enhancedWebSocketService.sendChatMessage(currentChannel.id, content, attachmentUrls);
         } catch (error) {
           get().setError("Не удалось отправить сообщение.");
         } finally {
@@ -223,7 +209,7 @@ export const useStore = create<AppState>()(
       sendTyping: () => {
         const { currentChannel } = get();
         if (currentChannel?.type === 'text') {
-          chatService.sendTyping();
+          enhancedWebSocketService.sendTyping(currentChannel.id);
         }
       },
       
@@ -513,21 +499,4 @@ export const useStore = create<AppState>()(
       })
     }
   )
-);
-
-// Автоматическое подключение к чату при инициализации store (например, после обновления страницы)
-if (typeof window !== 'undefined') {
-  const { currentChannel, user } = useStore.getState();
-  if (currentChannel && currentChannel.type === 'text' && user) {
-    chatService.disconnect();
-    chatService.connect(currentChannel.id, localStorage.getItem('access_token') || '');
-    chatService.onMessage((msg) => {
-      useStore.getState().addMessage(msg);
-    });
-    chatService.onTyping((data) => {
-      if (data.user && data.text_channel_id) {
-        useStore.getState().setTyping(data.text_channel_id, data.user.username);
-      }
-    });
-  }
-} 
+); 
