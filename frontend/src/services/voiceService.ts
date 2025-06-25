@@ -32,6 +32,27 @@ class VoiceService {
   private isScreenSharing: boolean = false; // Статус демонстрации экрана
   private onScreenShareChanged: ((userId: number, isSharing: boolean) => void) | null = null;
   private isManuallyMuted: boolean = false;
+  private isDisconnecting: boolean = false; // Флаг намеренного отключения
+  private audioDataLogging: boolean = false; // Флаг для включения логирования аудио данных
+  private audioMetrics: {
+    bytesSent: number;
+    bytesReceived: number;
+    packetsLost: number;
+    roundTripTime: number;
+    lastUpdate: number;
+  } = {
+    bytesSent: 0,
+    bytesReceived: 0,
+    packetsLost: 0,
+    roundTripTime: 0,
+    lastUpdate: Date.now()
+  };
+
+  // Включение/выключение детального логирования аудио
+  enableAudioDataLogging(enable: boolean = true) {
+    this.audioDataLogging = enable;
+    console.log(`🎙️ ${enable ? 'Включено' : 'Выключено'} детальное логирование аудио данных`);
+  }
 
   async connect(voiceChannelId: number, token: string) {
     console.log('🎙️ VoiceService.connect вызван с параметрами:', { voiceChannelId, token: token ? 'есть' : 'нет' });
@@ -43,11 +64,12 @@ class VoiceService {
     
     if (this.ws || this.voiceChannelId) {
       console.log('🎙️ Очищаем предыдущее соединение перед новым подключением');
-      this.cleanup();
+      await this.cleanup();
     }
     
     this.voiceChannelId = voiceChannelId;
     this.token = token;
+    this.isDisconnecting = false;
 
     try {
       console.log('🎙️ Запрашиваем доступ к микрофону...');
@@ -88,40 +110,73 @@ class VoiceService {
     }
 
     const wsUrl = `${WS_URL}/ws/voice/${voiceChannelId}?token=${token}`;
-    console.log('🎙️ Подключаемся к WebSocket:', wsUrl);
+    console.log('🎙️ Подключаемся к Voice WebSocket:', wsUrl);
     this.ws = new WebSocket(wsUrl);
 
     return new Promise<void>((resolve, reject) => {
-      this.ws!.onopen = () => {
+      if (!this.ws) {
+        reject(new Error('WebSocket не создан'));
+        return;
+      }
+
+      this.ws.onopen = () => {
         console.log('🎙️ Voice WebSocket подключен успешно');
+        this.isDisconnecting = false;
         resolve();
       };
 
-      this.ws!.onerror = (error) => {
+      this.ws.onerror = (error) => {
         console.error('🎙️ Ошибка Voice WebSocket:', error);
         reject(new Error('Ошибка подключения WebSocket'));
       };
 
-      this.ws!.onmessage = async (event) => {
-        console.log('🎙️ Получено сообщение WebSocket:', event.data);
+      this.ws.onmessage = async (event) => {
+        if (this.audioDataLogging) {
+          console.log('🎙️ 📩 Получено сообщение Voice WebSocket:', {
+            data: event.data,
+            timestamp: new Date().toISOString(),
+            size: event.data.length
+          });
+        } else {
+          console.log('🎙️ Получено сообщение Voice WebSocket (тип):', JSON.parse(event.data).type);
+        }
         const data = JSON.parse(event.data);
         await this.handleMessage(data);
       };
 
-      this.ws!.onclose = (event) => {
-        console.log('🎙️ Voice WebSocket отключен:', event.code, event.reason);
+      this.ws.onclose = (event) => {
+        console.log('🎙️ Voice WebSocket отключен:', { 
+          code: event.code, 
+          reason: event.reason,
+          wasClean: event.wasClean,
+          isDisconnecting: this.isDisconnecting 
+        });
+        
+        if (!this.isDisconnecting) {
+          console.warn('🎙️ ⚠️ Неожиданное отключение Voice WebSocket');
+        }
+        
         this.cleanup();
       };
     });
   }
 
   private async handleMessage(data: any) {
-    console.log('🔊 VoiceService получил сообщение:', data.type, data);
+    if (this.audioDataLogging) {
+      console.log('🔊 VoiceService получил сообщение (детально):', {
+        type: data.type,
+        data: data,
+        timestamp: new Date().toISOString(),
+        messageSize: JSON.stringify(data).length
+      });
+    } else {
+      console.log('🔊 VoiceService получил сообщение:', data.type);
+    }
     
     switch (data.type) {
       case 'participants':
         this.iceServers = data.ice_servers;
-        console.log('🔊 ICE серверы:', this.iceServers);
+        console.log('🔊 ICE серверы получены:', this.iceServers);
         
         if (this.onParticipantsReceivedCallback) {
           this.onParticipantsReceivedCallback(data.participants);
@@ -158,17 +213,41 @@ class VoiceService {
         break;
 
       case 'offer':
-        console.log('🔊 Получен offer от пользователя:', data.from_id);
+        if (this.audioDataLogging) {
+          console.log('🔊 📥 Получен offer от пользователя (детально):', {
+            from_id: data.from_id,
+            offer: data.offer,
+            timestamp: new Date().toISOString()
+          });
+        } else {
+          console.log('🔊 Получен offer от пользователя:', data.from_id);
+        }
         await this.handleOffer(data.from_id, data.offer);
         break;
 
       case 'answer':
-        console.log('🔊 Получен answer от пользователя:', data.from_id);
+        if (this.audioDataLogging) {
+          console.log('🔊 📥 Получен answer от пользователя (детально):', {
+            from_id: data.from_id,
+            answer: data.answer,
+            timestamp: new Date().toISOString()
+          });
+        } else {
+          console.log('🔊 Получен answer от пользователя:', data.from_id);
+        }
         await this.handleAnswer(data.from_id, data.answer);
         break;
 
       case 'ice_candidate':
-        console.log('🔊 Получен ICE candidate от пользователя:', data.from_id);
+        if (this.audioDataLogging) {
+          console.log('🔊 📥 Получен ICE candidate от пользователя (детально):', {
+            from_id: data.from_id,
+            candidate: data.candidate,
+            timestamp: new Date().toISOString()
+          });
+        } else {
+          console.log('🔊 Получен ICE candidate от пользователя:', data.from_id);
+        }
         await this.handleIceCandidate(data.from_id, data.candidate);
         break;
         
@@ -176,8 +255,18 @@ class VoiceService {
         // Ignore server speaking messages for the local user - we handle that locally with VAD
         const localUserId = this.getCurrentUserId();
         if (data.user_id === localUserId) {
-          console.log('🔊 Игнорируем серверное сообщение о голосовой активности для локального пользователя');
+          if (this.audioDataLogging) {
+            console.log('🔊 Игнорируем серверное сообщение о голосовой активности для локального пользователя');
+          }
           break;
+        }
+        
+        if (this.audioDataLogging) {
+          console.log('🔊 🗣️ Изменение голосовой активности пользователя:', {
+            user_id: data.user_id,
+            is_speaking: data.is_speaking,
+            timestamp: new Date().toISOString()
+          });
         }
         
         if (this.onSpeakingChanged) {
@@ -186,12 +275,14 @@ class VoiceService {
         break;
         
       case 'user_muted':
+        console.log('🔊 🔇 Пользователь изменил статус микрофона:', data.user_id, 'muted:', data.is_muted);
         if (this.onParticipantStatusChangedCallback) {
           this.onParticipantStatusChangedCallback(data.user_id, { is_muted: data.is_muted });
         }
         break;
         
       case 'user_deafened':
+        console.log('🔊 🔇 Пользователь изменил статус наушников:', data.user_id, 'deafened:', data.is_deafened);
         if (this.onParticipantStatusChangedCallback) {
           this.onParticipantStatusChangedCallback(data.user_id, { is_deafened: data.is_deafened });
         }
@@ -231,7 +322,7 @@ class VoiceService {
         break;
 
       default:
-        console.log('🔊 Неизвестное сообщение:', data);
+        console.log('🔊 ❓ Неизвестное сообщение:', data);
     }
   }
 
@@ -242,21 +333,67 @@ class VoiceService {
       iceServers: this.iceServers,
     });
 
+    // Добавляем логирование статистики WebRTC соединения
+    if (this.audioDataLogging) {
+      const statsInterval = setInterval(async () => {
+        if (pc.connectionState === 'connected') {
+          try {
+            const stats = await pc.getStats();
+            this.logWebRTCStats(userId, stats);
+          } catch (error) {
+            console.error(`🔊 ❌ Ошибка получения статистики WebRTC для пользователя ${userId}:`, error);
+          }
+        } else if (pc.connectionState === 'closed' || pc.connectionState === 'failed') {
+          clearInterval(statsInterval);
+        }
+      }, 5000); // Каждые 5 секунд
+    }
+
     if (this.localStream) {
       this.localStream.getTracks().forEach(track => {
         console.log(`🔊 Добавляем трек ${track.kind} в peer connection для пользователя ${userId}`);
-        pc.addTrack(track, this.localStream!);
+        const sender = pc.addTrack(track, this.localStream!);
+        
+        if (this.audioDataLogging && track.kind === 'audio') {
+          console.log(`🔊 🎵 Добавлен аудио трек для пользователя ${userId}:`, {
+            trackId: track.id,
+            trackLabel: track.label,
+            trackSettings: track.getSettings(),
+            trackConstraints: track.getConstraints(),
+            trackCapabilities: track.getCapabilities(),
+            senderTransceiver: sender.track?.id
+          });
+        }
       });
     }
 
     pc.ontrack = (event) => {
-      console.log('🔊 Получен удаленный поток от пользователя', userId, {
-        streams: event.streams,
-        track: event.track,
-        trackKind: event.track?.kind,
-        trackId: event.track?.id,
-        trackLabel: event.track?.label
-      });
+      if (this.audioDataLogging) {
+        console.log('🔊 📥 Получен удаленный поток от пользователя (детально):', userId, {
+          streams: event.streams,
+          track: {
+            kind: event.track?.kind,
+            id: event.track?.id,
+            label: event.track?.label,
+            readyState: event.track?.readyState,
+            enabled: event.track?.enabled,
+            muted: event.track?.muted,
+            settings: event.track?.getSettings ? event.track.getSettings() : 'недоступно'
+          },
+          transceiver: {
+            direction: event.transceiver?.direction,
+            currentDirection: event.transceiver?.currentDirection,
+            mid: event.transceiver?.mid
+          },
+          timestamp: new Date().toISOString()
+        });
+      } else {
+        console.log('🔊 Получен удаленный поток от пользователя', userId, {
+          trackKind: event.track?.kind,
+          trackId: event.track?.id,
+          streams: event.streams?.length
+        });
+      }
       
       if (event.streams && event.streams[0]) {
         const stream = event.streams[0];
@@ -272,188 +409,25 @@ class VoiceService {
         });
 
         if (audioTracks.length > 0) {
-          console.log(`🔊 Настройка аудио воспроизведения для пользователя ${userId}`);
-          
-          // Удаляем старый аудио элемент если существует
-          const existingAudio = document.getElementById(`remote-audio-${userId}`);
-          if (existingAudio) {
-            existingAudio.remove();
-            console.log(`🔊 Удален старый аудио элемент для пользователя ${userId}`);
-          }
-          
-          // Создаем новый аудио элемент
-          const remoteAudio = document.createElement('audio');
-          remoteAudio.id = `remote-audio-${userId}`;
-          remoteAudio.autoplay = true;
-          remoteAudio.controls = false;
-          remoteAudio.muted = false;
-          remoteAudio.volume = 1.0;
-          remoteAudio.style.display = 'none';
-          
-          // Создаем MediaStream только с аудио треками
-          const audioStream = new MediaStream(audioTracks);
-          remoteAudio.srcObject = audioStream;
-          
-          // Добавляем элемент в DOM
-          document.body.appendChild(remoteAudio);
-          
-          // Обработчики событий для диагностики
-          remoteAudio.addEventListener('loadstart', () => {
-            console.log(`🔊 Начата загрузка аудио для пользователя ${userId}`);
-          });
-          
-          remoteAudio.addEventListener('loadedmetadata', () => {
-            console.log(`🔊 Метаданные аудио загружены для пользователя ${userId}`, {
-              duration: remoteAudio.duration,
-              readyState: remoteAudio.readyState,
-              networkState: remoteAudio.networkState
-            });
-          });
-          
-          remoteAudio.addEventListener('canplay', () => {
-            console.log(`🔊 Аудио готово к воспроизведению для пользователя ${userId}`);
-          });
-          
-          remoteAudio.addEventListener('error', (e) => {
-            console.error(`🔊 Ошибка аудио элемента для пользователя ${userId}:`, e);
-          });
-          
-          // Попытка воспроизведения
-          const attemptPlay = async () => {
-            try {
-              console.log(`🔊 Попытка воспроизведения аудио для пользователя ${userId}`);
-              await remoteAudio.play();
-              console.log(`🔊 ✅ Аудио от пользователя ${userId} успешно воспроизводится`);
-              
-              // Применяем сохраненную громкость
-              const savedVolume = localStorage.getItem(`voice-volume-${userId}`);
-              if (savedVolume) {
-                const volume = parseInt(savedVolume);
-                remoteAudio.volume = Math.min(volume / 100, 1.0);
-                console.log(`🔊 Применена сохраненная громкость ${volume}% для пользователя ${userId}`);
-              }
-              
-            } catch (error) {
-              console.warn(`🔊 ⚠️ Автовоспроизведение заблокировано для пользователя ${userId}:`, error);
-              
-              // Создаем обработчик для включения аудио после взаимодействия пользователя
-              const enableAudio = async () => {
-                try {
-                  await remoteAudio.play();
-                  console.log(`🔊 ✅ Аудио от пользователя ${userId} включено после взаимодействия пользователя`);
-                  
-                  // Удаляем обработчики после успешного воспроизведения
-                  document.removeEventListener('click', enableAudio);
-                  document.removeEventListener('touchstart', enableAudio);
-                  document.removeEventListener('keydown', enableAudio);
-                  
-                } catch (e) {
-                  console.error(`🔊 ❌ Все еще не удается воспроизвести аудио от пользователя ${userId}:`, e);
-                }
-              };
-              
-              // Добавляем обработчики для различных типов взаимодействия
-              document.addEventListener('click', enableAudio, { once: true });
-              document.addEventListener('touchstart', enableAudio, { once: true });
-              document.addEventListener('keydown', enableAudio, { once: true });
-              
-              // Показываем уведомление пользователю
-              console.log(`🔊 💡 Кликните в любом месте страницы, чтобы включить звук от пользователя ${userId}`);
-            }
-          };
-          
-          // Небольшая задержка перед попыткой воспроизведения
-          setTimeout(attemptPlay, 100);
+          this.setupRemoteAudio(userId, audioTracks);
         }
 
         if (videoTracks.length > 0) {
-          console.log('🖥️ Получен видео поток от пользователя', userId);
-          
-          let remoteVideo = document.getElementById(`remote-video-${userId}`) as HTMLVideoElement;
-          if (!remoteVideo) {
-            remoteVideo = document.createElement('video');
-            remoteVideo.id = `remote-video-${userId}`;
-            remoteVideo.autoplay = true;
-            remoteVideo.controls = false;
-            remoteVideo.muted = true;
-            remoteVideo.style.position = 'absolute';
-            remoteVideo.style.top = '0';
-            remoteVideo.style.left = '0';
-            remoteVideo.style.width = '100%';
-            remoteVideo.style.height = '100%';
-            remoteVideo.style.objectFit = 'contain';
-            remoteVideo.style.backgroundColor = '#000';
-            
-            remoteVideo.addEventListener('loadeddata', () => {
-              console.log(`🖥️ Видео загружено для пользователя ${userId}`);
-            });
-            
-            remoteVideo.addEventListener('error', (e) => {
-              console.error(`🖥️ Ошибка загрузки видео для пользователя ${userId}:`, e);
-            });
-            
-            const waitForRemoteContainer = (attempts = 0): void => {
-              const videoContainer = document.getElementById('screen-share-container-chat');
-              
-              if (videoContainer) {
-                const existingVideo = document.getElementById(`remote-video-${userId}`);
-                if (existingVideo && existingVideo !== remoteVideo) {
-                  existingVideo.remove();
-                  console.log(`🖥️ Удален старый видео элемент для пользователя ${userId}`);
-                }
-                
-                if (!videoContainer.contains(remoteVideo)) {
-                  videoContainer.appendChild(remoteVideo);
-                  console.log(`🖥️ Видео элемент добавлен в ChatArea для пользователя ${userId}. Контейнер размеры:`, {
-                    width: videoContainer.offsetWidth,
-                    height: videoContainer.offsetHeight,
-                    style: videoContainer.style.cssText,
-                    childrenCount: videoContainer.children.length
-                  });
-                }
-              } else if (attempts < 50) {
-                console.log(`🖥️ Ожидание контейнера для пользователя ${userId} (попытка ${attempts + 1}/50)`);
-                setTimeout(() => waitForRemoteContainer(attempts + 1), 100);
-              } else {
-                console.error(`🖥️ Превышено время ожидания контейнера для пользователя ${userId}`);
-                remoteVideo.remove();
-                return;
-              }
-            };
-            
-            waitForRemoteContainer();
-          }
-          
-          remoteVideo.srcObject = new MediaStream(videoTracks);
-          
-          remoteVideo.addEventListener('loadedmetadata', () => {
-            console.log(`🖥️ Метаданные видео загружены для пользователя ${userId}`, {
-              videoWidth: remoteVideo.videoWidth,
-              videoHeight: remoteVideo.videoHeight,
-              readyState: remoteVideo.readyState
-            });
-          });
-          
-          remoteVideo.addEventListener('canplay', () => {
-            console.log(`🖥️ Видео готово к воспроизведению для пользователя ${userId}`);
-          });
-          
-          if (this.onScreenShareChanged) {
-            this.onScreenShareChanged(userId, true);
-          }
-          
-          console.log('🖥️ Видео элемент создан для пользователя', userId, {
-            id: remoteVideo.id,
-            srcObject: !!remoteVideo.srcObject,
-            tracks: videoTracks.length
-          });
+          this.setupRemoteVideo(userId, videoTracks);
         }
       }
     };
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        console.log(`🔊 Отправляем ICE candidate пользователю ${userId}:`, event.candidate);
+        if (this.audioDataLogging) {
+          console.log(`🔊 📤 Отправляем ICE candidate пользователю ${userId} (детально):`, {
+            candidate: event.candidate,
+            timestamp: new Date().toISOString()
+          });
+        } else {
+          console.log(`🔊 Отправляем ICE candidate пользователю ${userId}`);
+        }
         this.sendMessage({
           type: 'ice_candidate',
           target_id: userId,
@@ -465,50 +439,335 @@ class VoiceService {
     pc.onconnectionstatechange = () => {
       console.log(`🔊 Состояние соединения с пользователем ${userId}: ${pc.connectionState}`);
       
-      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
-        console.log(`🔊 Соединение с пользователем ${userId} потеряно (${pc.connectionState})`);
-        
-        const audioElement = document.getElementById(`remote-audio-${userId}`);
-        if (audioElement) {
-          audioElement.remove();
-          console.log(`🔊 Удален аудио элемент для пользователя ${userId}`);
-        }
-        
-        const videoElement = document.getElementById(`remote-video-${userId}`);
-        if (videoElement) {
-          videoElement.remove();
-          console.log(`🖥️ Удален видео элемент для пользователя ${userId}`);
-          
-          window.dispatchEvent(new CustomEvent('screen_share_stop', { 
-            detail: { 
-              user_id: userId, 
-              username: `User ${userId}` 
-            } 
-          }));
-        }
-        
+      if (pc.connectionState === 'connected') {
+        console.log(`🔊 ✅ Успешно установлено соединение с пользователем ${userId}`);
+      } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+        console.log(`🔊 ❌ Соединение с пользователем ${userId} потеряно (${pc.connectionState})`);
+        this.cleanupUserElements(userId);
         this.removePeerConnection(userId);
       }
-      console.log(`🔊 Состояние соединения с пользователем ${userId}:`, pc.connectionState);
     };
 
     pc.oniceconnectionstatechange = () => {
       console.log(`🔊 Состояние ICE соединения с пользователем ${userId}:`, pc.iceConnectionState);
+      
+      if (this.audioDataLogging) {
+        console.log(`🔊 🧊 ICE детали для пользователя ${userId}:`, {
+          iceConnectionState: pc.iceConnectionState,
+          iceGatheringState: pc.iceGatheringState,
+          connectionState: pc.connectionState,
+          signalingState: pc.signalingState,
+          timestamp: new Date().toISOString()
+        });
+      }
     };
 
     this.peerConnections.set(userId, { pc, userId });
 
     if (createOffer) {
-      console.log(`🔊 Создаем offer для пользователя ${userId}`);
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      console.log(`🔊 Отправляем offer пользователю ${userId}:`, offer);
-      this.sendMessage({
-        type: 'offer',
-        target_id: userId,
-        offer: offer,
+      try {
+        console.log(`🔊 Создаем offer для пользователя ${userId}`);
+        const offer = await pc.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: true,
+        });
+        await pc.setLocalDescription(offer);
+        
+        if (this.audioDataLogging) {
+          console.log(`🔊 📤 Отправляем offer пользователю ${userId} (детально):`, {
+            offer: offer,
+            localDescription: pc.localDescription,
+            timestamp: new Date().toISOString()
+          });
+        }
+        
+        this.sendMessage({
+          type: 'offer',
+          target_id: userId,
+          offer: offer,
+        });
+      } catch (error) {
+        console.error(`🔊 ❌ Ошибка создания offer для пользователя ${userId}:`, error);
+      }
+    }
+  }
+
+  // Новый метод для настройки удаленного аудио
+  private setupRemoteAudio(userId: number, audioTracks: MediaStreamTrack[]) {
+    console.log(`🔊 Настройка аудио воспроизведения для пользователя ${userId}`);
+    
+    // Удаляем старый аудио элемент если существует
+    const existingAudio = document.getElementById(`remote-audio-${userId}`);
+    if (existingAudio) {
+      existingAudio.remove();
+      console.log(`🔊 Удален старый аудио элемент для пользователя ${userId}`);
+    }
+    
+    // Создаем новый аудио элемент
+    const remoteAudio = document.createElement('audio');
+    remoteAudio.id = `remote-audio-${userId}`;
+    remoteAudio.autoplay = true;
+    remoteAudio.controls = false;
+    remoteAudio.muted = false;
+    remoteAudio.volume = 1.0;
+    remoteAudio.style.display = 'none';
+    
+    // Создаем MediaStream только с аудио треками
+    const audioStream = new MediaStream(audioTracks);
+    remoteAudio.srcObject = audioStream;
+    
+    // Добавляем элемент в DOM
+    document.body.appendChild(remoteAudio);
+    
+    if (this.audioDataLogging) {
+      // Детальные обработчики событий для диагностики
+      remoteAudio.addEventListener('loadstart', () => {
+        console.log(`🔊 📻 Начата загрузка аудио для пользователя ${userId} (${new Date().toISOString()})`);
+      });
+      
+      remoteAudio.addEventListener('loadedmetadata', () => {
+        console.log(`🔊 📻 Метаданные аудио загружены для пользователя ${userId}:`, {
+          duration: remoteAudio.duration,
+          readyState: remoteAudio.readyState,
+          networkState: remoteAudio.networkState,
+          volume: remoteAudio.volume,
+          timestamp: new Date().toISOString()
+        });
+      });
+      
+      remoteAudio.addEventListener('canplay', () => {
+        console.log(`🔊 📻 Аудио готово к воспроизведению для пользователя ${userId} (${new Date().toISOString()})`);
+      });
+      
+      remoteAudio.addEventListener('error', (e) => {
+        console.error(`🔊 ❌ Ошибка аудио элемента для пользователя ${userId}:`, e);
+      });
+
+      // Логируем изменения в аудио потоке
+      audioTracks.forEach((track, index) => {
+        track.addEventListener('ended', () => {
+          console.log(`🔊 📻 Аудио трек ${index} завершен для пользователя ${userId}`);
+        });
+        
+        track.addEventListener('mute', () => {
+          console.log(`🔊 📻 Аудио трек ${index} заглушен для пользователя ${userId}`);
+        });
+        
+        track.addEventListener('unmute', () => {
+          console.log(`🔊 📻 Аудио трек ${index} включен для пользователя ${userId}`);
+        });
       });
     }
+    
+    // Попытка воспроизведения
+    this.attemptAudioPlay(remoteAudio, userId);
+  }
+
+  // Новый метод для попытки воспроизведения аудио
+  private async attemptAudioPlay(remoteAudio: HTMLAudioElement, userId: number) {
+    try {
+      console.log(`🔊 Попытка воспроизведения аудио для пользователя ${userId}`);
+      await remoteAudio.play();
+      console.log(`🔊 ✅ Аудио от пользователя ${userId} успешно воспроизводится`);
+      
+      // Применяем сохраненную громкость
+      const savedVolume = localStorage.getItem(`voice-volume-${userId}`);
+      if (savedVolume) {
+        const volume = parseInt(savedVolume);
+        remoteAudio.volume = Math.min(volume / 100, 1.0);
+        console.log(`🔊 Применена сохраненная громкость ${volume}% для пользователя ${userId}`);
+      }
+      
+    } catch (error) {
+      console.warn(`🔊 ⚠️ Автовоспроизведение заблокировано для пользователя ${userId}:`, error);
+      
+      // Создаем обработчик для включения аудио после взаимодействия пользователя
+      const enableAudio = async () => {
+        try {
+          await remoteAudio.play();
+          console.log(`🔊 ✅ Аудио от пользователя ${userId} включено после взаимодействия пользователя`);
+          
+          // Удаляем обработчики после успешного воспроизведения
+          document.removeEventListener('click', enableAudio);
+          document.removeEventListener('touchstart', enableAudio);
+          document.removeEventListener('keydown', enableAudio);
+          
+        } catch (e) {
+          console.error(`🔊 ❌ Все еще не удается воспроизвести аудио от пользователя ${userId}:`, e);
+        }
+      };
+      
+      // Добавляем обработчики для различных типов взаимодействия
+      document.addEventListener('click', enableAudio, { once: true });
+      document.addEventListener('touchstart', enableAudio, { once: true });
+      document.addEventListener('keydown', enableAudio, { once: true });
+      
+      // Показываем уведомление пользователю
+      console.log(`🔊 💡 Кликните в любом месте страницы, чтобы включить звук от пользователя ${userId}`);
+    }
+  }
+
+  // Новый метод для настройки удаленного видео
+  private setupRemoteVideo(userId: number, videoTracks: MediaStreamTrack[]) {
+    console.log('🖥️ Получен видео поток от пользователя', userId);
+    
+    let remoteVideo = document.getElementById(`remote-video-${userId}`) as HTMLVideoElement;
+    if (!remoteVideo) {
+      remoteVideo = document.createElement('video');
+      remoteVideo.id = `remote-video-${userId}`;
+      remoteVideo.autoplay = true;
+      remoteVideo.controls = false;
+      remoteVideo.muted = true;
+      remoteVideo.style.position = 'absolute';
+      remoteVideo.style.top = '0';
+      remoteVideo.style.left = '0';
+      remoteVideo.style.width = '100%';
+      remoteVideo.style.height = '100%';
+      remoteVideo.style.objectFit = 'contain';
+      remoteVideo.style.backgroundColor = '#000';
+      
+      if (this.audioDataLogging) {
+        remoteVideo.addEventListener('loadeddata', () => {
+          console.log(`🖥️ 📺 Видео загружено для пользователя ${userId} (${new Date().toISOString()})`);
+        });
+        
+        remoteVideo.addEventListener('error', (e) => {
+          console.error(`🖥️ ❌ Ошибка загрузки видео для пользователя ${userId}:`, e);
+        });
+      }
+      
+      this.waitForRemoteContainer(remoteVideo, userId);
+    }
+    
+    remoteVideo.srcObject = new MediaStream(videoTracks);
+    
+    if (this.audioDataLogging) {
+      remoteVideo.addEventListener('loadedmetadata', () => {
+        console.log(`🖥️ 📺 Метаданные видео загружены для пользователя ${userId}:`, {
+          videoWidth: remoteVideo.videoWidth,
+          videoHeight: remoteVideo.videoHeight,
+          readyState: remoteVideo.readyState,
+          timestamp: new Date().toISOString()
+        });
+      });
+      
+      remoteVideo.addEventListener('canplay', () => {
+        console.log(`🖥️ 📺 Видео готово к воспроизведению для пользователя ${userId} (${new Date().toISOString()})`);
+      });
+    }
+    
+    if (this.onScreenShareChanged) {
+      this.onScreenShareChanged(userId, true);
+    }
+    
+    console.log('🖥️ Видео элемент создан для пользователя', userId, {
+      id: remoteVideo.id,
+      srcObject: !!remoteVideo.srcObject,
+      tracks: videoTracks.length
+    });
+  }
+
+  // Новый метод ожидания контейнера для видео
+  private waitForRemoteContainer(remoteVideo: HTMLVideoElement, userId: number, attempts = 0): void {
+    const videoContainer = document.getElementById('screen-share-container-chat');
+    
+    if (videoContainer) {
+      const existingVideo = document.getElementById(`remote-video-${userId}`);
+      if (existingVideo && existingVideo !== remoteVideo) {
+        existingVideo.remove();
+        console.log(`🖥️ Удален старый видео элемент для пользователя ${userId}`);
+      }
+      
+      if (!videoContainer.contains(remoteVideo)) {
+        videoContainer.appendChild(remoteVideo);
+        console.log(`🖥️ Видео элемент добавлен в ChatArea для пользователя ${userId}. Контейнер размеры:`, {
+          width: videoContainer.offsetWidth,
+          height: videoContainer.offsetHeight,
+          style: videoContainer.style.cssText,
+          childrenCount: videoContainer.children.length
+        });
+      }
+    } else if (attempts < 50) {
+      console.log(`🖥️ Ожидание контейнера для пользователя ${userId} (попытка ${attempts + 1}/50)`);
+      setTimeout(() => this.waitForRemoteContainer(remoteVideo, userId, attempts + 1), 100);
+    } else {
+      console.error(`🖥️ Превышено время ожидания контейнера для пользователя ${userId}`);
+      remoteVideo.remove();
+      return;
+    }
+  }
+
+  // Новый метод для очистки элементов пользователя
+  private cleanupUserElements(userId: number) {
+    const audioElement = document.getElementById(`remote-audio-${userId}`);
+    if (audioElement) {
+      audioElement.remove();
+      console.log(`🔊 Удален аудио элемент для пользователя ${userId}`);
+    }
+    
+    const videoElement = document.getElementById(`remote-video-${userId}`);
+    if (videoElement) {
+      videoElement.remove();
+      console.log(`🖥️ Удален видео элемент для пользователя ${userId}`);
+      
+      window.dispatchEvent(new CustomEvent('screen_share_stop', { 
+        detail: { 
+          user_id: userId, 
+          username: `User ${userId}` 
+        } 
+      }));
+    }
+  }
+
+  // Новый метод для логирования WebRTC статистики
+  private logWebRTCStats(userId: number, stats: RTCStatsReport) {
+    let inboundAudio: any = null;
+    let outboundAudio: any = null;
+    let transport: any = null;
+
+    stats.forEach((report: any) => {
+      if (report.type === 'inbound-rtp' && report.mediaType === 'audio') {
+        inboundAudio = report;
+      } else if (report.type === 'outbound-rtp' && report.mediaType === 'audio') {
+        outboundAudio = report;
+      } else if (report.type === 'transport') {
+        transport = report;
+      }
+    });
+
+    console.log(`🔊 📊 WebRTC статистика для пользователя ${userId}:`, {
+      timestamp: new Date().toISOString(),
+      inbound: inboundAudio ? {
+        bytesReceived: inboundAudio.bytesReceived,
+        packetsReceived: inboundAudio.packetsReceived,
+        packetsLost: inboundAudio.packetsLost,
+        jitter: inboundAudio.jitter,
+        audioLevel: inboundAudio.audioLevel
+      } : 'недоступно',
+      outbound: outboundAudio ? {
+        bytesSent: outboundAudio.bytesSent,
+        packetsSent: outboundAudio.packetsSent,
+        retransmittedPacketsSent: outboundAudio.retransmittedPacketsSent
+      } : 'недоступно',
+      transport: transport ? {
+        bytesSent: transport.bytesSent,
+        bytesReceived: transport.bytesReceived,
+        currentRoundTripTime: transport.currentRoundTripTime
+      } : 'недоступно'
+    });
+
+    // Обновляем внутренние метрики
+    if (outboundAudio) {
+      this.audioMetrics.bytesSent = outboundAudio.bytesSent || 0;
+    }
+    if (inboundAudio) {
+      this.audioMetrics.bytesReceived = inboundAudio.bytesReceived || 0;
+      this.audioMetrics.packetsLost = inboundAudio.packetsLost || 0;
+    }
+    if (transport) {
+      this.audioMetrics.roundTripTime = transport.currentRoundTripTime || 0;
+    }
+    this.audioMetrics.lastUpdate = Date.now();
   }
 
   private async handleOffer(userId: number, offer: RTCSessionDescriptionInit) {
@@ -671,67 +930,112 @@ class VoiceService {
   }
 
   disconnect() {
-    this.cleanup();
-    if (this.ws) {
-      this.ws.close();
+    console.log('🎙️ Инициируем отключение от голосового канала');
+    this.isDisconnecting = true;
+    
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      console.log('🎙️ Закрываем WebSocket соединение');
+      this.ws.close(1000, 'Пользователь покинул канал');
     }
+    
+    this.cleanup();
   }
 
-  private cleanup() {
-    console.log('🔊 Очистка VoiceService');
+  private async cleanup() {
+    console.log('🔊 Начинаем полную очистку VoiceService');
     
+    // Останавливаем все peer connections
     this.peerConnections.forEach(({ pc, userId }) => {
+      console.log(`🔊 Закрываем peer connection для пользователя ${userId}`);
       pc.close();
-      const audioElement = document.getElementById(`remote-audio-${userId}`);
-      if (audioElement) {
-        audioElement.remove();
-      }
-      const videoElement = document.getElementById(`remote-video-${userId}`);
-      if (videoElement) {
-        videoElement.remove();
-        console.log(`🖥️ Удален видео элемент для пользователя ${userId} при cleanup`);
-      }
+      this.cleanupUserElements(userId);
     });
     this.peerConnections.clear();
 
+    // Останавливаем демонстрацию экрана
     if (this.screenStream) {
+      console.log('🖥️ Останавливаем демонстрацию экрана при cleanup');
       this.screenStream.getTracks().forEach(track => track.stop());
       this.screenStream = null;
     }
     this.isScreenSharing = false;
 
+    // Очищаем контейнеры видео
     const videoContainer = document.getElementById('screen-share-container-chat');
     if (videoContainer) {
       videoContainer.innerHTML = '';
       console.log('🖥️ Очищен контейнер screen-share-container-chat');
     }
 
+    // Удаляем все оставшиеся видео элементы
     document.querySelectorAll('video[id^="remote-video-"]').forEach(video => {
       video.remove();
       console.log('🖥️ Удален остаточный видео элемент:', video.id);
     });
 
+    // Удаляем все оставшиеся аудио элементы
+    document.querySelectorAll('audio[id^="remote-audio-"]').forEach(audio => {
+      audio.remove();
+      console.log('🔊 Удален остаточный аудио элемент:', audio.id);
+    });
+
+    // Останавливаем локальные потоки
     if (this.localStream) {
-      this.localStream.getTracks().forEach(track => track.stop());
+      console.log('🎙️ Останавливаем локальный поток');
+      this.localStream.getTracks().forEach(track => {
+        track.stop();
+        console.log(`🎙️ Остановлен локальный трек: ${track.kind} (${track.label})`);
+      });
       this.localStream = null;
     }
 
     if (this.rawStream) {
-      this.rawStream.getTracks().forEach(track => track.stop());
+      console.log('🎙️ Останавливаем сырой поток');
+      this.rawStream.getTracks().forEach(track => {
+        track.stop();
+        console.log(`🎙️ Остановлен сырой трек: ${track.kind} (${track.label})`);
+      });
       this.rawStream = null;
     }
 
+    // Очищаем голосовую активность
     this.cleanupVoiceActivityDetection();
 
-    noiseSuppressionService.cleanup();
+    // Очищаем сервис шумодавления
+    try {
+      noiseSuppressionService.cleanup();
+      console.log('🔇 Шумодав очищен');
+    } catch (error) {
+      console.warn('🔇 Ошибка при очистке шумодава:', error);
+    }
 
+    // Закрываем WebSocket если не закрыт
     if (this.ws) {
-      this.ws.close();
+      if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+        console.log('🎙️ Принудительно закрываем WebSocket при cleanup');
+        this.ws.close(1000, 'Cleanup');
+      }
       this.ws = null;
     }
 
+    // Сбрасываем все состояния
     this.voiceChannelId = null;
     this.token = null;
+    this.isDisconnecting = false;
+    this.speakingUsers.clear();
+    this.isSpeaking = false;
+    this.isManuallyMuted = false;
+    
+    // Сбрасываем метрики
+    this.audioMetrics = {
+      bytesSent: 0,
+      bytesReceived: 0,
+      packetsLost: 0,
+      roundTripTime: 0,
+      lastUpdate: Date.now()
+    };
+
+    console.log('🔊 ✅ VoiceService полностью очищен');
   }
 
   private initVoiceActivityDetection() {
@@ -1185,84 +1489,126 @@ class VoiceService {
     };
   }
 
+  // Получение метрик аудио
+  getAudioMetrics() {
+    return {
+      ...this.audioMetrics,
+      isConnected: !!this.ws && this.ws.readyState === WebSocket.OPEN,
+      peerConnectionsCount: this.peerConnections.size,
+      hasLocalStream: !!this.localStream,
+      hasRawStream: !!this.rawStream,
+      audioContextState: this.audioContext?.state,
+      isSpeaking: this.isSpeaking,
+      isManuallyMuted: this.isManuallyMuted,
+      audioDataLogging: this.audioDataLogging
+    };
+  }
+
   // Новая функция для диагностики аудио проблем
   diagnoseAudioIssues() {
     console.log('🔊 🔍 Диагностика аудио проблем:');
     
-    const debugInfo = this.getDebugInfo();
-    console.log('🔊 Общая информация:', debugInfo);
+    const metrics = this.getAudioMetrics();
+    console.log('📊 Аудио метрики:', metrics);
     
-    // Проверяем каждое peer connection
-    this.peerConnections.forEach(({ userId, pc }) => {
-      console.log(`🔊 Диагностика пользователя ${userId}:`);
-      
-      // Проверяем состояние соединения
-      console.log(`  - Состояние соединения: ${pc.connectionState}`);
-      console.log(`  - ICE состояние: ${pc.iceConnectionState}`);
-      console.log(`  - Signaling состояние: ${pc.signalingState}`);
-      
-      // Проверяем удаленные потоки
-      const receivers = pc.getReceivers();
-      console.log(`  - Количество receivers: ${receivers.length}`);
-      
-      receivers.forEach((receiver, index) => {
-        const track = receiver.track;
-        if (track) {
-          console.log(`  - Receiver ${index}:`, {
-            kind: track.kind,
-            id: track.id,
-            label: track.label,
-            readyState: track.readyState,
-            enabled: track.enabled,
-            muted: track.muted
-          });
-        }
-      });
-      
-      // Проверяем аудио элемент
-      const audioElement = document.getElementById(`remote-audio-${userId}`) as HTMLAudioElement;
-      if (audioElement) {
-        console.log(`  - Аудио элемент найден:`, {
-          muted: audioElement.muted,
-          volume: audioElement.volume,
-          paused: audioElement.paused,
-          readyState: audioElement.readyState,
-          networkState: audioElement.networkState,
-          srcObject: !!audioElement.srcObject,
-          currentTime: audioElement.currentTime,
-          duration: audioElement.duration,
-          error: audioElement.error
-        });
-        
-        // Проверяем MediaStream
-        if (audioElement.srcObject) {
-          const stream = audioElement.srcObject as MediaStream;
-          const audioTracks = stream.getAudioTracks();
-          console.log(`  - MediaStream аудио треки: ${audioTracks.length}`);
-          
-          audioTracks.forEach((track, trackIndex) => {
-            console.log(`    - Трек ${trackIndex}:`, {
-              id: track.id,
-              label: track.label,
-              kind: track.kind,
-              readyState: track.readyState,
-              enabled: track.enabled,
-              muted: track.muted
-            });
-          });
-        }
-      } else {
-        console.log(`  - ❌ Аудио элемент не найден!`);
-      }
-      
-      console.log('---');
+    // Проверка основных компонентов
+    const diagnostics = {
+      webSocketConnection: {
+        status: this.ws?.readyState === WebSocket.OPEN ? '✅ Подключен' : '❌ Отключен',
+        readyState: this.ws?.readyState,
+        url: this.ws?.url
+      },
+      audioStreams: {
+        localStream: this.localStream ? '✅ Есть' : '❌ Нет',
+        rawStream: this.rawStream ? '✅ Есть' : '❌ Нет',
+        localStreamTracks: this.localStream?.getTracks().map(t => ({
+          kind: t.kind,
+          label: t.label,
+          enabled: t.enabled,
+          readyState: t.readyState,
+          muted: t.muted
+        })) || []
+      },
+      audioContext: {
+        state: this.audioContext?.state || 'не создан',
+        sampleRate: this.audioContext?.sampleRate,
+        currentTime: this.audioContext?.currentTime
+      },
+      peerConnections: Array.from(this.peerConnections.entries()).map(([userId, { pc }]) => ({
+        userId,
+        connectionState: pc.connectionState,
+        iceConnectionState: pc.iceConnectionState,
+        signalingState: pc.signalingState,
+        senders: pc.getSenders().map(sender => ({
+          trackKind: sender.track?.kind,
+          trackEnabled: sender.track?.enabled,
+          trackReadyState: sender.track?.readyState
+        }))
+      })),
+      audioElements: Array.from(document.querySelectorAll('audio[id^="remote-audio-"]')).map(audio => {
+        const audioEl = audio as HTMLAudioElement;
+        return {
+          id: audioEl.id,
+          volume: audioEl.volume,
+          muted: audioEl.muted,
+          paused: audioEl.paused,
+          readyState: audioEl.readyState,
+          networkState: audioEl.networkState,
+          hasSource: !!audioEl.srcObject,
+          currentTime: audioEl.currentTime,
+          duration: audioEl.duration
+        };
+      })
+    };
+    
+    console.log('🔧 Детальная диагностика:', diagnostics);
+    
+    // Автоматические рекомендации
+    const recommendations = [];
+    
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      recommendations.push('❌ WebSocket не подключен - проверьте сетевое соединение');
+    }
+    
+    if (!this.localStream) {
+      recommendations.push('❌ Нет локального аудио потока - проверьте разрешения микрофона');
+    }
+    
+    if (this.audioContext?.state !== 'running') {
+      recommendations.push('⚠️ AudioContext не запущен - может потребоваться взаимодействие пользователя');
+    }
+    
+    if (this.peerConnections.size === 0) {
+      recommendations.push('⚠️ Нет peer соединений - убедитесь, что другие пользователи в канале');
+    }
+    
+    const connectedPeers = Array.from(this.peerConnections.values()).filter(({ pc }) => pc.connectionState === 'connected');
+    if (connectedPeers.length !== this.peerConnections.size) {
+      recommendations.push(`⚠️ Не все peer соединения активны: ${connectedPeers.length}/${this.peerConnections.size}`);
+    }
+    
+    const audioElements = document.querySelectorAll('audio[id^="remote-audio-"]');
+    const workingAudioElements = Array.from(audioElements).filter(audio => {
+      const audioEl = audio as HTMLAudioElement;
+      return !audioEl.paused && audioEl.readyState >= 2; // HAVE_CURRENT_DATA
     });
     
-    // Проверяем autoplay policy
-    if (navigator.userAgent.includes('Chrome') || navigator.userAgent.includes('Firefox')) {
-      console.log('🔊 💡 Если звук не работает, возможно браузер блокирует autoplay.');
-      console.log('🔊 💡 Кликните в любом месте страницы, чтобы разрешить воспроизведение аудио.');
+    if (audioElements.length !== workingAudioElements.length) {
+      recommendations.push(`⚠️ Не все аудио элементы воспроизводятся: ${workingAudioElements.length}/${audioElements.length}`);
     }
+    
+    if (recommendations.length === 0) {
+      recommendations.push('✅ Все компоненты работают нормально');
+    }
+    
+    console.log('💡 Рекомендации:', recommendations);
+    
+    return {
+      metrics,
+      diagnostics,
+      recommendations,
+      timestamp: new Date().toISOString()
+    };
   }
 }
 
