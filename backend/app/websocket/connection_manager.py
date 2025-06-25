@@ -25,34 +25,53 @@ class ConnectionManager:
     
     async def connect(self, websocket: WebSocket, user_id: int, channel_id: int = None):
         """Подключение WebSocket"""
+        print(f"[ConnectionManager] 🔌 Подключение WebSocket для пользователя {user_id}, канал: {channel_id}")
         await websocket.accept()
         
         # Добавляем соединение для пользователя
         if user_id not in self.active_connections:
             self.active_connections[user_id] = []
+            print(f"[ConnectionManager] 🆕 Создан новый список соединений для пользователя {user_id}")
+        
         self.active_connections[user_id].append(websocket)
+        print(f"[ConnectionManager] ✅ Добавлено соединение для пользователя {user_id} (всего: {len(self.active_connections[user_id])})")
         
         # Если указан канал, добавляем в канальные соединения
         if channel_id:
             if channel_id not in self.channel_connections:
                 self.channel_connections[channel_id] = {}
+                print(f"[ConnectionManager] 🆕 Создано хранилище соединений для канала {channel_id}")
             self.channel_connections[channel_id][user_id] = websocket
+            print(f"[ConnectionManager] ✅ Пользователь {user_id} добавлен в канал {channel_id}")
+        
+        print(f"[ConnectionManager] 📊 Текущее состояние: {len(self.active_connections)} пользователей, {len(self.channel_connections)} каналов")
     
     async def disconnect(self, websocket: WebSocket, user_id: int, channel_id: int = None):
         """Отключение WebSocket"""
+        print(f"[ConnectionManager] 🔌 Отключение WebSocket для пользователя {user_id}, канал: {channel_id}")
+        
         # Удаляем из пользовательских соединений
         if user_id in self.active_connections:
             if websocket in self.active_connections[user_id]:
                 self.active_connections[user_id].remove(websocket)
+                print(f"[ConnectionManager] 🗑️ Удалено соединение для пользователя {user_id} (осталось: {len(self.active_connections[user_id])})")
+            
             if not self.active_connections[user_id]:
                 del self.active_connections[user_id]
+                print(f"[ConnectionManager] 🗑️ Удален пользователь {user_id} - нет активных соединений")
+        else:
+            print(f"[ConnectionManager] ⚠️ Пользователь {user_id} не найден в активных соединениях")
         
         # Удаляем из канальных соединений
         if channel_id and channel_id in self.channel_connections:
             if user_id in self.channel_connections[channel_id]:
                 del self.channel_connections[channel_id][user_id]
+                print(f"[ConnectionManager] 🗑️ Пользователь {user_id} удален из канала {channel_id}")
             if not self.channel_connections[channel_id]:
                 del self.channel_connections[channel_id]
+                print(f"[ConnectionManager] 🗑️ Канал {channel_id} удален - нет активных пользователей")
+        
+        print(f"[ConnectionManager] 📊 Состояние после отключения: {len(self.active_connections)} пользователей, {len(self.channel_connections)} каналов")
     
     async def send_personal_message(self, message: str, websocket: WebSocket):
         """Отправка личного сообщения"""
