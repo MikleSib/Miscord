@@ -1,3 +1,5 @@
+import { audioProcessingService } from './audioProcessingService';
+
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://miscord.ru';
 
 console.log('🎙️ VoiceService инициализирован с WS_URL:', WS_URL);
@@ -64,7 +66,7 @@ class VoiceService {
     // Получаем доступ к микрофону
     try {
       console.log('🎙️ Запрашиваем доступ к микрофону...');
-      this.localStream = await navigator.mediaDevices.getUserMedia({
+      const rawStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
@@ -74,7 +76,39 @@ class VoiceService {
       });
       console.log('🎙️ Доступ к микрофону получен');
       
-      // Инициализируем детекцию голосовой активности
+      // Применяем обработку аудио с VAD и шумоподавлением
+      console.log('🎙️ Инициализируем обработку аудио (VAD + шумоподавление)...');
+      this.localStream = await audioProcessingService.initialize(rawStream);
+      
+      // Настраиваем callbacks для VAD
+      audioProcessingService.setOnSpeechStart(() => {
+        console.log('🎙️ VAD: Речь началась');
+        this.sendMessage({
+          type: 'speaking',
+          is_speaking: true
+        });
+      });
+      
+      audioProcessingService.setOnSpeechEnd(() => {
+        console.log('🎙️ VAD: Речь закончилась');
+        this.sendMessage({
+          type: 'speaking',
+          is_speaking: false
+        });
+      });
+      
+      audioProcessingService.setOnVolumeChange((volume) => {
+        // Можно использовать для визуализации уровня громкости
+        if (volume > 0.1) {
+          // Временно, пока не интегрируем полностью VAD
+          this.initVoiceActivityDetection();
+        }
+      });
+      
+      // Анализируем громкость для визуализации
+      audioProcessingService.analyzeVolume(this.localStream);
+      
+      // Инициализируем старую детекцию голосовой активности (временно)
       this.initVoiceActivityDetection();
     } catch (error) {
       console.error('🎙️ Ошибка доступа к микрофону:', error);
@@ -561,6 +595,9 @@ class VoiceService {
 
   private cleanup() {
     console.log('🔊 Очистка VoiceService');
+    
+    // Очищаем аудио обработку
+    audioProcessingService.destroy();
     
     // Очищаем все обработчики событий
     this.onParticipantJoined = null;

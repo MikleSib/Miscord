@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Phone, PhoneOff, Monitor, MonitorOff, Wifi, WifiOff, Loader } from 'lucide-react';
+import { Phone, PhoneOff, Monitor, MonitorOff, Wifi, WifiOff, Loader, Mic, MicOff, Settings } from 'lucide-react';
 import { useVoiceStore } from '../store/slices/voiceSlice';
 import { useStore } from '../lib/store';
 import voiceService from '../services/voiceService';
+import { VoiceActivityIndicator } from './VoiceActivityIndicator';
+import { AudioSettingsModal } from './AudioSettingsModal';
 
 export function VoiceConnectionPanel() {
   const { 
@@ -15,6 +17,8 @@ export function VoiceConnectionPanel() {
   const { currentServer } = useStore();
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'connecting' | 'disconnected'>('disconnected');
+  const [isMuted, setIsMuted] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Получаем название текущего канала
   const currentChannel = currentServer?.channels.find((channel: any) => 
@@ -86,6 +90,11 @@ export function VoiceConnectionPanel() {
     disconnectFromVoiceChannel();
   };
 
+  const handleToggleMute = () => {
+    setIsMuted(!isMuted);
+    voiceService.setMuted(!isMuted);
+  };
+
   // Функция для склонения слова "участник"
   const getParticipantsCountText = (count: number): string => {
     const lastDigit = count % 10;
@@ -151,6 +160,37 @@ export function VoiceConnectionPanel() {
       {/* Кнопки управления */}
       <div className="flex items-center justify-between px-3 py-2">
         <div className="flex items-center gap-2">
+          {/* Индикатор голосовой активности */}
+          <div className="px-2">
+            <VoiceActivityIndicator 
+              isActive={isConnected && !isMuted} 
+              isMuted={isMuted}
+              size="medium"
+            />
+          </div>
+
+          {/* Кнопка микрофона */}
+          <button
+            onClick={handleToggleMute}
+            className={`p-2 rounded transition-colors ${
+              isMuted
+                ? 'bg-red-500 text-white hover:bg-red-600'
+                : 'bg-[#4e4f56] text-[#b5bac1] hover:bg-[#5a5b63]'
+            }`}
+            title={isMuted ? 'Включить микрофон' : 'Выключить микрофон'}
+          >
+            {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+          </button>
+
+          {/* Кнопка настроек */}
+          <button
+            onClick={() => setIsSettingsOpen(true)}
+            className="p-2 rounded bg-[#4e4f56] text-[#b5bac1] hover:bg-[#5a5b63] transition-colors"
+            title="Настройки аудио"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+
           {/* Кнопка демонстрации экрана */}
           <button
             onClick={handleToggleScreenShare}
@@ -185,6 +225,12 @@ export function VoiceConnectionPanel() {
           <span>Отключиться</span>
         </button>
       </div>
+      
+      {/* Модальное окно настроек */}
+      <AudioSettingsModal 
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+      />
     </div>
   );
 } 

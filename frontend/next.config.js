@@ -21,6 +21,19 @@ const nextConfig = {
       'bufferutil': 'bufferutil',
       'utf-8-validate': 'utf-8-validate',
     });
+    
+    // Добавляем поддержку WASM
+    config.experiments = {
+      ...config.experiments,
+      asyncWebAssembly: true,
+    };
+    
+    // Добавляем правило для WASM файлов
+    config.module.rules.push({
+      test: /\.wasm$/,
+      type: 'asset/resource',
+    });
+    
     return config;
   },
 }
