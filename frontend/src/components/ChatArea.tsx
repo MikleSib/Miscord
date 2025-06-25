@@ -62,73 +62,63 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
       });
       
       if (accessToken) {
-        console.log('[ChatArea] Подключаем WebSocket для канала', currentChannel.id);
+        console.log('[ChatArea] Настраиваем обработчики WebSocket для канала', currentChannel.id);
         
-        // Отключаемся от предыдущего соединения
-        chatService.disconnect();
+        // Обработчик новых сообщений
+        chatService.onMessage((msg) => {
+          console.log('[ChatArea] Получено сообщение через WebSocket:', msg);
+          // Адаптируем Message к ChatMessage
+          const chatMessage = {
+            ...msg,
+            content: msg.content || '', // Гарантируем что content не null
+          };
+          addMessage(chatMessage);
+        });
         
-        // Небольшая задержка для завершения отключения
-        setTimeout(() => {
-          if (accessToken) {
-            chatService.connect(currentChannel.id, accessToken);
+        // Обработчик печати
+        chatService.onTyping((data) => {
+          if (data.user && data.user.username) {
+            setTypingUsers(prev => {
+              if (!prev.includes(data.user.username)) {
+                const newUsers = [...prev, data.user.username];
+                setTimeout(() => {
+                  setTypingUsers(current => current.filter(u => u !== data.user.username));
+                }, 2000);
+                return newUsers;
+              }
+              return prev;
+            });
           }
-          
-          // Обработчик новых сообщений
-          chatService.onMessage((msg) => {
-            console.log('[ChatArea] Получено сообщение через WebSocket:', msg);
-            // Адаптируем Message к ChatMessage
-            const chatMessage = {
-              ...msg,
-              content: msg.content || '', // Гарантируем что content не null
-            };
-            addMessage(chatMessage);
-          });
-          
-          // Обработчик печати
-          chatService.onTyping((data) => {
-            if (data.user && data.user.username) {
-              setTypingUsers(prev => {
-                if (!prev.includes(data.user.username)) {
-                  const newUsers = [...prev, data.user.username];
-                  setTimeout(() => {
-                    setTypingUsers(current => current.filter(u => u !== data.user.username));
-                  }, 2000);
-                  return newUsers;
-                }
-                return prev;
-              });
-            }
-          });
+        });
 
-          // Обработчик удаления сообщений
-          chatService.onMessageDeleted((data) => {
-            console.log('[ChatArea] Сообщение удалено:', data.message_id);
-            deleteMessage(data.message_id);
-          });
+        // Обработчик удаления сообщений
+        chatService.onMessageDeleted((data) => {
+          console.log('[ChatArea] Сообщение удалено:', data.message_id);
+          deleteMessage(data.message_id);
+        });
 
-          // Обработчик редактирования сообщений
-          chatService.onMessageEdited((msg) => {
-            console.log('[ChatArea] Сообщение отредактировано:', msg);
-            editMessage(msg.id, msg.content || '');
-          });
+        // Обработчик редактирования сообщений
+        chatService.onMessageEdited((msg) => {
+          console.log('[ChatArea] Сообщение отредактировано:', msg);
+          editMessage(msg.id, msg.content || '');
+        });
 
-          // Обработчик обновления реакций
-          chatService.onReactionUpdated((data) => {
-            console.log('[ChatArea] Реакция обновлена через WebSocket:', data);
-            updateSingleReaction(data.message_id, data.emoji, data.reaction);
-          });
-        }, 100);
+        // Обработчик обновления реакций
+        chatService.onReactionUpdated((data) => {
+          console.log('[ChatArea] Реакция обновлена через WebSocket:', data);
+          updateSingleReaction(data.message_id, data.emoji, data.reaction);
+        });
       }
     } else {
-      console.log('[ChatArea] Канал не текстовый, отключаем WebSocket');
-      chatService.disconnect();
+      console.log('[ChatArea] Канал не текстовый');
+      // WebSocket управляется в store.ts, здесь только очищаем состояние
       setTypingUsers([]);
     }
     
     // Cleanup function
     return () => {
-      console.log('[ChatArea] Cleanup - отключаем WebSocket');
-      chatService.disconnect();
+      console.log('[ChatArea] Cleanup - очищаем состояние');
+      // Не отключаем WebSocket здесь, так как управление соединением происходит в store.ts
       setTypingUsers([]);
     };
   }, [currentChannel?.id, currentChannel?.type, loadMessageHistory, addMessage, deleteMessage, editMessage, token]);

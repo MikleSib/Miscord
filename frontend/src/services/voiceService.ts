@@ -2,6 +2,13 @@ const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://miscord.ru';
 
 console.log('🎙️ VoiceService инициализирован с WS_URL:', WS_URL);
 
+// Глобальная переменная для отслеживания экземпляра
+declare global {
+  interface Window {
+    __voiceServiceInstance?: VoiceService;
+  }
+}
+
 interface PeerConnection {
   pc: RTCPeerConnection;
   userId: number;
@@ -35,6 +42,14 @@ class VoiceService {
     if (this.voiceChannelId === voiceChannelId && this.ws && this.ws.readyState === WebSocket.OPEN) {
       console.log('🎙️ Уже подключены к этому каналу, пропускаем переподключение');
       return;
+    }
+    
+    // Если есть активное WebSocket соединение, сначала закрываем его
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      console.log('🎙️ Обнаружено активное WebSocket соединение, закрываем перед новым подключением');
+      this.disconnect();
+      // Ждём немного для завершения закрытия
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
     
     // Если подключены к другому каналу или соединение закрыто, сначала очищаем
@@ -90,7 +105,9 @@ class VoiceService {
 
       this.ws!.onclose = (event) => {
         console.log('🎙️ Voice WebSocket отключен:', event.code, event.reason);
-        this.cleanup();
+        console.log('🎙️ WebSocket readyState после закрытия:', (event.target as WebSocket)?.readyState);
+        // Не вызываем cleanup() здесь, чтобы избежать рекурсии
+        // cleanup() должен вызываться только при явном отключении пользователем
       };
     });
   }
@@ -521,14 +538,37 @@ class VoiceService {
   }
 
   disconnect() {
+    console.log('🎙️ VoiceService.disconnect вызван');
+    console.log('🎙️ Текущее состояние ws:', this.ws ? this.ws.readyState : 'null');
+    console.log('🎙️ Текущий voiceChannelId:', this.voiceChannelId);
+    
+    // Сохраняем ссылку на WebSocket для закрытия
+    const wsToClose = this.ws;
+    
+    // Вызываем cleanup
     this.cleanup();
-    if (this.ws) {
-      this.ws.close();
+    
+    // Дополнительная проверка - если WebSocket всё ещё существует
+    if (wsToClose && wsToClose.readyState !== WebSocket.CLOSED) {
+      console.warn('🎙️ WebSocket не закрылся после cleanup, пробуем ещё раз');
+      try {
+        wsToClose.close();
+      } catch (e) {
+        console.error('🎙️ Ошибка при дополнительном закрытии:', e);
+      }
     }
   }
 
   private cleanup() {
     console.log('🔊 Очистка VoiceService');
+    
+    // Очищаем все обработчики событий
+    this.onParticipantJoined = null;
+    this.onParticipantLeft = null;
+    this.onSpeakingChanged = null;
+    this.onParticipantsReceivedCallback = null;
+    this.onParticipantStatusChangedCallback = null;
+    this.onScreenShareChanged = null;
     
     // Закрываем все peer connections
     this.peerConnections.forEach(({ pc, userId }) => {
@@ -578,8 +618,40 @@ class VoiceService {
 
     // Закрываем WebSocket если открыт
     if (this.ws) {
-      this.ws.close();
+      console.log('🔊 Закрываем WebSocket соединение. Текущее состояние:', this.ws.readyState);
+      
+      const wsToClose = this.ws;
+      
+      // Сразу обнуляем ссылку, чтобы предотвратить повторное использование
       this.ws = null;
+      
+      // Удаляем обработчики событий
+      wsToClose.onopen = null;
+      wsToClose.onmessage = null;
+      wsToClose.onerror = null;
+      wsToClose.onclose = null;
+      
+      // Закрываем соединение
+      try {
+        console.log('🔊 Вызываем ws.close()...');
+        wsToClose.close(1000, 'User disconnected');
+        console.log('🔊 ws.close() вызван успешно');
+        
+        // Проверяем состояние через 100мс
+        setTimeout(() => {
+          console.log('🔊 Состояние WebSocket через 100мс:', wsToClose.readyState);
+          if (wsToClose.readyState !== WebSocket.CLOSED) {
+            console.warn('🔊 WebSocket всё ещё не закрыт, пытаемся закрыть принудительно');
+            try {
+              wsToClose.close();
+            } catch (e) {
+              console.error('🔊 Ошибка при повторном закрытии:', e);
+            }
+          }
+        }, 100);
+      } catch (error) {
+        console.error('🔊 Ошибка при закрытии WebSocket:', error);
+      }
     }
 
     this.voiceChannelId = null;
@@ -1040,4 +1112,32 @@ class VoiceService {
   }
 }
 
-export default new VoiceService();
+// Проверяем, есть ли уже экземпляр
+if (typeof window !== 'undefined' && window.__voiceServiceInstance) {
+  console.log('🎙️ Используем существующий экземпляр VoiceService');
+  // Закрываем старое соединение если есть
+  window.__voiceServiceInstance.disconnect();
+} else {
+  console.log('🎙️ Создаём новый экземпляр VoiceService');
+}
+
+const voiceServiceInstance = new VoiceService();
+
+// Сохраняем экземпляр глобально
+if (typeof window !== 'undefined') {
+  window.__voiceServiceInstance = voiceServiceInstance;
+  
+  // Закрываем соединение при закрытии страницы
+  window.addEventListener('beforeunload', () => {
+    console.log('🎙️ Страница закрывается, отключаем голосовое соединение');
+    voiceServiceInstance.disconnect();
+  });
+  
+  // Также обрабатываем скрытие страницы
+  window.addEventListener('pagehide', () => {
+    console.log('🎙️ Страница скрывается, отключаем голосовое соединение');
+    voiceServiceInstance.disconnect();
+  });
+}
+
+export default voiceServiceInstance;

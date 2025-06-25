@@ -40,6 +40,16 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   connectToVoiceChannel: async (channelId) => {
     try {
       console.log('🎙️ Попытка подключения к голосовому каналу:', channelId);
+      
+      // Если уже подключены к каналу, сначала отключаемся
+      const currentState = get();
+      if (currentState.isConnected || currentState.currentVoiceChannelId) {
+        console.log('🎙️ Обнаружено активное подключение, сначала отключаемся');
+        get().disconnectFromVoiceChannel();
+        // Ждём завершения отключения
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
       set({ error: null });
       
       const token = useAuthStore.getState().token;

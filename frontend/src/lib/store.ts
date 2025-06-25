@@ -86,17 +86,18 @@ export const useStore = create<AppState>()(
             set({ currentChannel: channel });
             // Подключаемся к WebSocket чата
             if (channel.type === 'text' && user) {
-              chatService.disconnect();
-              chatService.connect(channel.id, localStorage.getItem('access_token') || '');
-              chatService.onMessage((msg) => {
-                get().addMessage(msg);
-              });
-              chatService.onTyping((data) => {
-                if (data.user && data.text_channel_id) {
-                  get().setTyping(data.text_channel_id, data.user.username);
-                }
-              });
+              const token = localStorage.getItem('access_token');
+              if (token) {
+                console.log('[store] Отключаем предыдущее соединение и подключаемся к каналу', channel.id);
+                chatService.disconnect();
+                // Небольшая задержка чтобы гарантировать закрытие предыдущего соединения
+                setTimeout(() => {
+                  chatService.connect(channel.id, token);
+                  console.log('[store] WebSocket подключен к каналу', channel.id);
+                }, 100);
+              }
             } else {
+              console.log('[store] Отключаем WebSocket (канал не текстовый или нет пользователя)');
               chatService.disconnect();
             }
           }
