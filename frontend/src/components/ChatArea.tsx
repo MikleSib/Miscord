@@ -48,85 +48,96 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   // Загрузка истории сообщений при смене канала
   useEffect(() => {
     if (currentChannel?.type === 'text') {
-  
+      console.log(`[ChatArea] 📝 Переключение на текстовый канал ${currentChannel.id} (${currentChannel.name})`);
       loadMessageHistory(currentChannel.id);
       
-      // Подключаемся к WebSocket чата только если еще не подключены
+      // Подключаемся к WebSocket чата
       const accessToken = token || localStorage.getItem('access_token');
-   
+      console.log(`[ChatArea] 🔑 Токен доступа:`, accessToken ? 'найден' : 'не найден');
       
       if (accessToken) {
-   
+        console.log(`[ChatArea] 🔌 Подключаемся к чату канала ${currentChannel.id}`);
         
-        // Отключаемся от предыдущего соединения
-        chatService.disconnect();
+        // ChatService теперь сам управляет соединениями и переключениями
+        chatService.connect(currentChannel.id, accessToken);
         
-        // Небольшая задержка для завершения отключения
-        setTimeout(() => {
-          if (accessToken) {
-            chatService.connect(currentChannel.id, accessToken);
+        // Настраиваем обработчики событий (они переустанавливаются при каждом подключении)
+        
+        // Обработчик новых сообщений
+        chatService.onMessage((msg) => {
+          console.log(`[ChatArea] 📨 Получено новое сообщение в канале ${currentChannel.id}:`, msg);
+          // Адаптируем Message к ChatMessage
+          const chatMessage = {
+            ...msg,
+            content: msg.content || '', // Гарантируем что content не null
+          };
+          addMessage(chatMessage);
+        });
+        
+        // Обработчик печати
+        chatService.onTyping((data) => {
+          if (data.user && data.user.username) {
+            console.log(`[ChatArea] ⌨️ Пользователь ${data.user.username} печатает в канале ${currentChannel.id}`);
+            setTypingUsers((prev: string[]) => {
+              if (!prev.includes(data.user.username)) {
+                const newUsers = [...prev, data.user.username];
+                setTimeout(() => {
+                  setTypingUsers((current: string[]) => current.filter((u: string) => u !== data.user.username));
+                }, 2000);
+                return newUsers;
+              }
+              return prev;
+            });
           }
-          
-          // Обработчик новых сообщений
-          chatService.onMessage((msg) => {
-        
-            // Адаптируем Message к ChatMessage
-            const chatMessage = {
-              ...msg,
-              content: msg.content || '', // Гарантируем что content не null
-            };
-            addMessage(chatMessage);
-          });
-          
-          // Обработчик печати
-          chatService.onTyping((data) => {
-            if (data.user && data.user.username) {
-              setTypingUsers(prev => {
-                if (!prev.includes(data.user.username)) {
-                  const newUsers = [...prev, data.user.username];
-                  setTimeout(() => {
-                    setTypingUsers(current => current.filter(u => u !== data.user.username));
-                  }, 2000);
-                  return newUsers;
-                }
-                return prev;
-              });
-            }
-          });
+        });
 
-          // Обработчик удаления сообщений
-          chatService.onMessageDeleted((data) => {
-         
-            deleteMessage(data.message_id);
-          });
+        // Обработчик удаления сообщений
+        chatService.onMessageDeleted((data) => {
+          console.log(`[ChatArea] 🗑️ Сообщение ${data.message_id} удалено в канале ${data.text_channel_id}`);
+          deleteMessage(data.message_id);
+        });
 
-          // Обработчик редактирования сообщений
-          chatService.onMessageEdited((msg) => {
-     
-            editMessage(msg.id, msg.content || '');
-          });
+        // Обработчик редактирования сообщений
+        chatService.onMessageEdited((msg) => {
+          console.log(`[ChatArea] ✏️ Сообщение ${msg.id} отредактировано в канале ${currentChannel.id}`);
+          editMessage(msg.id, msg.content || '');
+        });
 
-          // Обработчик обновления реакций
-          chatService.onReactionUpdated((data) => {
-         
-            updateSingleReaction(data.message_id, data.emoji, data.reaction);
-          });
-        }, 100);
+        // Обработчик обновления реакций
+        chatService.onReactionUpdated((data) => {
+          console.log(`[ChatArea] 👍 Реакция ${data.emoji} обновлена для сообщения ${data.message_id}`);
+          updateSingleReaction(data.message_id, data.emoji, data.reaction);
+        });
+      } else {
+        console.warn(`[ChatArea] ⚠️ Нет токена доступа для подключения к чату`);
       }
+    } else if (currentChannel?.type === 'voice') {
+      console.log(`[ChatArea] 🎙️ Переключение на голосовой канал ${currentChannel.id} (${currentChannel.name})`);
+      // Для голосовых каналов отключаемся от чата
+      chatService.disconnect();
+      setTypingUsers([]);
     } else {
-    
+      console.log(`[ChatArea] 📭 Нет выбранного канала или неизвестный тип`);
       chatService.disconnect();
       setTypingUsers([]);
     }
     
-    // Cleanup function
+    // Cleanup function - НЕ отключаемся при каждом изменении, только при размонтировании
     return () => {
-     
-      chatService.disconnect();
+      console.log(`[ChatArea] 🧹 Cleanup: сбрасываем локальное состояние`);
       setTypingUsers([]);
+      // НЕ вызываем chatService.disconnect() здесь, так как это происходит при каждом ререндере
     };
   }, [currentChannel?.id, currentChannel?.type, loadMessageHistory, addMessage, deleteMessage, editMessage, token]);
   
+  // Отдельный useEffect для полной очистки при размонтировании компонента
+  useEffect(() => {
+    return () => {
+      console.log(`[ChatArea] 🔌 Компонент размонтируется, отключаемся от чата`);
+      chatService.disconnect();
+    };
+  }, []);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
