@@ -1,17 +1,16 @@
 #!/bin/bash
 
 # Домены для сертификата
-domains=(miscord.ru www.miscord.ru)
+domains=(stream-cash.ru www.stream-cash.ru)
 rsa_key_size=4096
 data_path="./certbot"
-email="admin@miscord.ru" # Замените на ваш email
+email="admin@stream-cash.ru" # Замените на ваш email
 staging=0 # Установите в 1 для тестирования
 
+# Автоматическое подтверждение для автоматического развертывания
 if [ -d "$data_path" ]; then
-  read -p "Existing data found for $domains. Continue and replace existing certificate? (y/N) " decision
-  if [ "$decision" != "Y" ] && [ "$decision" != "y" ]; then
-    exit
-  fi
+  echo "Existing data found for $domains. Continuing with certificate replacement..."
+  # Автоматически подтверждаем замену сертификата
 fi
 
 if [ ! -e "$data_path/conf/options-ssl-nginx.conf" ] || [ ! -e "$data_path/conf/ssl-dhparams.pem" ]; then

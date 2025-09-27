@@ -14,7 +14,7 @@ export const AudioSettingsModal: React.FC<AudioSettingsModalProps> = ({ isOpen, 
     echoCancellation: true,
     autoGainControl: true,
     speechProbabilityThreshold: 0.5,
-    useAdvancedNoiseSuppression: false
+    useAdvancedNoiseSuppression: true // Включаем продвинутое шумоподавление по умолчанию
   });
 
   if (!isOpen) return null;

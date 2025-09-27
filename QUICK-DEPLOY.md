@@ -11,7 +11,7 @@ cd /path/to/Miscord
 chmod +x deploy.sh init-letsencrypt.sh
 
 # Проверяем что домен настроен
-nslookup miscord.ru
+nslookup stream-cash.ru
 ```
 
 ### 2. Автоматическое развертывание
@@ -29,7 +29,7 @@ docker-compose ps
 docker-compose logs -f nginx
 
 # Тестируем сайт
-curl -I https://miscord.ru
+curl -I https://stream-cash.ru
 ```
 
 ## Что делает скрипт deploy.sh:
@@ -45,11 +45,11 @@ curl -I https://miscord.ru
 
 ## После развертывания
 
-Сайт будет доступен по адресу: **https://miscord.ru**
+Сайт будет доступен по адресу: **https://stream-cash.ru**
 
 - HTTP запросы автоматически перенаправляются на HTTPS
 - SSL сертификат обновляется автоматически
-- WebSocket соединения работают через wss://miscord.ru
+- WebSocket соединения работают через wss://stream-cash.ru
 
 ## Проблемы?
 

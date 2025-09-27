@@ -16,10 +16,10 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 дней
     
     # CORS
-    CORS_ORIGINS: List[str] = ["http://localhost:3000"]
+    CORS_ORIGINS: List[str] = ["http://localhost:3000", "https://stream-cash.ru", "https://www.stream-cash.ru"]
     
     # Сервер
-    SERVER_HOST: str = "https://miscord.ru"
+    SERVER_HOST: str = "https://stream-cash.ru"
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -40,5 +40,6 @@ class Settings(BaseSettings):
     
     class Config:
         env_file = ".env"
+        extra = "allow"
 
 settings = Settings()

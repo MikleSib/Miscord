@@ -15,13 +15,15 @@ export class AudioProcessingService {
   private audioContext: AudioContext | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
   private destinationNode: MediaStreamAudioDestinationNode | null = null;
+  private muteGainNode: GainNode | null = null;
+  private isMuted: boolean = false;
   private config: AudioProcessingConfig = {
     vadEnabled: true,
     noiseSuppression: true,
     echoCancellation: true,
     autoGainControl: true,
     speechProbabilityThreshold: 0.5,
-    useAdvancedNoiseSuppression: false
+    useAdvancedNoiseSuppression: true // Включаем продвинутое шумоподавление по умолчанию
   };
   
   private onSpeechStart?: () => void;
@@ -43,6 +45,10 @@ export class AudioProcessingService {
       // Создаем destination node для выходного потока
       this.destinationNode = this.audioContext.createMediaStreamDestination();
       
+      // Создаем mute gain node для управления микрофоном
+      this.muteGainNode = this.audioContext.createGain();
+      this.muteGainNode.gain.value = 1.0; // По умолчанию включен
+      
       // Применяем браузерные фильтры к исходному потоку
       const processedStream = await this.applyBrowserFilters(stream);
       
@@ -53,6 +59,10 @@ export class AudioProcessingService {
       
       // Строим audio pipeline с учетом настроек
       let currentNode: AudioNode = this.sourceNode;
+      
+      // Подключаем mute gain node в начале цепочки
+      currentNode.connect(this.muteGainNode);
+      currentNode = this.muteGainNode;
       
       // Добавляем продвинутое шумоподавление если включено
       if (this.config.useAdvancedNoiseSuppression && this.config.noiseSuppression) {
@@ -164,6 +174,36 @@ export class AudioProcessingService {
     this.onVolumeChange = callback;
   }
 
+  // Управление mute состоянием
+  setMuted(muted: boolean): void {
+    this.isMuted = muted;
+    
+    if (this.muteGainNode && this.audioContext) {
+      const currentTime = this.audioContext.currentTime;
+      
+      if (muted) {
+        // Плавно заглушаем микрофон
+        this.muteGainNode.gain.cancelScheduledValues(currentTime);
+        this.muteGainNode.gain.setValueAtTime(this.muteGainNode.gain.value, currentTime);
+        this.muteGainNode.gain.linearRampToValueAtTime(0.0, currentTime + 0.01); // 10ms для быстрого заглушения
+        console.log('🎙️ Микрофон заглушен через audio processing pipeline');
+      } else {
+        // Плавно включаем микрофон
+        this.muteGainNode.gain.cancelScheduledValues(currentTime);
+        this.muteGainNode.gain.setValueAtTime(this.muteGainNode.gain.value, currentTime);
+        this.muteGainNode.gain.linearRampToValueAtTime(1.0, currentTime + 0.01); // 10ms для быстрого включения
+        console.log('🎙️ Микрофон включен через audio processing pipeline');
+      }
+    } else {
+      console.warn('🎙️ muteGainNode или audioContext не инициализированы');
+    }
+  }
+
+  // Получение текущего mute состояния
+  isMute(): boolean {
+    return this.isMuted;
+  }
+
   // Обновление конфигурации
   updateConfig(config: Partial<AudioProcessingConfig>): void {
     const oldAdvancedNS = this.config.useAdvancedNoiseSuppression;
@@ -185,7 +225,7 @@ export class AudioProcessingService {
 
   // Перестроение audio pipeline при изменении настроек
   private rebuildAudioPipeline(): void {
-    if (!this.audioContext || !this.sourceNode || !this.destinationNode) {
+    if (!this.audioContext || !this.sourceNode || !this.destinationNode || !this.muteGainNode) {
       console.error('Невозможно перестроить pipeline: отсутствуют необходимые компоненты');
       return;
     }
@@ -193,10 +233,15 @@ export class AudioProcessingService {
     try {
       // Отключаем все существующие соединения
       this.sourceNode.disconnect();
+      this.muteGainNode.disconnect();
       advancedNoiseGate.destroy();
       
       // Перестраиваем pipeline
       let currentNode: AudioNode = this.sourceNode;
+      
+      // Подключаем mute gain node в начале цепочки
+      currentNode.connect(this.muteGainNode);
+      currentNode = this.muteGainNode;
       
       if (this.config.useAdvancedNoiseSuppression && this.config.noiseSuppression) {
         try {
@@ -228,6 +273,11 @@ export class AudioProcessingService {
       this.sourceNode = null;
     }
 
+    if (this.muteGainNode) {
+      this.muteGainNode.disconnect();
+      this.muteGainNode = null;
+    }
+
     if (this.destinationNode) {
       this.destinationNode.disconnect();
       this.destinationNode = null;
@@ -240,6 +290,8 @@ export class AudioProcessingService {
       await this.audioContext.close();
       this.audioContext = null;
     }
+
+    this.isMuted = false;
 
     console.log('Audio processing service destroyed');
   }

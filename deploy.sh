@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "🚀 Развертывание Miscord с доменом miscord.ru"
+echo "🚀 Развертывание Miscord с доменом stream-cash.ru"
 
 # Проверяем, что мы на сервере
 if [ ! -f "/etc/hostname" ]; then
@@ -51,6 +51,6 @@ echo "🔄 Запуск автообновления сертификатов...
 docker-compose up -d certbot
 
 echo "✅ Развертывание завершено!"
-echo "🌐 Сайт доступен по адресу: https://miscord.ru"
+echo "🌐 Сайт доступен по адресу: https://stream-cash.ru"
 echo "📊 Проверить статус: docker-compose ps"
 echo "📋 Логи: docker-compose logs -f" 

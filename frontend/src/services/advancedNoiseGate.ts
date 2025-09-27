@@ -13,16 +13,30 @@ export class AdvancedNoiseGate {
   private clickFilter: BiquadFilterNode | null = null;
   private noiseGate: GainNode | null = null;
   
-  // Параметры noise gate
-  private threshold: number = 0.05; // Порог срабатывания (увеличен для агрессивности)
-  private attack: number = 0.002; // Время атаки (сек) - быстрее реагирует
-  private release: number = 0.05; // Время отпускания (сек) - быстрее закрывается
-  private ratio: number = 20; // Соотношение подавления (более агрессивное)
+  // Параметры noise gate - оптимизированы для лучшего качества
+  private threshold: number = 0.03; // Порог срабатывания (снижен для лучшей чувствительности)
+  private attack: number = 0.001; // Время атаки (сек) - очень быстрое реагирование
+  private release: number = 0.08; // Время отпускания (сек) - плавное закрытие
+  private ratio: number = 15; // Соотношение подавления (сбалансированное)
+  private hold: number = 0.05; // Время удержания (сек) - предотвращает мерцание
+  private lookAhead: number = 0.01; // Время предварительного анализа (сек)
   
   // Буферы для анализа
   private frequencyData: Uint8Array | null = null;
   private timeData: Uint8Array | null = null;
   private isProcessing: boolean = false;
+  
+  // Буферы для look-ahead анализа и улучшенной обработки
+  private lookAheadBuffer: Float32Array[] = [];
+  private maxLookAheadSamples: number = 0;
+  private gateHistory: number[] = []; // История значений gate для сглаживания
+  private noiseFloor: number = 0.01; // Базовый уровень шума
+  private adaptiveThreshold: number = 0.03; // Адаптивный порог
+  
+  // Статистика для адаптивной настройки
+  private rmsHistory: number[] = [];
+  private speechFrames: number = 0;
+  private noiseFrames: number = 0;
   
   constructor() {
     console.log('AdvancedNoiseGate создан');
@@ -44,11 +58,21 @@ export class AdvancedNoiseGate {
     this.clickFilter = audioContext.createBiquadFilter();
     this.noiseGate = audioContext.createGain();
     
-    // Настройка анализатора
-    this.analyser.fftSize = 512;
-    this.analyser.smoothingTimeConstant = 0.3;
+    // Настройка анализатора для более детального анализа
+    this.analyser.fftSize = 1024; // Увеличиваем разрешение
+    this.analyser.smoothingTimeConstant = 0.2; // Меньше сглаживания для быстрой реакции
     this.frequencyData = new Uint8Array(this.analyser.frequencyBinCount);
     this.timeData = new Uint8Array(this.analyser.fftSize);
+    
+    // Инициализация look-ahead буфера
+    this.maxLookAheadSamples = Math.ceil(this.lookAhead * audioContext.sampleRate);
+    this.lookAheadBuffer = [];
+    
+    // Инициализация истории gate
+    this.gateHistory = new Array(10).fill(1.0); // 10 последних значений
+    
+    // Инициализация статистики
+    this.rmsHistory = new Array(100).fill(0.01); // 100 последних RMS значений
     
     // Настройка фильтра высоких частот (убирает низкочастотный шум и дыхание)
     this.highPass.type = 'highpass';
@@ -122,8 +146,8 @@ export class AdvancedNoiseGate {
       }
       
       // Получаем данные частотного спектра
-      this.analyser.getByteFrequencyData(this.frequencyData);
-      this.analyser.getByteTimeDomainData(this.timeData);
+      this.analyser.getByteFrequencyData(this.frequencyData as Uint8Array);
+      this.analyser.getByteTimeDomainData(this.timeData as Uint8Array);
       
       // Анализируем уровень сигнала
       const { rms, peakLevel, speechProbability } = this.analyzeSignal();
@@ -166,22 +190,35 @@ export class AdvancedNoiseGate {
       return { rms: 0, peakLevel: 0, speechProbability: 0 };
     }
     
-    // Вычисляем RMS (среднеквадратичное значение)
+    // Вычисляем RMS (среднеквадратичное значение) с улучшенным алгоритмом
     let sum = 0;
     let peak = 0;
+    let zeroCrossings = 0;
+    let prevSample = 0;
     
     for (let i = 0; i < this.timeData.length; i++) {
       const sample = (this.timeData[i] - 128) / 128; // Нормализуем к [-1, 1]
       sum += sample * sample;
       peak = Math.max(peak, Math.abs(sample));
+      
+      // Подсчитываем пересечения нуля для определения активности
+      if ((sample > 0) !== (prevSample > 0)) {
+        zeroCrossings++;
+      }
+      prevSample = sample;
     }
     
     const rms = Math.sqrt(sum / this.timeData.length);
     
-    // Анализ частотного спектра для определения вероятности речи
+    // Обновляем историю RMS для адаптивного анализа
+    this.rmsHistory.shift();
+    this.rmsHistory.push(rms);
+    
+    // Анализ частотного спектра с улучшенной сегментацией
     let lowFreqEnergy = 0;
-    let midFreqEnergy = 0;
+    let speechFreqEnergy = 0;
     let highFreqEnergy = 0;
+    let noiseFreqEnergy = 0;
     
     const binWidth = this.audioContext!.sampleRate / (2 * this.frequencyData.length);
     
@@ -189,54 +226,170 @@ export class AdvancedNoiseGate {
       const freq = i * binWidth;
       const magnitude = this.frequencyData[i] / 255;
       
-      if (freq < 200) {
-        lowFreqEnergy += magnitude * 0.5; // Меньший вес низким частотам (дыхание)
-      } else if (freq >= 200 && freq < 800) {
-        midFreqEnergy += magnitude * 1.5; // Больший вес основным частотам речи
-      } else if (freq >= 800 && freq < 3000) {
-        midFreqEnergy += magnitude; // Нормальный вес верхним частотам речи  
-      } else if (freq >= 3000 && freq < 6000) {
-        highFreqEnergy += magnitude * 0.7; // Меньший вес высоким частотам
+      if (freq < 150) {
+        lowFreqEnergy += magnitude * 0.3; // Очень низкие частоты (дыхание, низкочастотный шум)
+      } else if (freq >= 150 && freq < 300) {
+        speechFreqEnergy += magnitude * 0.8; // Низкие частоты речи
+      } else if (freq >= 300 && freq < 800) {
+        speechFreqEnergy += magnitude * 1.5; // Основные частоты речи
+      } else if (freq >= 800 && freq < 2000) {
+        speechFreqEnergy += magnitude * 1.2; // Форманты речи
+      } else if (freq >= 2000 && freq < 4000) {
+        speechFreqEnergy += magnitude * 0.9; // Высокие частоты речи
+      } else if (freq >= 4000 && freq < 8000) {
+        highFreqEnergy += magnitude * 0.6; // Очень высокие частоты (согласные)
       } else {
-        highFreqEnergy += magnitude * 0.3; // Минимальный вес очень высоким частотам (клики)
+        noiseFreqEnergy += magnitude * 0.2; // Шумовые частоты (клики, артефакты)
       }
     }
     
-    // Нормализуем энергии
-    const totalBins = this.frequencyData.length;
+    // Нормализуем энергии по количеству бинов в каждом диапазоне
     const lowBins = Math.floor(300 / binWidth);
-    const midBins = Math.floor(3000 / binWidth) - lowBins;
-    const highBins = totalBins - lowBins - midBins;
+    const speechBins = Math.floor(4000 / binWidth) - lowBins;
+    const highBins = Math.floor(8000 / binWidth) - Math.floor(4000 / binWidth);
+    const noiseBins = this.frequencyData.length - Math.floor(8000 / binWidth);
     
     lowFreqEnergy /= lowBins || 1;
-    midFreqEnergy /= midBins || 1;
+    speechFreqEnergy /= speechBins || 1;
     highFreqEnergy /= highBins || 1;
+    noiseFreqEnergy /= noiseBins || 1;
     
-    // Эвристика для определения речи
-    // Речь обычно имеет больше энергии в среднем диапазоне
-    const speechProbability = midFreqEnergy * 2 / (lowFreqEnergy + midFreqEnergy + highFreqEnergy + 0.001);
+    // Улучшенная эвристика для определения речи
+    const totalEnergy = lowFreqEnergy + speechFreqEnergy + highFreqEnergy + noiseFreqEnergy;
+    const speechRatio = speechFreqEnergy / (totalEnergy + 0.001);
+    const noiseRatio = noiseFreqEnergy / (totalEnergy + 0.001);
     
-    return { rms, peakLevel: peak, speechProbability: Math.min(speechProbability, 1) };
+    // Дополнительные факторы для определения речи
+    const zeroCrossingRate = zeroCrossings / this.timeData.length;
+    const spectralCentroid = this.calculateSpectralCentroid();
+    
+    // Комбинированная вероятность речи
+    let speechProbability = speechRatio * 2;
+    
+    // Корректируем на основе пересечений нуля (речь имеет характерные паттерны)
+    if (zeroCrossingRate > 0.1 && zeroCrossingRate < 0.3) {
+      speechProbability *= 1.2; // Увеличиваем вероятность речи
+    }
+    
+    // Корректируем на основе спектрального центроида
+    if (spectralCentroid > 1000 && spectralCentroid < 3000) {
+      speechProbability *= 1.1; // Увеличиваем вероятность речи
+    }
+    
+    // Штрафуем за высокий уровень шума
+    if (noiseRatio > 0.3) {
+      speechProbability *= 0.7;
+    }
+    
+    // Обновляем статистику
+    if (speechProbability > 0.6) {
+      this.speechFrames++;
+    } else {
+      this.noiseFrames++;
+    }
+    
+    // Адаптивная настройка порога
+    this.updateAdaptiveThreshold();
+    
+    return { 
+      rms, 
+      peakLevel: peak, 
+      speechProbability: Math.min(Math.max(speechProbability, 0), 1) 
+    };
+  }
+  
+  // Дополнительный метод для вычисления спектрального центроида
+  private calculateSpectralCentroid(): number {
+    if (!this.frequencyData || !this.audioContext) return 0;
+    
+    let weightedSum = 0;
+    let magnitudeSum = 0;
+    const binWidth = this.audioContext.sampleRate / (2 * this.frequencyData.length);
+    
+    for (let i = 0; i < this.frequencyData.length; i++) {
+      const freq = i * binWidth;
+      const magnitude = this.frequencyData[i] / 255;
+      weightedSum += freq * magnitude;
+      magnitudeSum += magnitude;
+    }
+    
+    return magnitudeSum > 0 ? weightedSum / magnitudeSum : 0;
+  }
+  
+  // Метод для адаптивной настройки порога
+  private updateAdaptiveThreshold(): void {
+    if (this.rmsHistory.length < 50) return;
+    
+    // Вычисляем медианное значение RMS для определения уровня шума
+    const sortedRMS = [...this.rmsHistory].sort((a, b) => a - b);
+    const medianRMS = sortedRMS[Math.floor(sortedRMS.length / 2)];
+    
+    // Адаптивный порог на основе уровня шума
+    this.adaptiveThreshold = Math.max(medianRMS * 2, this.threshold);
+    
+    // Корректируем на основе соотношения речь/шум
+    const totalFrames = this.speechFrames + this.noiseFrames;
+    if (totalFrames > 100) {
+      const speechRatio = this.speechFrames / totalFrames;
+      if (speechRatio > 0.7) {
+        this.adaptiveThreshold *= 0.8; // Снижаем порог при активной речи
+      } else if (speechRatio < 0.3) {
+        this.adaptiveThreshold *= 1.2; // Повышаем порог при тишине
+      }
+      
+      // Сбрасываем счетчики
+      this.speechFrames = 0;
+      this.noiseFrames = 0;
+    }
   }
 
   private calculateGateGain(rms: number, peak: number, speechProbability: number): number {
-    // Адаптивный порог на основе вероятности речи
-    const adaptiveThreshold = this.threshold * (1 - speechProbability * 0.7);
+    // Используем адаптивный порог вместо фиксированного
+    const currentThreshold = Math.max(this.adaptiveThreshold, this.threshold);
     
-    // Дополнительная проверка на импульсные шумы (клики и клавиатура)
-    const isPeakNoise = peak > rms * 3.5; // Более чувствительная детекция импульсов
+    // Многофакторный анализ для определения типа сигнала
+    const isPeakNoise = peak > rms * 4.0; // Импульсные шумы (клики, клавиатура)
+    const isLowLevelNoise = rms < currentThreshold * 0.5; // Низкоуровневый шум
+    const isHighSpeech = speechProbability > 0.7; // Высокая вероятность речи
+    const isMediumSpeech = speechProbability > 0.4 && speechProbability <= 0.7; // Средняя вероятность речи
     
-    if (rms < adaptiveThreshold || isPeakNoise) {
-      // Сигнал ниже порога или импульсный шум - сильно подавляем
-      const suppressionFactor = isPeakNoise ? 0.01 : Math.pow(rms / adaptiveThreshold, this.ratio);
-      return Math.max(suppressionFactor, 0.001);
-    } else if (speechProbability > 0.6) {
+    // Сглаживание с использованием истории gate
+    const recentGateValues = this.gateHistory.slice(-3);
+    const averageRecentGate = recentGateValues.reduce((sum, val) => sum + val, 0) / recentGateValues.length;
+    
+    let targetGain = 1.0;
+    
+    if (isPeakNoise) {
+      // Импульсные шумы - очень сильное подавление
+      targetGain = 0.001;
+    } else if (isLowLevelNoise && speechProbability < 0.3) {
+      // Низкоуровневый шум с низкой вероятностью речи - сильное подавление
+      targetGain = Math.pow(rms / currentThreshold, this.ratio * 1.5);
+      targetGain = Math.max(targetGain, 0.01);
+    } else if (isHighSpeech) {
       // Высокая вероятность речи - пропускаем полностью
-      return 1.0;
+      targetGain = 1.0;
+    } else if (isMediumSpeech) {
+      // Средняя вероятность речи - частичное пропускание с плавным переходом
+      targetGain = 0.6 + (speechProbability - 0.4) * 1.33; // 0.4-0.7 -> 0.6-1.0
+    } else if (rms < currentThreshold) {
+      // Сигнал ниже порога - подавление
+      targetGain = Math.pow(rms / currentThreshold, this.ratio);
+      targetGain = Math.max(targetGain, 0.05);
     } else {
-      // Средний случай - частичное пропускание
-      return 0.7 + (speechProbability * 0.3);
+      // Неопределенный случай - умеренное пропускание
+      targetGain = 0.5 + (speechProbability * 0.5);
     }
+    
+    // Применяем сглаживание для предотвращения мерцания
+    const smoothingFactor = 0.3;
+    const smoothedGain = averageRecentGate * (1 - smoothingFactor) + targetGain * smoothingFactor;
+    
+    // Обновляем историю gate
+    this.gateHistory.shift();
+    this.gateHistory.push(smoothedGain);
+    
+    return Math.max(smoothedGain, 0.001); // Минимальное значение для избежания полной тишины
   }
 
   connectNodes(source: AudioNode, destination: AudioNode): void {
@@ -309,6 +462,17 @@ export class AdvancedNoiseGate {
         node.disconnect();
       }
     });
+    
+    // Очищаем буферы
+    this.lookAheadBuffer = [];
+    this.gateHistory = [];
+    this.rmsHistory = [];
+    
+    // Сбрасываем статистику
+    this.speechFrames = 0;
+    this.noiseFrames = 0;
+    this.noiseFloor = 0.01;
+    this.adaptiveThreshold = this.threshold;
     
     // Очищаем ссылки
     this.audioContext = null;
