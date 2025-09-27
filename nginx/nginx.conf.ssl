@@ -48,7 +48,7 @@ http {
     # Редирект с HTTP на HTTPS
     server {
         listen 80;
-        server_name miscord.ru www.miscord.ru;
+        server_name stream-cash.ru www.stream-cash.ru;
         
         # Для Let's Encrypt challenge
         location /.well-known/acme-challenge/ {
