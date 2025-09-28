@@ -223,8 +223,11 @@ class VoiceService {
       case 'user_joined_voice':
         console.log('🔊 Пользователь присоединился к голосовому каналу:', data.user_id, data.username);
         
-        // Воспроизводим звук подключения
-        soundService.playJoinSound();
+        // Воспроизводим звук подключения только если это не мы сами
+        const currentUserId2 = this.getCurrentUserId();
+        if (data.user_id !== currentUserId2) {
+          soundService.playJoinSound();
+        }
         
         if (this.onParticipantJoined) {
           this.onParticipantJoined({
@@ -235,7 +238,6 @@ class VoiceService {
           });
         }
         // Создаем соединение только если это не мы сами
-        const currentUserId2 = this.getCurrentUserId();
         if (data.user_id !== currentUserId2) {
           // Создаем offer только если наш ID меньше (существующий пользователь создает offer для нового)
           const shouldCreateOffer = currentUserId2 !== null && currentUserId2 < data.user_id;
@@ -246,8 +248,11 @@ class VoiceService {
       case 'user_left_voice':
         console.log('🔊 Пользователь покинул голосовой канал:', data.user_id);
         
-        // Воспроизводим звук отключения
-        soundService.playLeaveSound();
+        // Воспроизводим звук отключения только если это не мы сами
+        const currentUserId3 = this.getCurrentUserId();
+        if (data.user_id !== currentUserId3) {
+          soundService.playLeaveSound();
+        }
         
         if (this.onParticipantLeft) {
           this.onParticipantLeft(data.user_id);

@@ -5,6 +5,7 @@ import channelService from '../services/channelService';
 import websocketService from '../services/websocketService';
 import uploadService from '../services/uploadService';
 import chatService from '../services/chatService';
+import { useAuthStore } from '../store/store';
 
 interface AppState {
   // Данные
@@ -603,10 +604,13 @@ export const useStore = create<AppState>()(
         websocketService.onVoiceChannelJoin((data) => {
           console.log('Пользователь присоединился к голосовому каналу:', data);
           
-          // Воспроизводим звук подключения
-          import('../services/soundService').then(({ default: soundService }) => {
-            soundService.playJoinSound();
-          });
+          // Воспроизводим звук подключения только если это не мы сами
+          const currentUser = useAuthStore.getState().user;
+          if (currentUser && data.user_id !== currentUser.id) {
+            import('../services/soundService').then(({ default: soundService }) => {
+              soundService.playJoinSound();
+            });
+          }
           
           // Показываем уведомление
           if ('Notification' in window && Notification.permission === 'granted') {
@@ -624,10 +628,13 @@ export const useStore = create<AppState>()(
         websocketService.onVoiceChannelLeave((data) => {
           console.log('Пользователь покинул голосовой канал:', data);
           
-          // Воспроизводим звук отключения
-          import('../services/soundService').then(({ default: soundService }) => {
-            soundService.playLeaveSound();
-          });
+          // Воспроизводим звук отключения только если это не мы сами
+          const currentUser = useAuthStore.getState().user;
+          if (currentUser && data.user_id !== currentUser.id) {
+            import('../services/soundService').then(({ default: soundService }) => {
+              soundService.playLeaveSound();
+            });
+          }
           
           // Показываем уведомление
           if ('Notification' in window && Notification.permission === 'granted') {

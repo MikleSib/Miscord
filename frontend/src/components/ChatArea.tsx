@@ -16,9 +16,11 @@ import { formatDateDivider } from '../lib/utils'
 import chatService from '../services/chatService'
 import uploadService from '../services/uploadService'
 import reactionService from '../services/reactionService'
+import { ScreenShareViewer } from './ScreenShareViewer'
+import { ScreenShareButton } from './ScreenShareButton'
 
 export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSidebar: boolean, setShowUserSidebar: (v: boolean) => void }) {
-  const { currentChannel } = useStore()
+  const { currentChannel, currentServer } = useStore()
   const { user, token } = useAuthStore()
   const { 
     messages, 
@@ -44,6 +46,14 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  
+  // Состояние для демонстрации экрана
+  const [sharingUsers, setSharingUsers] = useState<Array<{
+    userId: number;
+    username: string;
+    avatar_url?: string;
+  }>>([])
+  const [isScreenShareVisible, setIsScreenShareVisible] = useState(false)
 
   // Загрузка истории сообщений при смене канала
   useEffect(() => {
@@ -126,6 +136,53 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // Обработчики событий демонстрации экрана
+  useEffect(() => {
+    const handleScreenShareStart = (event: any) => {
+      const { user_id, username, avatar_url } = event.detail;
+      console.log('[ChatArea] Начата демонстрация экрана:', { user_id, username });
+      
+      setSharingUsers(prev => {
+        if (!prev.find(u => u.userId === user_id)) {
+          return [...prev, { userId: user_id, username, avatar_url }];
+        }
+        return prev;
+      });
+      
+      setIsScreenShareVisible(true);
+    };
+
+    const handleScreenShareStop = (event: any) => {
+      const { user_id } = event.detail;
+      console.log('[ChatArea] Остановлена демонстрация экрана:', user_id);
+      
+      setSharingUsers(prev => {
+        const newUsers = prev.filter(u => u.userId !== user_id);
+        if (newUsers.length === 0) {
+          setIsScreenShareVisible(false);
+        }
+        return newUsers;
+      });
+    };
+
+    const handleOpenScreenShare = (event: any) => {
+      const { userId, username } = event.detail;
+      console.log('[ChatArea] Открытие демонстрации экрана:', { userId, username });
+      setIsScreenShareVisible(true);
+    };
+
+    // Подписываемся на события
+    window.addEventListener('screen_share_start', handleScreenShareStart);
+    window.addEventListener('screen_share_stop', handleScreenShareStop);
+    window.addEventListener('open_screen_share', handleOpenScreenShare);
+
+    return () => {
+      window.removeEventListener('screen_share_start', handleScreenShareStart);
+      window.removeEventListener('screen_share_stop', handleScreenShareStop);
+      window.removeEventListener('open_screen_share', handleOpenScreenShare);
+    };
+  }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -261,21 +318,26 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
           <Hash className="w-5 h-5 text-muted-foreground mr-2" />
           <span className="font-semibold">{currentChannel.name}</span>
         </div>
-        <button
-          className="ml-auto p-2 rounded hover:bg-muted transition flex items-center"
-          title={showUserSidebar ? 'Скрыть список участников' : 'Показать список участников'}
-          onClick={() => setShowUserSidebar(!showUserSidebar)}
-        >
-          <Users className="w-6 h-6 text-muted-foreground" />
-        </button>
+        <div className="flex items-center space-x-2">
+          <ScreenShareButton />
+          <button
+            className="p-2 rounded hover:bg-muted transition flex items-center"
+            title={showUserSidebar ? 'Скрыть список участников' : 'Показать список участников'}
+            onClick={() => setShowUserSidebar(!showUserSidebar)}
+          >
+            <Users className="w-6 h-6 text-muted-foreground" />
+          </button>
+        </div>
       </div>
 
-      {/* Screen Share Container */}
-      <div 
-        id="screen-share-container-chat" 
-        className="fixed inset-0 z-50 bg-black flex items-center justify-center"
-        style={{ display: 'none' }}
-      ></div>
+      {/* Screen Share Viewer */}
+      <ScreenShareViewer
+        isVisible={isScreenShareVisible}
+        onClose={() => setIsScreenShareVisible(false)}
+        sharingUsers={sharingUsers}
+        currentChannelName={currentChannel?.name || 'Неизвестный канал'}
+        currentServerName={currentServer?.name || 'Неизвестный сервер'}
+      />
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-1 chat-scroll">
