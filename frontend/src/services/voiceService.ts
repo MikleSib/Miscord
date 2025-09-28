@@ -303,6 +303,14 @@ class VoiceService {
         if (videoElement) {
           videoElement.remove();
         }
+        
+        // Скрываем контейнер если больше нет демонстраций экрана
+        const videoContainer = document.getElementById('screen-share-container-chat');
+        if (videoContainer && videoContainer.children.length === 0) {
+          videoContainer.style.display = 'none';
+          console.log('🖥️ Контейнер скрыт, так как нет активных демонстраций экрана');
+        }
+        
         if (this.onScreenShareChanged) {
           this.onScreenShareChanged(data.user_id, false);
         }
@@ -463,7 +471,8 @@ class VoiceService {
               const videoContainer = document.getElementById('screen-share-container-chat');
               
               if (videoContainer) {
-                // Контейнер найден, добавляем видео
+                // Контейнер найден, показываем его и добавляем видео
+                videoContainer.style.display = 'flex';
                 videoContainer.innerHTML = '';
                 videoContainer.appendChild(remoteVideo);
                 console.log(`🖥️ Видео элемент добавлен в ChatArea для пользователя ${userId}. Контейнер размеры:`, {
@@ -939,6 +948,12 @@ class VoiceService {
   async startScreenShare(): Promise<boolean> {
     try {
       console.log('🖥️ Начинаем демонстрацию экрана');
+      
+      // Проверяем, не демонстрирует ли пользователь уже экран
+      if (this.isScreenSharing) {
+        console.log('🖥️ Пользователь уже демонстрирует экран');
+        return false;
+      }
       
       // Получаем поток экрана
       this.screenStream = await navigator.mediaDevices.getDisplayMedia({

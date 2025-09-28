@@ -270,6 +270,13 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
         </button>
       </div>
 
+      {/* Screen Share Container */}
+      <div 
+        id="screen-share-container-chat" 
+        className="fixed inset-0 z-50 bg-black flex items-center justify-center"
+        style={{ display: 'none' }}
+      ></div>
+
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-1 chat-scroll">
         {chatLoading && (
