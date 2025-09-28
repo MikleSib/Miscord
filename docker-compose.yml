@@ -96,18 +96,15 @@ services:
       --no-tls
       --no-dtls
       --fingerprint
-      --use-auth-secret
-      --static-auth-secret=CHANGE_ME_LONG_RANDOM_SECRET_12345
+      --lt-cred-mech
+      --user=stream-cash:CHANGE_ME_LONG_RANDOM_SECRET_12345
       --realm=stream-cash.ru
       --external-ip=147.45.158.183
       --listening-port=3478
       --min-port=49152
       --max-port=49252
-      --no-software-version
+      --no-software-attribute
       --log-file=stdout
-    environment:
-      - TURN_USERNAME=stream-cash
-      - TURN_PASSWORD=CHANGE_ME_LONG_RANDOM_SECRET_12345
 
 volumes:
   postgres_data:
