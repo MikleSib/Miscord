@@ -31,6 +31,35 @@ export function ScreenShareViewer({
     }
   }, [sharingUsers, selectedUserId]);
 
+  // Управление отображением видео контейнера
+  useEffect(() => {
+    const videoContainer = document.getElementById('screen-share-container-chat');
+    if (videoContainer) {
+      if (!isMinimized && isVisible) {
+        // Показываем контейнер когда демонстрация развернута
+        videoContainer.style.display = 'flex';
+        videoContainer.style.position = 'absolute';
+        videoContainer.style.top = '0';
+        videoContainer.style.right = '0';
+        videoContainer.style.bottom = '0';
+        videoContainer.style.left = '320px';
+        videoContainer.style.zIndex = '40';
+        videoContainer.style.backgroundColor = '#000';
+      } else {
+        // Скрываем контейнер когда демонстрация свернута
+        videoContainer.style.display = 'none';
+      }
+    }
+
+    // Cleanup при размонтировании
+    return () => {
+      const container = document.getElementById('screen-share-container-chat');
+      if (container) {
+        container.style.display = 'none';
+      }
+    };
+  }, [isMinimized, isVisible]);
+
   if (!isVisible || sharingUsers.length === 0) {
     return null;
   }
@@ -54,6 +83,13 @@ export function ScreenShareViewer({
 
   return (
     <>
+      {/* Скрытый контейнер для видео - всегда существует для VoiceService */}
+      <div 
+        id="screen-share-container-chat" 
+        className="fixed inset-0 pointer-events-none"
+        style={{ display: 'none' }}
+      />
+
       {/* Main Screen Share Area - показывается только когда НЕ свернуто */}
       {!isMinimized && (
         <div className="fixed top-0 right-0 bottom-0 left-80 z-40 bg-black">
@@ -102,14 +138,9 @@ export function ScreenShareViewer({
           <div className="flex h-full pt-12">
             {/* Main Screen Share Area */}
             <div className="flex-1 flex items-center justify-center relative">
-              <div 
-                id="screen-share-container-chat" 
-                className="w-full h-full flex items-center justify-center"
-              >
-                {/* Видео элементы будут добавлены сюда через VoiceService */}
-                <div className="text-center text-gray-400">
-                  <p>Загрузка видео потока от {selectedUser?.username}...</p>
-                </div>
+              {/* Видео элементы будут добавлены в глобальный контейнер через VoiceService */}
+              <div className="text-center text-gray-400">
+                <p>Загрузка видео потока от {selectedUser?.username}...</p>
               </div>
             </div>
           </div>
