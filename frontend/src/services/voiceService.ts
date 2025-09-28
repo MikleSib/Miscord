@@ -454,8 +454,13 @@ class VoiceService {
             remoteVideo.style.left = '0';
             remoteVideo.style.width = '100%';
             remoteVideo.style.height = '100%';
-            remoteVideo.style.objectFit = 'contain';
+          remoteVideo.style.objectFit = 'contain';
             remoteVideo.style.backgroundColor = '#000';
+          // Запрашиваем 60fps при воспроизведении где поддерживается
+          try {
+            // @ts-ignore
+            remoteVideo.playbackRate = 1.0;
+          } catch {}
             
             // Добавляем обработчик загрузки видео
             remoteVideo.addEventListener('loadeddata', () => {
@@ -958,9 +963,9 @@ class VoiceService {
       // Получаем поток экрана
       this.screenStream = await navigator.mediaDevices.getDisplayMedia({
         video: {
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          frameRate: { ideal: 30 }
+          width: { ideal: 1920, max: 1920 },
+          height: { ideal: 1080, max: 1080 },
+          frameRate: { ideal: 60, max: 60 }
         },
         audio: true // Включаем звук системы если доступен
       });
@@ -1225,6 +1230,25 @@ class VoiceService {
         pc.addTrack(videoTrack, this.screenStream);
         console.log(`🖥️ Добавлен видео трек для пользователя ${userId}`);
       }
+
+      // Настраиваем приоритет и битрейт для видео экрана
+      try {
+        const parameters = pc.getSenders().find(s => s.track && s.track.kind === 'video')?.getParameters() || {};
+        const encodings = parameters.encodings && parameters.encodings.length > 0 ? parameters.encodings : [{} as RTCRtpEncodingParameters];
+        encodings[0].maxBitrate = 5_000_000; // до ~5 Mbps для 1080p60
+        encodings[0].maxFramerate = 60;
+        parameters.encodings = encodings;
+        await pc.getSenders().find(s => s.track && s.track.kind === 'video')?.setParameters(parameters);
+      } catch (e) {
+        console.warn('🖥️ Не удалось настроить параметры отправки видео:', e);
+      }
+
+      // Подсказка контента для улучшения качества движения
+      try {
+        // contentHint поддерживается в современных браузерах
+        // @ts-ignore
+        videoTrack.contentHint = 'motion';
+      } catch {}
 
       // Обрабатываем системный аудио трек
       if (audioTracks.length > 0) {
