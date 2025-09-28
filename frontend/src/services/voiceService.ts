@@ -496,10 +496,12 @@ class VoiceService {
             // Ждем появления контейнера в ChatArea для удалённого видео
             const waitForRemoteContainer = (attempts = 0): void => {
               const videoContainer = document.getElementById('screen-share-container-chat');
-              
+
               if (videoContainer) {
                 // Контейнер найден, показываем его и добавляем видео
                 videoContainer.style.display = 'flex';
+                videoContainer.style.visibility = 'visible';
+                videoContainer.style.opacity = '1';
                 videoContainer.innerHTML = '';
                 videoContainer.appendChild(remoteVideo);
                 console.log(`🖥️ Видео элемент добавлен в ChatArea для пользователя ${userId}. Контейнер размеры:`, {
@@ -507,9 +509,9 @@ class VoiceService {
                   height: videoContainer.offsetHeight,
                   style: videoContainer.style.cssText
                 });
-              } else if (attempts < 50) { // Максимум 5 секунд
+              } else if (attempts < 100) { // Увеличено до 10 секунд
                 // Контейнер ещё не создан, ждем
-                console.log(`🖥️ Ожидание контейнера для пользователя ${userId} (попытка ${attempts + 1}/50)`);
+                console.log(`🖥️ Ожидание контейнера для пользователя ${userId} (попытка ${attempts + 1}/100)`);
                 setTimeout(() => waitForRemoteContainer(attempts + 1), 100);
               } else {
                 // Превышено время ожидания
@@ -518,6 +520,22 @@ class VoiceService {
                 return;
               }
             };
+
+            // Также используем MutationObserver для отслеживания появления контейнера
+            const observer = new MutationObserver((mutations) => {
+              mutations.forEach((mutation) => {
+                mutation.addedNodes.forEach((node) => {
+                  if (node instanceof HTMLElement && node.id === 'screen-share-container-chat') {
+                    console.log(`🖥️ MutationObserver нашел контейнер для пользователя ${userId}`);
+                    observer.disconnect();
+                    waitForRemoteContainer();
+                  }
+                });
+              });
+            });
+
+            // Начинаем наблюдение за изменениями в body
+            observer.observe(document.body, { childList: true, subtree: true });
             
             waitForRemoteContainer();
           }

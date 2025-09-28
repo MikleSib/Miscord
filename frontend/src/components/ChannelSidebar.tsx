@@ -168,10 +168,12 @@ export function ChannelSidebar() {
   useEffect(() => {
     const handleScreenShareStart = (event: any) => {
       console.log('🖥️ [ChannelSidebar] Получено событие screen_share_start:', event.detail);
-      const { user_id } = event.detail;
+      const { user_id, username } = event.detail;
+      console.log('🖥️ [ChannelSidebar] Пользователь', username, 'начинает демонстрацию экрана');
       setScreenSharingUsers(prev => {
         const newSet = new Set(prev);
         newSet.add(user_id);
+        console.log('🖥️ [ChannelSidebar] Обновленное состояние screenSharingUsers:', Array.from(newSet));
         return newSet;
       });
       console.log('🖥️ [ChannelSidebar] Добавлен пользователь в демонстрирующие:', user_id);
@@ -179,10 +181,12 @@ export function ChannelSidebar() {
 
     const handleScreenShareStop = (event: any) => {
       console.log('🖥️ [ChannelSidebar] Получено событие screen_share_stop:', event.detail);
-      const { user_id } = event.detail;
+      const { user_id, username } = event.detail;
+      console.log('🖥️ [ChannelSidebar] Пользователь', username, 'остановил демонстрацию экрана');
       setScreenSharingUsers(prev => {
         const newSet = new Set(prev);
         newSet.delete(user_id);
+        console.log('🖥️ [ChannelSidebar] Обновленное состояние screenSharingUsers:', [...newSet]);
         return newSet;
       });
       console.log('🖥️ [ChannelSidebar] Удален пользователь из демонстрирующих:', user_id);
@@ -420,8 +424,10 @@ export function ChannelSidebar() {
 
   // Функция для получения участников конкретного голосового канала
   const getChannelParticipants = (channelId: number) => {
+    console.log('🔍 [ChannelSidebar] Получаем участников канала', channelId, 'currentVoiceChannelId:', currentVoiceChannelId);
     if (currentVoiceChannelId === channelId) {
       // Если это текущий канал, показываем всех участников включая текущего пользователя
+      console.log('🔍 [ChannelSidebar] Это текущий канал, участники:', participants.length);
       const currentUserParticipant = participants.find(p => p.user_id === user?.id);
       const allParticipants = [
         ...(user ? [{
@@ -734,9 +740,13 @@ export function ChannelSidebar() {
                     {/* Участники голосового канала */}
                     {channelParticipants.length > 0 && (
                       <div className="ml-6 mt-1 space-y-1">
-                        {channelParticipants.map((participant) => {
-                          const isScreenSharing = screenSharingUsers.has(participant.user_id);
-                          return (
+                        {(() => {
+                          console.log('🖥️ [ChannelSidebar] Рендерим участников канала', channel.id, ':', channelParticipants.map(p => ({ id: p.user_id, username: p.username })));
+                          console.log('🖥️ [ChannelSidebar] Текущее состояние screenSharingUsers:', [...screenSharingUsers]);
+                          return channelParticipants.map((participant) => {
+                            const isScreenSharing = screenSharingUsers.has(participant.user_id);
+                            console.log('🖥️ [ChannelSidebar] Участник', participant.username, 'демонстрирует экран:', isScreenSharing);
+                            return (
                             <div
                               key={participant.user_id}
                               className="flex items-center gap-2 px-2 py-1 rounded hover:bg-accent/50 transition-colors cursor-pointer"
@@ -794,7 +804,8 @@ export function ChannelSidebar() {
                               </div>
                             </div>
                           );
-                        })}
+                        })})
+                        }
                       </div>
                     )}
                   </div>
