@@ -31,6 +31,18 @@ export function ScreenShareViewer({
     }
   }, [sharingUsers, selectedUserId]);
 
+  // Инициализация контейнера при монтировании
+  useEffect(() => {
+    const videoContainer = document.getElementById('screen-share-container-chat');
+    if (videoContainer) {
+      console.log('🖥️ [ScreenShareViewer] Контейнер инициализирован:', {
+        display: videoContainer.style.display,
+        position: videoContainer.style.position,
+        left: videoContainer.style.left
+      });
+    }
+  }, []);
+
   // Управление отображением видео контейнера
   useEffect(() => {
     const videoContainer = document.getElementById('screen-share-container-chat');
@@ -38,16 +50,28 @@ export function ScreenShareViewer({
       if (!isMinimized && isVisible) {
         // Показываем контейнер когда демонстрация развернута
         videoContainer.style.display = 'flex';
-        videoContainer.style.position = 'absolute';
+        videoContainer.style.position = 'fixed';
         videoContainer.style.top = '0';
         videoContainer.style.right = '0';
         videoContainer.style.bottom = '0';
         videoContainer.style.left = '320px';
         videoContainer.style.zIndex = '40';
         videoContainer.style.backgroundColor = '#000';
+        videoContainer.style.pointerEvents = 'auto';
+        
+        console.log('🖥️ [ScreenShareViewer] Контейнер показан:', {
+          display: videoContainer.style.display,
+          position: videoContainer.style.position,
+          left: videoContainer.style.left,
+          width: videoContainer.offsetWidth,
+          height: videoContainer.offsetHeight
+        });
       } else {
         // Скрываем контейнер когда демонстрация свернута
         videoContainer.style.display = 'none';
+        videoContainer.style.pointerEvents = 'none';
+        
+        console.log('🖥️ [ScreenShareViewer] Контейнер скрыт');
       }
     }
 
@@ -56,6 +80,7 @@ export function ScreenShareViewer({
       const container = document.getElementById('screen-share-container-chat');
       if (container) {
         container.style.display = 'none';
+        container.style.pointerEvents = 'none';
       }
     };
   }, [isMinimized, isVisible]);
@@ -86,8 +111,17 @@ export function ScreenShareViewer({
       {/* Скрытый контейнер для видео - всегда существует для VoiceService */}
       <div 
         id="screen-share-container-chat" 
-        className="fixed inset-0 pointer-events-none"
-        style={{ display: 'none' }}
+        style={{ 
+          display: 'none',
+          position: 'fixed',
+          top: '0',
+          right: '0',
+          bottom: '0',
+          left: '320px',
+          zIndex: '40',
+          backgroundColor: '#000',
+          pointerEvents: 'none'
+        }}
       />
 
       {/* Main Screen Share Area - показывается только когда НЕ свернуто */}
