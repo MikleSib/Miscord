@@ -37,6 +37,54 @@ class VoiceService {
   private isScreenSharing: boolean = false; // Статус демонстрации экрана
   private onScreenShareChanged: ((userId: number, isSharing: boolean) => void) | null = null;
 
+  // Методы для уведомлений о разрешении аудио
+  showAudioPermissionNotification(userId: number): void {
+    // Удаляем существующее уведомление если есть
+    this.hideAudioPermissionNotification();
+    
+    const notification = document.createElement('div');
+    notification.id = 'audio-permission-notification';
+    notification.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #ff6b6b;
+      color: white;
+      padding: 15px 20px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      z-index: 10000;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      max-width: 300px;
+      cursor: pointer;
+    `;
+    notification.innerHTML = `
+      <div style="font-weight: bold; margin-bottom: 5px;">🔊 Разрешите воспроизведение аудио</div>
+      <div style="font-size: 12px; opacity: 0.9;">Кликните в любом месте для включения звука от других участников</div>
+    `;
+    
+    // Добавляем обработчик клика
+    notification.addEventListener('click', () => {
+      console.log('🔊 Пользователь кликнул на уведомление о разрешении аудио');
+      this.hideAudioPermissionNotification();
+    });
+    
+    document.body.appendChild(notification);
+    
+    // Автоматически скрываем через 10 секунд
+    setTimeout(() => {
+      this.hideAudioPermissionNotification();
+    }, 10000);
+  }
+
+  hideAudioPermissionNotification(): void {
+    const notification = document.getElementById('audio-permission-notification');
+    if (notification) {
+      notification.remove();
+    }
+  }
+
   async connect(voiceChannelId: number, token: string) {
     console.log('🎙️ VoiceService.connect вызван с параметрами:', { voiceChannelId, token: token ? 'есть' : 'нет' });
     
@@ -267,10 +315,28 @@ class VoiceService {
 
   private async createPeerConnection(userId: number, createOffer: boolean) {
     console.log(`🔊 Создаем peer connection с пользователем ${userId}, createOffer: ${createOffer}`);
+    console.log(`🔊 ICE серверы:`, this.iceServers);
     
     const pc = new RTCPeerConnection({
       iceServers: this.iceServers,
     });
+    
+    // Добавляем обработчики событий для отладки
+    pc.oniceconnectionstatechange = () => {
+      console.log(`🔊 ICE connection state для пользователя ${userId}:`, pc.iceConnectionState);
+    };
+    
+    pc.onicegatheringstatechange = () => {
+      console.log(`🔊 ICE gathering state для пользователя ${userId}:`, pc.iceGatheringState);
+    };
+    
+    pc.onconnectionstatechange = () => {
+      console.log(`🔊 Connection state для пользователя ${userId}:`, pc.connectionState);
+    };
+    
+    pc.onsignalingstatechange = () => {
+      console.log(`🔊 Signaling state для пользователя ${userId}:`, pc.signalingState);
+    };
 
     // Добавляем локальный поток
     if (this.localStream) {
@@ -291,6 +357,18 @@ class VoiceService {
 
         // Обрабатываем аудио треки
         if (audioTracks.length > 0) {
+          console.log(`🔊 Обрабатываем ${audioTracks.length} аудио треков от пользователя ${userId}`);
+          audioTracks.forEach((track, index) => {
+            console.log(`🔊 Аудио трек ${index}:`, {
+              id: track.id,
+              kind: track.kind,
+              enabled: track.enabled,
+              muted: track.muted,
+              readyState: track.readyState,
+              settings: track.getSettings()
+            });
+          });
+          
           const remoteAudio = new Audio();
           remoteAudio.srcObject = new MediaStream(audioTracks);
           remoteAudio.autoplay = true;
@@ -320,18 +398,33 @@ class VoiceService {
             }).catch(error => {
               console.error('🔊 Ошибка воспроизведения аудио от пользователя', userId, ':', error);
               
+              // Показываем уведомление пользователю о необходимости разрешить аудио
+              this.showAudioPermissionNotification(userId);
+              
               const enableAudio = () => {
                 remoteAudio.play().then(() => {
                   console.log('🔊 Аудио от пользователя', userId, 'включено после взаимодействия пользователя');
+                  this.hideAudioPermissionNotification();
                   document.removeEventListener('click', enableAudio);
                   document.removeEventListener('touchstart', enableAudio);
+                  document.removeEventListener('keydown', enableAudio);
                 }).catch(e => {
                   console.error('🔊 Все еще не удается воспроизвести аудио от пользователя', userId, ':', e);
                 });
               };
               
+              // Добавляем больше событий для активации аудио
               document.addEventListener('click', enableAudio, { once: true });
               document.addEventListener('touchstart', enableAudio, { once: true });
+              document.addEventListener('keydown', enableAudio, { once: true });
+              
+              // Также пытаемся активировать через пользовательские жесты
+              setTimeout(() => {
+                if (remoteAudio.paused) {
+                  console.log('🔊 Пытаемся активировать аудио через программный клик');
+                  document.body.click();
+                }
+              }, 1000);
             });
           }
         }
@@ -1287,5 +1380,6 @@ if (typeof window !== 'undefined') {
     voiceServiceInstance.disconnect();
   });
 }
+
 
 export default voiceServiceInstance;
