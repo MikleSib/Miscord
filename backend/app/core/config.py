@@ -35,7 +35,13 @@ class Settings(BaseSettings):
     # WebRTC
     ICE_SERVERS: List[dict] = [
         {"urls": ["stun:stun.l.google.com:19302"]},
-        {"urls": ["stun:stun1.l.google.com:19302"]}
+        {"urls": ["stun:stun1.l.google.com:19302"]},
+        {
+            "urls": ["turn:147.45.158.183:3478"],
+            "username": "stream-cash",
+            "credential": "CHANGE_ME_LONG_RANDOM_SECRET_12345",
+            "credentialType": "password"
+        }
     ]
     
     class Config:

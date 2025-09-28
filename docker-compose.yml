@@ -86,6 +86,29 @@ services:
       - ./certbot/www:/var/www/certbot
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
 
+  coturn:
+    image: coturn/coturn:4.6
+    container_name: miscord-coturn
+    network_mode: host
+    restart: unless-stopped
+    command: >
+      --no-cli
+      --no-tls
+      --no-dtls
+      --fingerprint
+      --use-auth-secret
+      --static-auth-secret=CHANGE_ME_LONG_RANDOM_SECRET_12345
+      --realm=stream-cash.ru
+      --external-ip=147.45.158.183
+      --listening-port=3478
+      --min-port=49152
+      --max-port=49252
+      --no-software-version
+      --log-file=stdout
+    environment:
+      - TURN_USERNAME=stream-cash
+      - TURN_PASSWORD=CHANGE_ME_LONG_RANDOM_SECRET_12345
+
 volumes:
   postgres_data:
 
