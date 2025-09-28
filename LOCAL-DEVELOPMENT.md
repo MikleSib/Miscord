@@ -318,3 +318,4 @@ docker system prune -a
 - **Health Check**: http://localhost:8000/health
 
 Можете начинать разработку! 🚀
+

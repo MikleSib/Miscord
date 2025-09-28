@@ -124,3 +124,4 @@ echo ""
 echo "📝 Для повторного запуска выполните: ./start-local-dev.sh"
 echo "🐳 Для запуска через Docker: docker-compose up -d"
 echo ""
+

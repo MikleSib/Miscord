@@ -114,3 +114,4 @@ npm install
 После успешного запуска откройте http://localhost:3000 и начинайте разработку!
 
 Для подробной документации см. [LOCAL-DEVELOPMENT.md](LOCAL-DEVELOPMENT.md)
+
