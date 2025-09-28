@@ -31,7 +31,8 @@ export default function HomePage() {
     initializeWebSocket,
     disconnectWebSocket,
     isLoading,
-    user: storeUser
+    user: storeUser,
+    setUser: setStoreUser
   } = useStore()
   const { isConnected, currentVoiceChannelId } = useVoiceStore()
   const { isInitialized } = useAppInitialization()
