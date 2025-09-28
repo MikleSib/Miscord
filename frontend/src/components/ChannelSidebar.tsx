@@ -186,7 +186,7 @@ export function ChannelSidebar() {
       setScreenSharingUsers(prev => {
         const newSet = new Set(prev);
         newSet.delete(user_id);
-        console.log('🖥️ [ChannelSidebar] Обновленное состояние screenSharingUsers:', [...newSet]);
+        console.log('🖥️ [ChannelSidebar] Обновленное состояние screenSharingUsers:', Array.from(newSet));
         return newSet;
       });
       console.log('🖥️ [ChannelSidebar] Удален пользователь из демонстрирующих:', user_id);
@@ -740,13 +740,9 @@ export function ChannelSidebar() {
                     {/* Участники голосового канала */}
                     {channelParticipants.length > 0 && (
                       <div className="ml-6 mt-1 space-y-1">
-                        {(() => {
-                          console.log('🖥️ [ChannelSidebar] Рендерим участников канала', channel.id, ':', channelParticipants.map(p => ({ id: p.user_id, username: p.username })));
-                          console.log('🖥️ [ChannelSidebar] Текущее состояние screenSharingUsers:', [...screenSharingUsers]);
-                          return channelParticipants.map((participant) => {
-                            const isScreenSharing = screenSharingUsers.has(participant.user_id);
-                            console.log('🖥️ [ChannelSidebar] Участник', participant.username, 'демонстрирует экран:', isScreenSharing);
-                            return (
+                        {channelParticipants.map((participant) => {
+                          const isScreenSharing = screenSharingUsers.has(participant.user_id);
+                          return (
                             <div
                               key={participant.user_id}
                               className="flex items-center gap-2 px-2 py-1 rounded hover:bg-accent/50 transition-colors cursor-pointer"
@@ -804,8 +800,7 @@ export function ChannelSidebar() {
                               </div>
                             </div>
                           );
-                        })})
-                        }
+                        })}
                       </div>
                     )}
                   </div>
