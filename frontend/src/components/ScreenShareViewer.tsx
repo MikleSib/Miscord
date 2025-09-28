@@ -53,67 +53,72 @@ export function ScreenShareViewer({
   };
 
   return (
-    <div className={`fixed top-0 right-0 bottom-0 left-80 z-40 bg-black ${isMinimized ? 'pointer-events-none' : ''}`}>
-      {/* Header */}
-      <div className="absolute top-0 left-0 right-0 z-10 bg-black/80 backdrop-blur-sm border-b border-gray-700">
-        <div className="flex items-center justify-between px-4 py-3">
-          <div className="flex items-center space-x-3">
-            <div className="flex items-center space-x-2">
-              <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-              <span className="text-white font-medium">
-                {currentChannelName} - Экран {selectedUser?.username || 'Неизвестно'}
-              </span>
-            </div>
-            <div className="text-gray-400 text-sm">
-              720p 30 кадров в секунду В ЭФИРЕ
+    <>
+      {/* Main Screen Share Area - показывается только когда НЕ свернуто */}
+      {!isMinimized && (
+        <div className="fixed top-0 right-0 bottom-0 left-80 z-40 bg-black">
+          {/* Header */}
+          <div className="absolute top-0 left-0 right-0 z-10 bg-black/80 backdrop-blur-sm border-b border-gray-700">
+            <div className="flex items-center justify-between px-4 py-3">
+              <div className="flex items-center space-x-3">
+                <div className="flex items-center space-x-2">
+                  <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                  <span className="text-white font-medium">
+                    {currentChannelName} - Экран {selectedUser?.username || 'Неизвестно'}
+                  </span>
+                </div>
+                <div className="text-gray-400 text-sm">
+                  720p 30 кадров в секунду В ЭФИРЕ
+                </div>
+              </div>
+              
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={handleMinimize}
+                  className="p-2 hover:bg-gray-700 rounded text-gray-300 hover:text-white transition-colors"
+                  title="Свернуть"
+                >
+                  <Minimize2 className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={handleFullscreen}
+                  className="p-2 hover:bg-gray-700 rounded text-gray-300 hover:text-white transition-colors"
+                  title="Полноэкранный режим"
+                >
+                  <Maximize2 className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={onClose}
+                  className="p-2 hover:bg-gray-700 rounded text-gray-300 hover:text-white transition-colors"
+                  title="Закрыть"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
-          
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={handleMinimize}
-              className="p-2 hover:bg-gray-700 rounded text-gray-300 hover:text-white transition-colors"
-              title={isMinimized ? 'Развернуть' : 'Свернуть'}
-            >
-              {isMinimized ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-4 h-4" />}
-            </button>
-            <button
-              onClick={handleFullscreen}
-              className="p-2 hover:bg-gray-700 rounded text-gray-300 hover:text-white transition-colors"
-              title="Полноэкранный режим"
-            >
-              <Maximize2 className="w-4 h-4" />
-            </button>
-            <button
-              onClick={onClose}
-              className="p-2 hover:bg-gray-700 rounded text-gray-300 hover:text-white transition-colors"
-              title="Закрыть"
-            >
-              <X className="w-4 h-4" />
-            </button>
+
+          {/* Main Content */}
+          <div className="flex h-full pt-12">
+            {/* Main Screen Share Area */}
+            <div className="flex-1 flex items-center justify-center relative">
+              <div 
+                id="screen-share-container-chat" 
+                className="w-full h-full flex items-center justify-center"
+              >
+                {/* Видео элементы будут добавлены сюда через VoiceService */}
+                <div className="text-center text-gray-400">
+                  <p>Загрузка видео потока от {selectedUser?.username}...</p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Main Content */}
-      <div className={`flex h-full pt-12 ${isMinimized ? 'opacity-0' : ''}`}>
-        {/* Main Screen Share Area */}
-        <div className="flex-1 flex items-center justify-center relative">
-          <div 
-            id="screen-share-container-chat" 
-            className="w-full h-full flex items-center justify-center"
-          >
-            {/* Видео элементы будут добавлены сюда через VoiceService */}
-            <div className="text-center text-gray-400">
-              <p>Загрузка видео потока от {selectedUser?.username}...</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Minimized State */}
+      {/* Minimized State - показывается только когда свернуто */}
       {isMinimized && (
-        <div className="absolute bottom-4 right-4 bg-gray-800 rounded-lg p-3 shadow-lg border border-gray-700" style={{ left: '320px' }}>
+        <div className="fixed bottom-4 right-4 z-50 bg-gray-800 rounded-lg p-3 shadow-lg border border-gray-700" style={{ left: '320px' }}>
           <div className="flex items-center space-x-2">
             <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
             <span className="text-white text-sm">
@@ -128,6 +133,6 @@ export function ScreenShareViewer({
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
