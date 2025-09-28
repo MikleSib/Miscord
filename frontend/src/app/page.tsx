@@ -237,8 +237,12 @@ export default function HomePage() {
 
   return (
     <div className="h-screen flex bg-background relative">
-      <ServerList />
-      <ChannelSidebar />
+      <div className="relative z-50">
+        <ServerList />
+      </div>
+      <div className="relative z-50">
+        <ChannelSidebar />
+      </div>
       <div className="flex-1 flex flex-col">
         <ChatArea showUserSidebar={showUserSidebar} setShowUserSidebar={setShowUserSidebar} />
       </div>
