@@ -37,6 +37,7 @@ class VoiceService {
   private onParticipantStatusChangedCallback: ((userId: number, status: Partial<{ is_muted: boolean; is_deafened: boolean }>) => void) | null = null;
   private isScreenSharing: boolean = false; // Статус демонстрации экрана
   private onScreenShareChanged: ((userId: number, isSharing: boolean) => void) | null = null;
+  private adaptiveQualityEnabled: boolean = true; // Включено ли адаптивное качество
 
   // Методы для уведомлений о разрешении аудио
   showAudioPermissionNotification(userId: number): void {
@@ -343,9 +344,11 @@ class VoiceService {
       iceServers: this.iceServers,
     });
     
-    // Добавляем обработчики событий для отладки
+    // Добавляем обработчики событий для отладки и адаптивного качества
     pc.oniceconnectionstatechange = () => {
       console.log(`🔊 ICE connection state для пользователя ${userId}:`, pc.iceConnectionState);
+      // Адаптируем качество при изменении состояния ICE соединения
+      this.adjustVideoQuality(pc, userId, false);
     };
     
     pc.onicegatheringstatechange = () => {
@@ -354,6 +357,8 @@ class VoiceService {
     
     pc.onconnectionstatechange = () => {
       console.log(`🔊 Connection state для пользователя ${userId}:`, pc.connectionState);
+      // Адаптируем качество при изменении состояния соединения
+      this.adjustVideoQuality(pc, userId, false);
     };
     
     pc.onsignalingstatechange = () => {
@@ -366,6 +371,9 @@ class VoiceService {
         console.log(`🔊 Добавляем трек ${track.kind} в peer connection для пользователя ${userId}`);
         pc.addTrack(track, this.localStream!);
       });
+      
+      // Настраиваем адаптивное качество для видео треков
+      await this.adjustVideoQuality(pc, userId, false);
     }
 
     // Обработка входящего потока
@@ -974,12 +982,14 @@ class VoiceService {
         return false;
       }
       
-      // Получаем поток экрана
+      // Получаем поток экрана с улучшенными настройками качества
       this.screenStream = await navigator.mediaDevices.getDisplayMedia({
         video: {
           width: { ideal: 1920, max: 1920 },
           height: { ideal: 1080, max: 1080 },
-          frameRate: { ideal: 60, max: 60 }
+          frameRate: { ideal: 30, max: 60 }, // Снижаем до 30 FPS для стабильности
+          // Добавляем настройки качества
+          aspectRatio: { ideal: 16/9 }
         },
         audio: true // Включаем звук системы если доступен
       });
@@ -1209,6 +1219,77 @@ class VoiceService {
     this.onScreenShareChanged = callback;
   }
 
+  // Управление адаптивным качеством
+  setAdaptiveQuality(enabled: boolean) {
+    this.adaptiveQualityEnabled = enabled;
+    console.log(`🔊 Адаптивное качество ${enabled ? 'включено' : 'отключено'}`);
+  }
+
+  // Принудительное обновление качества для всех соединений
+  async updateAllVideoQuality() {
+    if (!this.adaptiveQualityEnabled) return;
+    
+    this.peerConnections.forEach(async ({ pc }, userId) => {
+      await this.adjustVideoQuality(pc, userId, this.isScreenSharing);
+    });
+  }
+
+  // Адаптивное изменение качества в зависимости от состояния соединения
+  private async adjustVideoQuality(pc: RTCPeerConnection, userId: number, isScreenShare: boolean = false): Promise<void> {
+    if (!this.adaptiveQualityEnabled) return;
+    
+    try {
+      const videoSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+      if (!videoSender) return;
+      
+      const parameters = videoSender.getParameters();
+      if (!parameters.encodings || parameters.encodings.length === 0) return;
+      
+      // Определяем качество на основе состояния соединения
+      const connectionState = pc.connectionState;
+      const iceConnectionState = pc.iceConnectionState;
+      
+      let maxBitrate: number;
+      let maxFramerate: number;
+      
+      if (isScreenShare) {
+        // Для демонстрации экрана - более высокие требования
+        if (connectionState === 'connected' && iceConnectionState === 'connected') {
+          maxBitrate = 8_000_000; // 8 Mbps для отличного соединения
+          maxFramerate = 30;
+        } else if (connectionState === 'connecting' || iceConnectionState === 'checking') {
+          maxBitrate = 4_000_000; // 4 Mbps для среднего соединения
+          maxFramerate = 24;
+        } else {
+          maxBitrate = 2_000_000; // 2 Mbps для слабого соединения
+          maxFramerate = 15;
+        }
+      } else {
+        // Для обычного видео
+        if (connectionState === 'connected' && iceConnectionState === 'connected') {
+          maxBitrate = 2_000_000; // 2 Mbps для отличного соединения
+          maxFramerate = 30;
+        } else if (connectionState === 'connecting' || iceConnectionState === 'checking') {
+          maxBitrate = 1_000_000; // 1 Mbps для среднего соединения
+          maxFramerate = 24;
+        } else {
+          maxBitrate = 500_000; // 500 kbps для слабого соединения
+          maxFramerate = 15;
+        }
+      }
+      
+      parameters.encodings[0].maxBitrate = maxBitrate;
+      parameters.encodings[0].maxFramerate = maxFramerate;
+      parameters.encodings[0].scaleResolutionDownBy = 1;
+      
+      await videoSender.setParameters(parameters);
+      console.log(`🔊 Адаптивное качество для ${isScreenShare ? 'screen share' : 'video'}: ${maxBitrate/1000000} Mbps, ${maxFramerate} FPS`);
+      
+    } catch (e) {
+      console.warn('🔊 Не удалось настроить адаптивное качество:', e);
+    }
+  }
+
   // Вспомогательный метод для обновления peer connection для демонстрации экрана
   private async updatePeerConnectionForScreenShare(pc: RTCPeerConnection, userId: number): Promise<void> {
     try {
@@ -1245,20 +1326,8 @@ class VoiceService {
         console.log(`🖥️ Добавлен видео трек для пользователя ${userId}`);
       }
 
-      // Настраиваем приоритет и битрейт для видео экрана
-      try {
-        const videoSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
-        if (videoSender) {
-          const parameters = videoSender.getParameters();
-          if (parameters.encodings && parameters.encodings.length > 0) {
-            parameters.encodings[0].maxBitrate = 5_000_000; // до ~5 Mbps для 1080p60
-            parameters.encodings[0].maxFramerate = 60;
-            await videoSender.setParameters(parameters);
-          }
-        }
-      } catch (e) {
-        console.warn('🖥️ Не удалось настроить параметры отправки видео:', e);
-      }
+      // Настраиваем адаптивное качество для демонстрации экрана
+      await this.adjustVideoQuality(pc, userId, true);
 
       // Подсказка контента для улучшения качества движения
       try {
