@@ -1233,12 +1233,15 @@ class VoiceService {
 
       // Настраиваем приоритет и битрейт для видео экрана
       try {
-        const parameters = pc.getSenders().find(s => s.track && s.track.kind === 'video')?.getParameters() || {};
-        const encodings = parameters.encodings && parameters.encodings.length > 0 ? parameters.encodings : [{} as RTCRtpEncodingParameters];
-        encodings[0].maxBitrate = 5_000_000; // до ~5 Mbps для 1080p60
-        encodings[0].maxFramerate = 60;
-        parameters.encodings = encodings;
-        await pc.getSenders().find(s => s.track && s.track.kind === 'video')?.setParameters(parameters);
+        const videoSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+        if (videoSender) {
+          const parameters = videoSender.getParameters();
+          if (parameters.encodings && parameters.encodings.length > 0) {
+            parameters.encodings[0].maxBitrate = 5_000_000; // до ~5 Mbps для 1080p60
+            parameters.encodings[0].maxFramerate = 60;
+            await videoSender.setParameters(parameters);
+          }
+        }
       } catch (e) {
         console.warn('🖥️ Не удалось настроить параметры отправки видео:', e);
       }
