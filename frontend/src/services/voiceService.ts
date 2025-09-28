@@ -1,4 +1,5 @@
 import { audioProcessingService } from './audioProcessingService';
+import soundService from './soundService';
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://stream-cash.ru';
 
@@ -221,6 +222,10 @@ class VoiceService {
 
       case 'user_joined_voice':
         console.log('🔊 Пользователь присоединился к голосовому каналу:', data.user_id, data.username);
+        
+        // Воспроизводим звук подключения
+        soundService.playJoinSound();
+        
         if (this.onParticipantJoined) {
           this.onParticipantJoined({
             user_id: data.user_id,
@@ -240,6 +245,10 @@ class VoiceService {
 
       case 'user_left_voice':
         console.log('🔊 Пользователь покинул голосовой канал:', data.user_id);
+        
+        // Воспроизводим звук отключения
+        soundService.playLeaveSound();
+        
         if (this.onParticipantLeft) {
           this.onParticipantLeft(data.user_id);
         }

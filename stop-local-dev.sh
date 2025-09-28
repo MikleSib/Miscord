@@ -125,3 +125,4 @@ echo "📝 Для повторного запуска выполните: ./star
 echo "🐳 Для запуска через Docker: docker-compose up -d"
 echo ""
 
+

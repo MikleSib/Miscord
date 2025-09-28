@@ -603,6 +603,11 @@ export const useStore = create<AppState>()(
         websocketService.onVoiceChannelJoin((data) => {
           console.log('Пользователь присоединился к голосовому каналу:', data);
           
+          // Воспроизводим звук подключения
+          import('../services/soundService').then(({ default: soundService }) => {
+            soundService.playJoinSound();
+          });
+          
           // Показываем уведомление
           if ('Notification' in window && Notification.permission === 'granted') {
             new Notification(`Голосовой канал`, {
@@ -618,6 +623,11 @@ export const useStore = create<AppState>()(
         // Обработка выхода из голосового канала
         websocketService.onVoiceChannelLeave((data) => {
           console.log('Пользователь покинул голосовой канал:', data);
+          
+          // Воспроизводим звук отключения
+          import('../services/soundService').then(({ default: soundService }) => {
+            soundService.playLeaveSound();
+          });
           
           // Показываем уведомление
           if ('Notification' in window && Notification.permission === 'granted') {

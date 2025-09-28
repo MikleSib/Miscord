@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { VoiceUser } from '../../types';
 import voiceService from '../../services/voiceService';
 import { useAuthStore } from '../store';
+import soundService from '../../services/soundService';
 
 interface VoiceState {
   isConnected: boolean;
@@ -130,6 +131,9 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       
       console.log('🎙️ Успешно подключились к голосовому каналу');
       
+      // Воспроизводим звук подключения для собственного подключения
+      soundService.playJoinSound();
+      
       // Добавляем текущего пользователя в список участников
       const currentUser = useAuthStore.getState().user;
       if (currentUser) {
@@ -166,6 +170,9 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   },
   
   disconnectFromVoiceChannel: () => {
+    // Воспроизводим звук отключения для собственного отключения
+    soundService.playLeaveSound();
+    
     voiceService.disconnect();
     set({
       isConnected: false,
