@@ -63,6 +63,35 @@ const LoginPage: React.FC = () => {
   };
 
   useEffect(() => {
+    // Проверяем, есть ли уже сохраненный токен
+    const checkExistingAuth = async () => {
+      try {
+        const savedToken = localStorage.getItem('access_token');
+        if (savedToken) {
+          // Проверяем валидность токена
+          const user = await authService.getCurrentUser();
+          if (user) {
+            console.log('[LoginPage] Найден валидный токен, перенаправляем на главную страницу');
+            useAuthStore.getState().loginSuccess(user, savedToken);
+            setStoreUser(user);
+            router.push('/');
+            return;
+          }
+        }
+      } catch (error) {
+        console.log('[LoginPage] Токен недействителен, показываем форму входа');
+        // Очищаем недействительный токен
+        localStorage.removeItem('access_token');
+        useAuthStore.getState().logout();
+      }
+    };
+
+    if (isMounted) {
+      checkExistingAuth();
+    }
+  }, [isMounted, router, setStoreUser]);
+
+  useEffect(() => {
     // Этот эффект будет следить за состоянием аутентификации
     // и выполнять перенаправление после успешного входа.
     if (isMounted && isAuthenticated && user) {

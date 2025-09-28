@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -29,6 +29,33 @@ const RegisterPage: React.FC = () => {
   });
 
   const [validationError, setValidationError] = useState('');
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+    
+    // Проверяем, есть ли уже сохраненный токен
+    const checkExistingAuth = async () => {
+      try {
+        const savedToken = localStorage.getItem('access_token');
+        if (savedToken) {
+          // Проверяем валидность токена
+          const user = await authService.getCurrentUser();
+          if (user) {
+            console.log('[RegisterPage] Найден валидный токен, перенаправляем на главную страницу');
+            router.push('/');
+            return;
+          }
+        }
+      } catch (error) {
+        console.log('[RegisterPage] Токен недействителен, показываем форму регистрации');
+        // Очищаем недействительный токен
+        localStorage.removeItem('access_token');
+      }
+    };
+
+    checkExistingAuth();
+  }, [router]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
@@ -64,6 +91,11 @@ const RegisterPage: React.FC = () => {
       clearError();
     };
   }, [clearError]);
+
+  // Не рендерим до тех пор, пока компонент не смонтирован
+  if (!isMounted) {
+    return null;
+  }
 
   return (
     <Container component="main" maxWidth="xs">

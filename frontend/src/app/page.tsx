@@ -18,6 +18,7 @@ import { useAppInitialization } from '../hooks/redux'
 import { ServerUserSidebar } from '../components/ServerUserSidebar'
 import { UserProfileBar } from '../components/UserProfileBar'
 import { VoiceConnectionPanel } from '../components/VoiceConnectionPanel'
+import authService from '../services/authService'
 
 export default function HomePage() {
   const router = useRouter()
@@ -56,6 +57,28 @@ export default function HomePage() {
     const initializeApp = async () => {
       // Проверяем аутентификацию
       if (!isAuthenticated || !token) {
+        // Попробуем восстановить пользователя из токена
+        try {
+          const savedToken = localStorage.getItem('access_token');
+          if (savedToken) {
+            // Устанавливаем токен в store
+            useAuthStore.getState().setToken(savedToken);
+            
+            // Получаем данные пользователя
+            const user = await authService.getCurrentUser();
+            useAuthStore.getState().loginSuccess(user, savedToken);
+            setStoreUser(user);
+            
+            console.log('[HomePage] Пользователь восстановлен из токена:', user);
+            return; // Продолжаем инициализацию
+          }
+        } catch (error) {
+          console.error('[HomePage] Ошибка восстановления пользователя:', error);
+          // Токен недействителен, очищаем его
+          localStorage.removeItem('access_token');
+          useAuthStore.getState().logout();
+        }
+        
         router.push('/login')
         return
       }
