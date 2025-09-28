@@ -650,7 +650,7 @@ export const useStore = create<AppState>()(
 
         // Обработка начала демонстрации экрана
         websocketService.onScreenShareStarted((data) => {
-          console.log('Пользователь начал демонстрацию экрана:', data);
+          console.log('🔔 [Store] Пользователь начал демонстрацию экрана:', data);
           
           // Показываем уведомление
           if ('Notification' in window && Notification.permission === 'granted') {
@@ -661,6 +661,7 @@ export const useStore = create<AppState>()(
           }
           
           // Генерируем глобальное событие для обновления UI
+          console.log('🔔 [Store] Отправляем событие screen_share_start с данными:', data);
           window.dispatchEvent(new CustomEvent('screen_share_start', { detail: data }));
         });
 

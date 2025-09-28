@@ -140,16 +140,19 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   // Обработчики событий демонстрации экрана
   useEffect(() => {
     const handleScreenShareStart = (event: any) => {
+      console.log('🖥️ [ChatArea] Получено событие screen_share_start:', event.detail);
       const { user_id, username, avatar_url } = event.detail;
-      console.log('[ChatArea] Начата демонстрация экрана:', { user_id, username });
+      console.log('🖥️ [ChatArea] Начата демонстрация экрана:', { user_id, username });
       
       setSharingUsers(prev => {
         if (!prev.find(u => u.userId === user_id)) {
+          console.log('🖥️ [ChatArea] Добавляем пользователя в список демонстрирующих:', { user_id, username });
           return [...prev, { userId: user_id, username, avatar_url }];
         }
         return prev;
       });
       
+      console.log('🖥️ [ChatArea] Показываем overlay демонстрации экрана');
       setIsScreenShareVisible(true);
     };
 

@@ -85,7 +85,10 @@ class WebSocketService {
 
           // Вызываем соответствующий обработчик
           if (data.type && this.messageHandlers[data.type]) {
+            console.log('🔔 Вызываем обработчик для типа:', data.type, 'с данными:', data);
             this.messageHandlers[data.type](data);
+          } else {
+            console.log('🔔 Нет обработчика для типа:', data.type);
           }
         } catch (error) {
           console.error('Ошибка обработки WebSocket сообщения:', error);

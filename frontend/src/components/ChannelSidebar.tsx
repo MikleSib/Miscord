@@ -164,6 +164,39 @@ export function ChannelSidebar() {
   // Состояние для пользователей, демонстрирующих экран
   const [screenSharingUsers, setScreenSharingUsers] = useState<Set<number>>(new Set());
 
+  // Обработчики событий демонстрации экрана
+  useEffect(() => {
+    const handleScreenShareStart = (event: any) => {
+      console.log('🖥️ [ChannelSidebar] Получено событие screen_share_start:', event.detail);
+      const { user_id } = event.detail;
+      setScreenSharingUsers(prev => {
+        const newSet = new Set(prev);
+        newSet.add(user_id);
+        return newSet;
+      });
+      console.log('🖥️ [ChannelSidebar] Добавлен пользователь в демонстрирующие:', user_id);
+    };
+
+    const handleScreenShareStop = (event: any) => {
+      console.log('🖥️ [ChannelSidebar] Получено событие screen_share_stop:', event.detail);
+      const { user_id } = event.detail;
+      setScreenSharingUsers(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(user_id);
+        return newSet;
+      });
+      console.log('🖥️ [ChannelSidebar] Удален пользователь из демонстрирующих:', user_id);
+    };
+
+    window.addEventListener('screen_share_start', handleScreenShareStart);
+    window.addEventListener('screen_share_stop', handleScreenShareStop);
+
+    return () => {
+      window.removeEventListener('screen_share_start', handleScreenShareStart);
+      window.removeEventListener('screen_share_stop', handleScreenShareStop);
+    };
+  }, []);
+
   // Состояние для UserPanel функциональности
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [activeSharingUsers, setActiveSharingUsers] = useState<{ userId: number; username: string }[]>([]);
