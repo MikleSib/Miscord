@@ -38,7 +38,7 @@ export function UserProfileBar() {
   };
 
   return (
-    <div className="flex h-16 bg-[#36373e] transition-colors duration-200 rounded-lg w-[315px]">
+    <div className="flex h-16 bg-[#36373e] transition-colors duration-200 rounded-lg w-[315px] max-w-[calc(100vw-16px)]">
       {/* Левая часть - под серверами (68px) */}
       <div className="w-[68px] flex items-center justify-center bg-transparent">
         <UserAvatar
@@ -68,7 +68,7 @@ export function UserProfileBar() {
             </div>
           )}
         </div>
-        <div className="flex gap-2 ml-2 mr-3">
+        <div className="flex gap-1 ml-2 mr-3 flex-shrink-0">
           <button 
             onClick={handleMuteToggle}
             className={`w-8 h-8 flex items-center justify-center rounded transition-colors ${

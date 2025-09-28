@@ -249,12 +249,12 @@ export default function HomePage() {
       {showUserSidebar && <ServerUserSidebar />}
       
       {/* Панель голосового подключения над профилем пользователя */}
-      <div className="absolute bottom-20 left-2 z-50">
+      <div className="absolute bottom-20 left-2 z-50 max-w-[calc(100vw-16px)]">
         <VoiceConnectionPanel />
       </div>
       
       {/* Общий профиль пользователя внизу под серверами и каналами */}
-      <div className="absolute bottom-2 left-2 z-50">
+      <div className="absolute bottom-2 left-2 z-50 max-w-[calc(100vw-16px)]">
         <UserProfileBar />
       </div>
       

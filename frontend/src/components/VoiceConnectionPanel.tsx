@@ -138,7 +138,7 @@ export function VoiceConnectionPanel() {
   };
 
   return (
-    <div className="w-[315px] bg-[#36373e] rounded-t-lg border-t border-[#4e4f56] shadow-lg animate-slide-up">
+    <div className="w-[315px] max-w-[calc(100vw-16px)] bg-[#36373e] rounded-t-lg border-t border-[#4e4f56] shadow-lg animate-slide-up">
       {/* Заголовок с названием канала */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-[#4e4f56]">
         <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -158,8 +158,9 @@ export function VoiceConnectionPanel() {
       </div>
 
       {/* Кнопки управления */}
-      <div className="flex items-center justify-between px-3 py-2">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-2 px-3 py-2">
+        {/* Верхний ряд - основные кнопки */}
+        <div className="flex items-center gap-2 flex-wrap">
           {/* Индикатор голосовой активности */}
           <div className="px-2">
             <VoiceActivityIndicator 
@@ -172,7 +173,7 @@ export function VoiceConnectionPanel() {
           {/* Кнопка микрофона */}
           <button
             onClick={handleToggleMute}
-            className={`p-2 rounded transition-colors ${
+            className={`p-2 rounded transition-colors flex-shrink-0 ${
               isMuted
                 ? 'bg-red-500 text-white hover:bg-red-600'
                 : 'bg-[#4e4f56] text-[#b5bac1] hover:bg-[#5a5b63]'
@@ -185,16 +186,19 @@ export function VoiceConnectionPanel() {
           {/* Кнопка настроек */}
           <button
             onClick={() => setIsSettingsOpen(true)}
-            className="p-2 rounded bg-[#4e4f56] text-[#b5bac1] hover:bg-[#5a5b63] transition-colors"
+            className="p-2 rounded bg-[#4e4f56] text-[#b5bac1] hover:bg-[#5a5b63] transition-colors flex-shrink-0"
             title="Настройки аудио"
           >
             <Settings className="w-4 h-4" />
           </button>
+        </div>
 
+        {/* Нижний ряд - кнопки действий */}
+        <div className="flex items-center gap-2 flex-wrap">
           {/* Кнопка демонстрации экрана */}
           <button
             onClick={handleToggleScreenShare}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+            className={`flex items-center gap-2 px-3 py-1.5 rounded text-sm font-medium transition-colors flex-shrink-0 ${
               isScreenSharing
                 ? 'bg-red-500 text-white hover:bg-red-600'
                 : 'bg-[#5865f2] text-white hover:bg-[#4752c4]'
@@ -204,26 +208,26 @@ export function VoiceConnectionPanel() {
             {isScreenSharing ? (
               <>
                 <MonitorOff className="w-4 h-4" />
-                <span>Остановить</span>
+                <span className="hidden sm:inline">Остановить</span>
               </>
             ) : (
               <>
                 <Monitor className="w-4 h-4" />
-                <span>Демка</span>
+                <span className="hidden sm:inline">Демка</span>
               </>
             )}
           </button>
-        </div>
 
-        {/* Кнопка отключения */}
-        <button
-          onClick={handleDisconnect}
-          className="flex items-center gap-2 px-3 py-1.5 rounded text-sm font-medium bg-red-500 text-white hover:bg-red-600 transition-colors"
-          title="Отключиться от голосового канала"
-        >
-          <PhoneOff className="w-4 h-4" />
-          <span>Отключиться</span>
-        </button>
+          {/* Кнопка отключения */}
+          <button
+            onClick={handleDisconnect}
+            className="flex items-center gap-2 px-3 py-1.5 rounded text-sm font-medium bg-red-500 text-white hover:bg-red-600 transition-colors flex-shrink-0"
+            title="Отключиться от голосового канала"
+          >
+            <PhoneOff className="w-4 h-4" />
+            <span className="hidden sm:inline">Отключиться</span>
+          </button>
+        </div>
       </div>
       
       {/* Модальное окно настроек */}
