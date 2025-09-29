@@ -35,7 +35,6 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   
   // Логируем изменения currentChannel
   useEffect(() => {
-    console.log('[ChatArea] currentChannel изменился:', currentChannel);
   }, [currentChannel]);
   
   const [messageInput, setMessageInput] = useState('')
@@ -57,25 +56,15 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   // Загрузка истории сообщений при смене канала
   useEffect(() => {
     if (currentChannel?.type === 'text') {
-      console.log('[ChatArea] Загружаем историю для канала', currentChannel.id);
       loadMessageHistory(currentChannel.id);
       
       // Подключаемся к WebSocket чата только если еще не подключены
       const accessToken = token || localStorage.getItem('access_token');
-      console.log('[ChatArea] Проверяем токен для WebSocket:', { 
-        hasToken: !!accessToken, 
-        tokenLength: accessToken?.length,
-        channelId: currentChannel.id,
-        tokenFromStore: !!token,
-        tokenFromStorage: !!localStorage.getItem('access_token')
-      });
       
       if (accessToken) {
-        console.log('[ChatArea] Настраиваем обработчики WebSocket для канала', currentChannel.id);
         
         // Обработчик новых сообщений
         chatService.onMessage((msg) => {
-          console.log('[ChatArea] Получено сообщение через WebSocket:', msg);
           // Адаптируем Message к ChatMessage
           const chatMessage = {
             ...msg,
@@ -102,32 +91,25 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
 
         // Обработчик удаления сообщений
         chatService.onMessageDeleted((data) => {
-          console.log('[ChatArea] Сообщение удалено:', data.message_id);
           deleteMessage(data.message_id);
         });
 
         // Обработчик редактирования сообщений
         chatService.onMessageEdited((msg) => {
-          console.log('[ChatArea] Сообщение отредактировано:', msg);
           editMessage(msg.id, msg.content || '');
         });
 
         // Обработчик обновления реакций
         chatService.onReactionUpdated((data) => {
-          console.log('[ChatArea] Реакция обновлена через WebSocket:', data);
           updateSingleReaction(data.message_id, data.emoji, data.reaction);
         });
       }
     } else {
-      console.log('[ChatArea] Канал не текстовый');
-      // WebSocket управляется в store.ts, здесь только очищаем состояние
       setTypingUsers([]);
     }
     
     // Cleanup function
     return () => {
-      console.log('[ChatArea] Cleanup - очищаем состояние');
-      // Не отключаем WebSocket здесь, так как управление соединением происходит в store.ts
       setTypingUsers([]);
     };
   }, [currentChannel?.id, currentChannel?.type, loadMessageHistory, addMessage, deleteMessage, editMessage, token]);
@@ -139,13 +121,10 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   // Обработчики событий демонстрации экрана
   useEffect(() => {
     const handleScreenShareStart = (event: any) => {
-      console.log('🖥️ [ChatArea] Получено событие screen_share_start:', event.detail);
       const { user_id, username, avatar_url } = event.detail;
-      console.log('🖥️ [ChatArea] Начата демонстрация экрана:', { user_id, username });
       
       setSharingUsers(prev => {
         if (!prev.find(u => u.userId === user_id)) {
-          console.log('🖥️ [ChatArea] Добавляем пользователя в список демонстрирующих:', { user_id, username });
           return [...prev, { userId: user_id, username, avatar_url }];
         }
         return prev;

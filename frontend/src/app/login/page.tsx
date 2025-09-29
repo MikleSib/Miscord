@@ -55,7 +55,6 @@ const LoginPage: React.FC = () => {
       loginSuccess(user, access_token);
       setStoreUser(user);
       
-      console.log('[LoginPage] Пользователь успешно авторизован и сохранен в оба store:', user);
     } catch (err: any) {
       const errorMessage = err.response?.data?.detail || 'Ошибка входа';
       loginFailure(errorMessage);
@@ -71,7 +70,6 @@ const LoginPage: React.FC = () => {
           // Проверяем валидность токена
           const user = await authService.getCurrentUser();
           if (user) {
-            console.log('[LoginPage] Найден валидный токен, перенаправляем на главную страницу');
             useAuthStore.getState().loginSuccess(user, savedToken);
             setStoreUser(user);
             router.push('/');
@@ -79,7 +77,6 @@ const LoginPage: React.FC = () => {
           }
         }
       } catch (error) {
-        console.log('[LoginPage] Токен недействителен, показываем форму входа');
         // Очищаем недействительный токен
         localStorage.removeItem('access_token');
         useAuthStore.getState().logout();

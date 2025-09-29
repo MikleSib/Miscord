@@ -20,7 +20,6 @@ class SoundService {
       this.leaveSound.volume = 0.7;
       
       this.isInitialized = true;
-      console.log('🔊 SoundService инициализирован');
     } catch (error) {
       console.error('🔊 Ошибка инициализации SoundService:', error);
     }
@@ -41,7 +40,6 @@ class SoundService {
       
       if (playPromise !== undefined) {
         playPromise.then(() => {
-          console.log('🔊 Звук подключения воспроизведен');
         }).catch(error => {
           console.error('🔊 Ошибка воспроизведения звука подключения:', error);
         });

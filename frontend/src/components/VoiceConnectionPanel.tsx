@@ -59,15 +59,7 @@ export function VoiceConnectionPanel() {
     }
   }, [isConnected, currentVoiceChannelId]);
 
-  // Отладочная информация
-  console.log('🎙️ [VoiceConnectionPanel] Состояние:', {
-    currentVoiceChannelId,
-    isConnected,
-    participantsCount: participants.length,
-    participants: participants.map(p => ({ id: p.user_id, username: p.username })),
-    currentChannel: currentChannel?.name,
-    connectionStatus
-  });
+
 
   // Не показываем панель если не подключены к голосовому каналу
   if (!currentVoiceChannelId) {

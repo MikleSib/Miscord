@@ -69,7 +69,6 @@ export class AudioProcessingService {
         try {
           // Используем AdvancedNoiseGate вместо RNNoise
           advancedNoiseGate.connectNodes(currentNode, this.destinationNode);
-          console.log('Продвинутое шумоподавление (AdvancedNoiseGate) подключено');
         } catch (error) {
           console.error('Ошибка инициализации AdvancedNoiseGate:', error);
           currentNode.connect(this.destinationNode);
@@ -98,7 +97,6 @@ export class AudioProcessingService {
 
     try {
       await tracks[0].applyConstraints(constraints);
-      console.log('Browser audio filters applied:', constraints);
     } catch (error) {
       console.warn('Failed to apply browser filters:', error);
     }
@@ -130,7 +128,6 @@ export class AudioProcessingService {
       });
 
       await this.micVAD.start();
-      console.log('VAD initialized and started');
     } catch (error) {
       console.error('Failed to initialize VAD:', error);
     }
@@ -186,13 +183,11 @@ export class AudioProcessingService {
         this.muteGainNode.gain.cancelScheduledValues(currentTime);
         this.muteGainNode.gain.setValueAtTime(this.muteGainNode.gain.value, currentTime);
         this.muteGainNode.gain.linearRampToValueAtTime(0.0, currentTime + 0.01); // 10ms для быстрого заглушения
-        console.log('🎙️ Микрофон заглушен через audio processing pipeline');
       } else {
         // Плавно включаем микрофон
         this.muteGainNode.gain.cancelScheduledValues(currentTime);
         this.muteGainNode.gain.setValueAtTime(this.muteGainNode.gain.value, currentTime);
         this.muteGainNode.gain.linearRampToValueAtTime(1.0, currentTime + 0.01); // 10ms для быстрого включения
-        console.log('🎙️ Микрофон включен через audio processing pipeline');
       }
     } else {
       console.warn('🎙️ muteGainNode или audioContext не инициализированы');
@@ -246,7 +241,6 @@ export class AudioProcessingService {
       if (this.config.useAdvancedNoiseSuppression && this.config.noiseSuppression) {
         try {
           advancedNoiseGate.connectNodes(currentNode, this.destinationNode);
-          console.log('Продвинутое шумоподавление (AdvancedNoiseGate) переподключено');
         } catch (error) {
           console.error('Ошибка переинициализации AdvancedNoiseGate:', error);
           currentNode.connect(this.destinationNode);
@@ -254,7 +248,6 @@ export class AudioProcessingService {
       } else {
         // Прямое подключение без дополнительной обработки
         currentNode.connect(this.destinationNode);
-        console.log('Продвинутое шумоподавление отключено, прямое подключение');
       }
     } catch (error) {
       console.error('Ошибка при перестроении audio pipeline:', error);

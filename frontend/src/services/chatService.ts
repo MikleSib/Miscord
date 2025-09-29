@@ -101,7 +101,6 @@ class ChatService {
         this.isConnecting = false;
         
         if (this.shouldReconnect && event.code !== 1000 && this.reconnectAttempts < this.maxReconnectAttempts) {
-          console.log('[ChatService] Попытка переподключения через', this.reconnectDelay, 'мс');
           setTimeout(() => {
             if (this.shouldReconnect) {
               this.reconnectAttempts++;

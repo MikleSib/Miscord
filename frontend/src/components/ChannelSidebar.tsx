@@ -167,29 +167,22 @@ export function ChannelSidebar() {
   // Обработчики событий демонстрации экрана
   useEffect(() => {
     const handleScreenShareStart = (event: any) => {
-      console.log('🖥️ [ChannelSidebar] Получено событие screen_share_start:', event.detail);
       const { user_id, username } = event.detail;
-      console.log('🖥️ [ChannelSidebar] Пользователь', username, 'начинает демонстрацию экрана');
       setScreenSharingUsers(prev => {
         const newSet = new Set(prev);
         newSet.add(user_id);
-        console.log('🖥️ [ChannelSidebar] Обновленное состояние screenSharingUsers:', Array.from(newSet));
         return newSet;
       });
-      console.log('🖥️ [ChannelSidebar] Добавлен пользователь в демонстрирующие:', user_id);
     };
 
     const handleScreenShareStop = (event: any) => {
-      console.log('🖥️ [ChannelSidebar] Получено событие screen_share_stop:', event.detail);
       const { user_id, username } = event.detail;
-      console.log('🖥️ [ChannelSidebar] Пользователь', username, 'остановил демонстрацию экрана');
       setScreenSharingUsers(prev => {
         const newSet = new Set(prev);
         newSet.delete(user_id);
-        console.log('🖥️ [ChannelSidebar] Обновленное состояние screenSharingUsers:', Array.from(newSet));
         return newSet;
       });
-      console.log('🖥️ [ChannelSidebar] Удален пользователь из демонстрирующих:', user_id);
+
     };
 
     window.addEventListener('screen_share_start', handleScreenShareStart);
@@ -246,7 +239,6 @@ export function ChannelSidebar() {
   useEffect(() => {
     const handleVoiceChannelJoin = (event: any) => {
       const data = event.detail;
-      console.log('Пользователь присоединился к голосовому каналу:', data);
       // Обновляем список участников для этого канала
       if (data.voice_channel_id) {
         loadVoiceChannelMembers(data.voice_channel_id);
@@ -255,7 +247,6 @@ export function ChannelSidebar() {
 
     const handleVoiceChannelLeave = (event: any) => {
       const data = event.detail;
-      console.log('Пользователь покинул голосовой канал:', data);
       // Обновляем список участников для этого канала
       if (data.voice_channel_id) {
         loadVoiceChannelMembers(data.voice_channel_id);
@@ -341,12 +332,10 @@ export function ChannelSidebar() {
   };
 
   const handleMuteToggle = () => {
-    console.log('🎙️ Переключение микрофона, текущее состояние:', isMuted);
     toggleMute();
   };
 
   const handleDeafenToggle = () => {
-    console.log('🎙️ Переключение наушников, текущее состояние:', isDeafened);
     toggleDeafen();
   };
 
@@ -375,26 +364,19 @@ export function ChannelSidebar() {
   };
 
   const handleChannelClick = async (channel: any) => {
-    console.log('🔄 Клик по каналу:', channel.name, 'тип:', channel.type, 'ID:', channel.id);
     
     if (channel.type === 'voice') {
       // Проверяем, не подключены ли мы уже к этому каналу
       if (currentVoiceChannelId === channel.id) {
-        console.log('🎙️ Уже подключены к этому голосовому каналу, игнорируем клик');
-        // Просто выбираем канал в UI, но не переподключаемся
-        console.log('🎙️ Вызываем selectChannel для голосового канала:', channel.id);
         selectChannel(channel.id);
         return;
       }
 
       // Если подключены к другому голосовому каналу, сначала отключаемся
       if (currentVoiceChannelId && currentVoiceChannelId !== channel.id) {
-        console.log(`🎙️ Отключаемся от текущего канала ${currentVoiceChannelId} перед подключением к ${channel.id}`);
         try {
           await disconnectFromVoiceChannel();
-          console.log('🎙️ Отключение от предыдущего канала завершено');
         } catch (error) {
-          console.error('🎙️ Ошибка отключения от предыдущего канала:', error);
         }
       }
 
@@ -403,31 +385,21 @@ export function ChannelSidebar() {
       
       // Подключаемся к новому голосовому каналу
       try {
-        console.log(`🎙️ Начинаем подключение к голосовому каналу ${channel.id}`);
         await connectToVoiceChannel(channel.id);
-        console.log('🎙️ Вызываем selectChannel после подключения:', channel.id);
         selectChannel(channel.id);
-        console.log('🎙️ Подключение завершено успешно');
       } catch (error) {
-        console.error('🎙️ Ошибка подключения к голосовому каналу:', error);
       }
     } else {
       // Для текстовых каналов просто выбираем
-      console.log('📝 Текстовый канал - вызываем selectChannel:', channel.id);
-      console.log('📝 Функция selectChannel:', typeof selectChannel);
-      console.log('📝 currentServer:', currentServer);
-      console.log('📝 currentServer.channels:', currentServer?.channels);
       selectChannel(channel.id);
-      console.log('📝 selectChannel вызван для текстового канала');
     }
   }
 
   // Функция для получения участников конкретного голосового канала
   const getChannelParticipants = (channelId: number) => {
-    console.log('🔍 [ChannelSidebar] Получаем участников канала', channelId, 'currentVoiceChannelId:', currentVoiceChannelId);
+   
     if (currentVoiceChannelId === channelId) {
       // Если это текущий канал, показываем всех участников включая текущего пользователя
-      console.log('🔍 [ChannelSidebar] Это текущий канал, участники:', participants.length);
       const currentUserParticipant = participants.find(p => p.user_id === user?.id);
       const allParticipants = [
         ...(user ? [{
@@ -465,19 +437,17 @@ export function ChannelSidebar() {
 
   // Действия контекстного меню
   const handleMuteUser = () => {
-    console.log('Заглушить пользователя:', contextMenu?.participant.username);
+
     // TODO: Реализовать заглушение пользователя
     handleContextMenuClose();
   };
 
   const handleKickUser = () => {
-    console.log('Исключить пользователя:', contextMenu?.participant.username);
     // TODO: Реализовать исключение пользователя
     handleContextMenuClose();
   };
 
   const handleViewProfile = () => {
-    console.log('Просмотреть профиль:', contextMenu?.participant.username);
     // TODO: Реализовать просмотр профиля
     handleContextMenuClose();
   };
@@ -524,7 +494,6 @@ export function ChannelSidebar() {
     const audioElement = document.getElementById(`remote-audio-${userId}`) as HTMLAudioElement;
     if (audioElement) {
       audioElement.volume = Math.min(volume / 100, 3.0); // Ограничиваем до 300% (3.0)
-      console.log(`🔊 Установлена громкость ${volume}% для пользователя ${userId}`);
     }
   };
 

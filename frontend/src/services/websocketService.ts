@@ -68,7 +68,6 @@ class WebSocketService {
       this.ws = new WebSocket(`${WS_URL}/ws/notifications?token=${token}`);
       
       this.ws.onopen = () => {
-        console.log('🔔 WebSocket уведомлений подключен');
         this.reconnectAttempts = 0;
         this.isReconnecting = false;
         this.lastError = null;
@@ -78,14 +77,12 @@ class WebSocketService {
       this.ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          console.log('🔔 Получено уведомление:', data);
           
           // Убираем обработку сообщений чата - за это отвечает chatService
           // Оставляем только обработку уведомлений (создание каналов, серверов и т.д.)
 
           // Вызываем соответствующий обработчик
           if (data.type && this.messageHandlers[data.type]) {
-            console.log('🔔 Вызываем обработчик для типа:', data.type, 'с данными:', data);
             this.messageHandlers[data.type](data);
           } else {
             console.log('🔔 Нет обработчика для типа:', data.type);
@@ -98,7 +95,6 @@ class WebSocketService {
       };
 
       this.ws.onclose = (event) => {
-        console.log('🔔 WebSocket уведомлений отключен', event.code, event.reason);
         this.isReconnecting = false;
         this.lastError = event.reason || 'Соединение закрыто';
         this.notifyConnectionStatus();
@@ -126,7 +122,6 @@ class WebSocketService {
       this.lastError = `Попытка ${this.reconnectAttempts}/${this.maxReconnectAttempts}`;
       this.notifyConnectionStatus();
       
-      console.log(`�� Попытка переподключения ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
       
       setTimeout(() => {
         this.connect(token);

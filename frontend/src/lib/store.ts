@@ -94,11 +94,9 @@ export const useStore = create<AppState>()(
                 // Небольшая задержка чтобы гарантировать закрытие предыдущего соединения
                 setTimeout(() => {
                   chatService.connect(channel.id, token);
-                  console.log('[store] WebSocket подключен к каналу', channel.id);
                 }, 100);
               }
             } else {
-              console.log('[store] Отключаем WebSocket (канал не текстовый или нет пользователя)');
               chatService.disconnect();
             }
           }
@@ -696,7 +694,7 @@ export const useStore = create<AppState>()(
 
         // Обработка изменения статуса пользователя
         websocketService.onUserStatusChanged((data) => {
-          console.log('Изменился статус пользователя:', data);
+          
           
           // Генерируем глобальное событие для обновления UI
           window.dispatchEvent(new CustomEvent('user_status_changed', { detail: data }));

@@ -70,7 +70,6 @@ export default function HomePage() {
             useAuthStore.getState().loginSuccess(user, savedToken);
             setStoreUser(user);
             
-            console.log('[HomePage] Пользователь восстановлен из токена:', user);
             return; // Продолжаем инициализацию
           }
         } catch (error) {
@@ -152,23 +151,20 @@ export default function HomePage() {
 
     // Обработчик событий screen_share_start из WebSocket
     const handleScreenShareStartEvent = (event: any) => {
-      console.log('🖥️ [Page] Получено событие screen_share_start:', event.detail);
       const { user_id, username } = event.detail;
       
       setSharingUsers(prev => {
         if (!prev.find(u => u.userId === user_id)) {
-          console.log('🖥️ [Page] Добавляем пользователя в список демонстрирующих:', { user_id, username });
           // Показываем Toast уведомление только если это не мы сами
           const currentUser = authUser;
           if (currentUser && user_id !== currentUser.id) {
-            console.log('🖥️ [Page] Показываем Toast уведомление для пользователя:', username);
             const toastId = `${user_id}-${Date.now()}`;
             setToastNotifications(prevToasts => [
               ...prevToasts,
               { userId: user_id, username, id: toastId }
             ]);
           } else {
-            console.log('🖥️ [Page] Не показываем Toast - это наш собственный стрим');
+            
           }
           
           return [...prev, { userId: user_id, username }];

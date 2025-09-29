@@ -158,7 +158,7 @@ export class AdvancedNoiseGate {
       
       // Логируем каждые 100 кадров (примерно 2 раза в секунду)
       if (frameCount++ % 100 === 0) {
-        console.log(`AdvancedNoiseGate: RMS=${rms.toFixed(3)}, Peak=${peakLevel.toFixed(3)}, Speech=${speechProbability.toFixed(2)}, Gain=${targetGain.toFixed(3)}`);
+     
       }
       
       if (targetGain > this.noiseGate.gain.value) {
@@ -393,28 +393,22 @@ export class AdvancedNoiseGate {
   }
 
   connectNodes(source: AudioNode, destination: AudioNode): void {
-    console.log('AdvancedNoiseGate: Подключение узлов начато');
     const nodes = this.createNoiseSuppressionChain(source.context as AudioContext);
     
     // Подключаем цепочку
     source.connect(nodes[0]);
-    console.log('AdvancedNoiseGate: Источник подключен к inputGain');
     
     for (let i = 0; i < nodes.length - 1; i++) {
       nodes[i].connect(nodes[i + 1]);
     }
-    console.log(`AdvancedNoiseGate: Создана цепочка из ${nodes.length} узлов`);
     
     nodes[nodes.length - 1].connect(destination);
-    console.log('AdvancedNoiseGate: OutputGain подключен к destination');
     
     // Подключаем анализатор параллельно
     if (this.lowShelf && this.analyser) {
       this.lowShelf.connect(this.analyser);
-      console.log('AdvancedNoiseGate: Анализатор подключен для мониторинга');
     }
     
-    console.log('AdvancedNoiseGate: Полная цепочка фильтров активна!');
   }
 
   updateSettings(settings: {
@@ -490,7 +484,6 @@ export class AdvancedNoiseGate {
     this.frequencyData = null;
     this.timeData = null;
     
-    console.log('AdvancedNoiseGate уничтожен');
   }
 }
 
