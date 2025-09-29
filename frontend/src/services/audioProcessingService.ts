@@ -23,7 +23,7 @@ export class AudioProcessingService {
     echoCancellation: true,
     autoGainControl: true,
     speechProbabilityThreshold: 0.5,
-    useAdvancedNoiseSuppression: false // Отключаем дополнительную обработку по умолчанию - используем браузерные алгоритмы
+    useAdvancedNoiseSuppression: true // Включаем CPU-обработку по умолчанию
   };
   
   private onSpeechStart?: () => void;
@@ -201,8 +201,47 @@ export class AudioProcessingService {
 
   // Обновление конфигурации
   updateConfig(config: Partial<AudioProcessingConfig>): void {
+    const oldNoiseSuppression = this.config.noiseSuppression;
+    const oldEchoCancellation = this.config.echoCancellation;
+    const oldAutoGainControl = this.config.autoGainControl;
+
     this.config = { ...this.config, ...config };
     console.log('Audio processing config updated:', this.config);
+
+    // Если изменились настройки шумоподавления, эха или АРУ, нужно обновить браузерные настройки
+    if (oldNoiseSuppression !== this.config.noiseSuppression ||
+        oldEchoCancellation !== this.config.echoCancellation ||
+        oldAutoGainControl !== this.config.autoGainControl) {
+      console.log('🔄 Обновляем браузерные настройки аудио...');
+      this.updateBrowserAudioConstraints();
+    }
+  }
+
+  // Обновление браузерных настроек аудио
+  private async updateBrowserAudioConstraints(): Promise<void> {
+    try {
+      if (this.audioContext && this.sourceNode) {
+        // Получаем текущий медиа поток
+        const stream = this.sourceNode.mediaStream;
+        if (stream) {
+          const audioTracks = stream.getAudioTracks();
+          if (audioTracks.length > 0) {
+            const track = audioTracks[0];
+
+            // Применяем новые настройки к треку
+            await track.applyConstraints({
+              echoCancellation: this.config.echoCancellation,
+              noiseSuppression: this.config.noiseSuppression,
+              autoGainControl: this.config.autoGainControl,
+            });
+
+            console.log('✅ Браузерные настройки аудио обновлены');
+          }
+        }
+      }
+    } catch (error) {
+      console.error('❌ Ошибка обновления браузерных настроек аудио:', error);
+    }
   }
 
   // Получение текущего состояния

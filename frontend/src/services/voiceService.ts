@@ -1,5 +1,6 @@
 import { audioProcessingService } from './audioProcessingService';
 import soundService from './soundService';
+import { advancedNoiseGate } from './advancedNoiseGate';
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://stream-cash.ru';
 
@@ -127,9 +128,8 @@ class VoiceService {
         video: false,
       });
 
-      // Используем сырой поток без дополнительной обработки
-      // WebRTC будет использовать встроенные алгоритмы шумоподавления браузера
-      this.localStream = rawStream;
+      // Пропускаем через наш аудио-пайплайн (CPU шумодав) и используем обработанный поток
+      this.localStream = await audioProcessingService.initialize(rawStream);
       
       // Настраиваем callbacks для VAD
       audioProcessingService.setOnSpeechStart(() => {
@@ -156,8 +156,8 @@ class VoiceService {
         }
       });
       
-      // Анализируем громкость для визуализации (используем сырой поток)
-      audioProcessingService.analyzeVolume(rawStream);
+      // Анализируем громкость для визуализации (используем обработанный поток)
+      audioProcessingService.analyzeVolume(this.localStream);
       
       // Инициализируем старую детекцию голосовой активности (временно)
       this.initVoiceActivityDetection();
@@ -929,7 +929,7 @@ class VoiceService {
 
   setDeafened(deafened: boolean) {
     console.log(`🔊 Установка deafened: ${deafened}`);
-    
+
     // Заглушаем/включаем все удаленные аудио элементы
     this.peerConnections.forEach(({ userId }) => {
       const audioElement = document.getElementById(`remote-audio-${userId}`) as HTMLAudioElement;
@@ -938,9 +938,88 @@ class VoiceService {
         console.log(`🔊 ${deafened ? 'Заглушен' : 'Включен'} звук от пользователя ${userId}`);
       }
     });
-    
+
     // Отправляем статус на сервер
     this.sendMessage({ type: 'deafen', is_deafened: deafened });
+  }
+
+  // Обновление аудио настроек
+  async updateAudioSettings(settings: {
+    noiseSuppression?: boolean;
+    echoCancellation?: boolean;
+    autoGainControl?: boolean;
+  }): Promise<void> {
+    console.log('🔄 Обновление аудио настроек:', settings);
+
+    try {
+      if (this.localStream) {
+        const audioTracks = this.localStream.getAudioTracks();
+        if (audioTracks.length > 0) {
+          const track = audioTracks[0];
+
+          // Применяем новые настройки к треку
+          await track.applyConstraints({
+            echoCancellation: settings.echoCancellation ?? true,
+            noiseSuppression: settings.noiseSuppression ?? true,
+            autoGainControl: settings.autoGainControl ?? true,
+          });
+
+          console.log('✅ Аудио настройки обновлены на медиа треке');
+        }
+      }
+    } catch (error) {
+      console.error('❌ Ошибка обновления аудио настроек:', error);
+      // Если не удалось обновить существующий трек, создаем новый поток
+      await this.recreateMediaStream(settings);
+    }
+  }
+
+  // Пересоздание медиа потока с новыми настройками
+  private async recreateMediaStream(settings: {
+    noiseSuppression?: boolean;
+    echoCancellation?: boolean;
+    autoGainControl?: boolean;
+  }): Promise<void> {
+    try {
+      console.log('🔄 Пересоздаем медиа поток с новыми настройками...');
+
+      // Останавливаем текущий поток
+      if (this.localStream) {
+        this.localStream.getTracks().forEach(track => track.stop());
+      }
+
+      // Создаем новый поток с новыми настройками
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: settings.echoCancellation ?? true,
+          noiseSuppression: settings.noiseSuppression ?? true,
+          autoGainControl: settings.autoGainControl ?? true,
+        },
+        video: false,
+      });
+
+      this.localStream = newStream;
+
+      // Обновляем треки во всех peer connections
+      this.peerConnections.forEach(({ pc }) => {
+        // Удаляем старые аудио треки
+        const senders = pc.getSenders();
+        senders.forEach(sender => {
+          if (sender.track && sender.track.kind === 'audio') {
+            pc.removeTrack(sender);
+          }
+        });
+
+        // Добавляем новые аудио треки
+        newStream.getAudioTracks().forEach(track => {
+          pc.addTrack(track, newStream);
+        });
+      });
+
+      console.log('✅ Медиа поток пересоздан с новыми настройками');
+    } catch (error) {
+      console.error('❌ Ошибка пересоздания медиа потока:', error);
+    }
   }
 
   onParticipantJoin(callback: (participant: any) => void) {
@@ -1745,6 +1824,41 @@ if (typeof window !== 'undefined') {
     console.log('🎙️ Страница скрывается, отключаем голосовое соединение');
     voiceServiceInstance.disconnect();
   });
+}
+
+// Глобальная функция для тестирования (доступна из консоли браузера)
+if (typeof window !== 'undefined') {
+  (window as any).testNoiseGate = () => {
+    console.log('🧪 ГЛОБАЛЬНЫЙ ТЕСТ ШУМОДАВА:');
+    advancedNoiseGate.testNoiseSuppression();
+  };
+
+  (window as any).toggleNoiseGate = () => {
+    advancedNoiseGate.disableTemporarily();
+  };
+
+  (window as any).testAudioSettings = async () => {
+    console.log('🧪 ТЕСТИРОВАНИЕ ОБНОВЛЕНИЯ АУДИО НАСТРОЕК:');
+    try {
+      await voiceServiceInstance.updateAudioSettings({
+        noiseSuppression: false
+      });
+      console.log('⏳ Ждем 3 секунды...');
+      setTimeout(async () => {
+        await voiceServiceInstance.updateAudioSettings({
+          noiseSuppression: true
+        });
+        console.log('✅ Тест завершен');
+      }, 3000);
+    } catch (error) {
+      console.error('❌ Ошибка теста:', error);
+    }
+  };
+
+  console.log('💡 Для тестирования используйте:');
+  console.log('   testNoiseGate() - показать настройки шумодава');
+  console.log('   toggleNoiseGate() - временно отключить шумодав');
+  console.log('   testAudioSettings() - протестировать обновление аудио настроек');
 }
 
 

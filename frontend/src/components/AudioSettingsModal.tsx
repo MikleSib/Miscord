@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Mic, Volume2, Settings } from 'lucide-react';
 import { audioProcessingService, AudioProcessingConfig } from '../services/audioProcessingService';
+import voiceService from '../services/voiceService';
 
 interface AudioSettingsModalProps {
   isOpen: boolean;
@@ -14,15 +15,29 @@ export const AudioSettingsModal: React.FC<AudioSettingsModalProps> = ({ isOpen, 
     echoCancellation: true,
     autoGainControl: true,
     speechProbabilityThreshold: 0.5,
-    useAdvancedNoiseSuppression: false // Отключаем дополнительную обработку - используем браузерные алгоритмы
+    useAdvancedNoiseSuppression: true // Включаем CPU-обработку по умолчанию
   });
 
   if (!isOpen) return null;
 
-  const handleConfigChange = (key: keyof AudioProcessingConfig, value: boolean | number) => {
+  const handleConfigChange = async (key: keyof AudioProcessingConfig, value: boolean | number) => {
     const newConfig = { ...config, [key]: value };
     setConfig(newConfig);
     audioProcessingService.updateConfig(newConfig);
+
+    // Обновляем настройки в voiceService для реального применения
+    if (key === 'noiseSuppression' || key === 'echoCancellation' || key === 'autoGainControl') {
+      try {
+        await voiceService.updateAudioSettings({
+          noiseSuppression: key === 'noiseSuppression' ? value as boolean : config.noiseSuppression,
+          echoCancellation: key === 'echoCancellation' ? value as boolean : config.echoCancellation,
+          autoGainControl: key === 'autoGainControl' ? value as boolean : config.autoGainControl,
+        });
+        console.log('✅ Настройки аудио применены в voiceService');
+      } catch (error) {
+        console.error('❌ Ошибка применения настроек аудио:', error);
+      }
+    }
   };
 
   return (
@@ -95,7 +110,7 @@ export const AudioSettingsModal: React.FC<AudioSettingsModalProps> = ({ isOpen, 
             <label className="flex items-center justify-between">
               <div>
                 <span className="text-[#b5bac1]">Шумоподавление</span>
-                <p className="text-xs text-[#949ba4]">Убирает фоновый шум</p>
+                <p className="text-xs text-[#949ba4]">Убирает фоновый шум (применяется в реальном времени)</p>
               </div>
               <input
                 type="checkbox"
@@ -134,7 +149,7 @@ export const AudioSettingsModal: React.FC<AudioSettingsModalProps> = ({ isOpen, 
             <label className="flex items-center justify-between">
               <div>
                 <span className="text-[#b5bac1]">Подавление эха</span>
-                <p className="text-xs text-[#949ba4]">Убирает эхо от динамиков</p>
+                <p className="text-xs text-[#949ba4]">Убирает эхо от динамиков (применяется в реальном времени)</p>
               </div>
               <input
                 type="checkbox"
@@ -147,7 +162,7 @@ export const AudioSettingsModal: React.FC<AudioSettingsModalProps> = ({ isOpen, 
             <label className="flex items-center justify-between">
               <div>
                 <span className="text-[#b5bac1]">Автоматическая регулировка громкости</span>
-                <p className="text-xs text-[#949ba4]">Выравнивает уровень голоса</p>
+                <p className="text-xs text-[#949ba4]">Выравнивает уровень голоса (применяется в реальном времени)</p>
               </div>
               <input
                 type="checkbox"
