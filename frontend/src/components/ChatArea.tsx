@@ -17,7 +17,6 @@ import chatService from '../services/chatService'
 import uploadService from '../services/uploadService'
 import reactionService from '../services/reactionService'
 import { ScreenShareViewer } from './ScreenShareViewer'
-import { ScreenShareButton } from './ScreenShareButton'
 
 export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSidebar: boolean, setShowUserSidebar: (v: boolean) => void }) {
   const { currentChannel, currentServer } = useStore()
@@ -322,7 +321,6 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
           <span className="font-semibold">{currentChannel.name}</span>
         </div>
         <div className="flex items-center space-x-2">
-          <ScreenShareButton />
           <button
             className="p-2 rounded hover:bg-muted transition flex items-center"
             title={showUserSidebar ? 'Скрыть список участников' : 'Показать список участников'}

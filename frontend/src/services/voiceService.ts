@@ -224,9 +224,9 @@ class VoiceService {
       case 'user_joined_voice':
         console.log('🔊 Пользователь присоединился к голосовому каналу:', data.user_id, data.username);
         
-        // Воспроизводим звук подключения только если это не мы сами
+        // Воспроизводим звук подключения только если это не мы сами И мы находимся в том же канале
         const currentUserId2 = this.getCurrentUserId();
-        if (data.user_id !== currentUserId2) {
+        if (data.user_id !== currentUserId2 && this.voiceChannelId === data.voice_channel_id) {
           soundService.playJoinSound();
         }
         
@@ -249,9 +249,9 @@ class VoiceService {
       case 'user_left_voice':
         console.log('🔊 Пользователь покинул голосовой канал:', data.user_id);
         
-        // Воспроизводим звук отключения только если это не мы сами
+        // Воспроизводим звук отключения только если это не мы сами И мы находимся в том же канале
         const currentUserId3 = this.getCurrentUserId();
-        if (data.user_id !== currentUserId3) {
+        if (data.user_id !== currentUserId3 && this.voiceChannelId === data.voice_channel_id) {
           soundService.playLeaveSound();
         }
         
