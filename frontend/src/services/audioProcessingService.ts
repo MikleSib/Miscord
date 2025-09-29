@@ -23,7 +23,7 @@ export class AudioProcessingService {
     echoCancellation: true,
     autoGainControl: true,
     speechProbabilityThreshold: 0.5,
-    useAdvancedNoiseSuppression: true // Включаем продвинутое шумоподавление по умолчанию
+    useAdvancedNoiseSuppression: false // Отключаем дополнительную обработку по умолчанию - используем браузерные алгоритмы
   };
   
   private onSpeechStart?: () => void;
@@ -64,13 +64,13 @@ export class AudioProcessingService {
       currentNode.connect(this.muteGainNode);
       currentNode = this.muteGainNode;
       
-      // Добавляем продвинутое шумоподавление если включено
+      // Добавляем продвинутую процессорную обработку если включена
       if (this.config.useAdvancedNoiseSuppression && this.config.noiseSuppression) {
         try {
-          // Используем AdvancedNoiseGate вместо RNNoise
           advancedNoiseGate.connectNodes(currentNode, this.destinationNode);
+          console.log('🚀🔊 ДОПОЛНИТЕЛЬНАЯ ПРОЦЕССОРНАЯ ОБРАБОТКА АКТИВИРОВАНА (может не работать с WebRTC)');
         } catch (error) {
-          console.error('Ошибка инициализации AdvancedNoiseGate:', error);
+          console.error('❌ Ошибка инициализации процессорной обработки:', error);
           currentNode.connect(this.destinationNode);
         }
       } else {
@@ -201,15 +201,8 @@ export class AudioProcessingService {
 
   // Обновление конфигурации
   updateConfig(config: Partial<AudioProcessingConfig>): void {
-    const oldAdvancedNS = this.config.useAdvancedNoiseSuppression;
     this.config = { ...this.config, ...config };
     console.log('Audio processing config updated:', this.config);
-    
-    // Если изменилось состояние продвинутого шумоподавления, нужно переинициализировать pipeline
-    if (oldAdvancedNS !== this.config.useAdvancedNoiseSuppression && this.sourceNode && this.destinationNode) {
-      console.log('Переинициализация audio pipeline из-за изменения настроек шумоподавления');
-      this.rebuildAudioPipeline();
-    }
   }
 
   // Получение текущего состояния
@@ -218,41 +211,6 @@ export class AudioProcessingService {
     return this.micVAD !== null;
   }
 
-  // Перестроение audio pipeline при изменении настроек
-  private rebuildAudioPipeline(): void {
-    if (!this.audioContext || !this.sourceNode || !this.destinationNode || !this.muteGainNode) {
-      console.error('Невозможно перестроить pipeline: отсутствуют необходимые компоненты');
-      return;
-    }
-
-    try {
-      // Отключаем все существующие соединения
-      this.sourceNode.disconnect();
-      this.muteGainNode.disconnect();
-      advancedNoiseGate.destroy();
-      
-      // Перестраиваем pipeline
-      let currentNode: AudioNode = this.sourceNode;
-      
-      // Подключаем mute gain node в начале цепочки
-      currentNode.connect(this.muteGainNode);
-      currentNode = this.muteGainNode;
-      
-      if (this.config.useAdvancedNoiseSuppression && this.config.noiseSuppression) {
-        try {
-          advancedNoiseGate.connectNodes(currentNode, this.destinationNode);
-        } catch (error) {
-          console.error('Ошибка переинициализации AdvancedNoiseGate:', error);
-          currentNode.connect(this.destinationNode);
-        }
-      } else {
-        // Прямое подключение без дополнительной обработки
-        currentNode.connect(this.destinationNode);
-      }
-    } catch (error) {
-      console.error('Ошибка при перестроении audio pipeline:', error);
-    }
-  }
 
   // Очистка ресурсов
   async destroy(): Promise<void> {
@@ -275,6 +233,7 @@ export class AudioProcessingService {
       this.destinationNode.disconnect();
       this.destinationNode = null;
     }
+
 
     // Очищаем процессоры шумоподавления
     advancedNoiseGate.destroy();

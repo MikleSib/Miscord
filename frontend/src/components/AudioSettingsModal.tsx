@@ -14,7 +14,7 @@ export const AudioSettingsModal: React.FC<AudioSettingsModalProps> = ({ isOpen, 
     echoCancellation: true,
     autoGainControl: true,
     speechProbabilityThreshold: 0.5,
-    useAdvancedNoiseSuppression: true // Включаем продвинутое шумоподавление по умолчанию
+    useAdvancedNoiseSuppression: false // Отключаем дополнительную обработку - используем браузерные алгоритмы
   });
 
   if (!isOpen) return null;
@@ -123,15 +123,8 @@ export const AudioSettingsModal: React.FC<AudioSettingsModalProps> = ({ isOpen, 
                 {config.useAdvancedNoiseSuppression && (
                   <div className="ml-6 space-y-2 p-3 bg-[#2b2d31] rounded">
                     <p className="text-xs text-[#949ba4]">
-                      <strong>Совет:</strong> Продвинутое шумоподавление агрессивно фильтрует дыхание, клики мыши и клавиатуру. 
-                      Если голос звучит неестественно, попробуйте отключить эту опцию.
-                    </p>
-                    <p className="text-xs text-[#949ba4]">
-                      • Фильтр низких частот: убирает дыхание и гул<br/>
-                      • Фильтр высоких частот: убирает клики и шипение<br/>
-                      • 3 режекторных фильтра: специально для мыши и клавиатуры<br/>
-                      • Адаптивный порог: автоматически подстраивается под голос<br/>
-                      • Детекция импульсов: подавляет резкие звуки
+                      <strong>Примечание:</strong> Дополнительная обработка может не работать с WebRTC.
+                      Рекомендуется использовать встроенные браузерные алгоритмы шумоподавления.
                     </p>
                   </div>
                 )}
