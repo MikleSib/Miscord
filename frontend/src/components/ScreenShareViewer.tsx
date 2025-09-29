@@ -31,8 +31,15 @@ export function ScreenShareViewer({
     }
   }, [sharingUsers, selectedUserId]);
 
+  // Всегда рендерим контейнер, даже если не видим, чтобы VoiceService мог найти его
   if (!isVisible || sharingUsers.length === 0) {
-    return null;
+    return (
+      <div 
+        id="screen-share-container-chat" 
+        className="hidden"
+        style={{ display: 'none' }}
+      />
+    );
   }
 
   const selectedUser = sharingUsers.find(user => user.userId === selectedUserId);

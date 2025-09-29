@@ -306,6 +306,18 @@ class VoiceService {
 
       case 'screen_share_started':
         console.log('🖥️ Пользователь начал демонстрацию экрана:', data.user_id);
+        
+        // Генерируем событие для UI
+        const screenShareStartEvent = new CustomEvent('screen_share_start', { 
+          detail: { 
+            user_id: data.user_id, 
+            username: data.username,
+            avatar_url: data.avatar_url 
+          } 
+        });
+        window.dispatchEvent(screenShareStartEvent);
+        console.log('🖥️ Отправлено событие screen_share_start для UI');
+        
         if (this.onScreenShareChanged) {
           this.onScreenShareChanged(data.user_id, true);
         }
@@ -313,6 +325,17 @@ class VoiceService {
 
       case 'screen_share_stopped':
         console.log('🖥️ Пользователь остановил демонстрацию экрана:', data.user_id);
+        
+        // Генерируем событие для UI
+        const screenShareStopEvent = new CustomEvent('screen_share_stop', { 
+          detail: { 
+            user_id: data.user_id, 
+            username: data.username 
+          } 
+        });
+        window.dispatchEvent(screenShareStopEvent);
+        console.log('🖥️ Отправлено событие screen_share_stop для UI');
+        
         // Удаляем видео элемент
         const videoElement = document.getElementById(`remote-video-${data.user_id}`);
         if (videoElement) {
@@ -509,15 +532,31 @@ class VoiceService {
                   height: videoContainer.offsetHeight,
                   style: videoContainer.style.cssText
                 });
-              } else if (attempts < 100) { // Увеличено до 10 секунд
+              } else if (attempts < 200) { // Увеличено до 20 секунд
                 // Контейнер ещё не создан, ждем
-                console.log(`🖥️ Ожидание контейнера для пользователя ${userId} (попытка ${attempts + 1}/100)`);
+                console.log(`🖥️ Ожидание контейнера для пользователя ${userId} (попытка ${attempts + 1}/200)`);
                 setTimeout(() => waitForRemoteContainer(attempts + 1), 100);
               } else {
-                // Превышено время ожидания
-                console.error(`🖥️ Превышено время ожидания контейнера для пользователя ${userId}`);
-                remoteVideo.remove();
-                return;
+                // Превышено время ожидания - создаем временный контейнер
+                console.warn(`🖥️ Превышено время ожидания контейнера для пользователя ${userId}. Создаем временный контейнер.`);
+                
+                // Создаем временный контейнер в body
+                const tempContainer = document.createElement('div');
+                tempContainer.id = 'screen-share-container-chat';
+                tempContainer.style.position = 'fixed';
+                tempContainer.style.top = '0';
+                tempContainer.style.left = '0';
+                tempContainer.style.width = '100vw';
+                tempContainer.style.height = '100vh';
+                tempContainer.style.backgroundColor = '#000';
+                tempContainer.style.zIndex = '9999';
+                tempContainer.style.display = 'flex';
+                tempContainer.style.alignItems = 'center';
+                tempContainer.style.justifyContent = 'center';
+                document.body.appendChild(tempContainer);
+                
+                tempContainer.appendChild(remoteVideo);
+                console.log(`🖥️ Создан временный контейнер для пользователя ${userId}`);
               }
             };
 

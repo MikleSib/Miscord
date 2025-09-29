@@ -331,6 +331,13 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
         </div>
       </div>
 
+      {/* Скрытый контейнер для screen share - всегда доступен для VoiceService */}
+      <div 
+        id="screen-share-container-chat" 
+        className="hidden"
+        style={{ display: 'none' }}
+      />
+
       {/* Screen Share Viewer */}
       <ScreenShareViewer
         isVisible={isScreenShareVisible}
