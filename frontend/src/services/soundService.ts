@@ -12,12 +12,12 @@ class SoundService {
       // Инициализируем звук подключения
       this.joinSound = new Audio('/music/звук подключения к звонку.mp3');
       this.joinSound.preload = 'auto';
-      this.joinSound.volume = 0.7; // Устанавливаем комфортную громкость
+      this.joinSound.volume = 0.35; // Устанавливаем комфортную громкость
       
       // Инициализируем звук отключения
       this.leaveSound = new Audio('/music/звук отключения от звонка.mp3');
       this.leaveSound.preload = 'auto';
-      this.leaveSound.volume = 0.7;
+      this.leaveSound.volume = 0.35;
       
       this.isInitialized = true;
     } catch (error) {

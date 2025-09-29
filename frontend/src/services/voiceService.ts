@@ -491,13 +491,15 @@ class VoiceService {
             // Помогает мобильным браузерам и iOS не открывать полноэкранный режим
             // @ts-ignore
             remoteVideo.playsInline = true;
-            remoteVideo.style.position = 'absolute';
-            remoteVideo.style.top = '0';
-            remoteVideo.style.left = '0';
+            // Используем относительное позиционирование и блочное отображение,
+            // чтобы не перекрывать плейсхолдер и корректно занимать контейнер
+            remoteVideo.style.position = 'relative';
+            remoteVideo.style.display = 'block';
             remoteVideo.style.width = '100%';
             remoteVideo.style.height = '100%';
-          remoteVideo.style.objectFit = 'contain';
+            remoteVideo.style.objectFit = 'contain';
             remoteVideo.style.backgroundColor = '#000';
+            remoteVideo.style.zIndex = '2';
           // Запрашиваем 60fps при воспроизведении где поддерживается
           try {
             // @ts-ignore
@@ -518,11 +520,17 @@ class VoiceService {
               const videoContainer = document.getElementById('screen-share-container-chat');
 
               if (videoContainer) {
-                // Контейнер найден — просто добавляем видео
+                // Убираем плейсхолдеры не-видео, чтобы видео стало видно
                 try {
-                  videoContainer.innerHTML = '';
+                  Array.from(videoContainer.children).forEach((child) => {
+                    if (!(child instanceof HTMLVideoElement)) {
+                      child.remove();
+                    }
+                  });
                 } catch {}
-                videoContainer.appendChild(remoteVideo);
+                if (!videoContainer.contains(remoteVideo)) {
+                  videoContainer.appendChild(remoteVideo);
+                }
                 console.log(`🖥️ Видео элемент добавлен в ScreenShareViewer для пользователя ${userId}.`, {
                   width: videoContainer.offsetWidth,
                   height: videoContainer.offsetHeight
@@ -555,28 +563,114 @@ class VoiceService {
             waitForRemoteContainer();
           }
           
-          remoteVideo.srcObject = new MediaStream(videoTracks);
+          // Используем исходный MediaStream от ontrack, чтобы избежать проблем с воспроизведением у поздних подключившихся
+          const initialStream = (event.streams && event.streams[0]) ? event.streams[0] : new MediaStream(videoTracks);
+          remoteVideo.srcObject = initialStream;
 
-          // Гарантируем запуск воспроизведения
-          const tryPlay = () => {
+          // Для поздних подключившихся просим у отправителя ключевой кадр
+          try {
+            const videoReceiver = pc.getReceivers().find(r => r.track && r.track.kind === 'video');
+            const rq = (videoReceiver && (videoReceiver as any).requestKeyFrame) ? (videoReceiver as any).requestKeyFrame.bind(videoReceiver) : null;
+            if (rq) {
+              rq();
+              // Повторяем запрос несколько раз, пока не появятся размеры видео
+              let attempts = 0;
+              const kfTimer = window.setInterval(() => {
+                attempts += 1;
+                if ((remoteVideo.videoWidth && remoteVideo.videoWidth > 0) || attempts >= 8) {
+                  clearInterval(kfTimer);
+                } else {
+                  try { rq(); } catch {}
+                }
+              }, 1000);
+
+              // Также подписываемся на unmute для receiver.track (часто именно он размуляется позже)
+              try {
+                const rxTrack = (videoReceiver as any)?.track as MediaStreamTrack | undefined;
+                if (rxTrack) {
+                  rxTrack.addEventListener('unmute', () => {
+                    try { (safePlay as any)(); } catch {}
+                  }, { once: true });
+                }
+              } catch {}
+            }
+          } catch {}
+
+          // Некоторые браузеры отправляют сначала "muted" видеотрек, который потом размуляется.
+          // Для поздних подключившихся дождёмся события unmute и ещё раз инициируем проигрывание.
+          try {
+            videoTracks.forEach((track) => {
+              if ((track as any).muted || track.enabled === false) {
+                track.addEventListener('unmute', () => {
+                  // Обновим srcObject на случай смены составов стрима и снова попробуем воспроизведение
+                  const currentStream = (event.streams && event.streams[0]) ? event.streams[0] : new MediaStream([track]);
+                  remoteVideo.srcObject = currentStream;
+                  // Безопасный запуск воспроизведения (функция определена ниже)
+                  try { (safePlay as any)(); } catch {}
+                }, { once: true });
+              }
+            });
+          } catch {}
+
+          // Если по-прежнему нет кадров (readyState=0), запускаем короткий watchdog:
+          // периодически просим ключевой кадр и пробуем безопасно воспроизвести.
+          try {
+            const start = Date.now();
+            const videoReceiver = pc.getReceivers().find(r => r.track && r.track.kind === 'video');
+            const rq = (videoReceiver && (videoReceiver as any).requestKeyFrame) ? (videoReceiver as any).requestKeyFrame.bind(videoReceiver) : null;
+            const watchdog = window.setInterval(() => {
+              if (remoteVideo.videoWidth > 0 || Date.now() - start > 8000) {
+                clearInterval(watchdog);
+                return;
+              }
+              try { (safePlay as any)(); } catch {}
+              try { if (rq) rq(); } catch {}
+            }, 600);
+          } catch {}
+
+          // Гарантируем запуск воспроизведения только когда элемент присоединён к DOM контейнеру
+          const safePlay = () => {
+            const container = document.getElementById('screen-share-container-chat');
+            if (!remoteVideo.isConnected || !container || !container.contains(remoteVideo)) {
+              return; // Не пытаемся воспроизводить, пока элемент не в DOM контейнере
+            }
             const p = remoteVideo.play();
             if (p && typeof p.then === 'function') {
               p.then(() => {
                 console.log('🖥️ Воспроизведение видео удаленного экрана запущено');
               }).catch((e: any) => {
                 console.warn('🖥️ Не удалось автовоспроизвести экран, повторим позже:', e);
-                // Повтор через короткую паузу
                 setTimeout(() => {
-                  remoteVideo.play().catch(() => {});
+                  safePlay();
                 }, 300);
               });
             }
           };
 
-          remoteVideo.addEventListener('loadedmetadata', tryPlay, { once: true });
-          remoteVideo.addEventListener('canplay', tryPlay, { once: true });
-          // Первая попытка сразу
-          tryPlay();
+          remoteVideo.addEventListener('loadedmetadata', safePlay);
+          remoteVideo.addEventListener('canplay', safePlay);
+
+          // Watchdog: если элемент внезапно удалён (при ре-рендерах React), пере-добавляем его
+          const watchdogInterval = window.setInterval(() => {
+            if (!document.body.contains(remoteVideo)) {
+              const container = document.getElementById('screen-share-container-chat');
+              if (container) {
+                try {
+                  container.appendChild(remoteVideo);
+                  safePlay();
+                } catch {}
+              }
+            }
+          }, 500);
+
+          // Очищаем watchdog когда видеотрек закончится
+          try {
+            videoTracks.forEach((t) => {
+              t.addEventListener('ended', () => {
+                clearInterval(watchdogInterval);
+              });
+            });
+          } catch {}
 
           // Уведомляем UI о начале демонстрации экрана (для поздних присоединившихся)
           try {
