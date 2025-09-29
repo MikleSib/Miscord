@@ -8,6 +8,12 @@ class SoundService {
   }
 
   private initializeSounds() {
+    // Проверяем, что мы в браузере (не на сервере)
+    if (typeof window === 'undefined' || typeof Audio === 'undefined') {
+      console.log('🔇 SoundService: Audio API недоступен (серверная среда)');
+      return;
+    }
+
     try {
       // Инициализируем звук подключения
       this.joinSound = new Audio('/music/звук подключения к звонку.mp3');

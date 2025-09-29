@@ -2,7 +2,11 @@ const path = require('path');
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'standalone',
+  output: process.env.ELECTRON ? 'export' : 'standalone',
+  trailingSlash: true,
+  images: {
+    unoptimized: true
+  },
   
   async rewrites() {
     return [

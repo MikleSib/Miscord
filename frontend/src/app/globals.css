@@ -2,6 +2,76 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Electron Title Bar Styles */
+.electron-app .electron-title-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
+  background: hsl(var(--background));
+  border-bottom: 1px solid hsl(var(--border));
+  z-index: 1000;
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.electron-app .title-bar-content {
+  display: flex;
+  height: 100%;
+  align-items: center;
+}
+
+.electron-app .title-bar-drag-region {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  padding-left: 12px;
+}
+
+.electron-app .app-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: hsl(var(--foreground));
+}
+
+.electron-app .title-bar-controls {
+  display: flex;
+  height: 100%;
+  -webkit-app-region: no-drag;
+}
+
+.electron-app .title-bar-button {
+  width: 46px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+}
+
+.electron-app .title-bar-button:hover {
+  background: hsl(var(--muted));
+}
+
+.electron-app .close-button:hover {
+  background: hsl(var(--destructive));
+}
+
+.electron-app .close-button:hover svg {
+  color: white;
+}
+
+/* Сдвигаем основной контент вниз для title bar */
+.electron-app body {
+  padding-top: 32px;
+}
+
 /* Анимация для панели голосового подключения */
 @keyframes slide-up {
   from {
