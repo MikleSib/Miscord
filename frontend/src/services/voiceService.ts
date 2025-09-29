@@ -9,6 +9,8 @@ const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://stream-cash.ru';
 declare global {
   interface Window {
     __voiceServiceInstance?: VoiceService;
+    // Тип для electronAPI описан в src/types/electron.d.ts; здесь оставляем any, чтобы не конфликтовать
+    electronAPI?: any;
   }
 }
 
@@ -1303,26 +1305,42 @@ class VoiceService {
         return false;
       }
       
-      // Получаем поток экрана с улучшенными настройками качества
-      this.screenStream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          width: { ideal: 1920, max: 1920 },
-          height: { ideal: 1080, max: 1080 },
-          frameRate: { ideal: 30, max: 60 }, // Снижаем до 30 FPS для стабильности
-          // Добавляем настройки качества
-          aspectRatio: { ideal: 16/9 }
-        },
-        audio: true // Включаем звук системы если доступен
-      });
+      // Electron: используем desktopCapturer для выбора источника, как в Discord
+      const isElectron = typeof window !== 'undefined' && !!window.electronAPI && typeof window.electronAPI.getDesktopSources === 'function';
+      if (isElectron) {
+        const sources: Array<{ id: string; name: string; type: string }> = await window.electronAPI!.getDesktopSources!({});
+        // По умолчанию берём первый экран (primary). Если есть screen со словом 'Screen 1' предпочтем его
+        let selected = sources.find((s: { id: string; name: string; type: string }) => s.type === 'screen' && /1|Primary|Главный/i.test(s.name))
+          || sources.find((s: { id: string; name: string; type: string }) => s.type === 'screen')
+          || sources[0];
+        if (!selected) throw new Error('Не удалось получить список источников экрана');
+        try {
+          this.screenStream = await window.electronAPI!.getDesktopStream!(selected.id, true, 30);
+        } catch (err) {
+          console.warn('🖥️ Не удалось захватить с системным звуком, пробуем без аудио:', err);
+          this.screenStream = await window.electronAPI!.getDesktopStream!(selected.id, false, 30);
+        }
+      } else {
+        // Браузер: стандартный getDisplayMedia
+        this.screenStream = await navigator.mediaDevices.getDisplayMedia({
+          video: {
+            width: { ideal: 1920, max: 1920 },
+            height: { ideal: 1080, max: 1080 },
+            frameRate: { ideal: 30, max: 60 },
+            aspectRatio: { ideal: 16/9 }
+          },
+          audio: true
+        });
+      }
 
       // Обрабатываем событие остановки демонстрации экрана
-      this.screenStream.getVideoTracks()[0].addEventListener('ended', () => {
+      this.screenStream!.getVideoTracks()[0].addEventListener('ended', () => {
         console.log('🖥️ Демонстрация экрана остановлена пользователем');
         this.stopScreenShare();
       });
 
       // Обрабатываем событие остановки аудио трека
-      const audioTracks = this.screenStream.getAudioTracks();
+      const audioTracks = this.screenStream!.getAudioTracks();
       if (audioTracks.length > 0) {
         audioTracks[0].addEventListener('ended', () => {
           console.log('🖥️ Системный звук остановлен');
