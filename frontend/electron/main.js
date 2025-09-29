@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, shell, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, shell, ipcMain, desktopCapturer } = require('electron');
 const path = require('path');
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -19,7 +19,8 @@ function createWindow() {
     },
     icon: path.join(__dirname, '../public/favicon.ico'),
     titleBarStyle: 'default',
-    show: false
+    show: false,
+    backgroundThrottling: false
   });
 
   // Загружаем приложение
@@ -29,6 +30,11 @@ function createWindow() {
   // Всегда загружаем сайт stream-cash.ru (не локальные файлы)
   console.log('Загружаем https://stream-cash.ru/');
   mainWindow.loadURL('https://stream-cash.ru/');
+
+  // Включаем скрытые флаги, которые помогают Windows Graphics Capture
+  try {
+    app.commandLine.appendSwitch('enable-webrtc-pipewire-capturer');
+  } catch {}
 
   // Показываем окно когда оно готово
   mainWindow.once('ready-to-show', () => {
@@ -155,5 +161,28 @@ ipcMain.handle('maximize-window', () => {
 ipcMain.handle('close-window', () => {
   if (mainWindow) {
     mainWindow.close();
+  }
+});
+
+// Предоставляем список источников для захвата экрана через IPC,
+// чтобы не зависеть от доступности desktopCapturer в preload/renderer
+ipcMain.handle('get-desktop-sources', async (_event, options = {}) => {
+  const { thumbnailSize = { width: 320, height: 180 }, fetchWindowIcons = true } = options || {};
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen', 'window'],
+      thumbnailSize,
+      fetchWindowIcons
+    });
+    return sources.map((s) => ({
+      id: s.id,
+      name: s.name,
+      display_id: s.display_id,
+      appIconDataURL: s.appIcon ? s.appIcon.toDataURL() : null,
+      thumbnailDataURL: s.thumbnail ? s.thumbnail.toDataURL() : null,
+      type: s.id.startsWith('screen:') ? 'screen' : 'window'
+    }));
+  } catch (e) {
+    return { error: String(e) };
   }
 });

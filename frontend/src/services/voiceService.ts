@@ -1309,16 +1309,53 @@ class VoiceService {
       const isElectron = typeof window !== 'undefined' && !!window.electronAPI && typeof window.electronAPI.getDesktopSources === 'function';
       if (isElectron) {
         const sources: Array<{ id: string; name: string; type: string }> = await window.electronAPI!.getDesktopSources!({});
-        // По умолчанию берём первый экран (primary). Если есть screen со словом 'Screen 1' предпочтем его
-        let selected = sources.find((s: { id: string; name: string; type: string }) => s.type === 'screen' && /1|Primary|Главный/i.test(s.name))
+        // Выбираем основной экран
+        const selected = sources.find((s: { id: string; name: string; type: string }) => s.type === 'screen' && /1|Primary|Главный/i.test(s.name))
           || sources.find((s: { id: string; name: string; type: string }) => s.type === 'screen')
           || sources[0];
         if (!selected) throw new Error('Не удалось получить список источников экрана');
+
+        const buildConstraints = (withSystemAudio: boolean) => ({
+          audio: withSystemAudio
+            ? {
+                mandatory: {
+                  chromeMediaSource: 'desktop',
+                  chromeMediaSourceId: selected.id,
+                }
+              }
+            : false,
+          video: {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: selected.id,
+              maxFrameRate: 30,
+              minFrameRate: 15,
+              maxWidth: 1920,
+              maxHeight: 1080,
+            }
+          } as any
+        }) as MediaStreamConstraints;
+
         try {
-          this.screenStream = await window.electronAPI!.getDesktopStream!(selected.id, true, 30);
-        } catch (err) {
-          console.warn('🖥️ Не удалось захватить с системным звуком, пробуем без аудио:', err);
-          this.screenStream = await window.electronAPI!.getDesktopStream!(selected.id, false, 30);
+          this.screenStream = await navigator.mediaDevices.getUserMedia(buildConstraints(true));
+        } catch (e) {
+          console.warn('🖥️ Не удалось получить системный звук, пробуем без аудио', e);
+          this.screenStream = await navigator.mediaDevices.getUserMedia(buildConstraints(false));
+        }
+
+        // Валидация: убеждаемся, что получили настоящий MediaStream
+        if (!this.screenStream || typeof (this.screenStream as any).getVideoTracks !== 'function') {
+          console.warn('🖥️ Получен несовместимый объект вместо MediaStream. Пробуем getDisplayMedia как fallback');
+          try {
+            const gdm = await navigator.mediaDevices.getDisplayMedia({
+              video: true,
+              audio: false
+            } as any);
+            this.screenStream = gdm as any;
+          } catch (e) {
+            console.error('🖥️ Fallback getDisplayMedia также не удался', e);
+            throw e;
+          }
         }
       } else {
         // Браузер: стандартный getDisplayMedia
