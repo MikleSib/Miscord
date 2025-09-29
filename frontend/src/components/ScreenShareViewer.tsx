@@ -31,16 +31,10 @@ export function ScreenShareViewer({
     }
   }, [sharingUsers, selectedUserId]);
 
-  // Всегда рендерим контейнер, даже если не видим, чтобы VoiceService мог найти его
-  if (!isVisible || sharingUsers.length === 0) {
-    return (
-      <div 
-        id="screen-share-container-chat" 
-        className="hidden"
-        style={{ display: 'none' }}
-      />
-    );
-  }
+	// Когда не видим или нет стримеров — ничего не рендерим
+	if (!isVisible || sharingUsers.length === 0) {
+	  return null;
+	}
 
   const selectedUser = sharingUsers.find(user => user.userId === selectedUserId);
   const isScreenSharing = selectedUser !== undefined;

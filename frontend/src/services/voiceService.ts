@@ -38,6 +38,8 @@ class VoiceService {
   private isScreenSharing: boolean = false; // Статус демонстрации экрана
   private onScreenShareChanged: ((userId: number, isSharing: boolean) => void) | null = null;
   private adaptiveQualityEnabled: boolean = true; // Включено ли адаптивное качество
+  // Локальный справочник участников: userId -> { username, avatar_url }
+  private participantDirectory: Map<number, { username: string; avatar_url?: string }> = new Map();
 
   // Методы для уведомлений о разрешении аудио
   showAudioPermissionNotification(userId: number): void {
@@ -208,6 +210,13 @@ class VoiceService {
         if (this.onParticipantsReceivedCallback) {
           this.onParticipantsReceivedCallback(data.participants);
         }
+        // Обновляем локальный справочник участников
+        try {
+          this.participantDirectory.clear();
+          for (const p of data.participants) {
+            this.participantDirectory.set(p.user_id, { username: p.username, avatar_url: p.avatar_url });
+          }
+        } catch {}
         
         // Создаем соединения с существующими участниками (кроме себя)
         const currentUserId = this.getCurrentUserId();
@@ -223,6 +232,10 @@ class VoiceService {
 
       case 'user_joined_voice':
         console.log('🔊 Пользователь присоединился к голосовому каналу:', data.user_id, data.username);
+        // Пополняем справочник
+        try {
+          this.participantDirectory.set(data.user_id, { username: data.username, avatar_url: data.avatar_url });
+        } catch {}
         
         // Воспроизводим звук подключения только если это не мы сами И мы находимся в том же канале
         const currentUserId2 = this.getCurrentUserId();
@@ -399,6 +412,15 @@ class VoiceService {
       await this.adjustVideoQuality(pc, userId, false);
     }
 
+    // Если мы УЖЕ демонстрируем экран, добавим screenShare треки и инициируем переговоры
+    if (this.isScreenSharing && this.screenStream) {
+      try {
+        await this.updatePeerConnectionForScreenShare(pc, userId);
+      } catch (e) {
+        console.warn(`🖥️ Не удалось сразу добавить screen share для нового соединения с пользователем ${userId}:`, e);
+      }
+    }
+
     // Обработка входящего потока
     pc.ontrack = (event) => {
       console.log('🔊 Получен удаленный поток от пользователя', userId, event.streams);
@@ -516,47 +538,26 @@ class VoiceService {
               console.error(`🖥️ Ошибка загрузки видео для пользователя ${userId}:`, e);
             });
             
-            // Ждем появления контейнера в ChatArea для удалённого видео
+            // Ждем появления контейнера в ScreenShareViewer
             const waitForRemoteContainer = (attempts = 0): void => {
               const videoContainer = document.getElementById('screen-share-container-chat');
 
               if (videoContainer) {
-                // Контейнер найден, показываем его и добавляем видео
-                videoContainer.style.display = 'flex';
-                videoContainer.style.visibility = 'visible';
-                videoContainer.style.opacity = '1';
-                videoContainer.innerHTML = '';
+                // Контейнер найден — просто добавляем видео
+                try {
+                  videoContainer.innerHTML = '';
+                } catch {}
                 videoContainer.appendChild(remoteVideo);
-                console.log(`🖥️ Видео элемент добавлен в ChatArea для пользователя ${userId}. Контейнер размеры:`, {
+                console.log(`🖥️ Видео элемент добавлен в ScreenShareViewer для пользователя ${userId}.`, {
                   width: videoContainer.offsetWidth,
-                  height: videoContainer.offsetHeight,
-                  style: videoContainer.style.cssText
+                  height: videoContainer.offsetHeight
                 });
-              } else if (attempts < 200) { // Увеличено до 20 секунд
-                // Контейнер ещё не создан, ждем
-                console.log(`🖥️ Ожидание контейнера для пользователя ${userId} (попытка ${attempts + 1}/200)`);
+              } else if (attempts < 200) { // ждем до ~20с
                 setTimeout(() => waitForRemoteContainer(attempts + 1), 100);
               } else {
-                // Превышено время ожидания - создаем временный контейнер
-                console.warn(`🖥️ Превышено время ожидания контейнера для пользователя ${userId}. Создаем временный контейнер.`);
-                
-                // Создаем временный контейнер в body
-                const tempContainer = document.createElement('div');
-                tempContainer.id = 'screen-share-container-chat';
-                tempContainer.style.position = 'fixed';
-                tempContainer.style.top = '0';
-                tempContainer.style.left = '0';
-                tempContainer.style.width = '100vw';
-                tempContainer.style.height = '100vh';
-                tempContainer.style.backgroundColor = '#000';
-                tempContainer.style.zIndex = '9999';
-                tempContainer.style.display = 'flex';
-                tempContainer.style.alignItems = 'center';
-                tempContainer.style.justifyContent = 'center';
-                document.body.appendChild(tempContainer);
-                
-                tempContainer.appendChild(remoteVideo);
-                console.log(`🖥️ Создан временный контейнер для пользователя ${userId}`);
+                console.error(`🖥️ Контейнер для демонстрации экрана не найден (user ${userId}). Отмена.`);
+                remoteVideo.remove();
+                return;
               }
             };
 
@@ -580,11 +581,39 @@ class VoiceService {
           }
           
           remoteVideo.srcObject = new MediaStream(videoTracks);
-          
-          // Уведомляем о начале демонстрации экрана
+
+          // Уведомляем UI о начале демонстрации экрана (для поздних присоединившихся)
+          try {
+            const info = this.participantDirectory.get(userId);
+            const evt = new CustomEvent('screen_share_start', {
+              detail: {
+                user_id: userId,
+                username: info?.username,
+                avatar_url: info?.avatar_url
+              }
+            });
+            window.dispatchEvent(evt);
+          } catch {}
+
+          // Уведомляем store/слушателей
           if (this.onScreenShareChanged) {
             this.onScreenShareChanged(userId, true);
           }
+
+          // Следим за завершением видео, чтобы корректно закрыть UI
+          try {
+            videoTracks.forEach((t) => {
+              t.addEventListener('ended', () => {
+                const stopEvt = new CustomEvent('screen_share_stop', {
+                  detail: { user_id: userId, username: this.participantDirectory.get(userId)?.username }
+                });
+                window.dispatchEvent(stopEvt);
+                if (this.onScreenShareChanged) {
+                  this.onScreenShareChanged(userId, false);
+                }
+              });
+            });
+          } catch {}
           
           console.log('🖥️ Видео элемент создан для пользователя', userId);
         }
