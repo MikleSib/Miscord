@@ -197,7 +197,7 @@ class VoiceService {
     switch (data.type) {
       case 'participants':
         this.iceServers = data.ice_servers;
-        
+
         // Передаем список участников в store
         if (this.onParticipantsReceivedCallback) {
           this.onParticipantsReceivedCallback(data.participants);
@@ -209,12 +209,35 @@ class VoiceService {
             this.participantDirectory.set(p.user_id, { username: p.username, avatar_url: p.avatar_url });
           }
         } catch {}
-        
-        // Создаем соединения с существующими участниками (кроме себя)
+
+        // Проверяем, есть ли среди участников те, кто уже демонстрирует экран
+        // (для синхронизации состояния с поздними участниками)
         const currentUserId = this.getCurrentUserId();
         for (const participant of data.participants) {
+          // Проверяем, демонстрирует ли участник экран
+          if (participant.user_id !== currentUserId && participant.is_sharing_screen) {
+            console.log('🖥️ Поздний участник: пользователь', participant.user_id, 'демонстрирует экран, синхронизируем состояние');
+
+            // Симулируем событие screen_share_started для позднего участника
+            const screenShareStartEvent = new CustomEvent('screen_share_start', {
+              detail: {
+                user_id: participant.user_id,
+                username: participant.username,
+                avatar_url: participant.avatar_url
+              }
+            });
+            window.dispatchEvent(screenShareStartEvent);
+
+            if (this.onScreenShareChanged) {
+              this.onScreenShareChanged(participant.user_id, true);
+            }
+          }
+        }
+
+        // Создаем соединения с существующими участниками (кроме себя)
+        for (const participant of data.participants) {
           if (participant.user_id !== currentUserId) {
-      
+
             const shouldCreateOffer = currentUserId !== null && currentUserId < participant.user_id;
             await this.createPeerConnection(participant.user_id, shouldCreateOffer);
           }
