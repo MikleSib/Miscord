@@ -668,6 +668,17 @@ class VoiceService {
     }
 
     try {
+      // Избегаем glare: если у нас уже есть локальный offer, откатываемся
+      if (peerConnection.pc.signalingState === 'have-local-offer') {
+        try {
+          // @ts-ignore — rollback тип отсутствует в TS типах
+          await peerConnection.pc.setLocalDescription({ type: 'rollback' });
+          console.log('🔊 Выполнен rollback локального offer из-за встречного offer');
+        } catch (e) {
+          console.warn('🔊 Не удалось выполнить rollback:', e);
+        }
+      }
+      
       await peerConnection.pc.setRemoteDescription(offer);
       console.log(`🔊 Установлен remote description для пользователя ${userId}`);
       
@@ -692,6 +703,11 @@ class VoiceService {
     const peerConnection = this.peerConnections.get(userId);
     if (peerConnection) {
       try {
+        // Защита от некорректного состояния: answer принимаем только когда есть локальный offer
+        if (peerConnection.pc.signalingState !== 'have-local-offer') {
+          console.warn(`🔊 Пропускаем answer от ${userId} — текущее signalingState=${peerConnection.pc.signalingState}`);
+          return;
+        }
         await peerConnection.pc.setRemoteDescription(answer);
         console.log(`🔊 Установлен remote description (answer) для пользователя ${userId}`);
       } catch (error) {
