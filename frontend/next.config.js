@@ -21,6 +21,11 @@ const nextConfig = {
 
   webpack: (config) => {
     config.resolve.alias['@'] = path.resolve(__dirname, 'src');
+    // Force browser build of onnxruntime-web by excluding Node-specific bundle
+    config.resolve.alias['onnxruntime-web/dist/ort.node.min.mjs'] = false;
+    config.resolve.alias['onnxruntime-web/dist/ort.node.mjs'] = false;
+    config.resolve.alias['onnxruntime-web/dist/ort.node.js'] = false;
+    config.resolve.alias['onnxruntime-node'] = false;
     config.externals.push({
       'bufferutil': 'bufferutil',
       'utf-8-validate': 'utf-8-validate',
@@ -32,6 +37,13 @@ const nextConfig = {
       asyncWebAssembly: true,
     };
     
+    // Ensure .mjs in node_modules is handled correctly
+    config.module.rules.push({
+      test: /\.mjs$/,
+      include: /node_modules/,
+      type: 'javascript/auto',
+    });
+
     // Добавляем правило для WASM файлов
     config.module.rules.push({
       test: /\.wasm$/,

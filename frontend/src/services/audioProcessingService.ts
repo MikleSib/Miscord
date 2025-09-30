@@ -1,5 +1,8 @@
 import { MicVAD, utils } from '@ricky0123/vad-web';
 import { advancedNoiseGate } from './advancedNoiseGate';
+import { deepFilterNetProcessor } from './deepFilterNetProcessor';
+
+export type NoiseSuppressionEngine = 'browser' | 'rnnoise' | 'deepfilternet';
 
 export interface AudioProcessingConfig {
   vadEnabled: boolean;
@@ -8,6 +11,7 @@ export interface AudioProcessingConfig {
   autoGainControl: boolean;
   speechProbabilityThreshold: number;
   useAdvancedNoiseSuppression: boolean;
+  noiseSuppressionEngine: NoiseSuppressionEngine;
 }
 
 export class AudioProcessingService {
@@ -24,8 +28,15 @@ export class AudioProcessingService {
     echoCancellation: true,
     autoGainControl: true,
     speechProbabilityThreshold: 0.5,
-    useAdvancedNoiseSuppression: true // Включаем CPU-обработку по умолчанию
+    useAdvancedNoiseSuppression: true, // Включаем CPU-обработку по умолчанию
+    noiseSuppressionEngine: (typeof window !== 'undefined' && (
+      // Electron окружение
+      !!(window as any).electronAPI || (navigator && /Electron/i.test(navigator.userAgent))
+    )) ? 'deepfilternet' : 'browser' // В Electron сразу используем DeepFilterNet
   };
+  
+  private deepFilterNetNode: AudioWorkletNode | null = null;
+  private deepFilterNetSupported: boolean = false;
   
   private onSpeechStart?: () => void;
   private onSpeechEnd?: () => void;
@@ -33,6 +44,37 @@ export class AudioProcessingService {
 
   constructor() {
     console.log('AudioProcessingService initialized');
+    this.checkDeepFilterNetSupport();
+  }
+
+  /**
+   * Проверка поддержки DeepFilterNet
+   */
+  private async checkDeepFilterNetSupport(): Promise<void> {
+    try {
+      const { DeepFilterNetProcessor } = await import('./deepFilterNetProcessor');
+      const supported = await DeepFilterNetProcessor.checkSupport();
+      this.deepFilterNetSupported = supported;
+      if (supported) {
+        console.log('✅ DeepFilterNet поддерживается на этом устройстве');
+      } else {
+        console.warn('⚠️ DeepFilterNet не поддерживается, используйте браузерные фильтры');
+      }
+    } catch (error) {
+      console.error('Ошибка проверки поддержки DeepFilterNet:', error);
+      this.deepFilterNetSupported = false;
+    }
+  }
+
+  /**
+   * Получение информации о поддержке движков
+   */
+  getSupportedEngines(): { engine: NoiseSuppressionEngine; supported: boolean; name: string }[] {
+    return [
+      { engine: 'browser', supported: true, name: 'Браузерные фильтры' },
+      { engine: 'rnnoise', supported: true, name: 'RNNoise (базовый)' },
+      { engine: 'deepfilternet', supported: this.deepFilterNetSupported, name: 'DeepFilterNet (продвинутый)' },
+    ];
   }
 
   // Метод для обновления порогов VAD
@@ -114,18 +156,38 @@ export class AudioProcessingService {
       currentNode.connect(this.muteGainNode);
       currentNode = this.muteGainNode;
       
-      // Добавляем продвинутую процессорную обработку если включена
-      if (this.config.useAdvancedNoiseSuppression && this.config.noiseSuppression) {
+      // Выбор движка шумоподавления
+      if (this.config.noiseSuppression && this.config.noiseSuppressionEngine === 'deepfilternet' && this.deepFilterNetSupported) {
+        // Используем DeepFilterNet
+        try {
+          await deepFilterNetProcessor.initialize(this.audioContext);
+          this.deepFilterNetNode = await deepFilterNetProcessor.createProcessorNode();
+          
+          if (this.deepFilterNetNode) {
+            currentNode.connect(this.deepFilterNetNode);
+            this.deepFilterNetNode.connect(this.destinationNode);
+            console.log('🎯 DeepFilterNet активирован');
+          } else {
+            console.warn('⚠️ Не удалось создать DeepFilterNet node, используем fallback');
+            currentNode.connect(this.destinationNode);
+          }
+        } catch (error) {
+          console.error('❌ Ошибка инициализации DeepFilterNet:', error);
+          currentNode.connect(this.destinationNode);
+        }
+      } else if (this.config.useAdvancedNoiseSuppression && this.config.noiseSuppression && this.config.noiseSuppressionEngine === 'rnnoise') {
+        // Используем RNNoise/продвинутую обработку
         try {
           advancedNoiseGate.connectNodes(currentNode, this.destinationNode);
-          console.log('🚀🔊 ДОПОЛНИТЕЛЬНАЯ ПРОЦЕССОРНАЯ ОБРАБОТКА АКТИВИРОВАНА (может не работать с WebRTC)');
+          console.log('🚀 RNNoise/Advanced обработка активирована');
         } catch (error) {
-          console.error('❌ Ошибка инициализации процессорной обработки:', error);
+          console.error('❌ Ошибка инициализации RNNoise:', error);
           currentNode.connect(this.destinationNode);
         }
       } else {
-        // Прямое подключение без дополнительной обработки
+        // Прямое подключение (браузерные фильтры)
         currentNode.connect(this.destinationNode);
+        console.log('🔊 Используются браузерные фильтры');
       }
       
       return this.destinationNode.stream;
@@ -256,9 +318,16 @@ export class AudioProcessingService {
     const oldNoiseSuppression = this.config.noiseSuppression;
     const oldEchoCancellation = this.config.echoCancellation;
     const oldAutoGainControl = this.config.autoGainControl;
+    const oldEngine = this.config.noiseSuppressionEngine;
 
     this.config = { ...this.config, ...config };
     console.log('Audio processing config updated:', this.config);
+
+    // Если изменился движок шумоподавления, нужно переинициализировать
+    if (oldEngine !== this.config.noiseSuppressionEngine) {
+      console.log('🔄 Движок шумоподавления изменен, требуется переинициализация');
+      // Здесь можно добавить логику переинициализации или уведомить пользователя
+    }
 
     // Если изменились настройки шумоподавления, эха или АРУ, нужно обновить браузерные настройки
     if (oldNoiseSuppression !== this.config.noiseSuppression ||
@@ -266,6 +335,11 @@ export class AudioProcessingService {
         oldAutoGainControl !== this.config.autoGainControl) {
       console.log('🔄 Обновляем браузерные настройки аудио...');
       this.updateBrowserAudioConstraints();
+    }
+
+    // Обновляем состояние DeepFilterNet если он используется
+    if (this.config.noiseSuppressionEngine === 'deepfilternet') {
+      deepFilterNetProcessor.setEnabled(this.config.noiseSuppression);
     }
   }
 
@@ -320,14 +394,19 @@ export class AudioProcessingService {
       this.muteGainNode = null;
     }
 
+    if (this.deepFilterNetNode) {
+      this.deepFilterNetNode.disconnect();
+      this.deepFilterNetNode = null;
+    }
+
     if (this.destinationNode) {
       this.destinationNode.disconnect();
       this.destinationNode = null;
     }
 
-
     // Очищаем процессоры шумоподавления
     advancedNoiseGate.destroy();
+    await deepFilterNetProcessor.destroy();
 
     if (this.audioContext) {
       await this.audioContext.close();
@@ -341,4 +420,4 @@ export class AudioProcessingService {
 }
 
 // Singleton instance
-export const audioProcessingService = new AudioProcessingService(); 
+export const audioProcessingService = new AudioProcessingService();
