@@ -946,17 +946,28 @@ class VoiceService {
     // Используем audio processing service для управления mute
     audioProcessingService.setMuted(muted);
     
-    // Также отключаем треки на уровне WebRTC для двойной защиты
+    // КРИТИЧНО: Отключаем треки на уровне WebRTC
+    // Это останавливает отправку RTP пакетов (как в Discord!)
     if (this.localStream) {
       this.localStream.getAudioTracks().forEach(track => {
         track.enabled = !muted;
       });
     }
     
+    // Также останавливаем отправку через RTCRtpSender
+    this.peerConnections.forEach(({ pc }) => {
+      const audioSenders = pc.getSenders().filter(s => s.track?.kind === 'audio');
+      audioSenders.forEach(sender => {
+        if (sender.track) {
+          sender.track.enabled = !muted;
+        }
+      });
+    });
+    
     // Отправляем сообщение на сервер
     this.sendMessage({ type: 'mute', is_muted: muted });
     
-    console.log(`🎙️ Микрофон ${muted ? 'заглушен' : 'включен'} (обработка через audio pipeline + WebRTC)`);
+    console.log(`🎙️ Микрофон ${muted ? 'заглушен' : 'включен'} - RTP пакеты ${muted ? 'НЕ отправляются' : 'отправляются'} (как в Discord!)`);
   }
 
   setDeafened(deafened: boolean) {
@@ -1249,10 +1260,11 @@ class VoiceService {
         const totalAverage = totalSum / bufferLength;
         const midAverage = midSum / (midFreqEnd - midFreqStart);
         
-        // Очень низкие пороги для максимальной чувствительности
-        const totalThreshold = 3; // Общий порог
-        const midThreshold = 5; // Порог для средних частот (речь)
-        const maxThreshold = 8; // Порог для пиковых значений
+        // АГРЕССИВНЫЕ пороги для подавления дыхания и фоновых шумов
+        // Микрофон будет активен ТОЛЬКО при громкой речи
+        const totalThreshold = 10;  // Было 3, увеличено для фильтрации дыхания
+        const midThreshold = 15;    // Было 5, увеличено для фильтрации тихих звуков
+        const maxThreshold = 20;    // Было 8, увеличено для фильтрации шорохов
         
         // Считаем что говорим если превышен любой из порогов
         const currentlySpeaking = 
