@@ -57,36 +57,41 @@ export class DeepFilterNetProcessor {
       // Динамический импорт onnxruntime-web только на клиенте
       if (!this.ort) {
         const ortModule = await import('onnxruntime-web');
-        this.ort = ortModule;
-        // Настройка путей к wasm через CDN, чтобы избежать проблем с URL
-        this.ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.0/dist/';
-        // Настройка ONNX Runtime для оптимальной производительности
-        this.ort.env.wasm.numThreads = 4;
-        this.ort.env.wasm.simd = true;
+        // Некоторые бандлеры помещают API в default; поддержим оба варианта
+        this.ort = (ortModule as any).default || (ortModule as any);
+        const ortAny = this.ort as any;
+        // Настройка путей к wasm
+        const wasmPath = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.0/dist/';
+        if (typeof wasmPath === 'string' && ortAny?.env?.wasm) {
+          ortAny.env.wasm.wasmPaths = wasmPath;
+          // Настройка ONNX Runtime для оптимальной производительности
+          ortAny.env.wasm.numThreads = 4;
+          ortAny.env.wasm.simd = true;
+        }
       }
       
       // Загрузка всех трех моделей DeepFilterNet3
       console.log('📦 Загрузка encoder...');
-      this.encSession = await this.ort!.InferenceSession.create('models/enc.onnx', {
+      this.encSession = await (this.ort as any).InferenceSession.create('models/enc.onnx', {
         executionProviders: ['wasm'],
         graphOptimizationLevel: 'all',
-      });
+      } as any);
       
       console.log('📦 Загрузка df_decoder...');
-      this.dfDecSession = await this.ort!.InferenceSession.create('models/df_dec.onnx', {
+      this.dfDecSession = await (this.ort as any).InferenceSession.create('models/df_dec.onnx', {
         executionProviders: ['wasm'],
         graphOptimizationLevel: 'all',
-      });
+      } as any);
       
       console.log('📦 Загрузка erb_decoder...');
-      this.erbDecSession = await this.ort!.InferenceSession.create('models/erb_dec.onnx', {
+      this.erbDecSession = await (this.ort as any).InferenceSession.create('models/erb_dec.onnx', {
         executionProviders: ['wasm'],
         graphOptimizationLevel: 'all',
-      });
+      } as any);
 
       console.log('✅ Все модели DeepFilterNet3 загружены успешно');
-      console.log('Encoder входы:', this.encSession.inputNames);
-      console.log('Encoder выходы:', this.encSession.outputNames);
+      console.log('Encoder входы:', this.encSession ? this.encSession.inputNames : []);
+      console.log('Encoder выходы:', this.encSession ? this.encSession.outputNames : []);
       
       // Для совместимости
       this.session = this.encSession;
