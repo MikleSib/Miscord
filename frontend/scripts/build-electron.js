@@ -25,3 +25,7 @@ try {
   console.error('❌ Ошибка при сборке:', error.message);
   process.exit(1);
 }
+
+
+
+

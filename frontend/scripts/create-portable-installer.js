@@ -156,3 +156,7 @@ pause
   console.error('❌ Ошибка:', error.message);
   process.exit(1);
 }
+
+
+
+

@@ -15,3 +15,7 @@ fi
 # Запускаем в режиме разработки
 echo "🎯 Запускаем Electron приложение..."
 npm run electron-dev
+
+
+
+

@@ -13,3 +13,7 @@ if (!(Test-Path "node_modules")) {
 # Запускаем в режиме разработки
 Write-Host "🎯 Запускаем Electron приложение..." -ForegroundColor Cyan
 npm run electron-dev
+
+
+
+

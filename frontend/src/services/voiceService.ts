@@ -120,18 +120,27 @@ class VoiceService {
 
     // Получаем доступ к микрофону
     try {
-      // Используем максимальные настройки браузерного шумоподавления
+      // КРИТИЧНО: Используем максимальные настройки браузерного шумоподавления
+      // Это единственный способ, который гарантированно работает с WebRTC
       const rawStream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          echoCancellation: { exact: true },
-          noiseSuppression: { exact: true },
-          autoGainControl: { exact: true },
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          // Дополнительные настройки для максимального качества
+          sampleRate: 48000,
+          channelCount: 1,
         },
         video: false,
       });
 
-      // Пропускаем через наш аудио-пайплайн (CPU шумодав) и используем обработанный поток
-      this.localStream = await audioProcessingService.initialize(rawStream);
+      // ВАЖНО: Используем ИСХОДНЫЙ поток для WebRTC, а не обработанный через Web Audio API
+      // Web Audio API destination stream НЕ работает корректно с WebRTC
+      this.localStream = rawStream;
+      
+      // Инициализируем audioProcessingService только для VAD и анализа
+      // НО НЕ используем его обработанный поток для WebRTC
+      await audioProcessingService.initialize(rawStream);
       
       // Настраиваем callbacks для VAD
       audioProcessingService.setOnSpeechStart(() => {
@@ -158,8 +167,8 @@ class VoiceService {
         }
       });
       
-      // Анализируем громкость для визуализации (используем обработанный поток)
-      audioProcessingService.analyzeVolume(this.localStream);
+      // Анализируем громкость для визуализации (используем исходный поток)
+      audioProcessingService.analyzeVolume(rawStream);
       
       // Инициализируем старую детекцию голосовой активности (временно)
       this.initVoiceActivityDetection();

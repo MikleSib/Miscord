@@ -16,3 +16,7 @@ echo 📁 Там будет файл Miscord Setup.exe
 echo.
 
 pause
+
+
+
+
