@@ -4,12 +4,12 @@ const isDev = process.env.NODE_ENV === 'development';
 
 let mainWindow;
 
-// 🎙️ УЛУЧШЕННОЕ ШУМОПОДАВЛЕНИЕ ДЛЯ ELECTRON
+// 🎙️ МАКСИМАЛЬНОЕ ШУМОПОДАВЛЕНИЕ ДЛЯ ELECTRON
 // ВАЖНО: Флаги командной строки должны быть установлены ДО создания окна!
 try {
   // Включаем экспериментальный WebRTC APM (Audio Processing Module) версии 3
   // Это новейший алгоритм шумоподавления от Google
-  app.commandLine.appendSwitch('enable-features', 'WebRtcUseEchoCanceller3');
+  app.commandLine.appendSwitch('enable-features', 'WebRtcUseEchoCanceller3,WebRtcHybridAgc');
   
   // Принудительно включаем все аудио-обработки в отдельном процессе
   app.commandLine.appendSwitch('enable-audio-processing', 'true');
@@ -20,7 +20,15 @@ try {
   // Включаем WebRTC PipeWire для лучшей совместимости с Linux
   app.commandLine.appendSwitch('enable-webrtc-pipewire-capturer');
   
-  console.log('🎙️ Включено улучшенное шумоподавление для Electron');
+  // АГРЕССИВНОЕ ШУМОПОДАВЛЕНИЕ - убирает дыхание и низкочастотные шумы
+  app.commandLine.appendSwitch('agc-startup-min-volume', '12');  // Минимальная громкость при старте
+  app.commandLine.appendSwitch('agc2-use-adaptive-digital', 'true');  // Адаптивное усиление v2
+  
+  // Оптимизация буферов для лучшего качества (меньше задержка = лучше обработка)
+  app.commandLine.appendSwitch('webrtc-max-audio-buffer-size', '1024');
+  app.commandLine.appendSwitch('webrtc-min-audio-buffer-size', '256');
+  
+  console.log('🎙️ Включено МАКСИМАЛЬНОЕ шумоподавление для Electron (включая дыхание)');
 } catch (e) {
   console.error('❌ Ошибка включения флагов шумоподавления:', e);
 }

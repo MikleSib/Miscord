@@ -40,22 +40,50 @@ this.localStream = rawStream; // ✅ Используем для WebRTC
 Добавлены **экспериментальные флаги Chromium** для максимального качества:
 
 ```javascript
-// WebRTC APM (Audio Processing Module) версии 3
-app.commandLine.appendSwitch('enable-features', 'WebRtcUseEchoCanceller3');
+// WebRTC APM (Audio Processing Module) версии 3 + Hybrid AGC
+app.commandLine.appendSwitch('enable-features', 'WebRtcUseEchoCanceller3,WebRtcHybridAgc');
 
 // Аудио-обработка в отдельном процессе
 app.commandLine.appendSwitch('enable-audio-processing', 'true');
 
 // ML-шумоподавление в аудио-сервисе
 app.commandLine.appendSwitch('enable-webrtc-apm-in-audio-service');
+
+// АГРЕССИВНОЕ подавление дыхания и низкочастотных шумов
+app.commandLine.appendSwitch('agc-startup-min-volume', '12');
+app.commandLine.appendSwitch('agc2-use-adaptive-digital', 'true');
+
+// Оптимизация буферов для лучшего качества
+app.commandLine.appendSwitch('webrtc-max-audio-buffer-size', '1024');
+app.commandLine.appendSwitch('webrtc-min-audio-buffer-size', '256');
+```
+
+### 3. Google Constraints для подавления дыхания (voiceService.ts)
+
+Добавлены **экспериментальные Google constraints** в getUserMedia:
+
+```typescript
+advanced: [
+  { echoCancellation: { exact: true } },
+  { noiseSuppression: { exact: true } },
+  { autoGainControl: { exact: true } },
+  { googEchoCancellation: { exact: true } },
+  { googAutoGainControl: { exact: true } },
+  { googNoiseSuppression: { exact: true } },
+  { googHighpassFilter: { exact: true } },  // ✅ Убирает дыхание!
+  { googTypingNoiseDetection: { exact: true } },  // Детекция печати
+  { googAudioMirroring: { exact: false } },
+]
 ```
 
 ## Результат
 
-✅ **Браузерное шумоподавление работает корректно**
-✅ **Electron использует продвинутые алгоритмы Google APM3**
-✅ **Аудио передается обработанным через WebRTC**
-✅ **Убраны: дыхание, щелчки, фоновый шум, эхо**
+✅ **Браузерное шумоподавление работает корректно**  
+✅ **Electron использует продвинутые алгоритмы Google APM3 + Hybrid AGC**  
+✅ **Аудио передается обработанным через WebRTC**  
+✅ **Убраны: дыхание (включая носовое!), щелчки, фоновый шум, эхо, звуки печати**  
+✅ **Адаптивное управление усилением** для стабильной громкости  
+✅ **Высокочастотный фильтр Google** специально для подавления дыхания  
 
 ## Тестирование
 

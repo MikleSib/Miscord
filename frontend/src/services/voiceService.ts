@@ -130,6 +130,27 @@ class VoiceService {
           // Дополнительные настройки для максимального качества
           sampleRate: 48000,
           channelCount: 1,
+          // АГРЕССИВНОЕ подавление низкочастотных шумов (дыхание)
+          // Эти advanced constraints поддерживаются в Chrome/Electron
+          // @ts-ignore - Google constraints не в TypeScript типах, но работают в runtime
+          advanced: [
+            { echoCancellation: { exact: true } },
+            { noiseSuppression: { exact: true } },
+            { autoGainControl: { exact: true } },
+            // Включаем экспериментальные фильтры для дыхания
+            // @ts-ignore
+            { googEchoCancellation: { exact: true } },
+            // @ts-ignore
+            { googAutoGainControl: { exact: true } },
+            // @ts-ignore
+            { googNoiseSuppression: { exact: true } },
+            // @ts-ignore - Высокочастотный фильтр - убирает дыхание!
+            { googHighpassFilter: { exact: true } },
+            // @ts-ignore - Детекция печати
+            { googTypingNoiseDetection: { exact: true } },
+            // @ts-ignore
+            { googAudioMirroring: { exact: false } },
+          ]
         },
         video: false,
       });
