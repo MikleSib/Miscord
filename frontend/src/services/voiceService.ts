@@ -44,6 +44,108 @@ class VoiceService {
   private adaptiveQualityEnabled: boolean = true; // Включено ли адаптивное качество
   // Локальный справочник участников: userId -> { username, avatar_url }
   private participantDirectory: Map<number, { username: string; avatar_url?: string }> = new Map();
+  
+  // VAD настройки
+  private vadThreshold: number = 50; // 0-100, где 0 = максимально чувствительный
+  private inputMode: 'voice-activity' | 'push-to-talk' = 'voice-activity';
+  private pttKey: string = 'Space';
+  private isPTTActive: boolean = false;
+  private pttKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+  public vadThresholds: { total: number; mid: number; max: number } = {
+    total: 25,
+    mid: 20,
+    max: 30
+  };
+
+  // Публичные методы для работы с VAD
+  public updateVADThresholds(sensitivity: number): void {
+    console.log('🎙️ Обновление порогов VAD:', sensitivity);
+    this.vadThreshold = sensitivity;
+    
+    // Обновляем пороги в audioProcessingService
+    if (typeof audioProcessingService.updateVADThresholds === 'function') {
+      audioProcessingService.updateVADThresholds(sensitivity);
+    }
+    
+    console.log('🎙️ Пороги VAD обновлены через audioProcessingService');
+  }
+
+  public setInputMode(mode: 'voice-activity' | 'push-to-talk'): void {
+    console.log('🎙️ Установка режима ввода:', mode);
+    this.inputMode = mode;
+    
+    if (mode === 'push-to-talk') {
+      this.setupPTTHandlers();
+    } else {
+      this.removePTTHandlers();
+    }
+  }
+
+  public setPTTKey(key: string): void {
+    console.log('🎙️ Установка клавиши PTT:', key);
+    this.pttKey = key;
+    
+    if (this.inputMode === 'push-to-talk') {
+      this.removePTTHandlers();
+      this.setupPTTHandlers();
+    }
+  }
+
+  public setupPTTHandlers(): void {
+    if (this.pttKeyHandler) {
+      this.removePTTHandlers();
+    }
+    
+    this.pttKeyHandler = (e: KeyboardEvent) => {
+      if (e.code === this.pttKey) {
+        if (e.type === 'keydown' && !this.isPTTActive) {
+          this.isPTTActive = true;
+          this.unmute(); // Включаем микрофон
+          console.log('🎙️ PTT активирован');
+        } else if (e.type === 'keyup' && this.isPTTActive) {
+          this.isPTTActive = false;
+          this.mute(); // Отключаем микрофон
+          console.log('🎙️ PTT деактивирован');
+        }
+      }
+    };
+    
+    document.addEventListener('keydown', this.pttKeyHandler);
+    document.addEventListener('keyup', this.pttKeyHandler);
+    
+    console.log('🎙️ PTT обработчики установлены для клавиши:', this.pttKey);
+  }
+
+  public removePTTHandlers(): void {
+    if (this.pttKeyHandler) {
+      document.removeEventListener('keydown', this.pttKeyHandler);
+      document.removeEventListener('keyup', this.pttKeyHandler);
+      this.pttKeyHandler = null;
+      
+      if (this.isPTTActive) {
+        this.isPTTActive = false;
+        this.mute();
+      }
+      
+      console.log('🎙️ PTT обработчики удалены');
+    }
+  }
+
+  public getCurrentVolume(): number {
+    // Используем audioProcessingService для получения уровня громкости
+    if (typeof audioProcessingService.getCurrentVolume === 'function') {
+      return audioProcessingService.getCurrentVolume();
+    }
+    return 0;
+  }
+
+  public mute(): void {
+    this.setMuted(true);
+  }
+
+  public unmute(): void {
+    this.setMuted(false);
+  }
 
   // Методы для уведомлений о разрешении аудио
   showAudioPermissionNotification(userId: number): void {
@@ -155,13 +257,11 @@ class VoiceService {
         video: false,
       });
 
-      // ВАЖНО: Используем ИСХОДНЫЙ поток для WebRTC, а не обработанный через Web Audio API
-      // Web Audio API destination stream НЕ работает корректно с WebRTC
-      this.localStream = rawStream;
+      // Инициализируем audioProcessingService и получаем обработанный поток
+      const processedStream = await audioProcessingService.initialize(rawStream);
       
-      // Инициализируем audioProcessingService только для VAD и анализа
-      // НО НЕ используем его обработанный поток для WebRTC
-      await audioProcessingService.initialize(rawStream);
+      // Используем обработанный поток для WebRTC (с VAD и другими эффектами)
+      this.localStream = processedStream;
       
       // Настраиваем callbacks для VAD
       audioProcessingService.setOnSpeechStart(() => {
@@ -181,18 +281,14 @@ class VoiceService {
       });
       
       audioProcessingService.setOnVolumeChange((volume) => {
-        // Можно использовать для визуализации уровня громкости
-        if (volume > 0.1) {
-          // Временно, пока не интегрируем полностью VAD
-          this.initVoiceActivityDetection();
-        }
+        // Используем для визуализации уровня громкости
+        // VAD теперь полностью управляется через audioProcessingService
       });
       
       // Анализируем громкость для визуализации (используем исходный поток)
       audioProcessingService.analyzeVolume(rawStream);
       
-      // Инициализируем старую детекцию голосовой активности (временно)
-      this.initVoiceActivityDetection();
+      // НЕ инициализируем старую детекцию голосовой активности - используем только audioProcessingService
     } catch (error) {
       console.error('🎙️ Ошибка доступа к микрофону:', error);
       throw new Error('Не удалось получить доступ к микрофону');
@@ -1260,11 +1356,15 @@ class VoiceService {
         const totalAverage = totalSum / bufferLength;
         const midAverage = midSum / (midFreqEnd - midFreqStart);
         
-        // АГРЕССИВНЫЕ пороги для подавления дыхания и фоновых шумов
-        // Микрофон будет активен ТОЛЬКО при громкой речи
-        const totalThreshold = 10;  // Было 3, увеличено для фильтрации дыхания
-        const midThreshold = 15;    // Было 5, увеличено для фильтрации тихих звуков
-        const maxThreshold = 20;    // Было 8, увеличено для фильтрации шорохов
+        // Используем настраиваемые пороги из VAD настроек
+        const totalThreshold = this.vadThresholds?.total || 25;
+        const midThreshold = this.vadThresholds?.mid || 20;
+        const maxThreshold = this.vadThresholds?.max || 30;
+        
+        // В режиме PTT не используем автоматическую детекцию голоса
+        if (this.inputMode === 'push-to-talk') {
+          return; // Выходим из функции, так как PTT управляется клавишами
+        }
         
         // Считаем что говорим если превышен любой из порогов
         const currentlySpeaking = 

@@ -17,6 +17,7 @@ export class AudioProcessingService {
   private destinationNode: MediaStreamAudioDestinationNode | null = null;
   private muteGainNode: GainNode | null = null;
   private isMuted: boolean = false;
+  private analyser: AnalyserNode | null = null;
   private config: AudioProcessingConfig = {
     vadEnabled: true,
     noiseSuppression: true,
@@ -32,6 +33,55 @@ export class AudioProcessingService {
 
   constructor() {
     console.log('AudioProcessingService initialized');
+  }
+
+  // Метод для обновления порогов VAD
+  updateVADThresholds(sensitivity: number): void {
+    console.log('🎙️ AudioProcessingService: Обновление порогов VAD:', sensitivity);
+    
+    // Конвертируем чувствительность 0-100 в порог 0.1-0.9
+    // 0 = максимально чувствительный (0.1), 100 = минимально чувствительный (0.9)
+    const normalizedSensitivity = sensitivity / 100; // 0-1
+    const newThreshold = 0.1 + (0.8 * normalizedSensitivity); // 0.1-0.9
+    
+    this.config.speechProbabilityThreshold = newThreshold;
+    
+    // Перезапускаем VAD с новыми порогами
+    if (this.micVAD) {
+      this.micVAD.destroy();
+      this.micVAD = null;
+      
+      // Если есть исходный поток, переинициализируем VAD
+      if (this.sourceNode && this.sourceNode.mediaStream) {
+        this.initializeVAD(this.sourceNode.mediaStream);
+      }
+    }
+    
+    console.log('🎙️ AudioProcessingService: Новый порог VAD:', newThreshold.toFixed(2));
+  }
+
+  // Метод для получения текущего уровня громкости
+  getCurrentVolume(): number {
+    if (!this.analyser) {
+      return 0;
+    }
+
+    try {
+      const bufferLength = this.analyser.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+      this.analyser.getByteFrequencyData(dataArray);
+      
+      let totalSum = 0;
+      for (let i = 0; i < bufferLength; i++) {
+        totalSum += dataArray[i];
+      }
+      
+      const average = totalSum / bufferLength;
+      return Math.min(100, (average / 255) * 100);
+    } catch (error) {
+      console.error('Ошибка получения уровня громкости:', error);
+      return 0;
+    }
   }
 
   async initialize(stream: MediaStream): Promise<MediaStream> {
@@ -137,15 +187,17 @@ export class AudioProcessingService {
   analyzeVolume(stream: MediaStream): void {
     if (!this.audioContext) return;
 
-    const analyser = this.audioContext.createAnalyser();
+    this.analyser = this.audioContext.createAnalyser();
     const source = this.audioContext.createMediaStreamSource(stream);
-    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
 
-    source.connect(analyser);
-    analyser.fftSize = 256;
+    source.connect(this.analyser);
+    this.analyser.fftSize = 256;
 
     const checkVolume = () => {
-      analyser.getByteFrequencyData(dataArray);
+      if (!this.analyser) return;
+      
+      this.analyser.getByteFrequencyData(dataArray);
       const average = dataArray.reduce((acc, val) => acc + val, 0) / dataArray.length;
       const normalizedVolume = average / 255;
       this.onVolumeChange?.(normalizedVolume);
