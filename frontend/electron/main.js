@@ -4,6 +4,27 @@ const isDev = process.env.NODE_ENV === 'development';
 
 let mainWindow;
 
+// 🎙️ УЛУЧШЕННОЕ ШУМОПОДАВЛЕНИЕ ДЛЯ ELECTRON
+// ВАЖНО: Флаги командной строки должны быть установлены ДО создания окна!
+try {
+  // Включаем экспериментальный WebRTC APM (Audio Processing Module) версии 3
+  // Это новейший алгоритм шумоподавления от Google
+  app.commandLine.appendSwitch('enable-features', 'WebRtcUseEchoCanceller3');
+  
+  // Принудительно включаем все аудио-обработки в отдельном процессе
+  app.commandLine.appendSwitch('enable-audio-processing', 'true');
+  
+  // Включаем экспериментальное шумоподавление на основе ML в аудио-сервисе
+  app.commandLine.appendSwitch('enable-webrtc-apm-in-audio-service');
+  
+  // Включаем WebRTC PipeWire для лучшей совместимости с Linux
+  app.commandLine.appendSwitch('enable-webrtc-pipewire-capturer');
+  
+  console.log('🎙️ Включено улучшенное шумоподавление для Electron');
+} catch (e) {
+  console.error('❌ Ошибка включения флагов шумоподавления:', e);
+}
+
 function createWindow() {
   // Создаем главное окно приложения
   mainWindow = new BrowserWindow({
@@ -30,11 +51,6 @@ function createWindow() {
   // Всегда загружаем сайт stream-cash.ru (не локальные файлы)
   console.log('Загружаем https://stream-cash.ru/');
   mainWindow.loadURL('https://stream-cash.ru/');
-
-  // Включаем скрытые флаги, которые помогают Windows Graphics Capture
-  try {
-    app.commandLine.appendSwitch('enable-webrtc-pipewire-capturer');
-  } catch {}
 
   // Показываем окно когда оно готово
   mainWindow.once('ready-to-show', () => {
