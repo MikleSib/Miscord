@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { Users, MessageSquare, Settings, Check, X } from 'lucide-react'
 import { User } from '../types'
 import friendService from '../services/friendService'
+import websocketService from '../services/websocketService'
 import { DirectMessageArea } from './DirectMessageArea'
 import { UserAvatar } from './ui/user-avatar'
 
@@ -33,15 +34,11 @@ export function HomePageContent() {
     }
     fetchData()
 
-    const handleNewFriendRequest = (event: any) => {
-      const newRequest = event.detail;
-      setPendingRequests(prev => [newRequest, ...prev]);
+    const handleNewFriendRequest = (event: { data: User }) => {
+      setPendingRequests(prev => [event.data, ...prev]);
     };
 
-    window.addEventListener('new_friend_request', handleNewFriendRequest);
-    return () => {
-      window.removeEventListener('new_friend_request', handleNewFriendRequest);
-    };
+    websocketService.on('new_friend_request', handleNewFriendRequest);
   }, [])
 
   const handleAddFriend = async () => {
@@ -83,6 +80,36 @@ export function HomePageContent() {
     }
 
     switch (activeTab) {
+      case 'online':
+        const onlineFriends = friends.filter(friend => friend.is_online);
+        return (
+          <div>
+            <h3 className="text-xs font-bold uppercase text-[#8e9297] mb-2">
+              В сети — {onlineFriends.length}
+            </h3>
+            {onlineFriends.length > 0 ? (
+              onlineFriends.map(friend => (
+                <div key={friend.id} onClick={() => setSelectedFriend(friend)} className="flex items-center justify-between p-2 hover:bg-[#393a3f] rounded-md cursor-pointer">
+                  <div className="flex items-center">
+                    <UserAvatar user={friend} />
+                    <div className="ml-3">
+                      <p className="text-white">{friend.username}</p>
+                      <p className="text-xs text-[#8e9297]">В сети</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={(e) => { e.stopPropagation(); setSelectedFriend(friend); }} className="p-1 text-[#8e9297] hover:text-white"><MessageSquare size={20} /></button>
+                    {/* More actions button */}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="text-center text-[#8e9297] mt-20">
+                <p>Никого нет в сети.</p>
+              </div>
+            )}
+          </div>
+        )
       case 'all':
         return (
           <div>

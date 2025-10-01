@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Message, User } from '../types'
 import directMessageService from '../services/directMessageService'
+import websocketService from '../services/websocketService'
 import { useAuthStore } from '../store/store'
 import p2pVoiceService from '../services/p2pVoiceService'
 import { Phone, PhoneOff } from 'lucide-react'
@@ -47,13 +48,12 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
     e.preventDefault()
     if (!newMessage.trim() || !user) return
 
-    try {
-      const sentMessage = await directMessageService.sendMessage(friend.id, newMessage)
-      setMessages(prev => [...prev, sentMessage])
-      setNewMessage('')
-    } catch (error) {
-      console.error('Ошибка отправки сообщения:', error)
-    }
+    websocketService.send({
+      type: 'dm_message',
+      recipient_id: friend.id,
+      content: newMessage,
+    });
+    setNewMessage('')
   }
 
   const scrollToBottom = () => {

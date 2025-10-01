@@ -232,6 +232,10 @@ class WebSocketService {
     this.messageHandlers['user_status_changed'] = handler;
   }
 
+  on(event: string, handler: (data: any) => void) {
+    this.messageHandlers[event] = handler;
+  }
+
   // Отправка сообщения
   send(data: any) {
     if (this.ws?.readyState === WebSocket.OPEN) {
