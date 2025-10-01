@@ -66,8 +66,12 @@ async def get_pending_requests(db: AsyncSession, user_id: int):
     )
     requests_to_user = requests_to_user_result.scalars().all()
     
-    # Возвращаем пользователей, которые отправили запросы
-    return [friendship.user_a for friendship in requests_to_user]
+    users = []
+    for req in requests_to_user:
+        user = req.user_a
+        user.request_id = req.id
+        users.append(user)
+    return users
 
 async def accept_friend_request(db: AsyncSession, request_id: int, current_user_id: int):
     friend_request_result = await db.execute(

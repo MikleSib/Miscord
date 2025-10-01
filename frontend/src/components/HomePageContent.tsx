@@ -5,6 +5,7 @@ import { Users, MessageSquare, Settings, Check, X } from 'lucide-react'
 import { User } from '../types'
 import friendService from '../services/friendService'
 import { DirectMessageArea } from './DirectMessageArea'
+import { UserAvatar } from './ui/user-avatar'
 
 type Tab = 'online' | 'all' | 'pending' | 'blocked'
 
@@ -31,6 +32,16 @@ export function HomePageContent() {
       }
     }
     fetchData()
+
+    const handleNewFriendRequest = (event: any) => {
+      const newRequest = event.detail;
+      setPendingRequests(prev => [newRequest, ...prev]);
+    };
+
+    window.addEventListener('new_friend_request', handleNewFriendRequest);
+    return () => {
+      window.removeEventListener('new_friend_request', handleNewFriendRequest);
+    };
   }, [])
 
   const handleAddFriend = async () => {
@@ -51,7 +62,7 @@ export function HomePageContent() {
     try {
       const newFriend = await friendService.acceptFriendRequest(requestId)
       setFriends(prev => [...prev, newFriend])
-      setPendingRequests(prev => prev.filter(req => req.id !== requestId))
+      setPendingRequests(prev => prev.filter(req => req.request_id !== requestId))
     } catch (error) {
       console.error('Ошибка принятия запроса:', error)
     }
@@ -60,7 +71,7 @@ export function HomePageContent() {
   const handleRejectRequest = async (requestId: number) => {
     try {
       await friendService.rejectFriendRequest(requestId)
-      setPendingRequests(prev => prev.filter(req => req.id !== requestId))
+      setPendingRequests(prev => prev.filter(req => req.request_id !== requestId))
     } catch (error) {
       console.error('Ошибка отклонения запроса:', error)
     }
@@ -82,8 +93,8 @@ export function HomePageContent() {
               friends.map(friend => (
                 <div key={friend.id} onClick={() => setSelectedFriend(friend)} className="flex items-center justify-between p-2 hover:bg-[#393a3f] rounded-md cursor-pointer">
                   <div className="flex items-center">
-                    <div className="w-8 h-8 rounded-full bg-gray-600 mr-3" />
-                    <div>
+                    <UserAvatar user={friend} />
+                    <div className="ml-3">
                       <p className="text-white">{friend.username}</p>
                       <p className="text-xs text-[#8e9297]">В сети</p>
                     </div>
@@ -111,17 +122,17 @@ export function HomePageContent() {
                pendingRequests.map(request => (
                 <div key={request.id} className="flex items-center justify-between p-2 hover:bg-[#393a3f] rounded-md">
                   <div className="flex items-center">
-                    <div className="w-8 h-8 rounded-full bg-gray-600 mr-3" />
-                    <div>
+                    <UserAvatar user={request} />
+                    <div className="ml-3">
                       <p className="text-white">{request.username}</p>
                       <p className="text-xs text-[#8e9297]">Входящий запрос в друзья</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => handleAcceptRequest(request.id)} className="w-9 h-9 flex items-center justify-center bg-gray-700 hover:bg-green-600 rounded-full text-white">
+                    <button onClick={() => handleAcceptRequest(request.request_id!)} className="w-9 h-9 flex items-center justify-center bg-gray-700 hover:bg-green-600 rounded-full text-white">
                       <Check size={20} />
                     </button>
-                    <button onClick={() => handleRejectRequest(request.id)} className="w-9 h-9 flex items-center justify-center bg-gray-700 hover:bg-red-600 rounded-full text-white">
+                    <button onClick={() => handleRejectRequest(request.request_id!)} className="w-9 h-9 flex items-center justify-center bg-gray-700 hover:bg-red-600 rounded-full text-white">
                       <X size={20} />
                     </button>
                   </div>
@@ -172,7 +183,14 @@ export function HomePageContent() {
           <nav className="flex items-center space-x-4">
             <button onClick={() => setActiveTab('online')} className={`font-medium ${activeTab === 'online' ? 'text-white' : 'text-[#8e9297] hover:text-white'}`}>В сети</button>
             <button onClick={() => setActiveTab('all')} className={`font-medium ${activeTab === 'all' ? 'text-white' : 'text-[#8e9297] hover:text-white'}`}>Все</button>
-            <button onClick={() => setActiveTab('pending')} className={`font-medium ${activeTab === 'pending' ? 'text-white' : 'text-[#8e9297] hover:text-white'}`}>Ожидание</button>
+            <div className="relative">
+              <button onClick={() => setActiveTab('pending')} className={`font-medium ${activeTab === 'pending' ? 'text-white' : 'text-[#8e9297] hover:text-white'}`}>Ожидание</button>
+              {pendingRequests.length > 0 && (
+                <span className="absolute -top-1 -right-3 bg-red-600 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center font-bold">
+                  {pendingRequests.length}
+                </span>
+              )}
+            </div>
             <button onClick={() => setActiveTab('blocked')} className={`font-medium ${activeTab === 'blocked' ? 'text-white' : 'text-[#8e9297] hover:text-white'}`}>Заблокированные</button>
             <button onClick={() => setIsAddFriendModalOpen(true)} className="bg-[#2d7d46] text-white px-3 py-1 rounded-md text-sm font-medium hover:bg-green-600">Добавить в друзья</button>
           </nav>

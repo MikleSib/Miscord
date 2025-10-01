@@ -10,6 +10,7 @@ export interface User {
   updated_at?: string;
   is_muted?: boolean;
   is_deafened?: boolean;
+  request_id?: number;
 }
 
 export interface Server {

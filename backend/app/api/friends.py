@@ -6,6 +6,7 @@ from app.core.dependencies import get_db
 from app.models.user import User
 from app.schemas.user import User as UserSchema
 from app.services import friend_service
+from app.websocket.connection_manager import manager
 from app.core.dependencies import get_current_user
 
 router = APIRouter()
@@ -30,7 +31,19 @@ async def send_friend_request(
     if not friend_request:
         raise HTTPException(status_code=400, detail="Friend request already sent or users are already friends.")
     
-    # WebSocket notification logic will be added here
+    # Отправляем уведомление по WebSocket
+    # Добавляем request_id к объекту current_user для отправки
+    current_user_schema = UserSchema.from_orm(current_user)
+    current_user_schema.request_id = friend_request.id
+
+    await manager.send_personal_message(
+        {
+            "type": "new_friend_request",
+            "data": current_user_schema.dict()
+        },
+        friend.id
+    )
+
     return friend
 
 
