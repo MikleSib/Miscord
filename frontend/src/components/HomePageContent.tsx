@@ -77,27 +77,30 @@ export function HomePageContent() {
     const handleNewFriendRequest = (newRequest: FriendRequest) => {
       setPendingRequests(prev => [newRequest, ...prev]);
     };
-    
-    websocketService.on('friend_request_accepted', ({ user, request_id }) => {
+
+    const handleFriendRequestAccepted = ({ user, request_id }: { user: User, request_id: number }) => {
       setFriends(prev => [...prev, user]);
       setPendingRequests(prev => prev.filter(req => req.request_id !== request_id));
-    });
+    };
 
-    websocketService.on('friend_request_rejected', ({ request_id }) => {
+    const handleFriendRequestRejected = ({ request_id }: { request_id: number }) => {
       setPendingRequests(prev => prev.filter(req => req.request_id !== request_id));
-    });
-    
-    websocketService.on('friend_removed', ({ friend_id }) => {
+    };
+
+    const handleFriendRemoved = ({ friend_id }: { friend_id: number }) => {
       setFriends(prev => prev.filter(f => f.id !== friend_id));
-    });
+    };
 
     websocketService.on('new_friend_request', handleNewFriendRequest);
+    websocketService.on('friend_request_accepted', handleFriendRequestAccepted);
+    websocketService.on('friend_request_rejected', handleFriendRequestRejected);
+    websocketService.on('friend_removed', handleFriendRemoved);
     
     return () => {
       websocketService.off('new_friend_request', handleNewFriendRequest);
-      websocketService.off('friend_request_accepted');
-      websocketService.off('friend_request_rejected');
-      websocketService.off('friend_removed');
+      websocketService.off('friend_request_accepted', handleFriendRequestAccepted);
+      websocketService.off('friend_request_rejected', handleFriendRequestRejected);
+      websocketService.off('friend_removed', handleFriendRemoved);
     }
   }, [])
 
