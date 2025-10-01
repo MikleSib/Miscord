@@ -77,35 +77,9 @@ async def accept_friend_request(
     """
     Accept a friend request.
     """
-    friend, friendship = await friend_service.accept_friend_request(db, request_id=request_id, current_user_id=current_user.id)
+    friend = await friend_service.accept_friend_request(db, request_id=request_id, current_user_id=current_user.id)
     if not friend:
         raise HTTPException(status_code=404, detail="Friend request not found or you are not the recipient.")
-
-    # Отправляем сокет-уведомление пользователю, который отправил запрос
-    await manager.send_personal_message(
-        {
-            "type": "friend_request_accepted",
-            "data": {
-                "user": jsonable_encoder(UserSchema.from_orm(current_user)),
-                "request_id": request_id
-            }
-        },
-        friend.id
-    )
-
-    # Отправляем сокет-уведомление текущему пользователю, чтобы он обновил свой список
-    await manager.send_personal_message(
-        {
-            "type": "friend_request_accepted",
-            "data": {
-                "user": jsonable_encoder(UserSchema.from_orm(friend)),
-                "request_id": request_id
-            }
-        },
-        current_user.id
-    )
-
-
     return friend
 
 @router.post("/friends/reject/{request_id}")

@@ -125,9 +125,14 @@ export function HomePageContent() {
   }
 
   const handleAcceptRequest = async (requestId: number) => {
+    const requestToAccept = pendingRequests.find(req => req.request_id === requestId);
+    if (!requestToAccept) return;
+
     try {
       await friendService.acceptFriendRequest(requestId);
-      // The state will be updated by the websocket event 'friend_request_accepted'
+      // Optimistic update
+      setFriends(prevFriends => [...prevFriends, requestToAccept as User]);
+      setPendingRequests(prev => prev.filter(req => req.request_id !== requestId));
     } catch (error) {
       console.error('Ошибка принятия запроса:', error);
     }

@@ -129,7 +129,7 @@ async def get_pending_requests(db: AsyncSession, user_id: int):
 async def accept_friend_request(db: AsyncSession, request_id: int, current_user_id: int):
     friend_request_result = await db.execute(
         select(Friendship).filter(
-            Friendship.id == request_id,
+            Friendship.id == request_id, 
             Friendship.user_b_id == current_user_id,
             Friendship.status == FriendshipStatus.PENDING
         ).options(selectinload(Friendship.user_a))
@@ -137,13 +137,13 @@ async def accept_friend_request(db: AsyncSession, request_id: int, current_user_
     friend_request = friend_request_result.scalar_one_or_none()
 
     if not friend_request:
-        return None, None
-
+        return None
+    
     friend_request.status = FriendshipStatus.ACCEPTED
     await db.commit()
     await db.refresh(friend_request)
 
-    return friend_request.user_a, friend_request
+    return friend_request.user_a
 
 async def reject_friend_request(db: AsyncSession, request_id: int, current_user_id: int):
     friend_request_result = await db.execute(
