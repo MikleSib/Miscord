@@ -301,7 +301,7 @@ export function HomePageContent() {
       </div>
 
       {/* Основная область для контента */}
-      <div className="flex-1 bg-[#313338] h-full flex flex-col">
+      <div className="flex-1 bg-[#313338] h-screen flex flex-col">
         {/* Верхняя панель */}
         <div className="flex items-center h-12 px-4 border-b border-[#2c2d32] shadow-md flex-shrink-0">
           <div className="flex items-center">

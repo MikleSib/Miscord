@@ -60,6 +60,14 @@ export interface Message {
   recipient_id?: number; // Для личных сообщений
 }
 
+export interface DirectMessage {
+  id: number;
+  content: string;
+  timestamp: string;
+  sender_id: number;
+  recipient_id: number;
+}
+
 // Бэкенд типы (для API)
 export interface BackendChannel {
   id: number;

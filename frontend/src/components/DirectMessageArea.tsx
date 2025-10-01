@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Message, User } from '../types'
+import { DirectMessage, User } from '../types'
 import directMessageService from '../services/directMessageService'
 import websocketService from '../services/websocketService'
 import { useAuthStore } from '../store/store'
@@ -16,7 +16,7 @@ interface DirectMessageAreaProps {
 }
 
 export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
-  const [messages, setMessages] = useState<Message[]>([])
+  const [messages, setMessages] = useState<DirectMessage[]>([])
   const [newMessage, setNewMessage] = useState('')
   const { user } = useAuthStore()
   const messagesEndRef = useRef<null | HTMLDivElement>(null)
@@ -58,7 +58,7 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
   }, [friend.id])
 
   useEffect(() => {
-    const handleNewMessage = (message: Message) => {
+    const handleNewMessage = (message: DirectMessage) => {
       if (
         (message.sender_id === user?.id && message.recipient_id === friend.id) ||
         (message.sender_id === friend.id && message.recipient_id === user?.id)
@@ -106,6 +106,16 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
 
   useEffect(scrollToBottom, [messages]);
 
+  // Функция для определения, является ли сообщение от текущего пользователя
+  const isCurrentUserMessage = (message: DirectMessage) => {
+    return message.sender_id === user?.id;
+  };
+
+  // Функция для получения пользователя для отображения
+  const getUserForMessage = (message: DirectMessage) => {
+    return isCurrentUserMessage(message) ? user : friend;
+  };
+
   return (
     <div className="flex-1 flex flex-col bg-[#313338]">
       {/* Top bar */}
@@ -125,31 +135,33 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
       </div>
 
       {/* Messages */}
-      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4">
+      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 chat-scroll">
         {messages.map((msg, index) => {
           const prevMsg = messages[index - 1];
-          const showAuthor = !prevMsg || prevMsg.author.id !== msg.author.id;
+          const isCurrentUser = isCurrentUserMessage(msg);
+          const messageUser = getUserForMessage(msg);
+          const showAuthor = !prevMsg || prevMsg.sender_id !== msg.sender_id;
           return (
-            <div key={msg.id} className={`flex items-start gap-3 mt-4 ${msg.author.id === user?.id ? 'justify-end' : ''}`}>
-              {msg.author.id !== user?.id && showAuthor && <UserAvatar user={msg.author} />}
-              {msg.author.id !== user?.id && !showAuthor && <div className="w-10" />}
+            <div key={msg.id} className={`flex items-start gap-3 mt-4 ${isCurrentUser ? 'justify-end' : ''}`}>
+              {!isCurrentUser && showAuthor && <UserAvatar user={messageUser as User} />}
+              {!isCurrentUser && !showAuthor && <div className="w-10" />}
 
-              <div className={`flex flex-col ${msg.author.id === user?.id ? 'items-end' : 'items-start'}`}>
+              <div className={`flex flex-col ${isCurrentUser ? 'items-end' : 'items-start'}`}>
                 {showAuthor && (
                   <div className="flex items-center gap-2">
-                    <p className="font-semibold text-white">{msg.author.username}</p>
+                    <p className="font-semibold text-white">{messageUser?.username}</p>
                     <p className="text-xs text-gray-400">
                       {format(new Date(msg.timestamp), 'd MMM yyyy, HH:mm', { locale: ru })}
                     </p>
                   </div>
                 )}
-                <div className={`mt-1 text-white ${msg.author.id === user?.id ? 'bg-blue-600' : 'bg-gray-700'} rounded-lg px-3 py-2 max-w-lg`}>
+                <div className={`mt-1 text-white ${isCurrentUser ? 'bg-blue-600' : 'bg-gray-700'} rounded-lg px-3 py-2 max-w-lg`}>
                   {msg.content}
                 </div>
               </div>
 
-              {msg.author.id === user?.id && showAuthor && <UserAvatar user={msg.author} />}
-              {msg.author.id === user?.id && !showAuthor && <div className="w-10" />}
+              {isCurrentUser && showAuthor && <UserAvatar user={messageUser as User} />}
+              {isCurrentUser && !showAuthor && <div className="w-10" />}
             </div>
           );
         })}

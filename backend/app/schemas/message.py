@@ -44,6 +44,11 @@ class DirectMessageSchema(BaseModel):
     timestamp: datetime
     sender_id: int
     recipient_id: int
+    # Добавляем поля, которые ожидает фронтенд
+    author: Optional[UserResponse] = None
+    text_channel_id: Optional[int] = None
+    is_edited: Optional[bool] = False
+    is_deleted: Optional[bool] = False
     
     @field_serializer('timestamp')
     def serialize_timestamp(self, dt: datetime) -> str:

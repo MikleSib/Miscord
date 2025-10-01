@@ -1,9 +1,9 @@
 import api from './api'
-import { Message } from '../types'
+import { DirectMessage } from '../types'
 
 class DirectMessageService {
-  async getMessages(friendId: number, skip: number = 0, limit: number = 30): Promise<Message[]> {
-    const response = await api.get<Message[]>(`api/dms/${friendId}?skip=${skip}&limit=${limit}`)
+  async getMessages(friendId: number, skip: number = 0, limit: number = 30): Promise<DirectMessage[]> {
+    const response = await api.get<DirectMessage[]>(`api/dms/${friendId}?skip=${skip}&limit=${limit}`)
     return response.data
   }
 
