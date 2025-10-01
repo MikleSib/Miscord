@@ -1,5 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, and_
+from sqlalchemy.orm import selectinload
 from app.models.user import User
 from app.models.friendship import Friendship, FriendshipStatus
 
@@ -43,7 +44,7 @@ async def get_friends(db: AsyncSession, user_id: int):
                 Friendship.user_b_id == user_id
             ),
             Friendship.status == FriendshipStatus.ACCEPTED
-        ).options(select.joinedload(Friendship.user_a), select.joinedload(Friendship.user_b))
+        ).options(selectinload(Friendship.user_a), selectinload(Friendship.user_b))
     )
     friendships = friendships_result.scalars().all()
     
@@ -61,7 +62,7 @@ async def get_pending_requests(db: AsyncSession, user_id: int):
         select(Friendship).filter(
             Friendship.user_b_id == user_id,
             Friendship.status == FriendshipStatus.PENDING
-        ).options(select.joinedload(Friendship.user_a))
+        ).options(selectinload(Friendship.user_a))
     )
     requests_to_user = requests_to_user_result.scalars().all()
     
@@ -74,7 +75,7 @@ async def accept_friend_request(db: AsyncSession, request_id: int, current_user_
             Friendship.id == request_id, 
             Friendship.user_b_id == current_user_id,
             Friendship.status == FriendshipStatus.PENDING
-        ).options(select.joinedload(Friendship.user_a))
+        ).options(selectinload(Friendship.user_a))
     )
     friend_request = friend_request_result.scalar_one_or_none()
 
