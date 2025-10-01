@@ -7,7 +7,7 @@ from typing import List
 from app.core.dependencies import get_db, get_current_user
 from app.models import User, Message, Reaction
 from app.schemas.reaction import ReactionToggleRequest, ReactionResponse
-from app.schemas.user import UserResponse
+from app.schemas.user import User as UserResponse
 from app.websocket.connection_manager import manager
 
 router = APIRouter()
@@ -166,4 +166,4 @@ async def get_reaction_summary(db: AsyncSession, message_id: int, emoji: str, cu
         count=len(reactions),
         users=users,
         current_user_reacted=current_user_reacted
-    ) 
+    )

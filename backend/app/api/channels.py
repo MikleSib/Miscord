@@ -10,7 +10,7 @@ from app.schemas.channel import (
     TextChannelCreate, TextChannel as TextChannelSchema,
     VoiceChannelCreate, VoiceChannel as VoiceChannelSchema
 )
-from app.schemas.user import UserResponse
+from app.schemas.user import User as UserResponse
 from app.core.dependencies import get_current_active_user, get_current_user
 from app.websocket.connection_manager import manager
 from datetime import timezone, datetime, timedelta
