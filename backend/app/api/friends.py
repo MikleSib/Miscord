@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Body
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
 from app.core.dependencies import get_db
@@ -11,9 +11,9 @@ from app.core.dependencies import get_current_user
 router = APIRouter()
 
 @router.post("/friends/request", response_model=UserSchema)
-def send_friend_request(
-    username: str,
-    db: Session = Depends(get_db),
+async def send_friend_request(
+    username: str = Body(..., embed=True),
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -22,64 +22,62 @@ def send_friend_request(
     if current_user.username == username:
         raise HTTPException(status_code=400, detail="You cannot send a friend request to yourself.")
     
-    friend = friend_service.get_user_by_username(db, username=username)
+    friend = await friend_service.get_user_by_username(db, username=username)
     if not friend:
         raise HTTPException(status_code=404, detail="User not found.")
 
-    friend_request = friend_service.create_friend_request(db, user_from_id=current_user.id, user_to_id=friend.id)
+    friend_request = await friend_service.create_friend_request(db, user_from_id=current_user.id, user_to_id=friend.id)
     if not friend_request:
         raise HTTPException(status_code=400, detail="Friend request already sent or users are already friends.")
     
-    # Здесь нужно будет добавить логику для отправки уведомления пользователю
-    # через WebSocket.
-
+    # WebSocket notification logic will be added here
     return friend
 
 
 @router.get("/friends", response_model=List[UserSchema])
-def get_friends(
-    db: Session = Depends(get_db),
+async def get_friends(
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
     Get the list of friends for the current user.
     """
-    return friend_service.get_friends(db, user_id=current_user.id)
+    return await friend_service.get_friends(db, user_id=current_user.id)
 
 @router.get("/friends/requests/pending", response_model=List[UserSchema])
-def get_pending_friend_requests(
-    db: Session = Depends(get_db),
+async def get_pending_friend_requests(
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
     Get the list of pending friend requests for the current user.
     """
-    return friend_service.get_pending_requests(db, user_id=current_user.id)
+    return await friend_service.get_pending_requests(db, user_id=current_user.id)
 
 @router.post("/friends/accept/{request_id}", response_model=UserSchema)
-def accept_friend_request(
+async def accept_friend_request(
     request_id: int,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
     Accept a friend request.
     """
-    friend = friend_service.accept_friend_request(db, request_id=request_id, current_user_id=current_user.id)
+    friend = await friend_service.accept_friend_request(db, request_id=request_id, current_user_id=current_user.id)
     if not friend:
         raise HTTPException(status_code=404, detail="Friend request not found or you are not the recipient.")
     return friend
 
 @router.post("/friends/reject/{request_id}")
-def reject_friend_request(
+async def reject_friend_request(
     request_id: int,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
     Reject a friend request.
     """
-    success = friend_service.reject_friend_request(db, request_id=request_id, current_user_id=current_user.id)
+    success = await friend_service.reject_friend_request(db, request_id=request_id, current_user_id=current_user.id)
     if not success:
         raise HTTPException(status_code=404, detail="Friend request not found or you are not the recipient.")
     return {"message": "Friend request rejected."}

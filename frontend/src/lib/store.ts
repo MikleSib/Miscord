@@ -70,6 +70,13 @@ export const useStore = create<AppState>()(
       // Выбор сервера
       selectServer: async (serverId: number) => {
         const { servers, loadServerDetails } = get();
+        
+        // Если serverId = 0, это означает выбор "Дома" (HomePageContent)
+        if (serverId === 0) {
+          set({ currentServer: null, currentChannel: null });
+          return;
+        }
+        
         const server = servers.find(s => s.id === serverId);
         
         if (server) {

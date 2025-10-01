@@ -1,23 +1,27 @@
-from sqlalchemy.orm import Session
-from sqlalchemy import or_, and_
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, or_, and_
 from app.models.user import User
 from app.models.friendship import Friendship, FriendshipStatus
 
-def get_user(db: Session, user_id: int):
-    return db.query(User).filter(User.id == user_id).first()
+async def get_user(db: AsyncSession, user_id: int):
+    result = await db.execute(select(User).filter(User.id == user_id))
+    return result.scalar_one_or_none()
 
-def get_user_by_username(db: Session, username: str):
-    return db.query(User).filter(User.username == username).first()
+async def get_user_by_username(db: AsyncSession, username: str):
+    result = await db.execute(select(User).filter(User.username == username))
+    return result.scalar_one_or_none()
 
-def create_friend_request(db: Session, user_from_id: int, user_to_id: int):
+async def create_friend_request(db: AsyncSession, user_from_id: int, user_to_id: int):
     # Проверяем, не являются ли пользователи уже друзьями
-    existing_friendship = db.query(Friendship).filter(
-        or_(
-            and_(Friendship.user_a_id == user_from_id, Friendship.user_b_id == user_to_id),
-            and_(Friendship.user_a_id == user_to_id, Friendship.user_b_id == user_from_id)
+    existing_friendship_result = await db.execute(
+        select(Friendship).filter(
+            or_(
+                and_(Friendship.user_a_id == user_from_id, Friendship.user_b_id == user_to_id),
+                and_(Friendship.user_a_id == user_to_id, Friendship.user_b_id == user_from_id)
+            )
         )
-    ).first()
-    if existing_friendship:
+    )
+    if existing_friendship_result.scalar_one_or_none():
         return None
 
     # Создаем новый запрос
@@ -27,18 +31,21 @@ def create_friend_request(db: Session, user_from_id: int, user_to_id: int):
         status=FriendshipStatus.PENDING
     )
     db.add(new_request)
-    db.commit()
-    db.refresh(new_request)
+    await db.commit()
+    await db.refresh(new_request)
     return new_request
 
-def get_friends(db: Session, user_id: int):
-    friendships = db.query(Friendship).filter(
-        or_(
-            Friendship.user_a_id == user_id,
-            Friendship.user_b_id == user_id
-        ),
-        Friendship.status == FriendshipStatus.ACCEPTED
-    ).all()
+async def get_friends(db: AsyncSession, user_id: int):
+    friendships_result = await db.execute(
+        select(Friendship).filter(
+            or_(
+                Friendship.user_a_id == user_id,
+                Friendship.user_b_id == user_id
+            ),
+            Friendship.status == FriendshipStatus.ACCEPTED
+        ).options(select.joinedload(Friendship.user_a), select.joinedload(Friendship.user_b))
+    )
+    friendships = friendships_result.scalars().all()
     
     friends = []
     for friendship in friendships:
@@ -48,42 +55,51 @@ def get_friends(db: Session, user_id: int):
             friends.append(friendship.user_a)
     return friends
 
-def get_pending_requests(db: Session, user_id: int):
+async def get_pending_requests(db: AsyncSession, user_id: int):
     # Запросы, отправленные пользователю
-    requests_to_user = db.query(Friendship).filter(
-        Friendship.user_b_id == user_id,
-        Friendship.status == FriendshipStatus.PENDING
-    ).all()
+    requests_to_user_result = await db.execute(
+        select(Friendship).filter(
+            Friendship.user_b_id == user_id,
+            Friendship.status == FriendshipStatus.PENDING
+        ).options(select.joinedload(Friendship.user_a))
+    )
+    requests_to_user = requests_to_user_result.scalars().all()
     
     # Возвращаем пользователей, которые отправили запросы
     return [friendship.user_a for friendship in requests_to_user]
 
-def accept_friend_request(db: Session, request_id: int, current_user_id: int):
-    friend_request = db.query(Friendship).filter(
-        Friendship.id == request_id, 
-        Friendship.user_b_id == current_user_id,
-        Friendship.status == FriendshipStatus.PENDING
-    ).first()
+async def accept_friend_request(db: AsyncSession, request_id: int, current_user_id: int):
+    friend_request_result = await db.execute(
+        select(Friendship).filter(
+            Friendship.id == request_id, 
+            Friendship.user_b_id == current_user_id,
+            Friendship.status == FriendshipStatus.PENDING
+        ).options(select.joinedload(Friendship.user_a))
+    )
+    friend_request = friend_request_result.scalar_one_or_none()
 
     if not friend_request:
         return None
     
     friend_request.status = FriendshipStatus.ACCEPTED
-    db.commit()
-    db.refresh(friend_request)
+    await db.commit()
+    await db.refresh(friend_request)
 
     return friend_request.user_a
 
-def reject_friend_request(db: Session, request_id: int, current_user_id: int):
-    friend_request = db.query(Friendship).filter(
-        Friendship.id == request_id,
-        Friendship.user_b_id == current_user_id,
-        Friendship.status == FriendshipStatus.PENDING
-    ).first()
+async def reject_friend_request(db: AsyncSession, request_id: int, current_user_id: int):
+    friend_request_result = await db.execute(
+        select(Friendship).filter(
+            Friendship.id == request_id,
+            Friendship.user_b_id == current_user_id,
+            Friendship.status == FriendshipStatus.PENDING
+        )
+    )
+    friend_request = friend_request_result.scalar_one_or_none()
 
     if not friend_request:
         return False
         
-    db.delete(friend_request)
-    db.commit()
+    await db.delete(friend_request)
+    await db.commit()
     return True

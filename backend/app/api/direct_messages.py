@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, WebSocket
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
 from app.core.dependencies import get_db, get_current_user
@@ -11,27 +11,27 @@ from app.websocket.connection_manager import manager
 router = APIRouter()
 
 @router.get("/dm/{friend_id}", response_model=List[MessageSchema])
-def get_direct_messages(
+async def get_direct_messages(
     friend_id: int,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
     Get message history with a friend.
     """
-    return direct_message_service.get_messages(db, user1_id=current_user.id, user2_id=friend_id)
+    return await direct_message_service.get_messages(db, user1_id=current_user.id, user2_id=friend_id)
 
 @router.post("/dm/{friend_id}", response_model=MessageSchema)
 async def send_direct_message(
     friend_id: int,
     message: MessageCreate,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
     Send a direct message to a friend.
     """
-    db_message = direct_message_service.create_message(
+    db_message = await direct_message_service.create_message(
         db, sender_id=current_user.id, recipient_id=friend_id, content=message.content
     )
 
