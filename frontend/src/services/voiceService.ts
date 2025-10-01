@@ -323,6 +323,70 @@ class VoiceService {
     });
   }
 
+  /**
+   * Внедряет поддержку RED (Redundant Audio Data) для Opus в SDP.
+   * Это повышает устойчивость к потере пакетов за счет отправки избыточных аудиоданных.
+   * @param sdp Исходный SDP.
+   * @returns Модифицированный SDP с поддержкой RED.
+   */
+  private enableOpusRed(sdp: string): string {
+    // Ищем описание аудио медиа секции
+    if (!sdp.includes('m=audio')) {
+      return sdp;
+    }
+
+    // 1. Находим payload type для Opus
+    const opusRegex = /a=rtpmap:(\d+) opus\/48000\/2/i;
+    const opusMatch = sdp.match(opusRegex);
+    if (!opusMatch) {
+      console.warn('🔊 RED: Opus payload type не найден в SDP. RED не будет включен.');
+      return sdp;
+    }
+    const opusPayloadType = opusMatch[1];
+
+    // 2. Проверяем, не включен ли уже RED
+    const redRegex = /a=rtpmap:(\d+) red\/48000\/2/i;
+    if (sdp.match(redRegex)) {
+      console.log('🔊 RED: Поддержка RED уже включена в SDP.');
+      return sdp;
+    }
+
+    // 3. Выбираем свободный payload type для RED (обычно в диапазоне 96-127)
+    // Возьмем 111 как стандартное значение, если оно не занято
+    const redPayloadType = '111';
+
+    // 4. Добавляем строки для RED в SDP
+    const opusRtpmapLine = `a=rtpmap:${opusPayloadType} opus/48000/2`;
+    const redSdpLines = [
+      `a=rtpmap:${redPayloadType} red/48000/2`,
+      `a=fmtp:${redPayloadType} ${opusPayloadType}/${opusPayloadType}` // RED будет дублировать Opus
+    ].join('\r\n');
+
+    let newSdp = sdp.replace(opusRtpmapLine, `${opusRtpmapLine}\r\n${redSdpLines}`);
+
+    // 5. Добавляем payload type для RED в m=audio строку
+    const mAudioRegex = /(m=audio\s\d+\s[A-Z/]+\s)(.*)/;
+    const mAudioMatch = newSdp.match(mAudioRegex);
+    if (mAudioMatch) {
+      const prefix = mAudioMatch[1];
+      let payloadTypes = mAudioMatch[2].split(' ');
+      // Вставляем RED перед Opus для приоритета
+      const opusIndex = payloadTypes.indexOf(opusPayloadType);
+      if (opusIndex !== -1) {
+        payloadTypes.splice(opusIndex, 0, redPayloadType);
+      } else {
+        payloadTypes.push(redPayloadType);
+      }
+      
+      newSdp = newSdp.replace(mAudioRegex, `${prefix}${payloadTypes.join(' ')}`);
+      console.log('🔊 RED: Успешно внедрен в SDP для Opus.', { opusPayloadType, redPayloadType });
+    } else {
+       console.warn('🔊 RED: Не удалось найти m=audio строку для модификации.');
+    }
+
+    return newSdp;
+  }
+
   private async handleMessage(data: any) {
     
     switch (data.type) {
@@ -888,11 +952,15 @@ class VoiceService {
     if (createOffer) {
 
       const offer = await pc.createOffer();
+      // Внедряем RED в offer SDP
+      if (offer.sdp) {
+        offer.sdp = this.enableOpusRed(offer.sdp);
+      }
       await pc.setLocalDescription(offer);
       this.sendMessage({
         type: 'offer',
         target_id: userId,
-        offer: offer,
+        offer: pc.localDescription,
       });
     }
   }
@@ -924,6 +992,10 @@ class VoiceService {
       console.log(`🔊 Установлен remote description для пользователя ${userId}`);
       
       const answer = await peerConnection.pc.createAnswer();
+      // Внедряем RED в answer SDP
+      if (answer.sdp) {
+        answer.sdp = this.enableOpusRed(answer.sdp);
+      }
       await peerConnection.pc.setLocalDescription(answer);
       console.log(`🔊 Создан и установлен answer для пользователя ${userId}:`, answer);
 
