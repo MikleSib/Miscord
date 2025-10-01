@@ -34,7 +34,7 @@ class VoiceService {
   private onSpeakingChanged: ((userId: number, isSpeaking: boolean) => void) | null = null;
   private audioContext: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
-  private vadInterval: number | null = null;
+  private vadInterval: NodeJS.Timeout | number | null = null;
   private isSpeaking: boolean = false;
   private speakingUsers: Set<number> = new Set();
   private onParticipantsReceivedCallback: ((participants: any[]) => void) | null = null;
