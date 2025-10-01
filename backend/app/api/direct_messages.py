@@ -4,13 +4,13 @@ from typing import List
 
 from app.core.dependencies import get_db, get_current_user
 from app.models.user import User
-from app.schemas.message import Message as MessageSchema, MessageCreate
+from app.schemas.message import Message as MessageSchema, MessageCreate, DirectMessageSchema
 from app.services import direct_message_service
 from app.websocket.connection_manager import manager
 
 router = APIRouter()
 
-@router.get("/{recipient_id}", response_model=List[MessageSchema])
+@router.get("/{recipient_id}", response_model=List[DirectMessageSchema])
 async def get_direct_messages(
     recipient_id: int,
     skip: int = Query(0, ge=0),

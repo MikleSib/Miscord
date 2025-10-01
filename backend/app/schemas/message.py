@@ -38,6 +38,24 @@ class Message(BaseModel):
     class Config:
         from_attributes = True
 
+class DirectMessageSchema(BaseModel):
+    id: int
+    content: str
+    timestamp: datetime
+    sender_id: int
+    recipient_id: int
+    
+    @field_serializer('timestamp')
+    def serialize_timestamp(self, dt: datetime) -> str:
+        # Время в базе хранится в UTC, добавляем timezone и сериализуем
+        if dt.tzinfo is None:
+            # Добавляем UTC timezone
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.isoformat()
+    
+    class Config:
+        from_attributes = True
+
 class MessageEvent(BaseModel):
     type: str  # "new_message", "edit_message", "delete_message"
     message: Optional[Message] = None
