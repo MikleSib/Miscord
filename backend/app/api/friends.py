@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
@@ -39,7 +40,7 @@ async def send_friend_request(
     await manager.send_personal_message(
         {
             "type": "new_friend_request",
-            "data": current_user_schema.dict()
+            "data": jsonable_encoder(current_user_schema)
         },
         friend.id
     )
