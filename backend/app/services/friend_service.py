@@ -59,14 +59,14 @@ async def get_friends(db: AsyncSession, user_id: int):
         
         # Получаем время последнего сообщения
         last_message_result = await db.execute(
-            select(DirectMessage.created_at)
+            select(DirectMessage.timestamp)
             .filter(
                 or_(
-                    and_(DirectMessage.sender_id == user_id, DirectMessage.receiver_id == friend.id),
-                    and_(DirectMessage.sender_id == friend.id, DirectMessage.receiver_id == user_id)
+                    and_(DirectMessage.sender_id == user_id, DirectMessage.recipient_id == friend.id),
+                    and_(DirectMessage.sender_id == friend.id, DirectMessage.recipient_id == user_id)
                 )
             )
-            .order_by(DirectMessage.created_at.desc())
+            .order_by(DirectMessage.timestamp.desc())
             .limit(1)
         )
         last_message_at = last_message_result.scalar_one_or_none()

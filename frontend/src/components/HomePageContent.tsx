@@ -15,7 +15,7 @@ type Tab = 'online' | 'all' | 'pending' | 'blocked'
 export function HomePageContent() {
   const [activeTab, setActiveTab] = useState<Tab>('all')
   const [friends, setFriends] = useState<User[]>([])
-  const [pendingRequests, setPendingRequests] = useState<FriendRequest[]>([])
+  const [pendingRequests, setPendingRequests] = useState<any[]>([])
   const [isAddFriendModalOpen, setIsAddFriendModalOpen] = useState(false)
   const [friendUsername, setFriendUsername] = useState('')
   const [addFriendError, setAddFriendError] = useState('')
@@ -74,12 +74,18 @@ export function HomePageContent() {
     }
     fetchData()
 
-    const handleNewFriendRequest = (newRequest: FriendRequest) => {
+    const handleNewFriendRequest = (newRequest: User) => {
       setPendingRequests(prev => [newRequest, ...prev]);
     };
 
     const handleFriendRequestAccepted = ({ user, request_id }: { user: User, request_id: number }) => {
-      setFriends(prev => [...prev, user]);
+      setFriends(prev => {
+        // Avoid adding duplicate if already present from optimistic update
+        if (prev.some(friend => friend.id === user.id)) {
+          return prev;
+        }
+        return [...prev, user];
+      });
       setPendingRequests(prev => prev.filter(req => req.request_id !== request_id));
     };
 
@@ -119,8 +125,14 @@ export function HomePageContent() {
   }
 
   const handleAcceptRequest = async (requestId: number) => {
+    const requestToAccept = pendingRequests.find(req => req.request_id === requestId);
+    if (!requestToAccept) return;
+
     try {
       await friendService.acceptFriendRequest(requestId);
+      // Optimistic update
+      setFriends(prevFriends => [...prevFriends, requestToAccept as User]);
+      setPendingRequests(prev => prev.filter(req => req.request_id !== requestId));
     } catch (error) {
       console.error('Ошибка принятия запроса:', error);
     }
@@ -129,6 +141,7 @@ export function HomePageContent() {
   const handleRejectRequest = async (requestId: number) => {
     try {
       await friendService.rejectFriendRequest(requestId);
+      setPendingRequests(prev => prev.filter(req => req.request_id !== requestId));
     } catch (error) {
       console.error('Ошибка отклонения запроса:', error);
     }
@@ -244,12 +257,12 @@ export function HomePageContent() {
               Входящие — {pendingRequests.length}
             </h3>
             {pendingRequests.length > 0 ? (
-               pendingRequests.map(request => (
+               pendingRequests.filter(Boolean).map(request => (
                 <div key={request.request_id} className="flex items-center justify-between p-2 hover:bg-[#393a3f] rounded-md">
                   <div className="flex items-center">
-                    <UserAvatar user={request.from_user} />
+                    <UserAvatar user={request} />
                     <div className="ml-3">
-                      <p className="text-white">{request.from_user.username}</p>
+                      <p className="text-white">{request.username}</p>
                       <p className="text-xs text-[#8e9297]">Входящий запрос в друзья</p>
                     </div>
                   </div>

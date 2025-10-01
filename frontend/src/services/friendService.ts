@@ -12,8 +12,8 @@ class FriendService {
     return response.data
   }
 
-  async getPendingRequests(): Promise<FriendRequest[]> {
-    const response = await api.get<FriendRequest[]>('/api/friends/friends/requests/pending')
+  async getPendingRequests(): Promise<any[]> {
+    const response = await api.get<any[]>('/api/friends/friends/requests/pending')
     return response.data
   }
 
