@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Users, MessageSquare, Settings, Check, X, Phone } from 'lucide-react'
 import { User } from '../types'
 import friendService from '../services/friendService'
@@ -23,6 +23,14 @@ export function HomePageContent() {
   
   const [currentCall, setCurrentCall] = useState<any>(null);
   const [isIncomingCall, setIsIncomingCall] = useState(false);
+
+  const sortedFriends = useMemo(() => {
+    return [...friends].sort((a, b) => {
+      if (a.is_online && !b.is_online) return -1;
+      if (!a.is_online && b.is_online) return 1;
+      return a.username.localeCompare(b.username);
+    });
+  }, [friends]);
   
   useEffect(() => {
     const handleIncomingCall = (callerId: string) => {
@@ -170,16 +178,18 @@ export function HomePageContent() {
         return (
           <div>
             <h3 className="text-xs font-bold uppercase text-[#8e9297] mb-2">
-              Все друзья — {friends.length}
+              Все друзья — {sortedFriends.length}
             </h3>
-            {friends.length > 0 ? (
-              friends.map(friend => (
+            {sortedFriends.length > 0 ? (
+              sortedFriends.map(friend => (
                 <div key={friend.id} onClick={() => setSelectedFriend(friend)} className="flex items-center justify-between p-2 hover:bg-[#393a3f] rounded-md cursor-pointer">
                   <div className="flex items-center">
                     <UserAvatar user={friend} />
                     <div className="ml-3">
                       <p className="text-white">{friend.username}</p>
-                      <p className="text-xs text-[#8e9297]">В сети</p>
+                      <p className={`text-xs ${friend.is_online ? 'text-green-400' : 'text-[#8e9297]'}`}>
+                        {friend.is_online ? 'В сети' : 'Не в сети'}
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -278,66 +288,47 @@ export function HomePageContent() {
           </div>
         </div>
       )}
-      
-      {/* Левая панель для личных сообщений */}
-      <div className="w-64 bg-[#2c2d32] h-full flex flex-col p-2">
-        <div className="px-3 py-2">
-          <input
-            type="text"
-            placeholder="Найти или начать беседу"
-            className="w-full bg-[#1e1f22] text-sm rounded px-2 py-1 text-white placeholder-[#8e9297] border-none focus:ring-0"
-          />
-        </div>
-        <div className="flex-1 mt-2 space-y-1">
-          <a
-            href="#"
-            className="flex items-center px-3 py-2 text-white bg-[#393a3f] rounded-md"
-          >
-            <Users className="w-5 h-5 mr-3" />
-            <span className="font-medium">Друзья</span>
-          </a>
-          {/* ... other links */}
-        </div>
-      </div>
 
-      {/* Основная область для контента */}
-      <div className="flex-1 bg-[#313338] h-screen flex flex-col">
-        {/* Верхняя панель */}
-        <div className="flex items-center h-12 px-4 border-b border-[#2c2d32] shadow-md flex-shrink-0">
+      {/* Friends List and Controls Sidebar */}
+      <div className="w-64 bg-[#2c2d32] h-full flex flex-col">
+        {/* Top bar for friends page */}
+        <div className="flex items-center h-12 px-4 border-b border-[#212226] shadow-md flex-shrink-0">
           <div className="flex items-center">
             <Users className="w-6 h-6 text-[#8e9297] mr-2" />
-            <h2 className="text-white font-semibold text-lg">Друзья</h2>
+            <h2 className="text-white font-semibold">Друзья</h2>
           </div>
-          <div className="w-px h-6 bg-[#393a3f] mx-4"></div>
-          <nav className="flex items-center space-x-4">
-            <button onClick={() => setActiveTab('online')} className={`font-medium ${activeTab === 'online' ? 'text-white' : 'text-[#8e9297] hover:text-white'}`}>В сети</button>
-            <button onClick={() => setActiveTab('all')} className={`font-medium ${activeTab === 'all' ? 'text-white' : 'text-[#8e9297] hover:text-white'}`}>Все</button>
-            <div className="relative">
-              <button onClick={() => setActiveTab('pending')} className={`font-medium ${activeTab === 'pending' ? 'text-white' : 'text-[#8e9297] hover:text-white'}`}>Ожидание</button>
-              {pendingRequests.length > 0 && (
-                <span className="absolute -top-1 -right-3 bg-red-600 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center font-bold">
-                  {pendingRequests.length}
-                </span>
-              )}
-            </div>
-            <button onClick={() => setActiveTab('blocked')} className={`font-medium ${activeTab === 'blocked' ? 'text-white' : 'text-[#8e9297] hover:text-white'}`}>Заблокированные</button>
-            <button onClick={() => setIsAddFriendModalOpen(true)} className="bg-[#2d7d46] text-white px-3 py-1 rounded-md text-sm font-medium hover:bg-green-600">Добавить в друзья</button>
-          </nav>
         </div>
-
-        {/* Контент списка друзей */}
-        <div className="flex-1 flex flex-col min-h-0">
-          {selectedFriend ? (
-            <DirectMessageArea friend={selectedFriend} />
-          ) : (
-            <div className="p-4 overflow-y-auto">
-              {renderContent()}
-            </div>
-          )}
+        <nav className="flex items-center p-2 space-x-2">
+          <button onClick={() => setActiveTab('all')} className={`px-2 py-1 text-sm font-medium rounded ${activeTab === 'all' ? 'bg-[#404249] text-white' : 'text-[#8e9297] hover:bg-[#35373c] hover:text-white'}`}>Все</button>
+          <div className="relative">
+            <button onClick={() => setActiveTab('pending')} className={`px-2 py-1 text-sm font-medium rounded ${activeTab === 'pending' ? 'bg-[#404249] text-white' : 'text-[#8e9297] hover:bg-[#35373c] hover:text-white'}`}>Ожидание</button>
+            {pendingRequests.length > 0 && (
+              <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center font-bold">
+                {pendingRequests.length}
+              </span>
+            )}
+          </div>
+         
+          <button onClick={() => setIsAddFriendModalOpen(true)} className="px-2 py-1 text-sm font-medium rounded bg-[#2d7d46] text-white hover:bg-green-600">Добавить</button>
+        </nav>
+        <div className="p-2 overflow-y-auto">
+          {renderContent()}
         </div>
       </div>
 
-      {/* Модальное окно добавления в друзья */}
+      {/* Main content area */}
+      <div className="flex-1 bg-[#313338] h-screen flex flex-col">
+        {selectedFriend ? (
+          <DirectMessageArea friend={selectedFriend} />
+        ) : (
+          <div className="flex flex-col items-center justify-center h-full text-center text-gray-400">
+             <h3 className="text-xl font-bold text-white mb-4">Выберите друга</h3>
+             <p>Выберите друга из списка слева, чтобы начать переписку.</p>
+          </div>
+        )}
+      </div>
+
+      {/* Add Friend Modal */}
       {isAddFriendModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-[#313338] p-6 rounded-lg w-96">

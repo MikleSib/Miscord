@@ -3,6 +3,8 @@ from sqlalchemy import select, or_, and_
 from sqlalchemy.orm import selectinload
 from app.models.user import User
 from app.models.friendship import Friendship, FriendshipStatus
+from app.models.direct_message import DirectMessage
+from sqlalchemy.sql import func
 
 async def get_user(db: AsyncSession, user_id: int):
     result = await db.execute(select(User).filter(User.id == user_id))
@@ -51,9 +53,29 @@ async def get_friends(db: AsyncSession, user_id: int):
     friends = []
     for friendship in friendships:
         if friendship.user_a_id == user_id:
-            friends.append(friendship.user_b)
+            friend = friendship.user_b
         else:
-            friends.append(friendship.user_a)
+            friend = friendship.user_a
+        
+        friend.friendship_created_at = friendship.created_at
+        
+        # Получаем время последнего сообщения
+        last_message_result = await db.execute(
+            select(DirectMessage.created_at)
+            .filter(
+                or_(
+                    and_(DirectMessage.sender_id == user_id, DirectMessage.receiver_id == friend.id),
+                    and_(DirectMessage.sender_id == friend.id, DirectMessage.receiver_id == user_id)
+                )
+            )
+            .order_by(DirectMessage.created_at.desc())
+            .limit(1)
+        )
+        last_message_at = last_message_result.scalar_one_or_none()
+        friend.last_message_at = last_message_at
+
+        friends.append(friend)
+        
     return friends
 
 async def get_pending_requests(db: AsyncSession, user_id: int):
@@ -70,6 +92,7 @@ async def get_pending_requests(db: AsyncSession, user_id: int):
     for req in requests_to_user:
         user = req.user_a
         user.request_id = req.id
+        user.friendship_created_at = req.created_at
         users.append(user)
     return users
 
