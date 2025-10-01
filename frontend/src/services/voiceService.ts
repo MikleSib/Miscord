@@ -421,7 +421,9 @@ class VoiceService {
                 avatar_url: participant.avatar_url
               }
             });
-            window.dispatchEvent(screenShareStartEvent);
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(screenShareStartEvent);
+            }
 
             if (this.onScreenShareChanged) {
               this.onScreenShareChanged(participant.user_id, true);
@@ -532,7 +534,9 @@ class VoiceService {
             avatar_url: data.avatar_url 
           } 
         });
-        window.dispatchEvent(screenShareStartEvent);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(screenShareStartEvent);
+        }
         console.log('🖥️ Отправлено событие screen_share_start для UI');
         
         if (this.onScreenShareChanged) {
@@ -550,7 +554,9 @@ class VoiceService {
             username: data.username 
           } 
         });
-        window.dispatchEvent(screenShareStopEvent);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(screenShareStopEvent);
+        }
         console.log('🖥️ Отправлено событие screen_share_stop для UI');
         
         // Удаляем видео элемент
@@ -793,7 +799,7 @@ class VoiceService {
               rq();
               // Повторяем запрос несколько раз, пока не появятся размеры видео
               let attempts = 0;
-              const kfTimer = window.setInterval(() => {
+              const kfTimer = (typeof window !== 'undefined' ? window : globalThis).setInterval(() => {
                 attempts += 1;
                 if ((remoteVideo.videoWidth && remoteVideo.videoWidth > 0) || attempts >= 8) {
                   clearInterval(kfTimer);
@@ -836,7 +842,7 @@ class VoiceService {
             const start = Date.now();
             const videoReceiver = pc.getReceivers().find(r => r.track && r.track.kind === 'video');
             const rq = (videoReceiver && (videoReceiver as any).requestKeyFrame) ? (videoReceiver as any).requestKeyFrame.bind(videoReceiver) : null;
-            const watchdog = window.setInterval(() => {
+            const watchdog = (typeof window !== 'undefined' ? window : globalThis).setInterval(() => {
               if (remoteVideo.videoWidth > 0 || Date.now() - start > 8000) {
                 clearInterval(watchdog);
                 return;
@@ -869,7 +875,7 @@ class VoiceService {
           remoteVideo.addEventListener('canplay', safePlay);
 
           // Watchdog: если элемент внезапно удалён (при ре-рендерах React), пере-добавляем его
-          const watchdogInterval = window.setInterval(() => {
+          const watchdogInterval = (typeof window !== 'undefined' ? window : globalThis).setInterval(() => {
             if (!document.body.contains(remoteVideo)) {
               const container = document.getElementById('screen-share-container-chat');
               if (container) {
@@ -900,7 +906,9 @@ class VoiceService {
                 avatar_url: info?.avatar_url
               }
             });
-            window.dispatchEvent(evt);
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(evt);
+            }
           } catch {}
 
           // Уведомляем store/слушателей
@@ -915,7 +923,9 @@ class VoiceService {
                 const stopEvt = new CustomEvent('screen_share_stop', {
                   detail: { user_id: userId, username: this.participantDirectory.get(userId)?.username }
                 });
-                window.dispatchEvent(stopEvt);
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(stopEvt);
+                }
                 if (this.onScreenShareChanged) {
                   this.onScreenShareChanged(userId, false);
                 }
@@ -1370,6 +1380,7 @@ class VoiceService {
     if (!this.localStream) return;
 
     try {
+      if (typeof window === 'undefined') return;
       this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
       const source = this.audioContext.createMediaStreamSource(this.localStream);
       this.analyser = this.audioContext.createAnalyser();
@@ -1394,7 +1405,7 @@ class VoiceService {
     const bufferLength = this.analyser.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
 
-    this.vadInterval = window.setInterval(() => {
+    this.vadInterval = (typeof window !== 'undefined' ? window : globalThis).setInterval(() => {
       if (!this.analyser || !this.audioContext || this.audioContext.state === 'closed') {
         return;
       }
@@ -1644,7 +1655,9 @@ class VoiceService {
             username: username
           }
         });
-        window.dispatchEvent(event);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(event);
+        }
         console.log('🖥️ Отправлено локальное событие screen_share_start для пользователя:', currentUserId);
       }
 
@@ -1669,7 +1682,9 @@ class VoiceService {
           user_id: userId
         }
       });
-      window.dispatchEvent(event);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(event);
+      }
       console.log('🖥️ Отправлено локальное событие screen_share_stop для пользователя:', userId);
     }
 
@@ -1716,7 +1731,9 @@ class VoiceService {
           user_id: currentUserId
         }
       });
-      window.dispatchEvent(event);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(event);
+      }
     }
 
     // Уведомляем сервер об остановке демонстрации экрана

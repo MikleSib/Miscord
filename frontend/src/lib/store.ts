@@ -436,7 +436,7 @@ export const useStore = create<AppState>()(
           console.log('Получено приглашение в канал:', data);
           
           // Показываем уведомление
-          if ('Notification' in window && Notification.permission === 'granted') {
+          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
             new Notification(`Приглашение в канал`, {
               body: `${data.invited_by} пригласил вас в канал "${data.channel_name}"`,
               icon: '/favicon.ico'
@@ -452,7 +452,7 @@ export const useStore = create<AppState>()(
           console.log('Создан новый сервер:', data);
           
           // Показываем уведомление
-          if ('Notification' in window && Notification.permission === 'granted') {
+          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
             new Notification(`Новый сервер`, {
               body: `${data.created_by.username} создал сервер "${data.server.name}"`,
               icon: '/favicon.ico'
@@ -483,7 +483,7 @@ export const useStore = create<AppState>()(
 
           const currentUser = get().user;
           if (currentUser && data.updated_by && data.updated_by.id !== currentUser.id) {
-            if ('Notification' in window && Notification.permission === 'granted') {
+            if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
               new Notification(`Сервер обновлен`, {
                 body: `${data.updated_by.username} обновил настройки сервера "${data.name}"`,
                 icon: '/favicon.ico'
@@ -515,7 +515,7 @@ export const useStore = create<AppState>()(
             const currentUser = get().user;
             if (currentUser && eventData.deleted_by && eventData.deleted_by.id !== currentUser.id) {
               console.log('🔔 Показываем уведомление о удалении сервера другим пользователем');
-              if ('Notification' in window && Notification.permission === 'granted') {
+              if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
                 new Notification(`Сервер удален`, {
                   body: `${eventData.deleted_by.username} удалил сервер "${eventData.server_name}"`,
                   icon: '/favicon.ico'
@@ -534,7 +534,7 @@ export const useStore = create<AppState>()(
           console.log('Создан новый текстовый канал:', data);
           
           // Показываем уведомление
-          if ('Notification' in window && Notification.permission === 'granted') {
+          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
             new Notification(`Новый текстовый канал`, {
               body: `${data.created_by.username} создал канал #${data.text_channel.name}`,
               icon: '/favicon.ico'
@@ -556,7 +556,7 @@ export const useStore = create<AppState>()(
           console.log('Создан новый голосовой канал:', data);
           
           // Показываем уведомление
-          if ('Notification' in window && Notification.permission === 'granted') {
+          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
             new Notification(`Новый голосовой канал`, {
               body: `${data.created_by.username} создал голосовой канал ${data.voice_channel.name}`,
               icon: '/favicon.ico'
@@ -620,7 +620,7 @@ export const useStore = create<AppState>()(
           });
           
           // Показываем уведомление
-          if ('Notification' in window && Notification.permission === 'granted') {
+          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
             new Notification(`Голосовой канал`, {
               body: `${data.username} присоединился к каналу "${data.voice_channel_name}"`,
               icon: '/favicon.ico'
@@ -628,7 +628,9 @@ export const useStore = create<AppState>()(
           }
           
           // Генерируем глобальное событие для обновления UI
-          window.dispatchEvent(new CustomEvent('voice_channel_join', { detail: data }));
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('voice_channel_join', { detail: data }));
+          }
         });
         
         // Обработка выхода из голосового канала
@@ -648,7 +650,7 @@ export const useStore = create<AppState>()(
           });
           
           // Показываем уведомление
-          if ('Notification' in window && Notification.permission === 'granted') {
+          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
             new Notification(`Голосовой канал`, {
               body: `${data.username} покинул голосовой канал`,
               icon: '/favicon.ico'
@@ -656,7 +658,9 @@ export const useStore = create<AppState>()(
           }
           
           // Генерируем глобальное событие для обновления UI
-          window.dispatchEvent(new CustomEvent('voice_channel_leave', { detail: data }));
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('voice_channel_leave', { detail: data }));
+          }
         });
 
         // Обработка начала демонстрации экрана
@@ -664,20 +668,24 @@ export const useStore = create<AppState>()(
           console.log('🔔 [Store] Пользователь начал демонстрацию экрана:', data);
 
           // Показываем уведомление
-          if ('Notification' in window && Notification.permission === 'granted') {
+          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
             new Notification(`Демонстрация экрана`, {
               body: `${data.username} начал демонстрацию экрана`,
               icon: '/favicon.ico'
             }).onclick = () => {
               // При клике на уведомление фокусируемся на окне
-              window.focus();
+              if (typeof window !== 'undefined') {
+                window.focus();
+              }
             };
           }
 
           // Генерируем глобальное событие для обновления UI
           console.log('🔔 [Store] Отправляем событие screen_share_start с данными:', data);
           const event = new CustomEvent('screen_share_start', { detail: data });
-          window.dispatchEvent(event);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(event);
+          }
           console.log('🔔 [Store] Событие screen_share_start отправлено в DOM');
         });
 
@@ -686,7 +694,7 @@ export const useStore = create<AppState>()(
           console.log('Пользователь остановил демонстрацию экрана:', data);
           
           // Показываем уведомление
-          if ('Notification' in window && Notification.permission === 'granted') {
+          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
             new Notification(`Демонстрация экрана`, {
               body: `${data.username} остановил демонстрацию экрана`,
               icon: '/favicon.ico'
@@ -694,7 +702,9 @@ export const useStore = create<AppState>()(
           }
           
           // Генерируем глобальное событие для обновления UI
-          window.dispatchEvent(new CustomEvent('screen_share_stop', { detail: data }));
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('screen_share_stop', { detail: data }));
+          }
         });
 
         // Обработка изменения статуса пользователя
@@ -702,7 +712,9 @@ export const useStore = create<AppState>()(
           
           
           // Генерируем глобальное событие для обновления UI
-          window.dispatchEvent(new CustomEvent('user_status_changed', { detail: data }));
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('user_status_changed', { detail: data }));
+          }
         });
       },
 

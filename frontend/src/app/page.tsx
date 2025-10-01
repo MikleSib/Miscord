@@ -61,22 +61,26 @@ export default function HomePage() {
       if (!isAuthenticated || !token) {
         // Попробуем восстановить пользователя из токена
         try {
-          const savedToken = localStorage.getItem('access_token');
-          if (savedToken) {
-            // Устанавливаем токен в store
-            useAuthStore.getState().setToken(savedToken);
-            
-            // Получаем данные пользователя
-            const user = await authService.getCurrentUser();
-            useAuthStore.getState().loginSuccess(user, savedToken);
-            setStoreUser(user);
-            
-            return; // Продолжаем инициализацию
+          if (typeof window !== 'undefined') {
+            const savedToken = localStorage.getItem('access_token');
+            if (savedToken) {
+              // Устанавливаем токен в store
+              useAuthStore.getState().setToken(savedToken);
+              
+              // Получаем данные пользователя
+              const user = await authService.getCurrentUser();
+              useAuthStore.getState().loginSuccess(user, savedToken);
+              setStoreUser(user);
+              
+              return; // Продолжаем инициализацию
+            }
           }
         } catch (error) {
           console.error('[HomePage] Ошибка восстановления пользователя:', error);
           // Токен недействителен, очищаем его
-          localStorage.removeItem('access_token');
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('access_token');
+          }
           useAuthStore.getState().logout();
         }
         
@@ -91,7 +95,7 @@ export default function HomePage() {
       await loadServers()
 
       // Запрашиваем разрешение на уведомления
-      if ('Notification' in window && Notification.permission === 'default') {
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
         Notification.requestPermission()
       }
     }
@@ -186,22 +190,28 @@ export default function HomePage() {
     });
 
     voiceService.onScreenShareChange(handleScreenShareChange);
-    window.addEventListener('open_screen_share', handleOpenScreenShare);
-    window.addEventListener('screen_share_start', handleScreenShareStartEvent);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('open_screen_share', handleOpenScreenShare);
+      window.addEventListener('screen_share_start', handleScreenShareStartEvent);
+    }
 
     return () => {
-      window.removeEventListener('open_screen_share', handleOpenScreenShare);
-      window.removeEventListener('screen_share_start', handleScreenShareStartEvent);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('open_screen_share', handleOpenScreenShare);
+        window.removeEventListener('screen_share_start', handleScreenShareStartEvent);
+      }
     };
   }, [sharingUsers, authUser]);
 
   // Функции для работы с Toast уведомлениями
   const handleViewScreenShare = (userId: number, username: string) => {
     // Отправляем событие для открытия демонстрации в ChatArea
-    const event = new CustomEvent('open_screen_share', {
-      detail: { userId, username }
-    });
-    window.dispatchEvent(event);
+    if (typeof window !== 'undefined') {
+      const event = new CustomEvent('open_screen_share', {
+        detail: { userId, username }
+      });
+      window.dispatchEvent(event);
+    }
     
     // Убираем Toast уведомление
     setToastNotifications(prev => prev.filter(toast => toast.userId !== userId));
