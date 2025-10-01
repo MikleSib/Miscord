@@ -20,16 +20,40 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
   const [newMessage, setNewMessage] = useState('')
   const { user } = useAuthStore()
   const messagesEndRef = useRef<null | HTMLDivElement>(null)
+  const messagesContainerRef = useRef<null | HTMLDivElement>(null)
+  const [skip, setSkip] = useState(0)
+  const [hasMore, setHasMore] = useState(true)
+  const [isLoading, setIsLoading] = useState(false)
+
+  // Загрузка сообщений с пагинацией
+  const fetchMessages = async (loadSkip: number = 0, loadLimit: number = 30) => {
+    if (isLoading) return
+    setIsLoading(true)
+    try {
+      const messageHistory = await directMessageService.getMessages(friend.id, loadSkip, loadLimit)
+      if (loadSkip === 0) {
+        // Первоначальная загрузка
+        setMessages(messageHistory)
+        setSkip(messageHistory.length)
+        setHasMore(messageHistory.length === loadLimit)
+      } else {
+        // Подгрузка старых сообщений
+        setMessages((prev) => [...messageHistory, ...prev])
+        setSkip(loadSkip + messageHistory.length)
+        setHasMore(messageHistory.length === loadLimit)
+      }
+    } catch (error) {
+      console.error('Ошибка загрузки личных сообщений:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   useEffect(() => {
-    const fetchMessages = async () => {
-      try {
-        const messageHistory = await directMessageService.getMessages(friend.id)
-        setMessages(messageHistory)
-      } catch (error) {
-        console.error('Ошибка загрузки личных сообщений:', error)
-      }
-    }
+    // Сброс состояния при смене пользователя
+    setMessages([])
+    setSkip(0)
+    setHasMore(true)
     fetchMessages()
   }, [friend.id])
 
@@ -48,6 +72,21 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
       websocketService.off('dm', handleNewMessage);
     };
   }, [friend.id, user?.id]);
+
+  // Обработчик прокрутки для подгрузки сообщений
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      if (container.scrollTop === 0 && hasMore && !isLoading) {
+        fetchMessages(skip, 30);
+      }
+    };
+
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [skip, hasMore, isLoading, friend.id]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -86,7 +125,7 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4">
         {messages.map((msg, index) => {
           const prevMsg = messages[index - 1];
           const showAuthor = !prevMsg || prevMsg.author.id !== msg.author.id;
