@@ -257,10 +257,15 @@ export const useStore = create<AppState>()(
 
       // Добавление сообщения
       addMessage: (message: Message) => {
+        if (message.channelId === undefined) {
+          console.warn('addMessage: channelId is undefined for message:', message);
+          return;
+        }
+        const channelId = message.channelId;
         set((state) => ({
           messages: {
             ...state.messages,
-            [message.channelId]: [...(state.messages[message.channelId] || []), message],
+            [channelId]: [...(state.messages[channelId] || []), message],
           },
         }));
       },
