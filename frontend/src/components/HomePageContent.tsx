@@ -1,12 +1,14 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Users, MessageSquare, Settings, Check, X } from 'lucide-react'
+import { Users, MessageSquare, Settings, Check, X, Phone } from 'lucide-react'
 import { User } from '../types'
 import friendService from '../services/friendService'
 import websocketService from '../services/websocketService'
 import { DirectMessageArea } from './DirectMessageArea'
 import { UserAvatar } from './ui/user-avatar'
+import { VoiceOverlay } from './VoiceOverlay'
+import p2pVoiceService from '../services/p2pVoiceService'
 
 type Tab = 'online' | 'all' | 'pending' | 'blocked'
 
@@ -18,6 +20,36 @@ export function HomePageContent() {
   const [friendUsername, setFriendUsername] = useState('')
   const [addFriendError, setAddFriendError] = useState('')
   const [selectedFriend, setSelectedFriend] = useState<User | null>(null)
+  
+  const [currentCall, setCurrentCall] = useState<any>(null);
+  const [isIncomingCall, setIsIncomingCall] = useState(false);
+  
+  useEffect(() => {
+    const handleIncomingCall = (callerId: string) => {
+      setIsIncomingCall(true);
+      // В реальном приложении здесь нужно найти пользователя по callerId
+      // setSelectedFriend(user);
+    };
+
+    const handleCallAccepted = () => {
+      setIsIncomingCall(false);
+    };
+
+    const handleCallEnded = () => {
+      setCurrentCall(null);
+      setIsIncomingCall(false);
+    };
+
+    p2pVoiceService.on('incoming_call', handleIncomingCall);
+    p2pVoiceService.on('call_accepted', handleCallAccepted);
+    p2pVoiceService.on('call_ended', handleCallEnded);
+
+    return () => {
+      p2pVoiceService.off('incoming_call', handleIncomingCall);
+      p2pVoiceService.off('call_accepted', handleCallAccepted);
+      p2pVoiceService.off('call_ended', handleCallEnded);
+    };
+  }, []);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -39,6 +71,10 @@ export function HomePageContent() {
     };
 
     websocketService.on('new_friend_request', handleNewFriendRequest);
+    
+    return () => {
+      websocketService.off('new_friend_request', handleNewFriendRequest);
+    }
   }, [])
 
   const handleAddFriend = async () => {
@@ -74,6 +110,14 @@ export function HomePageContent() {
     }
   }
 
+  const handleCallUser = async (user: User) => {
+    try {
+      await p2pVoiceService.startCall(user.id)
+    } catch (error) {
+      console.error('Ошибка инициации звонка:', error)
+    }
+  }
+
   const renderContent = () => {
     switch (activeTab) {
       case 'online':
@@ -94,8 +138,24 @@ export function HomePageContent() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button onClick={(e) => { e.stopPropagation(); setSelectedFriend(friend); }} className="p-1 text-[#8e9297] hover:text-white"><MessageSquare size={20} /></button>
-                    {/* More actions button */}
+                    <button 
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        setSelectedFriend(friend); 
+                      }} 
+                      className="p-1 text-[#8e9297] hover:text-white"
+                    >
+                      <MessageSquare size={20} />
+                    </button>
+                    <button 
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        handleCallUser(friend); 
+                      }} 
+                      className="p-1 text-[#8e9297] hover:text-white"
+                    >
+                      <Phone size={20} />
+                    </button>
                   </div>
                 </div>
               ))
@@ -123,8 +183,24 @@ export function HomePageContent() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button onClick={(e) => { e.stopPropagation(); setSelectedFriend(friend); }} className="p-1 text-[#8e9297] hover:text-white"><MessageSquare size={20} /></button>
-                    {/* More actions button */}
+                    <button 
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        setSelectedFriend(friend); 
+                      }} 
+                      className="p-1 text-[#8e9297] hover:text-white"
+                    >
+                      <MessageSquare size={20} />
+                    </button>
+                    <button 
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        handleCallUser(friend); 
+                      }} 
+                      className="p-1 text-[#8e9297] hover:text-white"
+                    >
+                      <Phone size={20} />
+                    </button>
                   </div>
                 </div>
               ))
@@ -173,6 +249,36 @@ export function HomePageContent() {
 
   return (
     <div className="flex flex-1 h-full">
+      {/* Incoming call notification */}
+      {isIncomingCall && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-[#313338] p-6 rounded-lg w-96">
+            <h2 className="text-xl font-bold text-white mb-4">Входящий звонок</h2>
+            <p className="text-[#b5bac1] mb-6">Пользователь звонит вам</p>
+            <div className="flex justify-center gap-4">
+              <button 
+                onClick={() => {
+                  setIsIncomingCall(false);
+                  p2pVoiceService.acceptCall();
+                }}
+                className="bg-green-600 text-white px-6 py-3 rounded-full hover:bg-green-700"
+              >
+                Принять
+              </button>
+              <button 
+                onClick={() => {
+                  setIsIncomingCall(false);
+                  p2pVoiceService.stopCall();
+                }}
+                className="bg-red-600 text-white px-6 py-3 rounded-full hover:bg-red-700"
+              >
+                Отклонить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
       {/* Левая панель для личных сообщений */}
       <div className="w-60 bg-[#2c2d32] h-full flex flex-col p-2">
         <div className="px-3 py-2">
@@ -197,7 +303,7 @@ export function HomePageContent() {
       {/* Основная область для контента */}
       <div className="flex-1 bg-[#313338] h-full flex flex-col">
         {/* Верхняя панель */}
-        <div className="flex items-center h-12 px-4 border-b border-[#2c2d32] shadow-md">
+        <div className="flex items-center h-12 px-4 border-b border-[#2c2d32] shadow-md flex-shrink-0">
           <div className="flex items-center">
             <Users className="w-6 h-6 text-[#8e9297] mr-2" />
             <h2 className="text-white font-semibold text-lg">Друзья</h2>
@@ -220,18 +326,6 @@ export function HomePageContent() {
         </div>
 
         {/* Контент списка друзей */}
-        {selectedFriend ? (
-          <DirectMessageArea friend={selectedFriend} />
-        ) : (
-          <div className="flex-1 p-4 overflow-y-auto">
-            {renderContent()}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-        {/* Контент списка друзей */}
         <div className="flex-1 flex flex-col min-h-0">
           {selectedFriend ? (
             <DirectMessageArea friend={selectedFriend} />
@@ -242,13 +336,10 @@ export function HomePageContent() {
           )}
         </div>
       </div>
-    </div>
-  )
-}
 
       {/* Модальное окно добавления в друзья */}
       {isAddFriendModalOpen && (
-        <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-[#313338] p-6 rounded-lg w-96">
             <h2 className="text-xl font-bold text-white mb-4">Добавить в друзья</h2>
             <p className="text-[#b5bac1] text-sm mb-4">
@@ -269,6 +360,7 @@ export function HomePageContent() {
           </div>
         </div>
       )}
+      
     </div>
   )
 }

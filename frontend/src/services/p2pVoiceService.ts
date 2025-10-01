@@ -1,12 +1,14 @@
 import websocketService from './websocketService';
+import { EventEmitter } from 'events';
 
-class P2PVoiceService {
+class P2PVoiceService extends EventEmitter {
   public peerConnection: RTCPeerConnection | null = null;
   public localStream: MediaStream | null = null;
   public remoteStream: MediaStream | null = null;
   private ws = websocketService;
 
   constructor() {
+    super();
     if (typeof window !== 'undefined') {
       window.addEventListener('webrtc_signal', (e: Event) => this.handleWebSocketMessage(e as CustomEvent));
     }
@@ -50,6 +52,9 @@ class P2PVoiceService {
       this.remoteStream = event.streams[0];
       // Здесь можно будет обновить UI, чтобы показать видео собеседника
     };
+    
+    // Испускаем событие о входящем звонке
+    this.emit('incoming_call', friendId);
   }
 
   public async startCall(friendId: number) {
@@ -75,12 +80,19 @@ class P2PVoiceService {
     }));
   }
 
+  public async acceptCall() {
+    // В данном случае принятие звонка происходит автоматически при получении сигнала
+    // Но можно добавить дополнительную логику здесь
+    this.emit('call_accepted');
+  }
+
   public stopCall() {
     this.localStream?.getTracks().forEach(track => track.stop());
     this.peerConnection?.close();
     this.peerConnection = null;
     this.localStream = null;
     this.remoteStream = null;
+    this.emit('call_ended');
   }
 }
 

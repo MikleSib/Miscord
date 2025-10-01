@@ -268,6 +268,8 @@ async def websocket_notifications_endpoint(
                         await user_activity_service.heartbeat_user(user.id, db)
                         await websocket.send_text(json.dumps({"type": "pong"}))
 
+
+
                     elif message_data.get("type") == "dm_message":
                         recipient_id = message_data.get("recipient_id")
                         content = message_data.get("content", "").strip()
