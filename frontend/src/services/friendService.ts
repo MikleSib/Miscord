@@ -1,5 +1,5 @@
 import api from './api'
-import { User } from '../types'
+import { User, FriendRequest } from '../types'
 
 class FriendService {
   async sendFriendRequest(username: string): Promise<User> {
@@ -12,8 +12,8 @@ class FriendService {
     return response.data
   }
 
-  async getPendingRequests(): Promise<User[]> {
-    const response = await api.get<User[]>('/api/friends/friends/requests/pending')
+  async getPendingRequests(): Promise<FriendRequest[]> {
+    const response = await api.get<FriendRequest[]>('/api/friends/friends/requests/pending')
     return response.data
   }
 

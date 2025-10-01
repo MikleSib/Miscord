@@ -50,14 +50,12 @@ async def get_friends(db: AsyncSession, user_id: int):
     )
     friendships = friendships_result.scalars().all()
     
-    friends = []
+    friends_data = []
     for friendship in friendships:
         if friendship.user_a_id == user_id:
             friend = friendship.user_b
         else:
             friend = friendship.user_a
-        
-        friend.friendship_created_at = friendship.created_at
         
         # Получаем время последнего сообщения
         last_message_result = await db.execute(
@@ -72,11 +70,23 @@ async def get_friends(db: AsyncSession, user_id: int):
             .limit(1)
         )
         last_message_at = last_message_result.scalar_one_or_none()
-        friend.last_message_at = last_message_at
 
-        friends.append(friend)
+        friend_data = {
+            "id": friend.id,
+            "username": friend.username,
+            "email": friend.email,
+            "display_name": friend.display_name,
+            "avatar_url": friend.avatar_url,
+            "is_active": friend.is_active,
+            "is_online": friend.is_online,
+            "created_at": friend.created_at,
+            "updated_at": friend.updated_at,
+            "friendship_created_at": friendship.created_at,
+            "last_message_at": last_message_at,
+        }
+        friends_data.append(friend_data)
         
-    return friends
+    return friends_data
 
 async def get_pending_requests(db: AsyncSession, user_id: int):
     # Запросы, отправленные пользователю
@@ -88,13 +98,24 @@ async def get_pending_requests(db: AsyncSession, user_id: int):
     )
     requests_to_user = requests_to_user_result.scalars().all()
     
-    users = []
+    users_data = []
     for req in requests_to_user:
         user = req.user_a
-        user.request_id = req.id
-        user.friendship_created_at = req.created_at
-        users.append(user)
-    return users
+        user_data = {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "display_name": user.display_name,
+            "avatar_url": user.avatar_url,
+            "is_active": user.is_active,
+            "is_online": user.is_online,
+            "created_at": user.created_at,
+            "updated_at": user.updated_at,
+            "request_id": req.id,
+            "friendship_created_at": req.created_at,
+        }
+        users_data.append(user_data)
+    return users_data
 
 async def accept_friend_request(db: AsyncSession, request_id: int, current_user_id: int):
     friend_request_result = await db.execute(

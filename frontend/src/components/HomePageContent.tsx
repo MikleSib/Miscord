@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { Users, MessageSquare, Settings, Check, X, Phone } from 'lucide-react'
-import { User } from '../types'
+import { User, FriendRequest } from '../types'
 import friendService from '../services/friendService'
 import websocketService from '../services/websocketService'
 import { DirectMessageArea } from './DirectMessageArea'
@@ -15,7 +15,7 @@ type Tab = 'online' | 'all' | 'pending' | 'blocked'
 export function HomePageContent() {
   const [activeTab, setActiveTab] = useState<Tab>('all')
   const [friends, setFriends] = useState<User[]>([])
-  const [pendingRequests, setPendingRequests] = useState<User[]>([])
+  const [pendingRequests, setPendingRequests] = useState<FriendRequest[]>([])
   const [isAddFriendModalOpen, setIsAddFriendModalOpen] = useState(false)
   const [friendUsername, setFriendUsername] = useState('')
   const [addFriendError, setAddFriendError] = useState('')
@@ -74,14 +74,30 @@ export function HomePageContent() {
     }
     fetchData()
 
-    const handleNewFriendRequest = (event: { data: User }) => {
-      setPendingRequests(prev => [event.data, ...prev]);
+    const handleNewFriendRequest = (newRequest: FriendRequest) => {
+      setPendingRequests(prev => [newRequest, ...prev]);
     };
+    
+    websocketService.on('friend_request_accepted', ({ user, request_id }) => {
+      setFriends(prev => [...prev, user]);
+      setPendingRequests(prev => prev.filter(req => req.request_id !== request_id));
+    });
+
+    websocketService.on('friend_request_rejected', ({ request_id }) => {
+      setPendingRequests(prev => prev.filter(req => req.request_id !== request_id));
+    });
+    
+    websocketService.on('friend_removed', ({ friend_id }) => {
+      setFriends(prev => prev.filter(f => f.id !== friend_id));
+    });
 
     websocketService.on('new_friend_request', handleNewFriendRequest);
     
     return () => {
       websocketService.off('new_friend_request', handleNewFriendRequest);
+      websocketService.off('friend_request_accepted');
+      websocketService.off('friend_request_rejected');
+      websocketService.off('friend_removed');
     }
   }, [])
 
@@ -101,22 +117,19 @@ export function HomePageContent() {
 
   const handleAcceptRequest = async (requestId: number) => {
     try {
-      const newFriend = await friendService.acceptFriendRequest(requestId)
-      setFriends(prev => [...prev, newFriend])
-      setPendingRequests(prev => prev.filter(req => req.request_id !== requestId))
+      await friendService.acceptFriendRequest(requestId);
     } catch (error) {
-      console.error('Ошибка принятия запроса:', error)
+      console.error('Ошибка принятия запроса:', error);
     }
-  }
+  };
 
   const handleRejectRequest = async (requestId: number) => {
     try {
-      await friendService.rejectFriendRequest(requestId)
-      setPendingRequests(prev => prev.filter(req => req.request_id !== requestId))
+      await friendService.rejectFriendRequest(requestId);
     } catch (error) {
-      console.error('Ошибка отклонения запроса:', error)
+      console.error('Ошибка отклонения запроса:', error);
     }
-  }
+  };
 
   const handleCallUser = async (user: User) => {
     try {
@@ -229,11 +242,11 @@ export function HomePageContent() {
             </h3>
             {pendingRequests.length > 0 ? (
                pendingRequests.map(request => (
-                <div key={request.id} className="flex items-center justify-between p-2 hover:bg-[#393a3f] rounded-md">
+                <div key={request.request_id} className="flex items-center justify-between p-2 hover:bg-[#393a3f] rounded-md">
                   <div className="flex items-center">
-                    <UserAvatar user={request} />
+                    <UserAvatar user={request.from_user} />
                     <div className="ml-3">
-                      <p className="text-white">{request.username}</p>
+                      <p className="text-white">{request.from_user.username}</p>
                       <p className="text-xs text-[#8e9297]">Входящий запрос в друзья</p>
                     </div>
                   </div>

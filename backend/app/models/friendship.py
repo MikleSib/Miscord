@@ -1,7 +1,8 @@
 import enum
-from sqlalchemy import Column, Integer, ForeignKey, Enum
+from sqlalchemy import Column, Integer, ForeignKey, Enum, DateTime
 from sqlalchemy.orm import relationship
 from app.db.database import Base
+from sqlalchemy.sql import func
 
 class FriendshipStatus(enum.Enum):
     PENDING = "pending"
@@ -15,6 +16,8 @@ class Friendship(Base):
     user_a_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     user_b_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     status = Column(Enum(FriendshipStatus), nullable=False, default=FriendshipStatus.PENDING)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     user_a = relationship("User", foreign_keys=[user_a_id], back_populates="friendships_a")
     user_b = relationship("User", foreign_keys=[user_b_id], back_populates="friendships_b")

@@ -13,6 +13,13 @@ export interface User {
   request_id?: number;
 }
 
+export interface FriendRequest {
+  request_id: number;
+  from_user: User;
+  status: 'pending' | 'accepted' | 'rejected';
+  created_at: string;
+}
+
 export interface Server {
   id: number;
   name: string;
