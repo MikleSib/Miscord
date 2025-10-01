@@ -7,7 +7,9 @@ class P2PVoiceService {
   private ws = websocketService;
 
   constructor() {
-    window.addEventListener('webrtc_signal', (e: Event) => this.handleWebSocketMessage(e as CustomEvent));
+    if (typeof window !== 'undefined') {
+      window.addEventListener('webrtc_signal', (e: Event) => this.handleWebSocketMessage(e as CustomEvent));
+    }
   }
 
   private handleWebSocketMessage(event: CustomEvent) {
