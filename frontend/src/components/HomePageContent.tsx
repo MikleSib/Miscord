@@ -280,7 +280,7 @@ export function HomePageContent() {
       )}
       
       {/* Левая панель для личных сообщений */}
-      <div className="w-60 bg-[#2c2d32] h-full flex flex-col p-2">
+      <div className="w-64 bg-[#2c2d32] h-full flex flex-col p-2">
         <div className="px-3 py-2">
           <input
             type="text"

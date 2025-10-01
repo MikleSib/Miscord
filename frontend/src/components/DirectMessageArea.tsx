@@ -38,7 +38,7 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
         setHasMore(messageHistory.length === loadLimit)
       } else {
         // Подгрузка старых сообщений
-        setMessages((prev) => [...prev, ...messageHistory])
+        setMessages((prev) => [...messageHistory, ...prev])
         setSkip(loadSkip + messageHistory.length)
         setHasMore(messageHistory.length === loadLimit)
       }
@@ -54,7 +54,7 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
     setMessages([])
     setSkip(0)
     setHasMore(true)
-    fetchMessages()
+    fetchMessages(0)
   }, [friend.id])
 
   useEffect(() => {
@@ -101,10 +101,16 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
   }
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+    messagesEndRef.current?.scrollIntoView({ behavior: "auto" })
   }
 
-  useEffect(scrollToBottom, [messages]);
+  useEffect(() => {
+    if(skip > 30) {
+      // do not scroll to bottom if we are loading more messages
+      return;
+    }
+    scrollToBottom()
+  }, [messages]);
 
   // Функция для определения, является ли сообщение от текущего пользователя
   const isCurrentUserMessage = (message: DirectMessage) => {
@@ -117,7 +123,7 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-[#313338]">
+    <div className="flex-1 flex flex-col bg-[#313338] min-h-0">
       {/* Top bar */}
       <div className="flex items-center justify-between h-12 px-4 border-b border-[#2c2d32] shadow-md flex-shrink-0">
         <div className="flex items-center">
@@ -137,12 +143,12 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
       {/* Messages */}
       <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 chat-scroll">
         {messages.map((msg, index) => {
-          const prevMsg = messages[index - 1];
+          const nextMsg = messages[index + 1];
           const isCurrentUser = isCurrentUserMessage(msg);
           const messageUser = getUserForMessage(msg);
-          const showAuthor = !prevMsg || prevMsg.sender_id !== msg.sender_id;
+          const showAuthor = !nextMsg || nextMsg.sender_id !== msg.sender_id;
           return (
-            <div key={msg.id} className={`flex items-start gap-3 mt-4 ${isCurrentUser ? 'justify-end' : ''}`}>
+            <div key={msg.id} className={`flex items-start gap-3 ${isCurrentUser ? 'justify-end' : ''} mb-2`}>
               {!isCurrentUser && showAuthor && <UserAvatar user={messageUser as User} />}
               {!isCurrentUser && !showAuthor && <div className="w-10" />}
 
@@ -169,7 +175,7 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
       </div>
 
       {/* Input */}
-      <div className="px-4 pb-4">
+      <div className="px-4 pb-4 border-t border-[#2c2d32] flex-shrink-0">
         <form onSubmit={handleSendMessage} className="bg-[#383a40] rounded-lg px-4 flex items-center">
           <input
             type="text"
