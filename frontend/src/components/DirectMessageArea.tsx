@@ -38,7 +38,7 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
         setHasMore(messageHistory.length === loadLimit)
       } else {
         // Подгрузка старых сообщений
-        setMessages((prev) => [...messageHistory, ...prev])
+        setMessages((prev) => [...prev, ...messageHistory])
         setSkip(loadSkip + messageHistory.length)
         setHasMore(messageHistory.length === loadLimit)
       }
