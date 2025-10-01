@@ -1,7 +1,7 @@
 from pydantic import BaseModel, constr, field_serializer
 from datetime import datetime, timezone
 from typing import Optional, List
-from app.schemas.user import UserResponse
+from app.schemas.user import User as UserResponse
 from app.schemas.attachment import Attachment as AttachmentSchema
 
 class MessageBase(BaseModel):
