@@ -460,10 +460,17 @@ export const useStore = create<AppState>()(
           
           // Показываем уведомление
           if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-            new Notification(`Новый сервер`, {
-              body: `${data.created_by.username} создал сервер "${data.server.name}"`,
-              icon: '/favicon.ico'
-            });
+            if (data.created_by) {
+              new Notification(`Новый сервер`, {
+                body: `${data.created_by.username} создал сервер "${data.server.name}"`,
+                icon: '/favicon.ico'
+              });
+            } else if (data.invited_by) {
+              new Notification(`Приглашение на сервер`, {
+                body: `Вас пригласили на сервер "${data.server.name}"`,
+                icon: '/favicon.ico'
+              });
+            }
           }
           
           // Добавляем новый сервер в список
@@ -757,4 +764,4 @@ if (typeof window !== 'undefined') {
       }
     });
   }
-} 
+}

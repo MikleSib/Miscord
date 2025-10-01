@@ -89,32 +89,41 @@ async def get_friends(db: AsyncSession, user_id: int):
     return friends_data
 
 async def get_pending_requests(db: AsyncSession, user_id: int):
-    # Запросы, отправленные пользователю
-    requests_to_user_result = await db.execute(
+    pending_friendships_result = await db.execute(
         select(Friendship).filter(
-            Friendship.user_b_id == user_id,
+            or_(
+                Friendship.user_a_id == user_id,
+                Friendship.user_b_id == user_id
+            ),
             Friendship.status == FriendshipStatus.PENDING
-        ).options(selectinload(Friendship.user_a))
+        ).options(selectinload(Friendship.user_a), selectinload(Friendship.user_b))
     )
-    requests_to_user = requests_to_user_result.scalars().all()
-    
+    pending_friendships = pending_friendships_result.unique().scalars().all()
+
     users_data = []
-    for req in requests_to_user:
-        user = req.user_a
-        user_data = {
-            "id": user.id,
-            "username": user.username,
-            "email": user.email,
-            "display_name": user.display_name,
-            "avatar_url": user.avatar_url,
-            "is_active": user.is_active,
-            "is_online": user.is_online,
-            "created_at": user.created_at,
-            "updated_at": user.updated_at,
-            "request_id": req.id,
-            "friendship_created_at": req.created_at,
-        }
-        users_data.append(user_data)
+    for req in pending_friendships:
+        if req.user_a_id == user_id:
+            user = req.user_b
+        else:
+            user = req.user_a
+
+        if user:
+            user_data = {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "display_name": user.display_name,
+                "avatar_url": user.avatar_url,
+                "is_active": user.is_active,
+                "is_online": user.is_online,
+                "created_at": user.created_at,
+                "updated_at": user.updated_at,
+                "request_id": req.id,
+                "friendship_created_at": req.created_at,
+                "last_message_at": None,
+            }
+            users_data.append(user_data)
+            
     return users_data
 
 async def accept_friend_request(db: AsyncSession, request_id: int, current_user_id: int):

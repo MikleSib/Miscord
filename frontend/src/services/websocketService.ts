@@ -60,7 +60,7 @@ class WebSocketService {
   }
 
   // Новые обработчики для создания каналов
-  onServerCreated(handler: (data: { server: any; created_by: { id: number; username: string } }) => void) {
+  onServerCreated(handler: (data: { server: any; created_by?: { id: number; username: string }; invited_by?: string }) => void) {
     this.on('server_created', handler);
   }
 
@@ -159,7 +159,7 @@ class WebSocketService {
       this.ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          this.emit(data.type, data.data); // Emit event with data part
+          this.emit(data.type, data);
         } catch (error) {
           console.error('Ошибка обработки WebSocket сообщения:', error);
           this.lastError = 'Ошибка обработки сообщения';
