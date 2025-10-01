@@ -54,9 +54,9 @@ class ConnectionManager:
             if not self.channel_connections[channel_id]:
                 del self.channel_connections[channel_id]
     
-    async def send_personal_message(self, message: str, websocket: WebSocket):
-        """Отправка личного сообщения"""
-        await websocket.send_text(message)
+    async def send_personal_message(self, message: dict, user_id: int):
+        """Отправка личного сообщения конкретному пользователю"""
+        await self.send_to_user(user_id, message)
     
     async def send_to_channel(self, channel_id: int, message: dict):
         """Отправка сообщения всем участникам канала"""
