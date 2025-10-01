@@ -9,7 +9,9 @@ from app.schemas.message import MessageCreate, Message as MessageSchema
 from app.core.security import decode_access_token
 from app.websocket.connection_manager import manager
 from app.core.dependencies import get_current_user_ws
+from app.services import direct_message_service
 from app.services.user_activity_service import user_activity_service
+from fastapi.encoders import jsonable_encoder
 import asyncio
 from datetime import timezone
 
@@ -203,37 +205,6 @@ async def websocket_chat_endpoint(
                     await user_activity_service.heartbeat_user(user.id, db)
                     await websocket.send_text(json.dumps({"type": "heartbeat_ack"}))
 
-                elif message_data.get("type") == "dm_message":
-                    recipient_id = message_data.get("recipient_id")
-                    content = message_data.get("content", "").strip()
-
-                    if not content or not recipient_id:
-                        continue
-
-                    db_message = await direct_message_service.create_message(
-                        db, sender_id=user.id, recipient_id=recipient_id, content=content
-                    )
-                    
-                    message_to_send = {
-                        "type": "dm",
-                        "data": {
-                            "id": db_message.id,
-                            "content": db_message.content,
-                            "timestamp": db_message.timestamp.isoformat(),
-                            "sender_id": db_message.sender_id,
-                            "recipient_id": db_message.recipient_id,
-                            "author": {
-                                "id": user.id,
-                                "username": user.username,
-                                "display_name": user.display_name,
-                                "avatar_url": user.avatar_url
-                            }
-                        }
-                    }
-
-                    await manager.send_personal_message(message_to_send, recipient_id)
-                    # Отправляем сообщение и себе для отображения в чате
-                    await manager.send_personal_message(message_to_send, user.id)
                     
                 else:
                     print(f"[WS_CHAT] Неизвестный тип сообщения: {message_data.get('type')}")
@@ -296,6 +267,48 @@ async def websocket_notifications_endpoint(
                         # Обновляем активность при ping
                         await user_activity_service.heartbeat_user(user.id, db)
                         await websocket.send_text(json.dumps({"type": "pong"}))
+
+                    elif message_data.get("type") == "dm_message":
+                        recipient_id = message_data.get("recipient_id")
+                        content = message_data.get("content", "").strip()
+
+                        if not content or not recipient_id:
+                            continue
+
+                        db_message = await direct_message_service.create_message(
+                            db, sender_id=user.id, recipient_id=recipient_id, content=content
+                        )
+                        
+                        author = await db.get(User, user.id)
+
+                        message_dict = {
+                            "id": db_message.id,
+                            "content": db_message.content,
+                            "timestamp": db_message.timestamp,
+                            "sender_id": db_message.sender_id,
+                            "recipient_id": db_message.recipient_id,
+                            "author": {
+                                "id": author.id,
+                                "username": author.username,
+                                "email": author.email,
+                                "display_name": author.display_name,
+                                "avatar_url": author.avatar_url,
+                                "is_active": author.is_active,
+                                "is_online": author.is_online,
+                                "created_at": author.created_at,
+                                "updated_at": author.updated_at,
+                            },
+                            "attachments": [],
+                            "reactions": [],
+                        }
+                        
+                        message_to_send = {
+                            "type": "dm",
+                            "data": jsonable_encoder(message_dict)
+                        }
+
+                        await manager.send_personal_message(message_to_send, recipient_id)
+                        await manager.send_personal_message(message_to_send, user.id)
 
                     elif message_data.get("type") == "webrtc":
                         recipient_id = message_data.get("recipient_id")

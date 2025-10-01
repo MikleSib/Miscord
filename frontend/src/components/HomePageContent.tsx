@@ -75,10 +75,6 @@ export function HomePageContent() {
   }
 
   const renderContent = () => {
-    if (selectedFriend) {
-      return <DirectMessageArea friend={selectedFriend} />
-    }
-
     switch (activeTab) {
       case 'online':
         const onlineFriends = friends.filter(friend => friend.is_online);
@@ -224,10 +220,31 @@ export function HomePageContent() {
         </div>
 
         {/* Контент списка друзей */}
-        <div className="flex-1 p-4 overflow-y-auto">
-          {renderContent()}
+        {selectedFriend ? (
+          <DirectMessageArea friend={selectedFriend} />
+        ) : (
+          <div className="flex-1 p-4 overflow-y-auto">
+            {renderContent()}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+        {/* Контент списка друзей */}
+        <div className="flex-1 flex flex-col min-h-0">
+          {selectedFriend ? (
+            <DirectMessageArea friend={selectedFriend} />
+          ) : (
+            <div className="p-4 overflow-y-auto">
+              {renderContent()}
+            </div>
+          )}
         </div>
       </div>
+    </div>
+  )
+}
 
       {/* Модальное окно добавления в друзья */}
       {isAddFriendModalOpen && (

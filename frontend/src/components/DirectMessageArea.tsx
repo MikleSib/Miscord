@@ -6,7 +6,10 @@ import directMessageService from '../services/directMessageService'
 import websocketService from '../services/websocketService'
 import { useAuthStore } from '../store/store'
 import p2pVoiceService from '../services/p2pVoiceService'
-import { Phone, PhoneOff } from 'lucide-react'
+import { Phone, PhoneOff, Send } from 'lucide-react'
+import { UserAvatar } from './ui/user-avatar'
+import { format } from 'date-fns'
+import { ru } from 'date-fns/locale'
 
 interface DirectMessageAreaProps {
   friend: User
@@ -31,18 +34,20 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
   }, [friend.id])
 
   useEffect(() => {
-    // Подписка на WebSocket для получения новых сообщений
-    // TODO: реализовать
-    const handleNewMessage = (event: any) => {
-        const message = event.detail;
-        if (message.sender_id === friend.id || message.recipient_id === friend.id) {
-            setMessages(prev => [...prev, message]);
-        }
+    const handleNewMessage = (message: Message) => {
+      if (
+        (message.sender_id === user?.id && message.recipient_id === friend.id) ||
+        (message.sender_id === friend.id && message.recipient_id === user?.id)
+      ) {
+        setMessages((prev) => [...prev, message]);
+      }
     };
 
-    window.addEventListener('new_dm', handleNewMessage);
-    return () => window.removeEventListener('new_dm', handleNewMessage);
-  }, [friend.id])
+    websocketService.on('dm', handleNewMessage);
+    return () => {
+      websocketService.off('dm', handleNewMessage);
+    };
+  }, [friend.id, user?.id]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -65,12 +70,12 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
   return (
     <div className="flex-1 flex flex-col bg-[#313338]">
       {/* Top bar */}
-      <div className="flex items-center justify-between h-12 px-4 border-b border-[#2c2d32] shadow-md">
+      <div className="flex items-center justify-between h-12 px-4 border-b border-[#2c2d32] shadow-md flex-shrink-0">
         <div className="flex items-center">
-          <div className="w-8 h-8 rounded-full bg-gray-600 mr-3" />
-          <h2 className="text-white font-semibold">{friend.username}</h2>
+          <UserAvatar user={friend} />
+          <h2 className="text-white font-semibold ml-3">{friend.username}</h2>
         </div>
-        <div>
+        <div className="flex items-center gap-4">
           <button onClick={() => p2pVoiceService.startCall(friend.id)} className="p-2 text-gray-400 hover:text-white">
             <Phone />
           </button>
@@ -80,51 +85,50 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
         </div>
       </div>
 
-      {/* Video streams */}
-      <div className="flex">
-        <video
-          ref={(ref) => {
-            if (ref && p2pVoiceService.localStream) {
-              ref.srcObject = p2pVoiceService.localStream;
-            }
-          }}
-          autoPlay
-          muted
-          className="w-1/2"
-        />
-        <video
-          ref={(ref) => {
-            if (ref && p2pVoiceService.remoteStream) {
-              ref.srcObject = p2pVoiceService.remoteStream;
-            }
-          }}
-          autoPlay
-          className="w-1/2"
-        />
-      </div>
-
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map(msg => (
-          <div key={msg.id} className={`flex items-start gap-3 ${msg.sender_id === user?.id ? 'justify-end' : ''}`}>
-             {/* Avatar, username, content */}
-          </div>
-        ))}
+      <div className="flex-1 overflow-y-auto p-4">
+        {messages.map((msg, index) => {
+          const prevMsg = messages[index - 1];
+          const showAuthor = !prevMsg || prevMsg.author.id !== msg.author.id;
+          return (
+            <div key={msg.id} className={`flex items-start gap-3 mt-4 ${msg.author.id === user?.id ? 'justify-end' : ''}`}>
+              {msg.author.id !== user?.id && showAuthor && <UserAvatar user={msg.author} />}
+              {msg.author.id !== user?.id && !showAuthor && <div className="w-10" />}
+
+              <div className={`flex flex-col ${msg.author.id === user?.id ? 'items-end' : 'items-start'}`}>
+                {showAuthor && (
+                  <div className="flex items-center gap-2">
+                    <p className="font-semibold text-white">{msg.author.username}</p>
+                    <p className="text-xs text-gray-400">
+                      {format(new Date(msg.timestamp), 'd MMM yyyy, HH:mm', { locale: ru })}
+                    </p>
+                  </div>
+                )}
+                <div className={`mt-1 text-white ${msg.author.id === user?.id ? 'bg-blue-600' : 'bg-gray-700'} rounded-lg px-3 py-2 max-w-lg`}>
+                  {msg.content}
+                </div>
+              </div>
+
+              {msg.author.id === user?.id && showAuthor && <UserAvatar user={msg.author} />}
+              {msg.author.id === user?.id && !showAuthor && <div className="w-10" />}
+            </div>
+          );
+        })}
         <div ref={messagesEndRef} />
       </div>
 
       {/* Input */}
-      <div className="p-4">
-        <form onSubmit={handleSendMessage} className="bg-[#40444b] rounded-lg px-4 py-2 flex items-center">
+      <div className="px-4 pb-4">
+        <form onSubmit={handleSendMessage} className="bg-[#383a40] rounded-lg px-4 flex items-center">
           <input
             type="text"
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
             placeholder={`Написать @${friend.username}`}
-            className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none"
+            className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none py-3"
           />
-          <button type="submit" className="text-gray-400 hover:text-white">
-            {/* Send icon */}
+          <button type="submit" className="text-gray-400 hover:text-white" disabled={!newMessage.trim()}>
+            <Send />
           </button>
         </form>
       </div>
