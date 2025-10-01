@@ -1,5 +1,5 @@
 from .user import User
-from .channel import Channel, ChannelMember
+from .channel import Channel, ChannelMember, TextChannel, VoiceChannel, VoiceChannelUser, ChannelType
 from .message import Message
 from .attachment import Attachment
 from .reaction import Reaction
