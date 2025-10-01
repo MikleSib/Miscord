@@ -49,12 +49,14 @@ export interface Message {
   content: string | null;
   author: User;
   timestamp: string;
-  channelId: number; // В нашем случае это text_channel_id
+  channelId?: number; // Для сообщений в каналах
   is_edited?: boolean;
   is_deleted?: boolean;
   attachments: Attachment[];
   reactions?: Reaction[];
   reply_to?: Message; // Ответ на сообщение
+  sender_id?: number; // Для личных сообщений
+  recipient_id?: number; // Для личных сообщений
 }
 
 // Бэкенд типы (для API)

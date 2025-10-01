@@ -22,3 +22,7 @@ class User(Base):
     owned_channels = relationship("Channel", back_populates="owner", cascade="all, delete-orphan")
     channel_memberships = relationship("ChannelMember", back_populates="user", cascade="all, delete-orphan")
     messages = relationship("Message", back_populates="author", cascade="all, delete-orphan")
+
+    # Отношения для дружбы
+    friendships_a = relationship("Friendship", foreign_keys="[Friendship.user_a_id]", back_populates="user_a", cascade="all, delete-orphan")
+    friendships_b = relationship("Friendship", foreign_keys="[Friendship.user_b_id]", back_populates="user_b", cascade="all, delete-orphan")

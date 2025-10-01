@@ -264,6 +264,21 @@ async def websocket_notifications_endpoint(
                         # Обновляем активность при ping
                         await user_activity_service.heartbeat_user(user.id, db)
                         await websocket.send_text(json.dumps({"type": "pong"}))
+
+                    elif message_data.get("type") == "webrtc":
+                        recipient_id = message_data.get("recipient_id")
+                        signal = message_data.get("signal")
+                        if recipient_id and signal:
+                            await manager.send_personal_message(
+                                {
+                                    "type": "webrtc",
+                                    "data": {
+                                        "sender_id": user.id,
+                                        "signal": signal,
+                                    }
+                                },
+                                recipient_id
+                            )
                         
                 except asyncio.TimeoutError:
                     await websocket.send_text(json.dumps({"type": "ping"}))

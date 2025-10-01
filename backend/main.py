@@ -6,7 +6,7 @@ import asyncio
 
 from app.core.config import settings
 from app.db.database import engine, Base
-from app.api import auth, channels, uploads, reactions
+from app.api import auth, channels, uploads, reactions, friends, direct_messages
 from app.websocket import chat, voice
 from app.websocket.connection_manager import manager
 from app.websocket.chat import websocket_chat_endpoint, websocket_notifications_endpoint
@@ -55,6 +55,8 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(channels.router, prefix="/api/channels", tags=["channels"])
 app.include_router(uploads.router, prefix="/api", tags=["uploads"])
 app.include_router(reactions.router, prefix="/api", tags=["reactions"])
+app.include_router(friends.router, prefix="/api/friends", tags=["friends"])
+app.include_router(direct_messages.router, prefix="/api/dms", tags=["dms"])
 
 # WebSocket эндпоинты
 @app.websocket("/ws/chat/{text_channel_id}")

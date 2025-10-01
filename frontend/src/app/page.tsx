@@ -7,6 +7,7 @@ import { useStore } from '../lib/store'
 import { ServerList } from '../components/ServerList'
 import { ChannelSidebar } from '../components/ChannelSidebar'
 import { ChatArea } from '../components/ChatArea'
+import { HomePageContent } from '../components/HomePageContent'
 import { ScreenShareToast } from '../components/ScreenShareToast'
 import { ConnectionStatus } from '../components/ConnectionStatus'
 import { useVoiceStore } from '../store/slices/voiceSlice'
@@ -241,13 +242,20 @@ export default function HomePage() {
       <div className="relative z-50">
         <ServerList />
       </div>
-      <div className="relative z-50">
-        <ChannelSidebar />
-      </div>
-      <div className="flex-1 flex flex-col">
-        <ChatArea showUserSidebar={showUserSidebar} setShowUserSidebar={setShowUserSidebar} />
-      </div>
-      {showUserSidebar && <ServerUserSidebar />}
+
+      {currentServer ? (
+        <>
+          <div className="relative z-40">
+            <ChannelSidebar />
+          </div>
+          <div className="flex-1 flex flex-col">
+            <ChatArea showUserSidebar={showUserSidebar} setShowUserSidebar={setShowUserSidebar} />
+          </div>
+          {showUserSidebar && <ServerUserSidebar />}
+        </>
+      ) : (
+        <HomePageContent />
+      )}
       
       {/* Панель голосового подключения над профилем пользователя */}
       <div className="absolute bottom-20 left-2 z-50 max-w-[calc(100vw-16px)]">
