@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import List
-from app.schemas.user import UserResponse
+from app.schemas.user import User as UserResponse
 
 class ReactionCreate(BaseModel):
     emoji: str
@@ -17,4 +17,4 @@ class ReactionResponse(BaseModel):
         from_attributes = True
 
 class ReactionToggleRequest(BaseModel):
-    emoji: str 
+    emoji: str
