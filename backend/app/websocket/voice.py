@@ -76,6 +76,7 @@ async def websocket_voice_endpoint(
             return
         
         await websocket.accept()
+        await manager.connect(websocket, user.id, channel_id)
         
         # Добавление в голосовой канал в БД
         voice_user = VoiceChannelUser(
@@ -132,22 +133,19 @@ async def websocket_voice_endpoint(
                 "avatar_url": user.avatar_url
             }
             
-            for uid, conn_info in voice_connections[channel_id].items():
-                if uid != user.id:
-                    try:
-                        await conn_info["websocket"].send_json(join_message)
-                    except:
-                        pass
+            # Отправляем всем, кроме отправителя. На клиенте нужно будет игнорировать это сообщение, если from_id == user.id
+            await manager.send_to_channel(channel_id, join_message)
             
-            # Глобальное уведомление всем онлайн пользователям
-            global_join_message = {
-                "type": "voice_channel_join",
-                "user_id": user.id,
-                "username": user.display_name or user.username,
-                "voice_channel_id": channel_id,
-                "voice_channel_name": voice_channel.name
-            }
-            await manager.broadcast_to_all(global_join_message)
+            # Глобальное уведомление не реализовано в полной мере в ConnectionManager
+            # # Глобальное уведомление всем онлайн пользователям
+            # global_join_message = {
+            #     "type": "voice_channel_join",
+            #     "user_id": user.id,
+            #     "username": user.display_name or user.username,
+            #     "voice_channel_id": channel_id,
+            #     "voice_channel_name": voice_channel.name
+            # }
+            # await manager.broadcast(global_join_message)
             
             # Обработка сообщений WebRTC
             while True:
@@ -157,31 +155,31 @@ async def websocket_voice_endpoint(
                     # Пересылка offer целевому пользователю
                     target_id = data.get("target_id")
                     if target_id and target_id in voice_connections[channel_id]:
-                        await voice_connections[channel_id][target_id]["websocket"].send_json({
+                        await manager.send_personal_message({
                             "type": "offer",
                             "from_id": user.id,
                             "offer": data["offer"]
-                        })
+                        }, target_id)
                 
                 elif data["type"] == "answer":
                     # Пересылка answer целевому пользователю
                     target_id = data.get("target_id")
                     if target_id and target_id in voice_connections[channel_id]:
-                        await voice_connections[channel_id][target_id]["websocket"].send_json({
+                        await manager.send_personal_message({
                             "type": "answer",
                             "from_id": user.id,
                             "answer": data["answer"]
-                        })
+                        }, target_id)
                 
                 elif data["type"] == "ice_candidate":
                     # Пересылка ICE candidate целевому пользователю
                     target_id = data.get("target_id")
                     if target_id and target_id in voice_connections[channel_id]:
-                        await voice_connections[channel_id][target_id]["websocket"].send_json({
+                        await manager.send_personal_message({
                             "type": "ice_candidate",
                             "from_id": user.id,
                             "candidate": data["candidate"]
-                        })
+                        }, target_id)
                 
                 elif data["type"] == "mute":
                     # Обновление статуса mute
@@ -208,13 +206,7 @@ async def websocket_voice_endpoint(
                         "user_id": user.id,
                         "is_muted": is_muted
                     }
-                    
-                    for uid, conn_info in voice_connections[channel_id].items():
-                        if uid != user.id:
-                            try:
-                                await conn_info["websocket"].send_json(mute_message)
-                            except:
-                                pass
+                    await manager.send_to_channel(channel_id, mute_message)
                 
                 elif data["type"] == "deafen":
                     # Обновление статуса deafen
@@ -241,13 +233,7 @@ async def websocket_voice_endpoint(
                         "user_id": user.id,
                         "is_deafened": is_deafened
                     }
-                    
-                    for uid, conn_info in voice_connections[channel_id].items():
-                        if uid != user.id:
-                            try:
-                                await conn_info["websocket"].send_json(deafen_message)
-                            except:
-                                pass
+                    await manager.send_to_channel(channel_id, deafen_message)
                 
                 elif data["type"] == "speaking":
                     # Обработка информации о голосовой активности
@@ -259,13 +245,7 @@ async def websocket_voice_endpoint(
                         "user_id": user.id,
                         "is_speaking": is_speaking
                     }
-                    
-                    for uid, conn_info in voice_connections[channel_id].items():
-                        if uid != user.id:
-                            try:
-                                await conn_info["websocket"].send_json(speaking_message)
-                            except:
-                                pass
+                    await manager.send_to_channel(channel_id, speaking_message)
                 
                 elif data["type"] == "screen_share_start":
                     # Обновляем состояние пользователя
@@ -278,12 +258,7 @@ async def websocket_voice_endpoint(
                         "username": user.display_name or user.username
                     }
 
-                    for uid, conn_info in voice_connections[channel_id].items():
-                        if uid != user.id:
-                            try:
-                                await conn_info["websocket"].send_json(screen_share_message)
-                            except:
-                                pass
+                    await manager.send_to_channel(channel_id, screen_share_message)
 
                     print(f"Пользователь {user.username} начал демонстрацию экрана")
                 
@@ -298,12 +273,7 @@ async def websocket_voice_endpoint(
                         "username": user.display_name or user.username
                     }
 
-                    for uid, conn_info in voice_connections[channel_id].items():
-                        if uid != user.id:
-                            try:
-                                await conn_info["websocket"].send_json(screen_share_message)
-                            except:
-                                pass
+                    await manager.send_to_channel(channel_id, screen_share_message)
 
                     print(f"Пользователь {user.username} остановил демонстрацию экрана")
                 
@@ -319,6 +289,7 @@ async def websocket_voice_endpoint(
         except Exception as e:
             print(f"Voice WebSocket error: {e}")
         finally:
+            await manager.disconnect(websocket, user.id, channel_id)
             # Удаление из голосового канала
             if channel_id in voice_connections and user.id in voice_connections[channel_id]:
                 del voice_connections[channel_id][user.id]
@@ -343,19 +314,14 @@ async def websocket_voice_endpoint(
                 "type": "user_left_voice",
                 "user_id": user.id
             }
+            await manager.send_to_channel(channel_id, leave_message)
             
-            if channel_id in voice_connections:
-                for uid, conn_info in voice_connections[channel_id].items():
-                    try:
-                        await conn_info["websocket"].send_json(leave_message)
-                    except:
-                        pass
-            
-            # Глобальное уведомление всем онлайн пользователям
-            global_leave_message = {
-                "type": "voice_channel_leave",
-                "user_id": user.id,
-                "username": user.display_name or user.username,
-                "voice_channel_id": channel_id
-            }
-            await manager.broadcast_to_all(global_leave_message)
+            # Глобальное уведомление не реализовано в полной мере в ConnectionManager
+            # # Глобальное уведомление всем онлайн пользователям
+            # global_leave_message = {
+            #     "type": "voice_channel_leave",
+            #     "user_id": user.id,
+            #     "username": user.display_name or user.username,
+            #     "voice_channel_id": channel_id
+            # }
+            # await manager.broadcast(global_leave_message)

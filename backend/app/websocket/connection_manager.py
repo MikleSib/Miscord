@@ -2,159 +2,159 @@ from typing import Dict, List, Set
 from fastapi import WebSocket
 import json
 import redis.asyncio as redis
-from app.core.config import settings
-from sqlalchemy.ext.asyncio import AsyncSession
+import asyncio
 
 class ConnectionManager:
     def __init__(self):
         # Активные WebSocket соединения по user_id
         self.active_connections: Dict[int, List[WebSocket]] = {}
-        # Соединения по каналам
+        # Соединения по каналам {channel_id: {user_id: websocket}}
         self.channel_connections: Dict[int, Dict[int, WebSocket]] = {}
         self.redis_client = None
-    
+        self.pubsub_task = None
+
     async def init_redis(self):
-        """Инициализация Redis для pub/sub"""
+        """Инициализация Redis и запуск слушателя pub/sub."""
         try:
             self.redis_client = redis.from_url("redis://redis:6379")
             await self.redis_client.ping()
             print("Redis connected successfully")
+            # Запускаем слушателя в фоне
+            self.pubsub_task = asyncio.create_task(self.redis_listener())
         except Exception as e:
             print(f"Redis connection failed: {e}")
             self.redis_client = None
-    
+
+    async def redis_listener(self):
+        """Слушает каналы Redis и пересылает сообщения локальным клиентам."""
+        if not self.redis_client:
+            return
+
+        while True:
+            try:
+                pubsub = self.redis_client.pubsub()
+                # Подписываемся на личные сообщения и сообщения каналов
+                await pubsub.psubscribe("user:*", "channel:*")
+                print("Subscribed to user:* and channel:* patterns in Redis")
+                
+                while True:
+                    message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+                    if not message or message.get("type") != "pmessage":
+                        await asyncio.sleep(0.01)
+                        continue
+
+                    raw_channel = message['channel'].decode('utf-8')
+                    data = message['data'].decode('utf-8')
+
+                    if raw_channel.startswith("user:"):
+                        user_id = int(raw_channel.split(':', 1)[1])
+                        if user_id in self.active_connections:
+                            print(f"Redis: Forwarding personal message to user {user_id}")
+                            await self._send_to_user_str(user_id, data)
+                    
+                    elif raw_channel.startswith("channel:"):
+                        channel_id = int(raw_channel.split(':', 1)[1])
+                        if channel_id in self.channel_connections:
+                            print(f"Redis: Forwarding message to channel {channel_id}")
+                            await self._send_to_channel_str(channel_id, data)
+            
+            except Exception as e:
+                print(f"Error in Redis listener: {e}. Reconnecting in 5 seconds...")
+                await asyncio.sleep(5)
+
+
     async def connect(self, websocket: WebSocket, user_id: int, channel_id: int = None):
-        """Подключение WebSocket"""
+        """Подключение WebSocket."""
         await websocket.accept()
         
-        # Добавляем соединение для пользователя
         if user_id not in self.active_connections:
             self.active_connections[user_id] = []
         self.active_connections[user_id].append(websocket)
         
-        # Если указан канал, добавляем в канальные соединения
         if channel_id:
             if channel_id not in self.channel_connections:
                 self.channel_connections[channel_id] = {}
             self.channel_connections[channel_id][user_id] = websocket
-    
+
     async def disconnect(self, websocket: WebSocket, user_id: int, channel_id: int = None):
-        """Отключение WebSocket"""
-        # Удаляем из пользовательских соединений
+        """Отключение WebSocket."""
         if user_id in self.active_connections:
             if websocket in self.active_connections[user_id]:
                 self.active_connections[user_id].remove(websocket)
             if not self.active_connections[user_id]:
                 del self.active_connections[user_id]
         
-        # Удаляем из канальных соединений
         if channel_id and channel_id in self.channel_connections:
             if user_id in self.channel_connections[channel_id]:
                 del self.channel_connections[channel_id][user_id]
             if not self.channel_connections[channel_id]:
                 del self.channel_connections[channel_id]
-    
+
     async def send_personal_message(self, message: dict, user_id: int):
-        """Отправка личного сообщения конкретному пользователю"""
-        await self.send_to_user(user_id, message)
-    
+        """Отправка личного сообщения через Redis."""
+        if self.redis_client:
+            channel = f"user:{user_id}"
+            await self.redis_client.publish(channel, json.dumps(message))
+        else:
+            # Fallback для локальной разработки без Redis
+            await self.send_to_user(user_id, message)
+
     async def send_to_channel(self, channel_id: int, message: dict):
-        """Отправка сообщения всем участникам канала"""
-        if channel_id in self.channel_connections:
-            message_str = json.dumps(message)
-            disconnected = []
-            
-            for user_id, websocket in self.channel_connections[channel_id].items():
-                try:
-                    await websocket.send_text(message_str)
-                except:
-                    disconnected.append(user_id)
-            
-            # Удаляем отключенные соединения
-            for user_id in disconnected:
-                if user_id in self.channel_connections[channel_id]:
-                    del self.channel_connections[channel_id][user_id]
-    
+        """Отправка сообщения в канал через Redis."""
+        if self.redis_client:
+            channel = f"channel:{channel_id}"
+            await self.redis_client.publish(channel, json.dumps(message))
+        else:
+            # Fallback для локальной разработки без Redis
+            await self._send_to_channel_str(channel_id, json.dumps(message))
+
     async def send_to_user(self, user_id: int, message: dict):
-        """Отправка сообщения конкретному пользователю"""
+        """Отправка сообщения-словаря конкретному пользователю (локально)."""
+        await self._send_to_user_str(user_id, json.dumps(message))
+
+    async def _send_to_user_str(self, user_id: int, message_str: str):
+        """Отправляет строковое сообщение всем сессиям пользователя на этом инстансе."""
         if user_id in self.active_connections:
-            message_str = json.dumps(message)
-            disconnected = []
-            
+            disconnected_websockets = []
             for websocket in self.active_connections[user_id]:
                 try:
                     await websocket.send_text(message_str)
-                except:
-                    disconnected.append(websocket)
+                except Exception:
+                    disconnected_websockets.append(websocket)
             
-            # Удаляем отключенные соединения
-            for websocket in disconnected:
-                if websocket in self.active_connections[user_id]:
-                    self.active_connections[user_id].remove(websocket)
-    
-    async def broadcast_to_all(self, message: dict):
-        """Отправка сообщения всем подключенным пользователям"""
-        message_str = json.dumps(message)
-        disconnected_users = []
-        
-        for user_id, connections in self.active_connections.items():
-            disconnected_connections = []
-            
-            for websocket in connections:
+            for websocket in disconnected_websockets:
+                self.active_connections[user_id].remove(websocket)
+
+    async def _send_to_channel_str(self, channel_id: int, message_str: str):
+        """Отправляет строковое сообщение всем участникам канала на этом инстансе."""
+        if channel_id in self.channel_connections:
+            disconnected_users = []
+            for user_id, websocket in self.channel_connections[channel_id].items():
                 try:
                     await websocket.send_text(message_str)
-                except:
-                    disconnected_connections.append(websocket)
-            
-            # Удаляем отключенные соединения
-            for websocket in disconnected_connections:
-                connections.remove(websocket)
-            
-            # Если у пользователя не осталось соединений, помечаем для удаления
-            if not connections:
-                disconnected_users.append(user_id)
-        
-        # Удаляем пользователей без соединений
-        for user_id in disconnected_users:
-            del self.active_connections[user_id]
+                except Exception:
+                    disconnected_users.append(user_id)
+
+            for user_id in disconnected_users:
+                del self.channel_connections[channel_id][user_id]
 
     async def broadcast(self, message: dict):
-        """Алиас для broadcast_to_all"""
-        await self.broadcast_to_all(message)
-
-    def get_connected_users(self) -> Set[int]:
-        """Получает список ID подключенных пользователей"""
-        return set(self.active_connections.keys())
+        """Рассылка всем пользователям на всех инстансах (если есть Redis)."""
+        # Эта функция может быть неэффективной, если много пользователей.
+        # Для массовых рассылок лучше использовать специальные каналы.
+        if self.redis_client:
+            # Можно реализовать через специальный 'broadcast' канал
+            pass
+        else:
+            # Локальная рассылка
+            message_str = json.dumps(message)
+            all_users = list(self.active_connections.keys())
+            for user_id in all_users:
+                await self._send_to_user_str(user_id, message_str)
 
     def is_user_connected(self, user_id: int) -> bool:
-        """Проверяет, подключен ли пользователь"""
+        """Проверяет, подключен ли пользователь к этому инстансу."""
         return user_id in self.active_connections and len(self.active_connections[user_id]) > 0
-    
-    async def broadcast_to_text_channel(self, text_channel_id: int, message: dict):
-        """Рассылка сообщения в текстовый канал"""
-        # Получаем channel_id из text_channel_id (нужно будет передавать отдельно)
-        # Для упрощения сейчас используем channel_id напрямую
-        await self.redis_client.publish(
-            f"text_channel:{text_channel_id}",
-            json.dumps(message)
-        )
-    
-    async def handle_redis_message(self, message):
-        """Обработка сообщений из Redis"""
-        if message["type"] == "message":
-            channel = message["channel"].decode()
-            data = json.loads(message["data"])
-            
-            # Извлечение channel_id из названия канала
-            if channel.startswith("channel:"):
-                channel_id = int(channel.split(":")[1])
-                # Рассылка локальным подключениям
-                if channel_id in self.active_connections:
-                    for user_id, connection in self.active_connections[channel_id].items():
-                        try:
-                            await connection.send_json(data)
-                        except:
-                            pass
 
 # Глобальный экземпляр менеджера
 manager = ConnectionManager()
