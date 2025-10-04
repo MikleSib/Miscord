@@ -50,17 +50,33 @@ export function HomePageContent() {
   }, [])
   
   useEffect(() => {
-    const handleIncomingCall = ({ caller, callee }: { caller: User, callee: User }) => {
-      setCaller(caller);
-      setCallee(callee);
-      setIsIncomingCall(true);
-      soundService.playRingingSound();
+    const handleIncomingCall = (callerId: number) => {
+      if (!currentUser) return;
+      const caller = friends.find(f => f.id === callerId);
+      if (caller) {
+        setCaller(caller);
+        setCallee(currentUser);
+        setIsIncomingCall(true);
+        soundService.playRingingSound();
+      }
+    };
+
+    const handleOutgoingCall = (calleeId: number) => {
+      if (!currentUser) return;
+      const callee = friends.find(f => f.id === calleeId);
+      if (callee) {
+        setCallee(callee);
+        setCaller(currentUser);
+        setIsOutgoingCall(true);
+        soundService.playCallingSound();
+      }
     };
 
     const handleCallAccepted = () => {
       setIsIncomingCall(false);
       setIsOutgoingCall(false);
       soundService.stopRingingSound();
+      soundService.stopCallingSound();
     };
 
     const handleCallEnded = () => {
@@ -70,18 +86,21 @@ export function HomePageContent() {
       setCaller(null);
       setCallee(null);
       soundService.stopRingingSound();
+      soundService.stopCallingSound();
     };
 
     p2pVoiceService.on('incoming_call', handleIncomingCall);
+    p2pVoiceService.on('outgoing_call', handleOutgoingCall);
     p2pVoiceService.on('call_accepted', handleCallAccepted);
     p2pVoiceService.on('call_ended', handleCallEnded);
 
     return () => {
       p2pVoiceService.off('incoming_call', handleIncomingCall);
+      p2pVoiceService.off('outgoing_call', handleOutgoingCall);
       p2pVoiceService.off('call_accepted', handleCallAccepted);
       p2pVoiceService.off('call_ended', handleCallEnded);
     };
-  }, []);
+  }, [currentUser, friends]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -174,19 +193,9 @@ export function HomePageContent() {
   const handleCallUser = async (user: User) => {
     if (!currentUser) return;
     try {
-      // Устанавливаем, кому мы звоним
-      setCallee(user);
-      // Устанавливаем, кто звонит
-      setCaller(currentUser);
-      setIsOutgoingCall(true);
-      soundService.playCallingSound(); // Предполагается, что такой метод есть
       await p2pVoiceService.startCall(user.id);
     } catch (error) {
       console.error('Ошибка инициации звонка:', error);
-      setIsOutgoingCall(false);
-      setCallee(null);
-      setCaller(null);
-      soundService.stopCallingSound(); // Предполагается, что такой метод есть
     }
   };
 

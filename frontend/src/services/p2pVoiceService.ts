@@ -17,7 +17,7 @@ class P2PVoiceService extends EventEmitter {
   private handleWebSocketMessage(event: CustomEvent) {
     const { sender_id, signal } = event.detail;
     if (!this.peerConnection) {
-      this.initiatePeerConnection(sender_id);
+      this.initiatePeerConnection(sender_id, false); // Не инициатор
     }
 
     if (signal.type === 'offer') {
@@ -30,12 +30,25 @@ class P2PVoiceService extends EventEmitter {
     }
   }
 
-  private async initiatePeerConnection(friendId: number) {
+  private async initiatePeerConnection(friendId: number, isInitiator: boolean) {
+    if (this.peerConnection) {
+      console.warn("PeerConnection уже существует.");
+      return;
+    }
+    
     this.peerConnection = new RTCPeerConnection({
       iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
     });
 
-    this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+    try {
+      this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    } catch (error) {
+      console.error("Ошибка при получении доступа к аудио:", error);
+      // Можно добавить обработку ошибки, например, уведомить пользователя
+      this.stopCall(); // Останавливаем звонок, если не удалось получить доступ к аудио
+      return;
+    }
+    
     this.localStream.getTracks().forEach(track => this.peerConnection?.addTrack(track, this.localStream!));
 
     this.peerConnection.onicecandidate = (event) => {
@@ -52,14 +65,17 @@ class P2PVoiceService extends EventEmitter {
       this.remoteStream = event.streams[0];
       // Здесь можно будет обновить UI, чтобы показать видео собеседника
     };
-    
-    // Испускаем событие о входящем звонке
-    this.emit('incoming_call', friendId);
+
+    if (isInitiator) {
+      this.emit('outgoing_call', friendId);
+    } else {
+      this.emit('incoming_call', friendId);
+    }
   }
 
   public async startCall(friendId: number) {
     if (!this.peerConnection) {
-      await this.initiatePeerConnection(friendId);
+      await this.initiatePeerConnection(friendId, true); // Является инициатором
     }
     const offer = await this.peerConnection?.createOffer();
     await this.peerConnection?.setLocalDescription(offer);
