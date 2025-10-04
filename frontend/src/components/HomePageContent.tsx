@@ -9,6 +9,10 @@ import { DirectMessageArea } from './DirectMessageArea'
 import { UserAvatar } from './ui/user-avatar'
 import { VoiceOverlay } from './VoiceOverlay'
 import p2pVoiceService from '../services/p2pVoiceService'
+import P2PCallUI from './P2PCallUI'
+import P2POutgoingCallUI from './P2POutgoingCallUI'
+import soundService from '../services/soundService'
+import authService from '../services/authService'
 
 type Tab = 'online' | 'all' | 'pending' | 'blocked'
 
@@ -23,6 +27,10 @@ export function HomePageContent() {
   
   const [currentCall, setCurrentCall] = useState<any>(null);
   const [isIncomingCall, setIsIncomingCall] = useState(false);
+  const [isOutgoingCall, setIsOutgoingCall] = useState(false);
+  const [caller, setCaller] = useState<User | null>(null);
+  const [callee, setCallee] = useState<User | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   const sortedFriends = useMemo(() => {
     return [...friends].sort((a, b) => {
@@ -31,21 +39,37 @@ export function HomePageContent() {
       return a.username.localeCompare(b.username);
     });
   }, [friends]);
+
+  useEffect(() => {
+    const getcurrentUser = async () => {
+      const user = await authService.getCurrentUser()
+      setCurrentUser(user)
+    }
+
+    getcurrentUser()
+  }, [])
   
   useEffect(() => {
-    const handleIncomingCall = (callerId: string) => {
+    const handleIncomingCall = ({ caller, callee }: { caller: User, callee: User }) => {
+      setCaller(caller);
+      setCallee(callee);
       setIsIncomingCall(true);
-      // В реальном приложении здесь нужно найти пользователя по callerId
-      // setSelectedFriend(user);
+      soundService.playRingingSound();
     };
 
     const handleCallAccepted = () => {
       setIsIncomingCall(false);
+      setIsOutgoingCall(false);
+      soundService.stopRingingSound();
     };
 
     const handleCallEnded = () => {
       setCurrentCall(null);
       setIsIncomingCall(false);
+      setIsOutgoingCall(false);
+      setCaller(null);
+      setCallee(null);
+      soundService.stopRingingSound();
     };
 
     p2pVoiceService.on('incoming_call', handleIncomingCall);
@@ -148,12 +172,23 @@ export function HomePageContent() {
   };
 
   const handleCallUser = async (user: User) => {
+    if (!currentUser) return;
     try {
-      await p2pVoiceService.startCall(user.id)
+      // Устанавливаем, кому мы звоним
+      setCallee(user);
+      // Устанавливаем, кто звонит
+      setCaller(currentUser);
+      setIsOutgoingCall(true);
+      soundService.playCallingSound(); // Предполагается, что такой метод есть
+      await p2pVoiceService.startCall(user.id);
     } catch (error) {
-      console.error('Ошибка инициации звонка:', error)
+      console.error('Ошибка инициации звонка:', error);
+      setIsOutgoingCall(false);
+      setCallee(null);
+      setCaller(null);
+      soundService.stopCallingSound(); // Предполагается, что такой метод есть
     }
-  }
+  };
 
   const renderContent = () => {
     switch (activeTab) {
@@ -288,34 +323,32 @@ export function HomePageContent() {
 
   return (
     <div className="flex flex-1 h-full">
-      {/* Incoming call notification */}
-      {isIncomingCall && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-[#313338] p-6 rounded-lg w-96">
-            <h2 className="text-xl font-bold text-white mb-4">Входящий звонок</h2>
-            <p className="text-[#b5bac1] mb-6">Пользователь звонит вам</p>
-            <div className="flex justify-center gap-4">
-              <button 
-                onClick={() => {
-                  setIsIncomingCall(false);
-                  p2pVoiceService.acceptCall();
-                }}
-                className="bg-green-600 text-white px-6 py-3 rounded-full hover:bg-green-700"
-              >
-                Принять
-              </button>
-              <button 
-                onClick={() => {
-                  setIsIncomingCall(false);
-                  p2pVoiceService.stopCall();
-                }}
-                className="bg-red-600 text-white px-6 py-3 rounded-full hover:bg-red-700"
-              >
-                Отклонить
-              </button>
-            </div>
-          </div>
-        </div>
+      {isIncomingCall && caller && currentUser && (
+        <P2PCallUI
+          caller={caller}
+          callee={currentUser}
+          onAccept={() => {
+            soundService.stopRingingSound();
+            setIsIncomingCall(false);
+            p2pVoiceService.acceptCall();
+          }}
+          onDecline={() => {
+            soundService.stopRingingSound();
+            setIsIncomingCall(false);
+            p2pVoiceService.stopCall();
+          }}
+        />
+      )}
+
+      {isOutgoingCall && callee && (
+        <P2POutgoingCallUI
+          callee={callee}
+          onCancel={() => {
+            soundService.stopCallingSound();
+            setIsOutgoingCall(false);
+            p2pVoiceService.stopCall();
+          }}
+        />
       )}
 
       {/* Friends List and Controls Sidebar */}
