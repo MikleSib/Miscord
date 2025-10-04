@@ -89,24 +89,22 @@ async def get_friends(db: AsyncSession, user_id: int):
     return friends_data
 
 async def get_pending_requests(db: AsyncSession, user_id: int):
+    """
+    Получает список входящих запросов в друзья для текущего пользователя.
+    """
     pending_friendships_result = await db.execute(
-        select(Friendship).filter(
-            or_(
-                Friendship.user_a_id == user_id,
-                Friendship.user_b_id == user_id
-            ),
+        select(Friendship)
+        .filter(
+            Friendship.user_b_id == user_id,
             Friendship.status == FriendshipStatus.PENDING
-        ).options(selectinload(Friendship.user_a), selectinload(Friendship.user_b))
+        )
+        .options(selectinload(Friendship.user_a))
     )
     pending_friendships = pending_friendships_result.unique().scalars().all()
 
     users_data = []
     for req in pending_friendships:
-        if req.user_a_id == user_id:
-            user = req.user_b
-        else:
-            user = req.user_a
-
+        user = req.user_a
         if user:
             user_data = {
                 "id": user.id,
@@ -149,7 +147,10 @@ async def reject_friend_request(db: AsyncSession, request_id: int, current_user_
     friend_request_result = await db.execute(
         select(Friendship).filter(
             Friendship.id == request_id,
-            Friendship.user_b_id == current_user_id,
+            or_(
+                Friendship.user_a_id == current_user_id,
+                Friendship.user_b_id == current_user_id
+            ),
             Friendship.status == FriendshipStatus.PENDING
         )
     )
