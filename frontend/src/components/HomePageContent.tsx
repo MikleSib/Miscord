@@ -31,6 +31,9 @@ export function HomePageContent() {
   const [caller, setCaller] = useState<User | null>(null);
   const [callee, setCallee] = useState<User | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [inCall, setInCall] = useState(false);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+
 
   const sortedFriends = useMemo(() => {
     return [...friends].sort((a, b) => {
@@ -48,59 +51,65 @@ export function HomePageContent() {
 
     getcurrentUser()
   }, [])
+
+  const handleCallEnded = () => {
+    setCurrentCall(null);
+    setIsIncomingCall(false);
+    setIsOutgoingCall(false);
+    setCaller(null);
+    setCallee(null);
+    setInCall(false);
+    setRemoteStream(null);
+    soundService.stopAllSounds();
+  };
   
   useEffect(() => {
-    const handleIncomingCall = (callerId: number) => {
+    const handleIncomingCall = (incomingCaller: User) => {
       if (!currentUser) return;
-      const caller = friends.find(f => f.id === callerId);
-      if (caller) {
-        setCaller(caller);
-        setCallee(currentUser);
-        setIsIncomingCall(true);
-        soundService.playRingingSound();
-      }
+      setCaller(incomingCaller);
+      setCallee(currentUser);
+      setIsIncomingCall(true);
+      soundService.playIncomingCallSound();
     };
 
-    const handleOutgoingCall = (calleeId: number) => {
-      if (!currentUser) return;
-      const callee = friends.find(f => f.id === calleeId);
-      if (callee) {
-        setCallee(callee);
-        setCaller(currentUser);
-        setIsOutgoingCall(true);
-        soundService.playCallingSound();
-      }
-    };
-
-    const handleCallAccepted = () => {
+    const handleCallAccepted = ({ from }: { from: User }) => {
       setIsIncomingCall(false);
       setIsOutgoingCall(false);
-      soundService.stopRingingSound();
-      soundService.stopCallingSound();
+      soundService.stopAllSounds();
+      setInCall(true);
+      // Тот, кто ИНИЦИИРОВАЛ звонок, создает оффер
+      if (callee?.id === from.id) {
+          p2pVoiceService.createOffer(from.id);
+      }
     };
-
-    const handleCallEnded = () => {
-      setCurrentCall(null);
-      setIsIncomingCall(false);
+  
+    const handleCallDeclined = () => {
+      soundService.stopAllSounds();
       setIsOutgoingCall(false);
-      setCaller(null);
-      setCallee(null);
-      soundService.stopRingingSound();
-      soundService.stopCallingSound();
+      // Возможно, показать уведомление, что звонок отклонен
+    };
+  
+    const handleRemoteStream = (stream: MediaStream) => {
+      setRemoteStream(stream);
     };
 
-    p2pVoiceService.on('incoming_call', handleIncomingCall);
-    p2pVoiceService.on('outgoing_call', handleOutgoingCall);
-    p2pVoiceService.on('call_accepted', handleCallAccepted);
-    p2pVoiceService.on('call_ended', handleCallEnded);
-
+    p2pVoiceService.on('remote_stream_received', handleRemoteStream);
+    // Подписываемся на события от p2pVoiceService
+    websocketService.on('p2p-incoming-call', handleIncomingCall);
+    websocketService.on('p2p-call-accepted', handleCallAccepted);
+    websocketService.on('p2p-call-declined', handleCallDeclined);
+    websocketService.on('p2p-call-ended', handleCallEnded);
+  
     return () => {
-      p2pVoiceService.off('incoming_call', handleIncomingCall);
-      p2pVoiceService.off('outgoing_call', handleOutgoingCall);
-      p2pVoiceService.off('call_accepted', handleCallAccepted);
-      p2pVoiceService.off('call_ended', handleCallEnded);
+      // Отписываемся от событий при размонтировании
+      websocketService.off('p2p-incoming-call', handleIncomingCall);
+      websocketService.off('p2p-call-accepted', handleCallAccepted);
+      websocketService.off('p2p-call-declined', handleCallDeclined);
+      websocketService.off('p2p-call-ended', handleCallEnded);
+      p2pVoiceService.off('remote_stream_received', handleRemoteStream);
     };
-  }, [currentUser, friends]);
+  }, [currentUser, friends, callee]);
+  
 
   useEffect(() => {
     const fetchData = async () => {
@@ -190,13 +199,21 @@ export function HomePageContent() {
     }
   };
 
-  const handleCallUser = async (user: User) => {
+  const handleCallUser = (user: User) => {
     if (!currentUser) return;
-    try {
-      await p2pVoiceService.startCall(user.id);
-    } catch (error) {
-      console.error('Ошибка инициации звонка:', error);
+    setCallee(user); // кого вызываем
+    setCaller(currentUser); // кто вызывает
+    setIsOutgoingCall(true);
+    soundService.playCallingSound();
+    p2pVoiceService.initiateCall(user.id);
+  };
+  
+  const handleHangUp = () => {
+    const peerId = caller?.id === currentUser?.id ? callee?.id : caller?.id;
+    if (peerId) {
+      p2pVoiceService.hangUp(peerId);
     }
+    handleCallEnded();
   };
 
   const renderContent = () => {
@@ -338,15 +355,18 @@ export function HomePageContent() {
           callee={currentUser}
           onAccept={() => {
             if (caller) {
-              soundService.stopRingingSound();
+              soundService.stopAllSounds();
               setIsIncomingCall(false);
-              p2pVoiceService.acceptCall(caller.id);
+              p2pVoiceService.acceptCall(caller.id, caller);
+              setInCall(true); // Сразу переходим в состояние звонка
             }
           }}
           onDecline={() => {
-            soundService.stopRingingSound();
-            setIsIncomingCall(false);
-            p2pVoiceService.stopCall();
+            if(caller) {
+              soundService.stopAllSounds();
+              setIsIncomingCall(false);
+              p2pVoiceService.declineCall(caller.id);
+            }
           }}
         />
       )}
@@ -355,12 +375,42 @@ export function HomePageContent() {
         <P2POutgoingCallUI
           callee={callee}
           onCancel={() => {
-            soundService.stopCallingSound();
-            setIsOutgoingCall(false);
-            p2pVoiceService.stopCall();
+            if (callee) {
+              soundService.stopAllSounds();
+              setIsOutgoingCall(false);
+              p2pVoiceService.hangUp(callee.id);
+            }
           }}
         />
       )}
+
+      {inCall && callee && caller && (
+      <VoiceOverlay
+        onHangUp={handleHangUp}
+        participantsList={[
+          {
+            user_id: caller.id,
+            username: caller.username,
+            display_name: caller.username,
+            avatar_url: caller.avatar_url,
+            is_muted: false, // Вам нужно будет управлять этим состоянием
+            is_deafened: false,
+          },
+          {
+            user_id: callee.id,
+            username: callee.username,
+            display_name: callee.username,
+            avatar_url: callee.avatar_url,
+            is_muted: false,
+            is_deafened: false,
+          },
+        ]}
+        channelName={`${caller.username} & ${callee.username}`}
+        serverName="Приватный звонок"
+      />
+      )}
+      {remoteStream && <audio autoPlay ref={audio => { if (audio) audio.srcObject = remoteStream; }} />}
+
 
       {/* Friends List and Controls Sidebar */}
       <div className="w-64 bg-[#2c2d32] h-full flex flex-col">

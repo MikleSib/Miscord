@@ -1,19 +1,29 @@
 import { create } from 'zustand';
-import { VoiceUser } from '../../types';
+import { VoiceUser, User } from '../../types';
 import voiceService from '../../services/voiceService';
 import { useAuthStore } from '../store';
 import soundService from '../../services/soundService';
+
+type CallType = 'channel' | 'p2p' | null;
+type P2PCallStatus = 'idle' | 'outgoing' | 'incoming' | 'active';
 
 interface VoiceState {
   isConnected: boolean;
   currentVoiceChannelId: number | null;
   participants: VoiceUser[];
   localStream: MediaStream | null;
+  remoteStream: MediaStream | null;
   isMuted: boolean;
   isDeafened: boolean;
   wasMutedBeforeDeafen: boolean;
   error: string | null;
   speakingUsers: Set<number>;
+  
+  // P2P Call State
+  callType: CallType;
+  p2pCallStatus: P2PCallStatus;
+  p2pPeer: User | null;
+
   connectToVoiceChannel: (channelId: number) => Promise<void>;
   disconnectFromVoiceChannel: () => void;
   setParticipants: (participants: VoiceUser[]) => void;
@@ -21,10 +31,17 @@ interface VoiceState {
   removeParticipant: (userId: number) => void;
   updateParticipant: (participant: VoiceUser) => void;
   setLocalStream: (stream: MediaStream | null) => void;
+  setRemoteStream: (stream: MediaStream | null) => void;
   toggleMute: () => void;
   toggleDeafen: () => void;
   setError: (error: string | null) => void;
   setSpeaking: (userId: number, isSpeaking: boolean) => void;
+
+  // P2P Call Actions
+  setOutgoingP2PCall: (peer: User) => void;
+  setIncomingP2PCall: (peer: User) => void;
+  setP2PCallActive: () => void;
+  clearP2PCallState: () => void;
 }
 
 export const useVoiceStore = create<VoiceState>((set, get) => ({
@@ -32,11 +49,17 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   currentVoiceChannelId: null,
   participants: [],
   localStream: null,
+  remoteStream: null,
   isMuted: false,
   isDeafened: false,
   wasMutedBeforeDeafen: false,
   error: null,
   speakingUsers: new Set(),
+
+  // P2P Call State
+  callType: null,
+  p2pCallStatus: 'idle',
+  p2pPeer: null,
   
   connectToVoiceChannel: async (channelId) => {
     try {
@@ -200,7 +223,50 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   }),
   
   setLocalStream: (stream) => set({ localStream: stream }),
+
+  setRemoteStream: (stream) => set({ remoteStream: stream }),
   
+  // P2P Call Actions
+  setOutgoingP2PCall: (peer) => {
+    soundService.playOutgoingCallSound();
+    set({
+      callType: 'p2p',
+      p2pCallStatus: 'outgoing',
+      p2pPeer: peer,
+      error: null,
+    });
+  },
+
+  setIncomingP2PCall: (peer) => {
+    soundService.playIncomingCallSound();
+    set({
+      callType: 'p2p',
+      p2pCallStatus: 'incoming',
+      p2pPeer: peer,
+      error: null,
+    });
+  },
+
+  setP2PCallActive: () => {
+    soundService.stopAllSounds();
+    set((state) => ({
+      ...state,
+      p2pCallStatus: 'active',
+    }));
+  },
+
+  clearP2PCallState: () => {
+    soundService.stopAllSounds();
+    soundService.playLeaveSound();
+    set({
+      callType: null,
+      p2pCallStatus: 'idle',
+      p2pPeer: null,
+      remoteStream: null,
+      localStream: null, // Также останавливаем локальный стрим
+    });
+  },
+
   toggleMute: () => {
     const currentState = get();
     const newMuted = !currentState.isMuted;

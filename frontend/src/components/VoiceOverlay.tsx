@@ -6,6 +6,14 @@ import { useVoiceStore } from '../store/slices/voiceSlice';
 import { useAuthStore } from '../store/store';
 import { useStore } from '../lib/store';
 import { UserAvatar } from './ui/user-avatar';
+import { User } from '../types';
+
+interface VoiceOverlayProps {
+  onHangUp?: () => void;
+  participantsList?: any[];
+  channelName?: string;
+  serverName?: string;
+}
 
 // Компонент для аватарки с анимацией при разговоре
 interface SpeakingAvatarProps {
@@ -74,12 +82,12 @@ function SpeakingAvatar({ user, isSpeaking, size = 24 }: SpeakingAvatarProps) {
   );
 }
 
-export function VoiceOverlay() {
-  const { 
-    isConnected, 
-    participants, 
+export function VoiceOverlay({ onHangUp, participantsList, channelName, serverName }: VoiceOverlayProps) {
+  const {
+    isConnected: isConnectedStore,
+    participants: participantsStore,
     currentVoiceChannelId,
-    disconnectFromVoiceChannel,
+    disconnectFromVoiceChannel: disconnectFromVoiceChannelStore,
     speakingUsers,
     isMuted,
     isDeafened,
@@ -89,27 +97,33 @@ export function VoiceOverlay() {
   const { user } = useAuthStore();
   const { currentServer } = useStore();
 
-  if (!isConnected || !currentVoiceChannelId) {
-    return null;
-  }
-
-  // Находим текущий голосовой канал
+  const isConnected = onHangUp ? true : isConnectedStore;
+  const disconnectFromVoiceChannel = onHangUp ? onHangUp : disconnectFromVoiceChannelStore;
+  const allParticipants = participantsList
+    ? participantsList
+    : [
+        ...(user
+          ? [
+              {
+                user_id: user.id,
+                username: user.username,
+                display_name: user.display_name,
+                avatar_url: user.avatar_url,
+                is_muted: isMuted,
+                is_deafened: isDeafened,
+              },
+            ]
+          : []),
+        ...participantsStore.filter((p) => p.user_id !== user?.id),
+      ];
+  
   const currentVoiceChannel = currentServer?.channels.find(
     c => c.type === 'voice' && c.id === currentVoiceChannelId
   );
 
-  // Все участники включая текущего пользователя
-  const allParticipants = [
-    ...(user ? [{
-      user_id: user.id,
-      username: user.username,
-      display_name: user.display_name,
-      avatar_url: user.avatar_url,
-      is_muted: isMuted,
-      is_deafened: isDeafened,
-    }] : []),
-    ...participants.filter(p => p.user_id !== user?.id),
-  ];
+  if (!isConnected || (!currentVoiceChannelId && !onHangUp)) {
+    return null;
+  }
 
   return (
     <Box
@@ -138,10 +152,10 @@ export function VoiceOverlay() {
       >
         <Box>
           <Typography variant="body2" sx={{ color: '#dcddde', fontWeight: 600 }}>
-            {currentVoiceChannel?.name || 'Голосовой канал'}
+            {channelName || currentVoiceChannel?.name || 'Голосовой звонок'}
           </Typography>
           <Typography variant="caption" sx={{ color: '#72767d' }}>
-            {currentServer?.name}
+            {serverName || currentServer?.name}
           </Typography>
         </Box>
         <IconButton 

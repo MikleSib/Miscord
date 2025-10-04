@@ -1,64 +1,81 @@
 import websocketService from './websocketService';
 import { EventEmitter } from 'events';
+import { User } from '@/types';
+import authService from './authService';
 
 class P2PVoiceService extends EventEmitter {
   public peerConnection: RTCPeerConnection | null = null;
   public localStream: MediaStream | null = null;
   public remoteStream: MediaStream | null = null;
   private ws = websocketService;
+  private currentPeerId: number | null = null;
+  private currentUser: User | null = null;
 
   constructor() {
     super();
-    this.ws.on('webrtc', (data: any) => this.handleWebSocketMessage(data));
+    this.init();
   }
 
-  private handleWebSocketMessage(data: { type: string, data: { sender_id: number, signal: any }}) {
-    const { sender_id, signal } = data.data;
+  private async init() {
+    this.currentUser = await authService.getCurrentUser();
 
-    if (signal.type === 'offer') {
-      // Если звонок уже идет, не делаем ничего
+    this.ws.on('p2p-offer', async (data: { from: number; offer: RTCSessionDescriptionInit }) => {
+      this.currentPeerId = data.from;
+      await this.createPeerConnection(data.from);
       if (this.peerConnection) {
-        console.warn("Получен offer, но PeerConnection уже существует. Возможно, звонок уже активен.");
-        return;
+        await this.peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+        const answer = await this.peerConnection.createAnswer();
+        await this.peerConnection.setLocalDescription(answer);
+        this.ws.send(JSON.stringify({
+          type: 'p2p-answer',
+          to: data.from,
+          answer: answer
+        }));
       }
-      this.initiatePeerConnection(sender_id, false, signal);
-    } else if (this.peerConnection) {
-      if (signal.type === 'answer') {
-        this.peerConnection.setRemoteDescription(new RTCSessionDescription(signal))
-          .catch(e => console.error("Ошибка установки remote description для answer:", e));
-      } else if (signal.candidate) {
-        this.peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate))
+    });
+
+    this.ws.on('p2p-answer', async (data: { from: number; answer: RTCSessionDescriptionInit }) => {
+      if (this.peerConnection) {
+        await this.peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+      }
+    });
+
+    this.ws.on('p2p-ice-candidate', (data: { from: number; candidate: RTCIceCandidateInit }) => {
+      if (this.peerConnection && data.candidate) {
+        this.peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate))
           .catch(e => console.error("Ошибка добавления ICE candidate:", e));
       }
-    }
+    });
+    
+    this.ws.on('p2p-call-ended', () => {
+      this.stopCall();
+      this.emit('call_ended');
+    });
   }
 
-  private async initiatePeerConnection(friendId: number, isInitiator: boolean, offer?: RTCSessionDescriptionInit) {
-    if (this.peerConnection) {
-      console.warn("PeerConnection уже существует.");
-      return;
-    }
-    
+  private async createPeerConnection(peerId: number) {
+    this.stopCall(); // Закрываем предыдущие соединения
+
     this.peerConnection = new RTCPeerConnection({
       iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
     });
+    this.currentPeerId = peerId;
 
     try {
       this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      this.localStream.getTracks().forEach(track => this.peerConnection?.addTrack(track, this.localStream!));
     } catch (error) {
       console.error("Ошибка при получении доступа к аудио:", error);
       this.stopCall();
       return;
     }
-    
-    this.localStream.getTracks().forEach(track => this.peerConnection?.addTrack(track, this.localStream!));
 
     this.peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
         this.ws.send(JSON.stringify({
-          type: 'webrtc',
-          recipient_id: friendId,
-          signal: { candidate: event.candidate }
+          type: 'p2p-ice-candidate',
+          to: this.currentPeerId,
+          candidate: event.candidate
         }));
       }
     };
@@ -67,44 +84,58 @@ class P2PVoiceService extends EventEmitter {
       this.remoteStream = event.streams[0];
       this.emit('remote_stream_received', this.remoteStream);
     };
-
-    if (isInitiator) {
-      this.emit('outgoing_call', friendId);
-    } else if (offer) {
-       this.peerConnection.setRemoteDescription(new RTCSessionDescription(offer))
-        .then(() => {
-          this.emit('incoming_call', friendId);
-        })
-        .catch(e => console.error("Ошибка установки remote description для offer:", e));
+  }
+  
+  public initiateCall(userId: number) {
+    if (!this.currentUser) {
+        console.error("Текущий пользователь не определен.");
+        return;
     }
+    this.ws.send(JSON.stringify({
+      type: 'p2p-initiate-call',
+      to: userId,
+      from: this.currentUser
+    }));
   }
 
-  public async startCall(friendId: number) {
-    if (!this.peerConnection) {
-      await this.initiatePeerConnection(friendId, true);
-    }
-    if (this.peerConnection) {
+  public async acceptCall(callerId: number, caller: User) {
+    await this.createPeerConnection(callerId);
+    this.ws.send(JSON.stringify({
+      type: 'p2p-accept-call',
+      to: callerId,
+      from: this.currentUser
+    }));
+    
+    // Инициатор звонка (тот, кто звонил) должен создать offer
+  }
+  
+  public async createOffer(recipientId: number) {
+    await this.createPeerConnection(recipientId);
+    if(this.peerConnection) {
       const offer = await this.peerConnection.createOffer();
       await this.peerConnection.setLocalDescription(offer);
       this.ws.send(JSON.stringify({
-        type: 'webrtc',
-        recipient_id: friendId,
-        signal: offer
+          type: 'p2p-offer',
+          to: recipientId,
+          offer: offer
       }));
     }
   }
 
-  public async acceptCall(friendId: number) {
-    if (this.peerConnection) {
-      const answer = await this.peerConnection.createAnswer();
-      await this.peerConnection.setLocalDescription(answer);
-      this.ws.send(JSON.stringify({
-        type: 'webrtc',
-        recipient_id: friendId,
-        signal: answer
-      }));
-      this.emit('call_accepted');
-    }
+  public declineCall(callerId: number) {
+    this.ws.send(JSON.stringify({
+      type: 'p2p-decline-call',
+      to: callerId
+    }));
+  }
+
+  public hangUp(peerId: number) {
+    this.ws.send(JSON.stringify({
+        type: 'p2p-hang-up',
+        to: peerId
+    }));
+    this.stopCall();
+    this.emit('call_ended');
   }
 
   public stopCall() {
@@ -113,7 +144,7 @@ class P2PVoiceService extends EventEmitter {
     this.peerConnection = null;
     this.localStream = null;
     this.remoteStream = null;
-    this.emit('call_ended');
+    this.currentPeerId = null;
   }
 }
 

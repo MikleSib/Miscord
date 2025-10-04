@@ -92,7 +92,7 @@ class SoundService {
     }
   }
 
-  playRingingSound() {
+  playIncomingCallSound() {
     if (!this.isInitialized || !this.ringingSound) {
       console.warn('🔊 SoundService не инициализирован или звук звонка недоступен');
       return;
@@ -112,17 +112,8 @@ class SoundService {
     }
   }
 
-  stopRingingSound() {
-    if (!this.isInitialized || !this.ringingSound) {
-      return;
-    }
-    
-    try {
-      this.ringingSound.pause();
-      this.ringingSound.currentTime = 0;
-    } catch (error) {
-      console.error('🔊 Ошибка при остановке звука звонка:', error);
-    }
+  playOutgoingCallSound() {
+    this.playCallingSound();
   }
 
   playCallingSound() {
@@ -145,16 +136,21 @@ class SoundService {
     }
   }
 
-  stopCallingSound() {
-    if (!this.isInitialized || !this.callingSound) {
+  stopAllSounds() {
+    if (!this.isInitialized) {
       return;
     }
-    
     try {
-      this.callingSound.pause();
-      this.callingSound.currentTime = 0;
+      if (this.ringingSound) {
+        this.ringingSound.pause();
+        this.ringingSound.currentTime = 0;
+      }
+      if (this.callingSound) {
+        this.callingSound.pause();
+        this.callingSound.currentTime = 0;
+      }
     } catch (error) {
-      console.error('🔊 Ошибка при остановке звука вызова:', error);
+      console.error('🔊 Ошибка при остановке всех звуков:', error);
     }
   }
 

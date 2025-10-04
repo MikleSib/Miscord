@@ -312,19 +312,111 @@ async def websocket_notifications_endpoint(
                         await manager.send_personal_message(message_to_send, recipient_id)
                         await manager.send_personal_message(message_to_send, user.id)
 
-                    elif message_data.get("type") == "webrtc":
+                    elif message_data.get("type") == "p2p-call-initiate":
+                        recipient_id = message_data.get("recipient_id")
+                        if recipient_id:
+                            # Получаем данные пользователя для отправки получателю
+                            caller_info = {
+                                "id": user.id,
+                                "username": user.username,
+                                "display_name": user.display_name,
+                                "avatar_url": user.avatar_url,
+                            }
+                            await manager.send_personal_message(
+                                {
+                                    "type": "p2p-incoming-call",
+                                    "caller": caller_info,
+                                },
+                                recipient_id
+                            )
+
+                    elif message_data.get("type") == "p2p-call-accept":
+                        caller_id = message_data.get("caller_id")
+                        if caller_id:
+                            # Уведомляем обоих пользователей, что звонок принят
+                            # и они могут начинать обмен WebRTC сигналами
+                            recipient_info = {
+                                "id": user.id,
+                                "username": user.username,
+                                "display_name": user.display_name,
+                                "avatar_url": user.avatar_url,
+                            }
+                            # Отправляем подтверждение звонящему
+                            await manager.send_personal_message(
+                                {
+                                    "type": "p2p-call-accepted",
+                                    "recipient": recipient_info,
+                                },
+                                caller_id
+                            )
+                            # Отправляем подтверждение принимающему
+                            # Это может быть избыточно, но полезно для синхронизации состояния на клиенте
+                            caller_info = message_data.get("caller_info", {}) # Предполагается, что клиент может передать инфо
+                            await manager.send_personal_message(
+                                {
+                                    "type": "p2p-call-accepted-by-you",
+                                    "caller": caller_info
+                                },
+                                user.id
+                            )
+
+                    elif message_data.get("type") == "p2p-call-decline":
+                        caller_id = message_data.get("caller_id")
+                        if caller_id:
+                            await manager.send_personal_message(
+                                {
+                                    "type": "p2p-call-declined",
+                                    "recipient_id": user.id,
+                                },
+                                caller_id
+                            )
+
+                    elif message_data.get("type") == "p2p-call-hangup":
+                        recipient_id = message_data.get("recipient_id")
+                        if recipient_id:
+                            await manager.send_personal_message(
+                                {
+                                    "type": "p2p-call-ended",
+                                    "sender_id": user.id,
+                                },
+                                recipient_id
+                            )
+
+                    elif message_data.get("type") == "call_offer":
                         recipient_id = message_data.get("recipient_id")
                         signal = message_data.get("signal")
                         if recipient_id and signal:
                             await manager.send_personal_message(
                                 {
-                                    "type": "webrtc",
-                                    "data": {
-                                        "sender_id": user.id,
-                                        "signal": signal,
-                                    }
+                                    "type": "call_offer",
+                                    "sender_id": user.id,
+                                    "signal": signal,
                                 },
-                                recipient_id
+                                recipient_id,
+                            )
+                    elif message_data.get("type") == "call_answer":
+                        recipient_id = message_data.get("recipient_id")
+                        signal = message_data.get("signal")
+                        if recipient_id and signal:
+                            await manager.send_personal_message(
+                                {
+                                    "type": "call_answer",
+                                    "sender_id": user.id,
+                                    "signal": signal,
+                                },
+                                recipient_id,
+                            )
+                    elif message_data.get("type") == "ice_candidate":
+                        recipient_id = message_data.get("recipient_id")
+                        candidate = message_data.get("candidate")
+                        if recipient_id and candidate:
+                            await manager.send_personal_message(
+                                {
+                                    "type": "ice_candidate",
+                                    "sender_id": user.id,
+                                    "candidate": candidate,
+                                },
+                                recipient_id,
                             )
                         
                 except asyncio.TimeoutError:
