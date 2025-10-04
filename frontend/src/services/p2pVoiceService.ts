@@ -9,28 +9,31 @@ class P2PVoiceService extends EventEmitter {
 
   constructor() {
     super();
-    if (typeof window !== 'undefined') {
-      window.addEventListener('webrtc_signal', (e: Event) => this.handleWebSocketMessage(e as CustomEvent));
-    }
+    this.ws.on('webrtc', (data: any) => this.handleWebSocketMessage(data));
   }
 
-  private handleWebSocketMessage(event: CustomEvent) {
-    const { sender_id, signal } = event.detail;
-    if (!this.peerConnection) {
-      this.initiatePeerConnection(sender_id, false); // Не инициатор
-    }
+  private handleWebSocketMessage(data: { type: string, data: { sender_id: number, signal: any }}) {
+    const { sender_id, signal } = data.data;
 
     if (signal.type === 'offer') {
-      this.peerConnection?.setRemoteDescription(new RTCSessionDescription(signal));
-      this.createAnswer(sender_id);
-    } else if (signal.type === 'answer') {
-      this.peerConnection?.setRemoteDescription(new RTCSessionDescription(signal));
-    } else if (signal.candidate) {
-      this.peerConnection?.addIceCandidate(new RTCIceCandidate(signal.candidate));
+      // Если звонок уже идет, не делаем ничего
+      if (this.peerConnection) {
+        console.warn("Получен offer, но PeerConnection уже существует. Возможно, звонок уже активен.");
+        return;
+      }
+      this.initiatePeerConnection(sender_id, false, signal);
+    } else if (this.peerConnection) {
+      if (signal.type === 'answer') {
+        this.peerConnection.setRemoteDescription(new RTCSessionDescription(signal))
+          .catch(e => console.error("Ошибка установки remote description для answer:", e));
+      } else if (signal.candidate) {
+        this.peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate))
+          .catch(e => console.error("Ошибка добавления ICE candidate:", e));
+      }
     }
   }
 
-  private async initiatePeerConnection(friendId: number, isInitiator: boolean) {
+  private async initiatePeerConnection(friendId: number, isInitiator: boolean, offer?: RTCSessionDescriptionInit) {
     if (this.peerConnection) {
       console.warn("PeerConnection уже существует.");
       return;
@@ -44,8 +47,7 @@ class P2PVoiceService extends EventEmitter {
       this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     } catch (error) {
       console.error("Ошибка при получении доступа к аудио:", error);
-      // Можно добавить обработку ошибки, например, уведомить пользователя
-      this.stopCall(); // Останавливаем звонок, если не удалось получить доступ к аудио
+      this.stopCall();
       return;
     }
     
@@ -63,43 +65,46 @@ class P2PVoiceService extends EventEmitter {
 
     this.peerConnection.ontrack = (event) => {
       this.remoteStream = event.streams[0];
-      // Здесь можно будет обновить UI, чтобы показать видео собеседника
+      this.emit('remote_stream_received', this.remoteStream);
     };
 
     if (isInitiator) {
       this.emit('outgoing_call', friendId);
-    } else {
-      this.emit('incoming_call', friendId);
+    } else if (offer) {
+       this.peerConnection.setRemoteDescription(new RTCSessionDescription(offer))
+        .then(() => {
+          this.emit('incoming_call', friendId);
+        })
+        .catch(e => console.error("Ошибка установки remote description для offer:", e));
     }
   }
 
   public async startCall(friendId: number) {
     if (!this.peerConnection) {
-      await this.initiatePeerConnection(friendId, true); // Является инициатором
+      await this.initiatePeerConnection(friendId, true);
     }
-    const offer = await this.peerConnection?.createOffer();
-    await this.peerConnection?.setLocalDescription(offer);
-    this.ws.send(JSON.stringify({
-      type: 'webrtc',
-      recipient_id: friendId,
-      signal: offer
-    }));
+    if (this.peerConnection) {
+      const offer = await this.peerConnection.createOffer();
+      await this.peerConnection.setLocalDescription(offer);
+      this.ws.send(JSON.stringify({
+        type: 'webrtc',
+        recipient_id: friendId,
+        signal: offer
+      }));
+    }
   }
 
-  private async createAnswer(friendId: number) {
-    const answer = await this.peerConnection?.createAnswer();
-    await this.peerConnection?.setLocalDescription(answer);
-    this.ws.send(JSON.stringify({
-      type: 'webrtc',
-      recipient_id: friendId,
-      signal: answer
-    }));
-  }
-
-  public async acceptCall() {
-    // В данном случае принятие звонка происходит автоматически при получении сигнала
-    // Но можно добавить дополнительную логику здесь
-    this.emit('call_accepted');
+  public async acceptCall(friendId: number) {
+    if (this.peerConnection) {
+      const answer = await this.peerConnection.createAnswer();
+      await this.peerConnection.setLocalDescription(answer);
+      this.ws.send(JSON.stringify({
+        type: 'webrtc',
+        recipient_id: friendId,
+        signal: answer
+      }));
+      this.emit('call_accepted');
+    }
   }
 
   public stopCall() {

@@ -337,9 +337,11 @@ export function HomePageContent() {
           caller={caller}
           callee={currentUser}
           onAccept={() => {
-            soundService.stopRingingSound();
-            setIsIncomingCall(false);
-            p2pVoiceService.acceptCall();
+            if (caller) {
+              soundService.stopRingingSound();
+              setIsIncomingCall(false);
+              p2pVoiceService.acceptCall(caller.id);
+            }
           }}
           onDecline={() => {
             soundService.stopRingingSound();
