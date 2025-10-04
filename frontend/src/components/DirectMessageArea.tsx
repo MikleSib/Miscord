@@ -131,10 +131,10 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
           <h2 className="text-white font-semibold ml-3">{friend.username}</h2>
         </div>
         <div className="flex items-center gap-4">
-          <button onClick={() => p2pVoiceService.startCall(friend.id)} className="p-2 text-gray-400 hover:text-white">
+          <button onClick={() => p2pVoiceService.initiateCall(friend.id)} className="p-2 text-gray-400 hover:text-white">
             <Phone />
           </button>
-          <button onClick={() => p2pVoiceService.stopCall()} className="p-2 text-gray-400 hover:text-white">
+          <button onClick={() => p2pVoiceService.hangUp(friend.id)} className="p-2 text-gray-400 hover:text-white">
             <PhoneOff />
           </button>
         </div>
