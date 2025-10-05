@@ -358,7 +358,7 @@ async def websocket_notifications_endpoint(
                             print(f"[P2P] Сообщение отправлено пользователю {recipient_id}")
 
                     elif message_data.get("type") == "p2p-call-accept":
-                        caller_id = message_data.get("caller_id")
+                        caller_id = message_data.get("to")  # Исправлено: читаем поле "to" вместо "caller_id"
                         if caller_id:
                             # Уведомляем обоих пользователей, что звонок принят
                             # и они могут начинать обмен WebRTC сигналами
@@ -386,7 +386,7 @@ async def websocket_notifications_endpoint(
                             )
 
                     elif message_data.get("type") == "p2p-call-decline":
-                        caller_id = message_data.get("caller_id")
+                        caller_id = message_data.get("to")  # Исправлено: читаем поле "to" вместо "caller_id"
                         if caller_id:
                             await manager.send_personal_message(
                                 {

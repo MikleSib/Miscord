@@ -82,7 +82,7 @@ export function HomePageContent() {
           p2pVoiceService.createOffer(recipient.id);
       }
       // Показываем уведомление звонящему, что звонок принят
-      if (caller?.id !== currentUser?.id) {
+      if (caller?.id === currentUser?.id) {
         console.log('Звонок принят получателем!');
       }
     };
@@ -90,9 +90,12 @@ export function HomePageContent() {
     const handleCallDeclined = () => {
       soundService.stopAllSounds();
       setIsOutgoingCall(false);
+      setIsIncomingCall(false);
       // Показываем уведомление звонящему, что звонок отклонен
       if (caller?.id === currentUser?.id) {
         console.log('Звонок отклонен получателем!');
+        // Для звонящего - завершаем звонок полностью
+        handleCallEnded();
       }
     };
   
