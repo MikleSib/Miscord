@@ -72,14 +72,14 @@ export function HomePageContent() {
       soundService.playIncomingCallSound();
     };
 
-    const handleCallAccepted = ({ from }: { from: User }) => {
+    const handleCallAccepted = ({ recipient }: { recipient: User }) => {
       setIsIncomingCall(false);
       setIsOutgoingCall(false);
       soundService.stopAllSounds();
       setInCall(true);
-      // Тот, кто ИНИЦИИРОВАЛ звонок, создает оффер
-      if (callee?.id === from.id) {
-          p2pVoiceService.createOffer(from.id);
+      // Инициатор звонка создает offer после подтверждения
+      if (caller?.id === currentUser?.id) {
+          p2pVoiceService.createOffer(recipient.id);
       }
     };
   

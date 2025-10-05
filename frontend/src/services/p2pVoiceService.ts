@@ -56,8 +56,17 @@ class P2PVoiceService extends EventEmitter {
   private async createPeerConnection(peerId: number) {
     this.stopCall(); // Закрываем предыдущие соединения
 
+    // Используем TURN сервер для P2P соединений
     this.peerConnection = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        {
+          urls: ['turn:147.45.158.183:3478'],
+          username: 'stream-cash',
+          credential: 'CHANGE_ME_LONG_RANDOM_SECRET_12345'
+        }
+      ]
     });
     this.currentPeerId = peerId;
 

@@ -312,8 +312,8 @@ async def websocket_notifications_endpoint(
                         await manager.send_personal_message(message_to_send, recipient_id)
                         await manager.send_personal_message(message_to_send, user.id)
 
-                    elif message_data.get("type") == "p2p-call-initiate":
-                        recipient_id = message_data.get("recipient_id")
+                    elif message_data.get("type") == "p2p-initiate-call":
+                        recipient_id = message_data.get("to")
                         if recipient_id:
                             # Получаем данные пользователя для отправки получателю
                             caller_info = {
@@ -415,6 +415,56 @@ async def websocket_notifications_endpoint(
                                     "type": "ice_candidate",
                                     "sender_id": user.id,
                                     "candidate": candidate,
+                                },
+                                recipient_id,
+                            )
+
+                    # P2P WebRTC signaling messages
+                    elif message_data.get("type") == "p2p-offer":
+                        recipient_id = message_data.get("to")
+                        offer = message_data.get("offer")
+                        if recipient_id and offer:
+                            await manager.send_personal_message(
+                                {
+                                    "type": "p2p-offer",
+                                    "from": user.id,
+                                    "offer": offer,
+                                },
+                                recipient_id,
+                            )
+
+                    elif message_data.get("type") == "p2p-answer":
+                        recipient_id = message_data.get("to")
+                        answer = message_data.get("answer")
+                        if recipient_id and answer:
+                            await manager.send_personal_message(
+                                {
+                                    "type": "p2p-answer",
+                                    "from": user.id,
+                                    "answer": answer,
+                                },
+                                recipient_id,
+                            )
+
+                    elif message_data.get("type") == "p2p-ice-candidate":
+                        recipient_id = message_data.get("to")
+                        candidate = message_data.get("candidate")
+                        if recipient_id and candidate:
+                            await manager.send_personal_message(
+                                {
+                                    "type": "p2p-ice-candidate",
+                                    "from": user.id,
+                                    "candidate": candidate,
+                                },
+                                recipient_id,
+                            )
+
+                    elif message_data.get("type") == "p2p-hang-up":
+                        recipient_id = message_data.get("to")
+                        if recipient_id:
+                            await manager.send_personal_message(
+                                {
+                                    "type": "p2p-call-ended",
                                 },
                                 recipient_id,
                             )
