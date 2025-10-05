@@ -377,12 +377,10 @@ async def websocket_notifications_endpoint(
                                 caller_id
                             )
                             # Отправляем подтверждение принимающему
-                            # Это может быть избыточно, но полезно для синхронизации состояния на клиенте
-                            caller_info = message_data.get("caller_info", {}) # Предполагается, что клиент может передать инфо
                             await manager.send_personal_message(
                                 {
-                                    "type": "p2p-call-accepted-by-you",
-                                    "caller": caller_info
+                                    "type": "p2p-call-accepted",
+                                    "recipient": recipient_info,
                                 },
                                 user.id
                             )

@@ -81,12 +81,19 @@ export function HomePageContent() {
       if (caller?.id === currentUser?.id) {
           p2pVoiceService.createOffer(recipient.id);
       }
+      // Показываем уведомление звонящему, что звонок принят
+      if (caller?.id !== currentUser?.id) {
+        console.log('Звонок принят получателем!');
+      }
     };
   
     const handleCallDeclined = () => {
       soundService.stopAllSounds();
       setIsOutgoingCall(false);
-      // Возможно, показать уведомление, что звонок отклонен
+      // Показываем уведомление звонящему, что звонок отклонен
+      if (caller?.id === currentUser?.id) {
+        console.log('Звонок отклонен получателем!');
+      }
     };
   
     const handleRemoteStream = (stream: MediaStream) => {
