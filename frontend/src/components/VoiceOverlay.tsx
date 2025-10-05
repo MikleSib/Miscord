@@ -7,6 +7,8 @@ import { useAuthStore } from '../store/store';
 import { useStore } from '../lib/store';
 import { UserAvatar } from './ui/user-avatar';
 import { User } from '../types';
+import { useEffect, useRef, useState } from 'react';
+import p2pVoiceService from '../services/p2pVoiceService';
 
 interface VoiceOverlayProps {
   onHangUp?: () => void;
@@ -89,13 +91,74 @@ export function VoiceOverlay({ onHangUp, participantsList, channelName, serverNa
     currentVoiceChannelId,
     disconnectFromVoiceChannel: disconnectFromVoiceChannelStore,
     speakingUsers,
-    isMuted,
-    isDeafened,
-    toggleMute,
-    toggleDeafen
+    isMuted: storeIsMuted,
+    isDeafened: storeIsDeafened,
+    toggleMute: storeToggleMute,
+    toggleDeafen: storeToggleDeafen
   } = useVoiceStore();
   const { user } = useAuthStore();
   const { currentServer } = useStore();
+
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isDeafened, setIsDeafened] = useState(false);
+
+  // Обработка входящего аудио потока для P2P звонков
+  useEffect(() => {
+    const handleRemoteStream = (stream: MediaStream) => {
+      console.log('[VoiceOverlay] Received remote stream:', stream);
+      setRemoteStream(stream);
+      if (remoteAudioRef.current) {
+        remoteAudioRef.current.srcObject = stream;
+        remoteAudioRef.current.volume = 1.0;
+        remoteAudioRef.current.play().catch(e => console.error('Error playing remote audio:', e));
+      }
+    };
+
+    const handleMuteChanged = (muted: boolean) => {
+      setIsMuted(muted);
+    };
+
+    const handleDeafenChanged = (deafened: boolean) => {
+      setIsDeafened(deafened);
+    };
+
+    p2pVoiceService.on('remote_stream_received', handleRemoteStream);
+    p2pVoiceService.on('mute_changed', handleMuteChanged);
+    p2pVoiceService.on('deafen_changed', handleDeafenChanged);
+
+    // Синхронизация начального состояния
+    setIsMuted(p2pVoiceService.getIsMuted());
+    setIsDeafened(p2pVoiceService.getIsDeafened());
+
+    return () => {
+      p2pVoiceService.off('remote_stream_received', handleRemoteStream);
+      p2pVoiceService.off('mute_changed', handleMuteChanged);
+      p2pVoiceService.off('deafen_changed', handleDeafenChanged);
+    };
+  }, []);
+
+  // Функции управления микрофоном и наушниками
+  const toggleMute = () => {
+    if (onHangUp) {
+      // P2P звонок
+      p2pVoiceService.toggleMute();
+    } else {
+      // Обычный голосовой канал
+      storeToggleMute();
+    }
+  };
+
+  const toggleDeafen = () => {
+    if (onHangUp) {
+      // P2P звонок
+      p2pVoiceService.toggleDeafen();
+    } else {
+      // Обычный голосовой канал
+      storeToggleDeafen();
+    }
+  };
 
   const isConnected = onHangUp ? true : isConnectedStore;
   const disconnectFromVoiceChannel = onHangUp ? onHangUp : disconnectFromVoiceChannelStore;
@@ -310,13 +373,20 @@ export function VoiceOverlay({ onHangUp, participantsList, channelName, serverNa
         </IconButton>
         
         {/* Дополнительные действия */}
-        <IconButton 
-          size="small" 
+        <IconButton
+          size="small"
           sx={{ color: '#b9bbbe', '&:hover': { color: '#dcddde' } }}
         >
           <Monitor size={16} />
         </IconButton>
       </Box>
+
+      {/* Скрытый audio элемент для воспроизведения входящего аудио */}
+      <audio
+        ref={remoteAudioRef}
+        autoPlay
+        style={{ display: 'none' }}
+      />
     </Box>
   );
 }

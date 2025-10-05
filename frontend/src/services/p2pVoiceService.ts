@@ -10,6 +10,8 @@ class P2PVoiceService extends EventEmitter {
   private ws = websocketService;
   private currentPeerId: number | null = null;
   private currentUser: User | null = null;
+  private isMuted: boolean = false;
+  private isDeafened: boolean = false;
 
   constructor() {
     super();
@@ -178,6 +180,34 @@ class P2PVoiceService extends EventEmitter {
     this.localStream = null;
     this.remoteStream = null;
     this.currentPeerId = null;
+  }
+
+  // Управление микрофоном
+  public toggleMute(): boolean {
+    this.isMuted = !this.isMuted;
+    if (this.localStream) {
+      const audioTracks = this.localStream.getAudioTracks();
+      audioTracks.forEach(track => {
+        track.enabled = !this.isMuted;
+      });
+    }
+    this.emit('mute_changed', this.isMuted);
+    return this.isMuted;
+  }
+
+  public getIsMuted(): boolean {
+    return this.isMuted;
+  }
+
+  // Управление наушниками
+  public toggleDeafen(): boolean {
+    this.isDeafened = !this.isDeafened;
+    this.emit('deafen_changed', this.isDeafened);
+    return this.isDeafened;
+  }
+
+  public getIsDeafened(): boolean {
+    return this.isDeafened;
   }
 }
 

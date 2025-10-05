@@ -93,6 +93,19 @@ export function HomePageContent() {
       }
     };
 
+    const handleAcceptCall = (data: { to: number; from: any }) => {
+      console.log('[HomePageContent] handleAcceptCall вызван:', { data, caller, currentUser, isOutgoingCall });
+      // Это сообщение приходит звонящему (инициатору), когда принимающий поднимает трубку
+      if (currentUser && data.to === currentUser.id) {
+        console.log('[HomePageContent] Звонящий получил подтверждение принятия звонка');
+        setIsOutgoingCall(false);
+        soundService.stopAllSounds();
+        setInCall(true);
+        // Инициатор создает offer для WebRTC соединения
+        p2pVoiceService.createOffer(data.from.id);
+      }
+    };
+
     const handleCallDeclined = (event: any) => {
       console.log('[HomePageContent] handleCallDeclined вызван:', { caller, currentUser, isOutgoingCall });
       soundService.stopAllSounds();
@@ -115,6 +128,24 @@ export function HomePageContent() {
     };
 
     p2pVoiceService.on('remote_stream_received', handleRemoteStream);
+
+    // Подписываемся на WebSocket события P2P звонков
+    websocketService.onP2PIncomingCall((data) => {
+      const event = new CustomEvent('p2p-incoming-call', { detail: data.caller });
+      window.dispatchEvent(event);
+    });
+
+    websocketService.onP2PCallAccepted((data) => {
+      const event = new CustomEvent('p2p-call-accepted', { detail: data });
+      window.dispatchEvent(event);
+    });
+
+    websocketService.onP2PCallDeclined((data) => {
+      const event = new CustomEvent('p2p-call-declined', { detail: data });
+      window.dispatchEvent(event);
+    });
+
+    websocketService.onP2PAcceptCall(handleAcceptCall);
 
     // Слушаем глобальные события вместо прямых WebSocket обработчиков
     if (typeof window !== 'undefined') {
@@ -449,7 +480,7 @@ export function HomePageContent() {
         serverName="Приватный звонок"
       />
       )}
-      {remoteStream && <audio autoPlay ref={audio => { if (audio) audio.srcObject = remoteStream; }} />}
+
 
 
       {/* Friends List and Controls Sidebar */}
