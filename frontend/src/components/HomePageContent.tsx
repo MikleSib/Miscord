@@ -388,17 +388,23 @@ export function HomePageContent() {
             }
           }}
           onDecline={() => {
-            if(caller) {
+            console.log('[HomePageContent] onDecline called, caller:', caller);
+            if(caller && caller.id) {
+              console.log('[HomePageContent] Using caller from state:', caller.id);
               soundService.stopAllSounds();
               setIsIncomingCall(false);
               p2pVoiceService.declineCall(caller.id);
             } else {
               // Если caller не установлен, используем сохраненную информацию
               const savedCaller = p2pVoiceService.getCurrentCaller();
-              if (savedCaller) {
+              console.log('[HomePageContent] Using saved caller:', savedCaller);
+              if (savedCaller && savedCaller.id) {
+                console.log('[HomePageContent] Using saved caller id:', savedCaller.id);
                 soundService.stopAllSounds();
                 setIsIncomingCall(false);
                 p2pVoiceService.declineCall(savedCaller.id);
+              } else {
+                console.error('[HomePageContent] No caller information available for decline');
               }
             }
           }}

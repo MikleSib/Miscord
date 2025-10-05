@@ -20,8 +20,13 @@ class P2PVoiceService extends EventEmitter {
     this.currentUser = await authService.getCurrentUser();
 
     this.ws.on('p2p-offer', async (data: { from: number; offer: RTCSessionDescriptionInit }) => {
+      console.log('[P2PVoiceService] Received offer from:', data.from);
       this.currentPeerId = data.from;
-      await this.createPeerConnection(data.from);
+      // Для принимающего peer connection уже создан в acceptCall
+      // Для инициатора нужно создать peer connection
+      if (!this.peerConnection) {
+        await this.createPeerConnection(data.from);
+      }
       if (this.peerConnection) {
         await this.peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
         const answer = await this.peerConnection.createAnswer();
@@ -31,6 +36,7 @@ class P2PVoiceService extends EventEmitter {
           to: data.from,
           answer: answer
         });
+        console.log('[P2PVoiceService] Sent answer to:', data.from);
       }
     });
 
@@ -132,10 +138,17 @@ class P2PVoiceService extends EventEmitter {
   }
 
   public declineCall(callerId: number) {
-    this.ws.send({
+    console.log('[P2PVoiceService] declineCall called with callerId:', callerId);
+    if (!callerId || typeof callerId !== 'number') {
+      console.error('[P2PVoiceService] declineCall: invalid callerId:', callerId);
+      return;
+    }
+    const message = {
       type: 'p2p-decline-call',
       to: callerId
-    });
+    };
+    console.log('[P2PVoiceService] Sending decline message:', message);
+    this.ws.send(message);
   }
 
   // Храним информацию о текущем звонящем для возможности отклонения

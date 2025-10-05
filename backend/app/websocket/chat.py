@@ -358,7 +358,7 @@ async def websocket_notifications_endpoint(
                             print(f"[P2P] Сообщение отправлено пользователю {recipient_id}")
 
                     elif message_data.get("type") == "p2p-call-accept":
-                        caller_id = message_data.get("to")  # Исправлено: читаем поле "to" вместо "caller_id"
+                        caller_id = message_data.get("to")  # ID звонящего (инициатора)
                         print(f"[P2P] Принятие звонка: user={user.username} (id={user.id}), caller_id={caller_id}, message_data={message_data}")
                         if caller_id:
                             # Уведомляем обоих пользователей, что звонок принят
@@ -370,23 +370,26 @@ async def websocket_notifications_endpoint(
                                 "avatar_url": user.avatar_url,
                             }
                             print(f"[P2P] Отправка p2p-call-accepted звонящему {caller_id}")
-                            # Отправляем подтверждение звонящему
-                            await manager.send_personal_message(
+                            # Отправляем подтверждение звонящему (инициатору)
+                            success_caller = await manager.send_personal_message(
                                 {
                                     "type": "p2p-call-accepted",
                                     "recipient": recipient_info,
                                 },
                                 caller_id
                             )
+                            print(f"[P2P] Отправка звонящему {caller_id} успешна: {success_caller}")
+
                             print(f"[P2P] Отправка p2p-call-accepted принимающему {user.id}")
                             # Отправляем подтверждение принимающему
-                            await manager.send_personal_message(
+                            success_recipient = await manager.send_personal_message(
                                 {
                                     "type": "p2p-call-accepted",
                                     "recipient": recipient_info,
                                 },
                                 user.id
                             )
+                            print(f"[P2P] Отправка принимающему {user.id} успешна: {success_recipient}")
 
                     elif message_data.get("type") == "p2p-decline-call":
                         print("_____________________________________________")
