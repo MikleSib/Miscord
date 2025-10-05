@@ -26,11 +26,11 @@ class P2PVoiceService extends EventEmitter {
         await this.peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
         const answer = await this.peerConnection.createAnswer();
         await this.peerConnection.setLocalDescription(answer);
-        this.ws.send(JSON.stringify({
+        this.ws.send({
           type: 'p2p-answer',
           to: data.from,
           answer: answer
-        }));
+        });
       }
     });
 
@@ -81,11 +81,11 @@ class P2PVoiceService extends EventEmitter {
 
     this.peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
-        this.ws.send(JSON.stringify({
+        this.ws.send({
           type: 'p2p-ice-candidate',
           to: this.currentPeerId,
           candidate: event.candidate
-        }));
+        });
       }
     };
 
@@ -100,21 +100,21 @@ class P2PVoiceService extends EventEmitter {
         console.error("Текущий пользователь не определен.");
         return;
     }
-    this.ws.send(JSON.stringify({
+    this.ws.send({
       type: 'p2p-initiate-call',
       to: userId,
       from: this.currentUser
-    }));
+    });
   }
 
   public async acceptCall(callerId: number, caller: User) {
     await this.createPeerConnection(callerId);
-    this.ws.send(JSON.stringify({
+    this.ws.send({
       type: 'p2p-accept-call',
       to: callerId,
       from: this.currentUser
-    }));
-    
+    });
+
     // Инициатор звонка (тот, кто звонил) должен создать offer
   }
   
@@ -123,26 +123,26 @@ class P2PVoiceService extends EventEmitter {
     if(this.peerConnection) {
       const offer = await this.peerConnection.createOffer();
       await this.peerConnection.setLocalDescription(offer);
-      this.ws.send(JSON.stringify({
+      this.ws.send({
           type: 'p2p-offer',
           to: recipientId,
           offer: offer
-      }));
+      });
     }
   }
 
   public declineCall(callerId: number) {
-    this.ws.send(JSON.stringify({
+    this.ws.send({
       type: 'p2p-decline-call',
       to: callerId
-    }));
+    });
   }
 
   public hangUp(peerId: number) {
-    this.ws.send(JSON.stringify({
+    this.ws.send({
         type: 'p2p-hang-up',
         to: peerId
-    }));
+    });
     this.stopCall();
     this.emit('call_ended');
   }

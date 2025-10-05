@@ -223,7 +223,9 @@ class WebSocketService {
 
   send(data: any) {
     if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(data));
+      const messageStr = JSON.stringify(data);
+      console.log('[WS] Отправка сообщения:', messageStr);
+      this.ws.send(messageStr);
     } else {
       console.warn('[WS] WebSocket не открыт, сообщение не отправлено:', data);
     }

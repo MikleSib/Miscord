@@ -277,7 +277,16 @@ async def websocket_notifications_endpoint(
                     # Проверяем, что message_data является словарем
                     if not isinstance(message_data, dict):
                         print(f"[WS_NOTIFICATIONS] Ошибка: message_data не является словарем, тип: {type(message_data)}, данные: {message_data}")
-                        continue
+                        # Попробуем повторно распарсить, возможно это двойной JSON
+                        try:
+                            message_data = json.loads(message_data)
+                            if not isinstance(message_data, dict):
+                                print(f"[WS_NOTIFICATIONS] Повторный парсинг тоже вернул не словарь: {type(message_data)}")
+                                continue
+                            print(f"[WS_NOTIFICATIONS] Успешный повторный парсинг JSON")
+                        except:
+                            print(f"[WS_NOTIFICATIONS] Повторный парсинг тоже неудачен")
+                            continue
 
                     if message_data.get("type") == "ping":
                         # Обновляем активность при ping
