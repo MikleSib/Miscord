@@ -261,6 +261,7 @@ async def websocket_notifications_endpoint(
             while True:
                 try:
                     data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                    print(f"[WS_NOTIFICATIONS] Получено сообщение от {user.username}: {data}")
                     message_data = json.loads(data)
                     
                     if message_data.get("type") == "ping":
@@ -478,6 +479,8 @@ async def websocket_notifications_endpoint(
             print(f"[WS_NOTIFICATIONS] Пользователь {user.username} отключился от уведомлений")
         except Exception as e:
             print(f"[WS_NOTIFICATIONS] Ошибка: {e}")
+            import traceback
+            traceback.print_exc()
             
     except Exception as e:
         print(f"[WS_NOTIFICATIONS] Критическая ошибка подключения: {e}")
