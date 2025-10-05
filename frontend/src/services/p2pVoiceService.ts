@@ -138,6 +138,17 @@ class P2PVoiceService extends EventEmitter {
     });
   }
 
+  // Храним информацию о текущем звонящем для возможности отклонения
+  private currentCaller: User | null = null;
+
+  public setCurrentCaller(caller: User | null) {
+    this.currentCaller = caller;
+  }
+
+  public getCurrentCaller(): User | null {
+    return this.currentCaller;
+  }
+
   public hangUp(peerId: number) {
     this.ws.send({
         type: 'p2p-hang-up',

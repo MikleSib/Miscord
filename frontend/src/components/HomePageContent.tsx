@@ -72,6 +72,8 @@ export function HomePageContent() {
       setCallee(currentUser);
       setIsIncomingCall(true);
       soundService.playIncomingCallSound();
+      // Сохраняем информацию о звонящем для возможности отклонения
+      p2pVoiceService.setCurrentCaller(incomingCaller);
     };
 
     const handleCallAccepted = (event: any) => {
@@ -390,6 +392,14 @@ export function HomePageContent() {
               soundService.stopAllSounds();
               setIsIncomingCall(false);
               p2pVoiceService.declineCall(caller.id);
+            } else {
+              // Если caller не установлен, используем сохраненную информацию
+              const savedCaller = p2pVoiceService.getCurrentCaller();
+              if (savedCaller) {
+                soundService.stopAllSounds();
+                setIsIncomingCall(false);
+                p2pVoiceService.declineCall(savedCaller.id);
+              }
             }
           }}
         />
