@@ -391,6 +391,50 @@ async def websocket_notifications_endpoint(
                             )
                             print(f"[P2P] Отправка принимающему {user.id} успешна: {success_recipient}")
 
+                    elif message_data.get("type") == "p2p-accept-call":
+                        caller_id = message_data.get("to")  # ID звонящего (инициатора)
+                        from_user = message_data.get("from")  # Информация о принимающем звонок
+                        print(f"[P2P] Принятие звонка (p2p-accept-call): user={user.username} (id={user.id}), caller_id={caller_id}, from_user={from_user}")
+
+                        if caller_id and from_user:
+                            # Используем информацию из поля "from" для уведомления звонящего
+                            recipient_info = {
+                                "username": from_user.get("username"),
+                                "email": from_user.get("email"),
+                                "display_name": from_user.get("display_name"),
+                                "id": from_user.get("id"),
+                                "is_active": from_user.get("is_active"),
+                                "is_online": from_user.get("is_online"),
+                                "avatar_url": from_user.get("avatar_url"),
+                                "created_at": from_user.get("created_at"),
+                                "updated_at": from_user.get("updated_at"),
+                                "request_id": from_user.get("request_id"),
+                                "friendship_created_at": from_user.get("friendship_created_at"),
+                                "last_message_at": from_user.get("last_message_at")
+                            }
+
+                            print(f"[P2P] Отправка p2p-call-accepted звонящему {caller_id}")
+                            # Отправляем подтверждение звонящему (инициатору)
+                            success_caller = await manager.send_personal_message(
+                                {
+                                    "type": "p2p-call-accepted",
+                                    "recipient": recipient_info,
+                                },
+                                caller_id
+                            )
+                            print(f"[P2P] Отправка звонящему {caller_id} успешна: {success_caller}")
+
+                            print(f"[P2P] Отправка p2p-call-accepted принимающему {user.id}")
+                            # Отправляем подтверждение принимающему
+                            success_recipient = await manager.send_personal_message(
+                                {
+                                    "type": "p2p-call-accepted",
+                                    "recipient": recipient_info,
+                                },
+                                user.id
+                            )
+                            print(f"[P2P] Отправка принимающему {user.id} успешна: {success_recipient}")
+
                     elif message_data.get("type") == "p2p-decline-call":
                         print("_____________________________________________")
                         print(message_data)
