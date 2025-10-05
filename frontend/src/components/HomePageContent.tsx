@@ -63,6 +63,11 @@ export function HomePageContent() {
     soundService.stopAllSounds();
   };
   
+  // Регистрируем WebSocket обработчики P2P один раз при монтировании компонента
+  useEffect(() => {
+    p2pVoiceService.registerWebSocketHandlers();
+  }, []);
+
   useEffect(() => {
     const handleIncomingCall = (event: any) => {
       const incomingCaller = event.detail;

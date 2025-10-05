@@ -16,16 +16,20 @@ class P2PVoiceService extends EventEmitter {
   constructor() {
     super();
     this.init();
+    // Регистрируем обработчики сразу
+    this.registerWebSocketHandlers();
   }
 
   private async init() {
     this.currentUser = await authService.getCurrentUser();
+  }
 
+  // Метод для регистрации WebSocket обработчиков
+  public registerWebSocketHandlers() {
     this.ws.on('p2p-offer', async (data: { from: number; offer: RTCSessionDescriptionInit }) => {
       console.log('[P2PVoiceService] Received offer from:', data.from);
       this.currentPeerId = data.from;
-      // Для принимающего peer connection уже создан в acceptCall
-      // Для инициатора нужно создать peer connection
+      // Создаем peer connection при получении offer (для обоих участников)
       if (!this.peerConnection) {
         await this.createPeerConnection(data.from);
       }
@@ -54,7 +58,7 @@ class P2PVoiceService extends EventEmitter {
           .catch(e => console.error("Ошибка добавления ICE candidate:", e));
       }
     });
-    
+
     this.ws.on('p2p-call-ended', () => {
       this.stopCall();
       this.emit('call_ended');
@@ -116,7 +120,8 @@ class P2PVoiceService extends EventEmitter {
   }
 
   public async acceptCall(callerId: number, caller: User) {
-    await this.createPeerConnection(callerId);
+    // Не создаем peer connection здесь, а только после получения offer
+    this.currentPeerId = callerId;
     this.ws.send({
       type: 'p2p-accept-call',
       to: callerId,
