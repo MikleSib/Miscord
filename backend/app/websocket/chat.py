@@ -262,8 +262,23 @@ async def websocket_notifications_endpoint(
                 try:
                     data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
                     print(f"[WS_NOTIFICATIONS] Получено сообщение от {user.username}: {data}")
-                    message_data = json.loads(data)
-                    
+
+                    # Проверяем, что data является строкой перед парсингом
+                    if not isinstance(data, str):
+                        print(f"[WS_NOTIFICATIONS] Ошибка: полученные данные не являются строкой, тип: {type(data)}")
+                        continue
+
+                    try:
+                        message_data = json.loads(data)
+                    except json.JSONDecodeError as e:
+                        print(f"[WS_NOTIFICATIONS] Ошибка парсинга JSON: {e}, данные: {data}")
+                        continue
+
+                    # Проверяем, что message_data является словарем
+                    if not isinstance(message_data, dict):
+                        print(f"[WS_NOTIFICATIONS] Ошибка: message_data не является словарем, тип: {type(message_data)}, данные: {message_data}")
+                        continue
+
                     if message_data.get("type") == "ping":
                         # Обновляем активность при ping
                         await user_activity_service.heartbeat_user(user.id, db)
