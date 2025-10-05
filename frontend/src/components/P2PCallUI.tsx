@@ -17,11 +17,11 @@ const P2PCallUI: React.FC<P2PCallUIProps> = ({ caller, callee, onAccept, onDecli
         <div className="flex justify-center items-center space-x-4 mb-6">
           <Avatar className="w-24 h-24 border-4 border-gray-700">
             <AvatarImage src={caller.avatar_url} alt={caller.username} />
-            <AvatarFallback>{caller.username[0]}</AvatarFallback>
+            <AvatarFallback>{caller.username?.[0] || '?'}</AvatarFallback>
           </Avatar>
           <Avatar className="w-24 h-24 border-4 border-gray-700">
             <AvatarImage src={callee.avatar_url} alt={callee.username} />
-            <AvatarFallback>{callee.username[0]}</AvatarFallback>
+            <AvatarFallback>{callee.username?.[0] || '?'}</AvatarFallback>
           </Avatar>
         </div>
         <p className="text-lg text-gray-300 mb-6">
