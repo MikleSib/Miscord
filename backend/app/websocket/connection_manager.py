@@ -49,8 +49,10 @@ class ConnectionManager:
                     if raw_channel.startswith("user:"):
                         user_id = int(raw_channel.split(':', 1)[1])
                         if user_id in self.active_connections:
-                            print(f"Redis: Forwarding personal message to user {user_id}")
+                            print(f"Redis: Forwarding personal message to user {user_id}: {data}")
                             await self._send_to_user_str(user_id, data)
+                        else:
+                            print(f"Redis: User {user_id} not connected locally, message dropped: {data}")
                     
                     elif raw_channel.startswith("channel:"):
                         channel_id = int(raw_channel.split(':', 1)[1])
@@ -92,11 +94,14 @@ class ConnectionManager:
 
     async def send_personal_message(self, message: dict, user_id: int):
         """Отправка личного сообщения через Redis."""
+        print(f"[WS] Отправка личного сообщения пользователю {user_id}: {message}")
         if self.redis_client:
             channel = f"user:{user_id}"
             await self.redis_client.publish(channel, json.dumps(message))
+            print(f"[WS] Сообщение опубликовано в Redis канал {channel}")
         else:
             # Fallback для локальной разработки без Redis
+            print(f"[WS] Redis недоступен, отправка локально пользователю {user_id}")
             await self.send_to_user(user_id, message)
 
     async def send_to_channel(self, channel_id: int, message: dict):

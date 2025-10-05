@@ -315,6 +315,7 @@ async def websocket_notifications_endpoint(
                     elif message_data.get("type") == "p2p-initiate-call":
                         recipient_id = message_data.get("to")
                         if recipient_id:
+                            print(f"[P2P] Инициация звонка от {user.username} (id={user.id}) к пользователю {recipient_id}")
                             # Получаем данные пользователя для отправки получателю
                             caller_info = {
                                 "id": user.id,
@@ -329,6 +330,7 @@ async def websocket_notifications_endpoint(
                                 },
                                 recipient_id
                             )
+                            print(f"[P2P] Сообщение отправлено пользователю {recipient_id}")
 
                     elif message_data.get("type") == "p2p-call-accept":
                         caller_id = message_data.get("caller_id")
