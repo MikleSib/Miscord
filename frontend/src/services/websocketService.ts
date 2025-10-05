@@ -159,6 +159,7 @@ class WebSocketService {
       this.ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          console.log('[WS] Получено сообщение:', data);
           this.emit(data.type, data);
         } catch (error) {
           console.error('Ошибка обработки WebSocket сообщения:', error);

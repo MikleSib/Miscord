@@ -73,6 +73,7 @@ export function HomePageContent() {
     };
 
     const handleCallAccepted = ({ recipient }: { recipient: User }) => {
+      console.log('[HomePageContent] handleCallAccepted вызван:', { recipient, caller, currentUser, isOutgoingCall });
       setIsIncomingCall(false);
       setIsOutgoingCall(false);
       soundService.stopAllSounds();
@@ -88,6 +89,7 @@ export function HomePageContent() {
     };
   
     const handleCallDeclined = () => {
+      console.log('[HomePageContent] handleCallDeclined вызван:', { caller, currentUser, isOutgoingCall });
       soundService.stopAllSounds();
       setIsOutgoingCall(false);
       setIsIncomingCall(false);

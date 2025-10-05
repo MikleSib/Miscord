@@ -359,6 +359,7 @@ async def websocket_notifications_endpoint(
 
                     elif message_data.get("type") == "p2p-call-accept":
                         caller_id = message_data.get("to")  # Исправлено: читаем поле "to" вместо "caller_id"
+                        print(f"[P2P] Принятие звонка: user={user.username} (id={user.id}), caller_id={caller_id}, message_data={message_data}")
                         if caller_id:
                             # Уведомляем обоих пользователей, что звонок принят
                             # и они могут начинать обмен WebRTC сигналами
@@ -368,6 +369,7 @@ async def websocket_notifications_endpoint(
                                 "display_name": user.display_name,
                                 "avatar_url": user.avatar_url,
                             }
+                            print(f"[P2P] Отправка p2p-call-accepted звонящему {caller_id}")
                             # Отправляем подтверждение звонящему
                             await manager.send_personal_message(
                                 {
@@ -376,6 +378,7 @@ async def websocket_notifications_endpoint(
                                 },
                                 caller_id
                             )
+                            print(f"[P2P] Отправка p2p-call-accepted принимающему {user.id}")
                             # Отправляем подтверждение принимающему
                             await manager.send_personal_message(
                                 {
@@ -387,7 +390,9 @@ async def websocket_notifications_endpoint(
 
                     elif message_data.get("type") == "p2p-call-decline":
                         caller_id = message_data.get("to")  # Исправлено: читаем поле "to" вместо "caller_id"
+                        print(f"[P2P] Отклонение звонка: user={user.username} (id={user.id}), caller_id={caller_id}, message_data={message_data}")
                         if caller_id:
+                            print(f"[P2P] Отправка p2p-call-declined звонящему {caller_id}")
                             await manager.send_personal_message(
                                 {
                                     "type": "p2p-call-declined",
