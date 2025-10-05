@@ -389,14 +389,24 @@ async def websocket_notifications_endpoint(
                             )
 
                     elif message_data.get("type") == "p2p-decline-call":
-                        caller_id = message_data.get("to")  # Исправлено: читаем поле "to" вместо "caller_id"
+                        print("_____________________________________________")
+                        print(message_data)
+                        print("_____________________________________________")
+                        caller_id = message_data.get("to")  # Читаем поле "to" - ID звонящего
                         print(f"[P2P] Отклонение звонка: user={user.username} (id={user.id}), caller_id={caller_id}, message_data={message_data}")
                         if caller_id:
+                            # Получаем данные пользователя, который отклонил звонок
+                            recipient_info = {
+                                "id": user.id,
+                                "username": user.username,
+                                "display_name": user.display_name,
+                                "avatar_url": user.avatar_url,
+                            }
                             print(f"[P2P] Отправка p2p-call-declined звонящему {caller_id}")
                             await manager.send_personal_message(
                                 {
                                     "type": "p2p-call-declined",
-                                    "recipient_id": user.id,
+                                    "recipient": recipient_info,  # Отправляем полную информацию об отклонившем
                                 },
                                 caller_id
                             )

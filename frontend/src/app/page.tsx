@@ -125,14 +125,14 @@ export default function HomePage() {
           // Добавляем пользователя если его нет в списке
           if (!prev.find(u => u.userId === userId)) {
             const username = `User ${userId}`; // Здесь нужно получить имя пользователя
-            
+
             // Показываем Toast уведомление
             const toastId = `${userId}-${Date.now()}`;
             setToastNotifications(prevToasts => [
               ...prevToasts,
               { userId, username, id: toastId }
             ]);
-            
+
             return [...prev, { userId, username }];
           }
           return prev;
@@ -157,7 +157,7 @@ export default function HomePage() {
     // Обработчик событий screen_share_start из WebSocket
     const handleScreenShareStartEvent = (event: any) => {
       const { user_id, username } = event.detail;
-      
+
       setSharingUsers(prev => {
         if (!prev.find(u => u.userId === user_id)) {
           // Показываем Toast уведомление только если это не мы сами
@@ -169,9 +169,9 @@ export default function HomePage() {
               { userId: user_id, username, id: toastId }
             ]);
           } else {
-            
+
           }
-          
+
           return [...prev, { userId: user_id, username }];
         }
         return prev;
@@ -202,6 +202,53 @@ export default function HomePage() {
       }
     };
   }, [sharingUsers, authUser]);
+
+  // Обработчики P2P звонков - должны работать на всех страницах
+  useEffect(() => {
+    if (!authUser) return;
+
+    const handleIncomingCall = (incomingCaller: any) => {
+      console.log('[HomePage] handleIncomingCall:', { incomingCaller, authUser });
+      // Здесь должна быть логика обработки входящего звонка
+      // Можно использовать глобальное состояние или события
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('p2p-incoming-call', { detail: incomingCaller }));
+      }
+    };
+
+    const handleCallAccepted = (data: any) => {
+      console.log('[HomePage] handleCallAccepted:', data);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('p2p-call-accepted', { detail: data }));
+      }
+    };
+
+    const handleCallDeclined = (data: any) => {
+      console.log('[HomePage] handleCallDeclined:', data);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('p2p-call-declined', { detail: data }));
+      }
+    };
+
+    const handleCallEnded = (data: any) => {
+      console.log('[HomePage] handleCallEnded:', data);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('p2p-call-ended', { detail: data }));
+      }
+    };
+
+    websocketService.on('p2p-incoming-call', handleIncomingCall);
+    websocketService.on('p2p-call-accepted', handleCallAccepted);
+    websocketService.on('p2p-call-declined', handleCallDeclined);
+    websocketService.on('p2p-call-ended', handleCallEnded);
+
+    return () => {
+      websocketService.off('p2p-incoming-call', handleIncomingCall);
+      websocketService.off('p2p-call-accepted', handleCallAccepted);
+      websocketService.off('p2p-call-declined', handleCallDeclined);
+      websocketService.off('p2p-call-ended', handleCallEnded);
+    };
+  }, [authUser]);
 
   // Функции для работы с Toast уведомлениями
   const handleViewScreenShare = (userId: number, username: string) => {

@@ -64,7 +64,8 @@ export function HomePageContent() {
   };
   
   useEffect(() => {
-    const handleIncomingCall = (incomingCaller: User) => {
+    const handleIncomingCall = (event: any) => {
+      const incomingCaller = event.detail;
       console.log('[HomePageContent] handleIncomingCall:', { incomingCaller, currentUser });
       if (!currentUser) return;
       setCaller(incomingCaller);
@@ -73,7 +74,8 @@ export function HomePageContent() {
       soundService.playIncomingCallSound();
     };
 
-    const handleCallAccepted = ({ recipient }: { recipient: User }) => {
+    const handleCallAccepted = (event: any) => {
+      const { recipient } = event.detail;
       console.log('[HomePageContent] handleCallAccepted вызван:', { recipient, caller, currentUser, isOutgoingCall });
       setIsIncomingCall(false);
       setIsOutgoingCall(false);
@@ -88,8 +90,8 @@ export function HomePageContent() {
         console.log('Звонок принят получателем!');
       }
     };
-  
-    const handleCallDeclined = () => {
+
+    const handleCallDeclined = (event: any) => {
       console.log('[HomePageContent] handleCallDeclined вызван:', { caller, currentUser, isOutgoingCall });
       soundService.stopAllSounds();
       setIsOutgoingCall(false);
@@ -101,24 +103,33 @@ export function HomePageContent() {
         handleCallEnded();
       }
     };
-  
+
+    const handleCallEndedEvent = (event: any) => {
+      handleCallEnded();
+    };
+
     const handleRemoteStream = (stream: MediaStream) => {
       setRemoteStream(stream);
     };
 
     p2pVoiceService.on('remote_stream_received', handleRemoteStream);
-    // Подписываемся на события от p2pVoiceService
-    websocketService.on('p2p-incoming-call', handleIncomingCall);
-    websocketService.on('p2p-call-accepted', handleCallAccepted);
-    websocketService.on('p2p-call-declined', handleCallDeclined);
-    websocketService.on('p2p-call-ended', handleCallEnded);
-  
+
+    // Слушаем глобальные события вместо прямых WebSocket обработчиков
+    if (typeof window !== 'undefined') {
+      window.addEventListener('p2p-incoming-call', handleIncomingCall);
+      window.addEventListener('p2p-call-accepted', handleCallAccepted);
+      window.addEventListener('p2p-call-declined', handleCallDeclined);
+      window.addEventListener('p2p-call-ended', handleCallEndedEvent);
+    }
+
     return () => {
       // Отписываемся от событий при размонтировании
-      websocketService.off('p2p-incoming-call', handleIncomingCall);
-      websocketService.off('p2p-call-accepted', handleCallAccepted);
-      websocketService.off('p2p-call-declined', handleCallDeclined);
-      websocketService.off('p2p-call-ended', handleCallEnded);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('p2p-incoming-call', handleIncomingCall);
+        window.removeEventListener('p2p-call-accepted', handleCallAccepted);
+        window.removeEventListener('p2p-call-declined', handleCallDeclined);
+        window.removeEventListener('p2p-call-ended', handleCallEndedEvent);
+      }
       p2pVoiceService.off('remote_stream_received', handleRemoteStream);
     };
   }, [currentUser, friends, callee]);
