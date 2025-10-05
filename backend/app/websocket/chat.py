@@ -388,7 +388,7 @@ async def websocket_notifications_endpoint(
                                 user.id
                             )
 
-                    elif message_data.get("type") == "p2p-call-decline":
+                    elif message_data.get("type") == "p2p-decline-call":
                         caller_id = message_data.get("to")  # Исправлено: читаем поле "to" вместо "caller_id"
                         print(f"[P2P] Отклонение звонка: user={user.username} (id={user.id}), caller_id={caller_id}, message_data={message_data}")
                         if caller_id:

@@ -65,6 +65,7 @@ export function HomePageContent() {
   
   useEffect(() => {
     const handleIncomingCall = (incomingCaller: User) => {
+      console.log('[HomePageContent] handleIncomingCall:', { incomingCaller, currentUser });
       if (!currentUser) return;
       setCaller(incomingCaller);
       setCallee(currentUser);
