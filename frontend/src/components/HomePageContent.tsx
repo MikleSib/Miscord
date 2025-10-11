@@ -63,10 +63,8 @@ export function HomePageContent() {
     soundService.stopAllSounds();
   };
   
-  // Регистрируем WebSocket обработчики P2P один раз при монтировании компонента
-  useEffect(() => {
-    p2pVoiceService.registerWebSocketHandlers();
-  }, []);
+  // Регистрация WebSocket обработчиков P2P происходит в конструкторе p2pVoiceService
+  // Не нужно регистрировать их снова здесь, чтобы избежать дублирования
 
   useEffect(() => {
     const handleIncomingCall = (event: any) => {
@@ -132,24 +130,28 @@ export function HomePageContent() {
       setRemoteStream(stream);
     };
 
+    // Обработчики для WebSocket событий P2P звонков
+    const handleP2PIncomingCall = (data: any) => {
+      const event = new CustomEvent('p2p-incoming-call', { detail: data.caller });
+      window.dispatchEvent(event);
+    };
+
+    const handleP2PCallAccepted = (data: any) => {
+      const event = new CustomEvent('p2p-call-accepted', { detail: data });
+      window.dispatchEvent(event);
+    };
+
+    const handleP2PCallDeclined = (data: any) => {
+      const event = new CustomEvent('p2p-call-declined', { detail: data });
+      window.dispatchEvent(event);
+    };
+
     p2pVoiceService.on('remote_stream_received', handleRemoteStream);
 
     // Подписываемся на WebSocket события P2P звонков
-    websocketService.onP2PIncomingCall((data) => {
-      const event = new CustomEvent('p2p-incoming-call', { detail: data.caller });
-      window.dispatchEvent(event);
-    });
-
-    websocketService.onP2PCallAccepted((data) => {
-      const event = new CustomEvent('p2p-call-accepted', { detail: data });
-      window.dispatchEvent(event);
-    });
-
-    websocketService.onP2PCallDeclined((data) => {
-      const event = new CustomEvent('p2p-call-declined', { detail: data });
-      window.dispatchEvent(event);
-    });
-
+    websocketService.onP2PIncomingCall(handleP2PIncomingCall);
+    websocketService.onP2PCallAccepted(handleP2PCallAccepted);
+    websocketService.onP2PCallDeclined(handleP2PCallDeclined);
     websocketService.onP2PAcceptCall(handleAcceptCall);
 
     // Слушаем глобальные события вместо прямых WebSocket обработчиков
@@ -161,7 +163,13 @@ export function HomePageContent() {
     }
 
     return () => {
-      // Отписываемся от событий при размонтировании
+      // Отписываемся от WebSocket событий
+      websocketService.off('p2p-incoming-call', handleP2PIncomingCall);
+      websocketService.off('p2p-call-accepted', handleP2PCallAccepted);
+      websocketService.off('p2p-call-declined', handleP2PCallDeclined);
+      websocketService.off('p2p-accept-call', handleAcceptCall);
+      
+      // Отписываемся от window событий при размонтировании
       if (typeof window !== 'undefined') {
         window.removeEventListener('p2p-incoming-call', handleIncomingCall);
         window.removeEventListener('p2p-call-accepted', handleCallAccepted);

@@ -13,10 +13,12 @@ class P2PVoiceService extends EventEmitter {
   private isMuted: boolean = false;
   private isDeafened: boolean = false;
 
+  private handlersRegistered = false;
+
   constructor() {
     super();
     this.init();
-    // Регистрируем обработчики сразу
+    // Регистрируем обработчики сразу при создании экземпляра
     this.registerWebSocketHandlers();
   }
 
@@ -25,7 +27,13 @@ class P2PVoiceService extends EventEmitter {
   }
 
   // Метод для регистрации WebSocket обработчиков
+  // Регистрация происходит только один раз, чтобы избежать дублирования
   public registerWebSocketHandlers() {
+    if (this.handlersRegistered) {
+      console.log('[P2PVoiceService] Обработчики уже зарегистрированы, пропускаем');
+      return;
+    }
+    this.handlersRegistered = true;
     this.ws.on('p2p-offer', async (data: { from: number; offer: RTCSessionDescriptionInit }) => {
       console.log('[P2PVoiceService] Received offer from:', data.from);
       this.currentPeerId = data.from;

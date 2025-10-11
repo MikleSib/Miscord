@@ -734,7 +734,7 @@ export const useStore = create<AppState>()(
 
       // Отключение WebSocket
       disconnectWebSocket: () => {
-        websocketService.disconnect();
+        websocketService.fullDisconnect();
       }
     }),
     {

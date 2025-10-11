@@ -162,6 +162,10 @@ class WebSocketService {
     this.on('p2p-accept-call', handler);
   }
 
+  onP2PIceCandidate(handler: (data: { from: number; candidate: RTCIceCandidateInit }) => void) {
+    this.on('p2p-ice-candidate', handler);
+  }
+
   connect(token: string) {
     if (typeof window === 'undefined' || this.ws?.readyState === WebSocket.OPEN) {
       return;
@@ -258,11 +262,20 @@ class WebSocketService {
       this.ws.close();
       this.ws = null;
     }
-    this.listeners = {};
-    this.connectionStatusHandlers = [];
+    // НЕ очищаем listeners и connectionStatusHandlers!
+    // Они нужны при переподключении
+    // this.listeners = {};
+    // this.connectionStatusHandlers = [];
     this.reconnectAttempts = 0;
     this.isReconnecting = false;
     this.lastError = null;
+  }
+
+  // Новый метод для полного отключения (при выходе из приложения)
+  fullDisconnect() {
+    this.disconnect();
+    this.listeners = {};
+    this.connectionStatusHandlers = [];
   }
 
   isConnected(): boolean {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Hash, Volume2, ChevronDown, Settings, Plus, Mic, MicOff, Headphones, PhoneOff, VolumeX, Monitor, MonitorOff, UserX, UserCheck, Shield, Volume1, LogOut, UserPlus, Copy, X } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { useVoiceStore } from '../store/slices/voiceSlice'
@@ -208,9 +208,12 @@ export function ChannelSidebar() {
   const [isInviting, setIsInviting] = useState(false);
 
   // Загружаем участников голосового канала
-  const loadVoiceChannelMembers = async (voiceChannelId: number) => {
+  // Используем useCallback чтобы функция была стабильной для обработчиков событий
+  const loadVoiceChannelMembers = useCallback(async (voiceChannelId: number) => {
     try {
+      console.log('🔊 Загружаем участников голосового канала:', voiceChannelId);
       const members = await channelService.getVoiceChannelMembers(voiceChannelId);
+      console.log('🔊 Получены участники канала', voiceChannelId, ':', members);
       setVoiceChannelMembers(prev => ({
         ...prev,
         [voiceChannelId]: members
@@ -223,7 +226,7 @@ export function ChannelSidebar() {
         [voiceChannelId]: []
       }));
     }
-  };
+  }, []);
 
   // Загружаем участников всех голосовых каналов при смене сервера
   useEffect(() => {
