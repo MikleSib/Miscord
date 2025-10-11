@@ -96,14 +96,15 @@ export const useStore = create<AppState>()(
             if (channel.type === 'text' && user) {
               const token = localStorage.getItem('access_token');
               if (token) {
-                console.log('[store] Отключаем предыдущее соединение и подключаемся к каналу', channel.id);
+                console.log('[store] Отключаем предыдущее соединение');
                 chatService.disconnect();
-                // Небольшая задержка чтобы гарантировать закрытие предыдущего соединения
-                setTimeout(() => {
-                  chatService.connect(channel.id, token);
-                }, 100);
+                console.log('[store] Подключаемся к каналу', channel.id, 'с токеном длиной', token.length);
+                chatService.connect(channel.id, token);
+              } else {
+                console.error('[store] Токен не найден в localStorage');
               }
             } else {
+              console.log('[store] Отключаемся от чата (канал не текстовый или нет пользователя)');
               chatService.disconnect();
             }
           }
@@ -750,18 +751,15 @@ export const useStore = create<AppState>()(
 );
 
 // Автоматическое подключение к чату при инициализации store (например, после обновления страницы)
+// ПРИМЕЧАНИЕ: Обработчики регистрируются в ChatArea.tsx, здесь только подключаемся
 if (typeof window !== 'undefined') {
   const { currentChannel, user } = useStore.getState();
   if (currentChannel && currentChannel.type === 'text' && user) {
-    chatService.disconnect();
-    chatService.connect(currentChannel.id, localStorage.getItem('access_token') || '');
-    chatService.onMessage((msg) => {
-      useStore.getState().addMessage(msg);
-    });
-    chatService.onTyping((data) => {
-      if (data.user && data.text_channel_id) {
-        useStore.getState().setTyping(data.text_channel_id, data.user.username);
-      }
-    });
+    const token = localStorage.getItem('access_token');
+    if (token) {
+      console.log('[store init] Автоматическое подключение к каналу', currentChannel.id);
+      chatService.disconnect();
+      chatService.connect(currentChannel.id, token);
+    }
   }
 }

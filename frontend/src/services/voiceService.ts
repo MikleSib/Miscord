@@ -296,10 +296,12 @@ class VoiceService {
 
     // Подключаемся к WebSocket
     const wsUrl = `${WS_URL}/ws/voice/${voiceChannelId}?token=${token}`;
+    console.log('[VoiceService] Подключаемся к голосовому WebSocket:', wsUrl.replace(/token=.+/, 'token=***'));
     this.ws = new WebSocket(wsUrl);
 
     return new Promise<void>((resolve, reject) => {
       this.ws!.onopen = () => {
+        console.log('[VoiceService] Голосовой WebSocket подключен! ReadyState:', this.ws?.readyState);
         resolve();
       };
 
@@ -315,8 +317,9 @@ class VoiceService {
       };
 
       this.ws!.onclose = (event) => {
-        console.log('🎙️ Voice WebSocket отключен:', event.code, event.reason);
-        console.log('🎙️ WebSocket readyState после закрытия:', (event.target as WebSocket)?.readyState);
+        console.log('[VoiceService] Voice WebSocket отключен! Код:', event.code, 'Причина:', event.reason);
+        console.log('[VoiceService] WebSocket readyState после закрытия:', (event.target as WebSocket)?.readyState);
+        console.log('[VoiceService] Текущий voiceChannelId:', this.voiceChannelId);
         // Не вызываем cleanup() здесь, чтобы избежать рекурсии
         // cleanup() должен вызываться только при явном отключении пользователем
       };
@@ -1116,7 +1119,16 @@ class VoiceService {
 
   private sendMessage(data: any) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(data));
+      const messageStr = JSON.stringify(data);
+      console.log('[VoiceService] Отправка сообщения:', messageStr);
+      this.ws.send(messageStr);
+    } else {
+      console.warn('[VoiceService] WebSocket не открыт, сообщение не отправлено:', {
+        type: data.type,
+        ws: !!this.ws,
+        readyState: this.ws?.readyState,
+        OPEN: WebSocket.OPEN
+      });
     }
   }
 
