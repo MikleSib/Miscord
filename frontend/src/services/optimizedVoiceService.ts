@@ -223,7 +223,8 @@ class OptimizedVoiceService {
     unifiedWebSocketService.leaveVoiceChannel(this.currentVoiceChannelId);
 
     // Закрываем все peer connections
-    for (const userId of this.peerConnections.keys()) {
+    const userIds = Array.from(this.peerConnections.keys());
+    for (const userId of userIds) {
       this.closePeerConnection(userId);
     }
 

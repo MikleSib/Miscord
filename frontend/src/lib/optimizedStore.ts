@@ -240,6 +240,13 @@ export const useOptimizedStore = create<AppState>()(
         addMessage: (message: Message) => {
           set((state) => {
             const channelId = message.channelId;
+            
+            // Проверяем что channelId существует
+            if (!channelId) {
+              console.warn('[Store] Сообщение без channelId:', message);
+              return state;
+            }
+            
             const channelMessages = state.messages.get(channelId) || [];
             
             // Проверяем дубликаты
@@ -258,7 +265,10 @@ export const useOptimizedStore = create<AppState>()(
           set((state) => {
             const newMessages = new Map(state.messages);
             
-            for (const [channelId, messages] of newMessages.entries()) {
+            // Конвертируем Map в массив для итерации
+            const entries = Array.from(newMessages.entries());
+            
+            for (const [channelId, messages] of entries) {
               const messageIndex = messages.findIndex(m => m.id === messageId);
               if (messageIndex !== -1) {
                 const updatedMessages = [...messages];
@@ -274,6 +284,8 @@ export const useOptimizedStore = create<AppState>()(
 
         deleteMessage: (messageId: number, channelId: number) => {
           set((state) => {
+            if (!channelId) return state;
+            
             const newMessages = new Map(state.messages);
             const channelMessages = newMessages.get(channelId) || [];
             
@@ -366,7 +378,14 @@ export const useOptimizedStore = create<AppState>()(
           set({ isLoading: true, error: null });
           
           try {
-            const servers = await channelService.getServers();
+            const fullData = await channelService.getFullServerData();
+            const servers = fullData.servers.map((s: any) => ({
+              id: s.id,
+              name: s.name,
+              icon: s.icon,
+              channels: s.text_channels || [],
+              members: []
+            }));
             set({ servers, isLoading: false });
           } catch (error: any) {
             console.error('[Store] Ошибка загрузки серверов:', error);
@@ -379,24 +398,31 @@ export const useOptimizedStore = create<AppState>()(
 
         loadServerDetails: async (serverId: number) => {
           try {
-            const serverData: FullServerData = await channelService.getServerDetails(serverId);
+            const serverDetails = await channelService.getChannelDetails(serverId);
+            
+            const channels: Channel[] = (serverDetails.channels || []).map((ch: any) => ({
+              id: ch.id,
+              name: ch.name,
+              type: ch.type,
+              serverId: serverId
+            }));
             
             set((state) => {
               const servers = state.servers.map(server => {
                 if (server.id === serverId) {
                   return {
                     ...server,
-                    channels: serverData.channels,
-                    members: serverData.members
+                    id: serverDetails.id,
+                    name: serverDetails.name,
+                    description: serverDetails.description,
+                    icon: serverDetails.icon,
+                    channels
                   };
                 }
                 return server;
               });
 
-              const newServerMembers = new Map(state.serverMembers);
-              newServerMembers.set(serverId, serverData.members);
-
-              return { servers, serverMembers: newServerMembers };
+              return { servers };
             });
           } catch (error: any) {
             console.error('[Store] Ошибка загрузки деталей сервера:', error);
@@ -405,25 +431,10 @@ export const useOptimizedStore = create<AppState>()(
         },
 
         loadChannelMessages: async (channelId: number) => {
-          try {
-            const existingMessages = get().messages.get(channelId);
-            
-            // Если сообщения уже загружены, не загружаем повторно
-            if (existingMessages && existingMessages.length > 0) {
-              return;
-            }
-
-            const messages = await channelService.getMessages(channelId);
-            
-            set((state) => {
-              const newMessages = new Map(state.messages);
-              newMessages.set(channelId, messages);
-              return { messages: newMessages };
-            });
-          } catch (error: any) {
-            console.error('[Store] Ошибка загрузки сообщений:', error);
-            set({ error: error.message || 'Не удалось загрузить сообщения' });
-          }
+          // Сообщения загружаются автоматически через WebSocket при подключении к каналу
+          // Этот метод оставлен для совместимости, но ничего не делает
+          // В будущем здесь можно добавить предзагрузку истории сообщений через API
+          console.log('[Store] loadChannelMessages called for channel:', channelId);
         },
 
         // ==================== WEBSOCKET ====================
