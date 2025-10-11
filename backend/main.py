@@ -11,6 +11,7 @@ from app.websocket import chat, voice
 from app.websocket.connection_manager import manager
 from app.websocket.chat import websocket_chat_endpoint, websocket_notifications_endpoint
 from app.websocket.voice import websocket_voice_endpoint
+from app.websocket.unified import websocket_unified_endpoint
 from app.services.user_activity_service import user_activity_service
 from app.db.database import AsyncSessionLocal
 
@@ -59,6 +60,14 @@ app.include_router(friends.router, prefix="/api/friends", tags=["friends"])
 app.include_router(direct_messages.router, prefix="/api/dms", tags=["dms"])
 
 # WebSocket эндпоинты
+
+# НОВЫЙ УНИФИЦИРОВАННЫЙ ENDPOINT (рекомендуется использовать)
+@app.websocket("/ws/unified")
+async def websocket_unified_endpoint_route(websocket: WebSocket, token: str):
+    """Единый унифицированный WebSocket endpoint для всех типов соединений"""
+    await websocket_unified_endpoint(websocket, token)
+
+# СТАРЫЕ ENDPOINTS (сохранены для обратной совместимости)
 @app.websocket("/ws/chat/{text_channel_id}")
 async def websocket_chat_endpoint_route(websocket: WebSocket, text_channel_id: int, token: str):
     await websocket_chat_endpoint(websocket, text_channel_id, token)
@@ -80,9 +89,10 @@ async def root():
         "endpoints": {
             "auth": "/api/auth",
             "channels": "/api/channels",
-            "websocket_chat": "/ws/chat/{text_channel_id}",
-            "websocket_voice": "/ws/voice/{channel_id}",
-            "websocket_notifications": "/ws/notifications"
+            "websocket_unified": "/ws/unified (RECOMMENDED)",
+            "websocket_chat": "/ws/chat/{text_channel_id} (deprecated)",
+            "websocket_voice": "/ws/voice/{channel_id} (deprecated)",
+            "websocket_notifications": "/ws/notifications (deprecated)"
         }
     }
 
