@@ -215,7 +215,9 @@ export const useOptimizedStore = create<AppState>()(
             const attachments: string[] = [];
             for (const file of files) {
               try {
-                const url = await uploadService.uploadFile(file);
+                const result = await uploadService.uploadFile(file);
+                // uploadService возвращает объект с file_url
+                const url = typeof result === 'string' ? result : result.file_url;
                 attachments.push(url);
               } catch (error) {
                 console.error('[Store] Ошибка загрузки файла:', error);
