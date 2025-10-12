@@ -116,11 +116,14 @@ class ConnectionManager:
 
     async def send_to_channel(self, channel_id: int, message: dict):
         """Отправка сообщения в канал через Redis."""
+        print(f"[ConnectionManager] send_to_channel вызван для канала {channel_id}, тип сообщения: {message.get('type')}")
         if self.redis_client:
             channel = f"channel:{channel_id}"
+            print(f"[ConnectionManager] Публикуем в Redis канал: {channel}")
             await self.redis_client.publish(channel, json.dumps(message))
         else:
             # Fallback для локальной разработки без Redis
+            print(f"[ConnectionManager] Redis недоступен, отправка локально")
             await self._send_to_channel_str(channel_id, json.dumps(message))
 
     async def send_to_user(self, user_id: int, message: dict):
@@ -142,16 +145,27 @@ class ConnectionManager:
 
     async def _send_to_channel_str(self, channel_id: int, message_str: str):
         """Отправляет строковое сообщение всем участникам канала на этом инстансе."""
+        print(f"[ConnectionManager] _send_to_channel_str вызван для канала {channel_id}")
+        print(f"[ConnectionManager] Участники канала: {list(self.channel_connections.get(channel_id, {}).keys())}")
+        
         if channel_id in self.channel_connections:
             disconnected_users = []
+            sent_count = 0
             for user_id, websocket in self.channel_connections[channel_id].items():
                 try:
                     await websocket.send_text(message_str)
-                except Exception:
+                    sent_count += 1
+                    print(f"[ConnectionManager] Сообщение отправлено пользователю {user_id} в канале {channel_id}")
+                except Exception as e:
+                    print(f"[ConnectionManager] Ошибка отправки пользователю {user_id}: {e}")
                     disconnected_users.append(user_id)
 
             for user_id in disconnected_users:
                 del self.channel_connections[channel_id][user_id]
+            
+            print(f"[ConnectionManager] Отправлено {sent_count} сообщений в канал {channel_id}")
+        else:
+            print(f"[ConnectionManager] Канал {channel_id} не найден в channel_connections!")
 
     async def broadcast(self, message: dict):
         """Рассылка всем пользователям на всех инстансах (если есть Redis)."""

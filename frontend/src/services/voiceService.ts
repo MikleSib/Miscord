@@ -456,6 +456,9 @@ class VoiceService {
         break;
 
       case 'user_joined_voice':
+        console.log('🔊 [VoiceService] Получено событие user_joined_voice:', data);
+        console.log('🔊 [VoiceService] Текущий user_id:', this.getCurrentUserId(), 'Текущий voiceChannelId:', this.voiceChannelId);
+        
         try {
           this.participantDirectory.set(data.user_id, { username: data.username, avatar_url: data.avatar_url });
         } catch {}
@@ -463,21 +466,34 @@ class VoiceService {
         // Воспроизводим звук подключения только если это не мы сами И мы находимся в том же канале
         const currentUserId2 = this.getCurrentUserId();
         if (data.user_id !== currentUserId2 && this.voiceChannelId === data.voice_channel_id) {
+          console.log('🔊 [VoiceService] Воспроизводим звук подключения для пользователя', data.user_id);
           soundService.playJoinSound();
+        } else {
+          console.log('🔊 [VoiceService] НЕ воспроизводим звук:', {
+            isCurrentUser: data.user_id === currentUserId2,
+            isSameChannel: this.voiceChannelId === data.voice_channel_id,
+            receivedChannelId: data.voice_channel_id,
+            ourChannelId: this.voiceChannelId
+          });
         }
         
         if (this.onParticipantJoined) {
+          console.log('🔊 [VoiceService] Вызываем onParticipantJoined для пользователя', data.user_id);
           this.onParticipantJoined({
             user_id: data.user_id,
             username: data.username,
             display_name: data.display_name,
-            avatar_url: data.avatar_url
+            avatar_url: data.avatar_url,
+            is_muted: data.is_muted,
+            is_deafened: data.is_deafened
           });
         }
+        
         // Создаем соединение только если это не мы сами
         if (data.user_id !== currentUserId2) {
           // Создаем offer только если наш ID меньше (существующий пользователь создает offer для нового)
           const shouldCreateOffer = currentUserId2 !== null && currentUserId2 < data.user_id;
+          console.log('🔊 [VoiceService] Создаем peer connection для пользователя', data.user_id, 'shouldCreateOffer:', shouldCreateOffer);
           await this.createPeerConnection(data.user_id, shouldCreateOffer);
         }
         break;

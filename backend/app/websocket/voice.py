@@ -75,7 +75,7 @@ async def websocket_voice_endpoint(
             await websocket.close(code=4005, reason="Voice channel is full")
             return
         
-        await websocket.accept()
+        # manager.connect() сам вызывает websocket.accept()
         await manager.connect(websocket, user.id, channel_id)
         
         # Добавление в голосовой канал в БД
@@ -148,9 +148,14 @@ async def websocket_voice_endpoint(
                         "username": user.display_name or user.username,
                         "display_name": user.display_name,
                         "avatar_url": user.avatar_url,
+                        "voice_channel_id": channel_id,
                         "is_muted": is_muted,
                         "is_deafened": is_deafened
                     }
+                    
+                    # Логируем текущих участников канала перед отправкой
+                    print(f"[Voice] Участники канала {channel_id} перед отправкой: {list(voice_connections.get(channel_id, {}).keys())}")
+                    print(f"[Voice] Manager channel_connections для канала {channel_id}: {list(manager.channel_connections.get(channel_id, {}).keys())}")
                     
                     await manager.send_to_channel(channel_id, join_message)
                     print(f"[Voice] Уведомление о присоединении пользователя {user.id} отправлено в канал {channel_id}")
