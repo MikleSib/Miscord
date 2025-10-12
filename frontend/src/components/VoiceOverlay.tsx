@@ -139,6 +139,14 @@ export function VoiceOverlay({ onHangUp, participantsList, channelName, serverNa
     };
   }, []);
 
+  // useEffect для применения состояния isDeafened к audio элементу
+  useEffect(() => {
+    if (remoteAudioRef.current) {
+      // Когда включен deafen, отключаем звук
+      remoteAudioRef.current.muted = isDeafened;
+    }
+  }, [isDeafened]);
+
   // Функции управления микрофоном и наушниками
   const toggleMute = () => {
     if (onHangUp) {

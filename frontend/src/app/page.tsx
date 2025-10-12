@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../store/store'
 import { useStore } from '../lib/store'
@@ -216,6 +216,7 @@ export default function HomePage() {
   const [currentCallee, setCurrentCallee] = useState<User | null>(null);
   const [inCall, setInCall] = useState(false);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
 
   // Обработчики P2P звонков - должны работать на всех страницах
   useEffect(() => {
@@ -274,7 +275,13 @@ export default function HomePage() {
     };
 
     const handleRemoteStream = (stream: MediaStream) => {
+      console.log('[HomePage] Received remote stream:', stream);
       setRemoteStream(stream);
+      if (remoteAudioRef.current) {
+        remoteAudioRef.current.srcObject = stream;
+        remoteAudioRef.current.volume = 1.0;
+        remoteAudioRef.current.play().catch(e => console.error('[HomePage] Error playing remote audio:', e));
+      }
     };
 
     websocketService.on('p2p-incoming-call', handleIncomingCall);
@@ -291,6 +298,16 @@ export default function HomePage() {
       p2pVoiceService.off('remote_stream_received', handleRemoteStream);
     };
   }, [authUser]);
+
+  // useEffect для обработки изменений remoteStream
+  useEffect(() => {
+    if (remoteStream && remoteAudioRef.current) {
+      console.log('[HomePage] Setting remote stream to audio element');
+      remoteAudioRef.current.srcObject = remoteStream;
+      remoteAudioRef.current.volume = 1.0;
+      remoteAudioRef.current.play().catch(e => console.error('[HomePage] Error playing remote audio in useEffect:', e));
+    }
+  }, [remoteStream]);
 
   const handleCallEnded = () => {
     setIsIncomingCall(false);
@@ -450,8 +467,12 @@ export default function HomePage() {
         />
       )}
 
-      {/* Remote audio stream */}
-      {remoteStream && <audio autoPlay ref={audio => { if (audio) audio.srcObject = remoteStream; }} />}
+      {/* Скрытый audio элемент для воспроизведения входящего аудио из P2P звонков */}
+      <audio
+        ref={remoteAudioRef}
+        autoPlay
+        style={{ display: 'none' }}
+      />
 
       {/* Панель голосового подключения над профилем пользователя */}
       <div className="absolute bottom-20 left-2 z-50 max-w-[calc(100vw-16px)]">

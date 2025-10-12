@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { Users, MessageSquare, Settings, Check, X, Phone } from 'lucide-react'
 import { User, FriendRequest } from '../types'
 import friendService from '../services/friendService'
@@ -33,6 +33,7 @@ export function HomePageContent() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [inCall, setInCall] = useState(false);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
 
 
   const sortedFriends = useMemo(() => {
@@ -127,7 +128,13 @@ export function HomePageContent() {
     };
 
     const handleRemoteStream = (stream: MediaStream) => {
+      console.log('[HomePageContent] Received remote stream:', stream);
       setRemoteStream(stream);
+      if (remoteAudioRef.current) {
+        remoteAudioRef.current.srcObject = stream;
+        remoteAudioRef.current.volume = 1.0;
+        remoteAudioRef.current.play().catch(e => console.error('[HomePageContent] Error playing remote audio:', e));
+      }
     };
 
     // Обработчики для WebSocket событий P2P звонков
@@ -180,6 +187,15 @@ export function HomePageContent() {
     };
   }, [currentUser, friends, callee]);
   
+  // useEffect для обработки изменений remoteStream
+  useEffect(() => {
+    if (remoteStream && remoteAudioRef.current) {
+      console.log('[HomePageContent] Setting remote stream to audio element');
+      remoteAudioRef.current.srcObject = remoteStream;
+      remoteAudioRef.current.volume = 1.0;
+      remoteAudioRef.current.play().catch(e => console.error('[HomePageContent] Error playing remote audio in useEffect:', e));
+    }
+  }, [remoteStream]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -559,6 +575,12 @@ export function HomePageContent() {
         </div>
       )}
       
+      {/* Скрытый audio элемент для воспроизведения входящего аудио из P2P звонков */}
+      <audio
+        ref={remoteAudioRef}
+        autoPlay
+        style={{ display: 'none' }}
+      />
     </div>
   )
 }
