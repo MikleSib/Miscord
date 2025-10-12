@@ -123,12 +123,22 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
       optimizedVoiceService.onParticipantsReceived((participants) => {
         console.log('[OptimizedVoiceSlice] 👥 Получен список участников:', participants);
         
+        // Преобразуем участников, убедившись что is_muted и is_deafened всегда boolean
+        const normalizedParticipants: VoiceUser[] = participants.map((p: any) => ({
+          user_id: p.user_id,
+          username: p.username,
+          display_name: p.display_name,
+          avatar_url: p.avatar_url,
+          is_muted: p.is_muted ?? false,
+          is_deafened: p.is_deafened ?? false,
+        }));
+        
         // Добавляем текущего пользователя если его нет в списке
         const currentUser = useAuthStore.getState().user;
         if (currentUser) {
-          const hasCurrentUser = participants.some((p: any) => p.user_id === currentUser.id);
+          const hasCurrentUser = normalizedParticipants.some(p => p.user_id === currentUser.id);
           if (!hasCurrentUser) {
-            participants.push({
+            normalizedParticipants.push({
               user_id: currentUser.id,
               username: currentUser.display_name || currentUser.username,
               display_name: currentUser.display_name,
@@ -139,7 +149,7 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
           }
         }
         
-        get().setParticipants(participants);
+        get().setParticipants(normalizedParticipants);
       });
       
       // Обработчик изменения статуса участников

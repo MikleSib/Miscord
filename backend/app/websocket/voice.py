@@ -136,6 +136,7 @@ async def websocket_voice_endpoint(
             # Отправляем всем, кроме отправителя. На клиенте нужно будет игнорировать это сообщение, если from_id == user.id
             await manager.send_to_channel(channel_id, join_message)
             
+
             # Глобальное уведомление всем онлайн пользователям
             global_join_message = {
                 "type": "voice_channel_join",
