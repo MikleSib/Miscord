@@ -443,16 +443,7 @@ export class AdvancedNoiseGate {
    * Тестовый метод для проверки работы шумодава
    */
   testNoiseSuppression(): void {
-    console.log('🧪 ТЕСТ ШУМОДАВА:');
-    console.log(`Порог: ${this.settings.threshold} дБ`);
-    console.log(`Атака: ${this.settings.attack} сек`);
-    console.log(`Отпускание: ${this.settings.release} сек`);
-    console.log(`Соотношение: ${this.settings.ratio}:1`);
-    console.log(`Высокий проход: ${this.settings.highPassFreq} Гц`);
-    console.log(`Низкий проход: ${this.settings.lowPassFreq} Гц`);
-    console.log(`Спектральный анализ: ${this.settings.enableSpectralAnalysis ? 'ВКЛ' : 'ВЫКЛ'}`);
-    console.log(`Адаптивный порог: ${this.settings.enableAdaptiveThreshold ? 'ВКЛ' : 'ВЫКЛ'}`);
-    console.log('✅ Шумодав готов к работе!');
+
   }
 
   /**

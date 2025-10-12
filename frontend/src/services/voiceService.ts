@@ -2162,8 +2162,6 @@ if (typeof window !== 'undefined') {
 // Глобальная функция для тестирования (доступна из консоли браузера)
 if (typeof window !== 'undefined') {
   (window as any).testNoiseGate = () => {
-    console.log('🧪 ГЛОБАЛЬНЫЙ ТЕСТ ШУМОДАВА:');
-    advancedNoiseGate.testNoiseSuppression();
   };
 
   (window as any).toggleNoiseGate = () => {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Hash, Volume2, ChevronDown, Settings, Plus, Mic, MicOff, Headphones, PhoneOff, VolumeX, Monitor, MonitorOff, UserX, UserCheck, Shield, Volume1, LogOut, UserPlus, Copy, X } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { useVoiceStore } from '../store/slices/voiceSlice'
@@ -207,13 +207,21 @@ export function ChannelSidebar() {
   const [inviteError, setInviteError] = useState('');
   const [isInviting, setIsInviting] = useState(false);
 
+  // Ref для отслеживания загружаемых каналов (предотвращаем дублирующиеся запросы)
+  const loadingChannelsRef = useRef<Set<number>>(new Set());
+
   // Загружаем участников голосового канала
   // Используем useCallback чтобы функция была стабильной для обработчиков событий
   const loadVoiceChannelMembers = useCallback(async (voiceChannelId: number) => {
+    // Предотвращаем дублирующиеся запросы
+    if (loadingChannelsRef.current.has(voiceChannelId)) {
+      return;
+    }
+    
+    loadingChannelsRef.current.add(voiceChannelId);
+    
     try {
-      console.log('🔊 Загружаем участников голосового канала:', voiceChannelId);
       const members = await channelService.getVoiceChannelMembers(voiceChannelId);
-      console.log('🔊 Получены участники канала', voiceChannelId, ':', members);
       setVoiceChannelMembers(prev => ({
         ...prev,
         [voiceChannelId]: members
@@ -225,6 +233,11 @@ export function ChannelSidebar() {
         ...prev,
         [voiceChannelId]: []
       }));
+    } finally {
+      // Убираем из загружаемых после небольшой задержки
+      setTimeout(() => {
+        loadingChannelsRef.current.delete(voiceChannelId);
+      }, 1000);
     }
   }, []);
 
@@ -236,7 +249,7 @@ export function ChannelSidebar() {
         loadVoiceChannelMembers(channel.id);
       });
     }
-  }, [currentServer]);
+  }, [currentServer, loadVoiceChannelMembers]);
 
   // Обработка уведомлений о голосовых каналах
   useEffect(() => {
@@ -286,7 +299,7 @@ export function ChannelSidebar() {
       window.removeEventListener('screen_share_start', handleScreenShareStart);
       window.removeEventListener('screen_share_stop', handleScreenShareStop);
     };
-  }, []);
+  }, [loadVoiceChannelMembers]);
 
   // Обработчики для UserPanel функциональности
   useEffect(() => {

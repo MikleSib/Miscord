@@ -6,6 +6,8 @@ import websocketService from '../services/websocketService';
 import uploadService from '../services/uploadService';
 import chatService from '../services/chatService';
 import { useAuthStore } from '../store/store';
+// Импортируем p2pVoiceService для гарантии инициализации обработчиков до подключения WebSocket
+import p2pVoiceService from '../services/p2pVoiceService';
 
 interface AppState {
   // Данные
@@ -447,6 +449,7 @@ export const useStore = create<AppState>()(
       // Инициализация WebSocket
       initializeWebSocket: (token: string) => {
         websocketService.connect(token);
+        p2pVoiceService.registerWebSocketHandlers();
         
         // Обработка приглашения в канал
         websocketService.onChannelInvitation((data) => {

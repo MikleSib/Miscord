@@ -7,19 +7,24 @@ class P2PVoiceService extends EventEmitter {
   public peerConnection: RTCPeerConnection | null = null;
   public localStream: MediaStream | null = null;
   public remoteStream: MediaStream | null = null;
+  private screenStream: MediaStream | null = null;
+  private originalAudioTrack: MediaStreamTrack | null = null;
   private ws = websocketService;
   private currentPeerId: number | null = null;
   private currentUser: User | null = null;
   private isMuted: boolean = false;
   private isDeafened: boolean = false;
+  private isScreenSharing: boolean = false;
 
   private handlersRegistered = false;
+  private pendingIceCandidates: RTCIceCandidateInit[] = []; // Буфер для ICE кандидатов
+  private isProcessingOffer: boolean = false; // Флаг для предотвращения дублирующихся offers
 
   constructor() {
     super();
     this.init();
-    // Регистрируем обработчики сразу при создании экземпляра
-    this.registerWebSocketHandlers();
+    // НЕ регистрируем обработчики в конструкторе!
+    // Регистрация происходит позже, после подключения WebSocket в store.initializeWebSocket()
   }
 
   private async init() {
@@ -27,43 +32,84 @@ class P2PVoiceService extends EventEmitter {
   }
 
   // Метод для регистрации WebSocket обработчиков
-  // Регистрация происходит только один раз, чтобы избежать дублирования
+  // Может вызываться много раз безопасно (например, после HMR)
   public registerWebSocketHandlers() {
-    if (this.handlersRegistered) {
-      console.log('[P2PVoiceService] Обработчики уже зарегистрированы, пропускаем');
-      return;
-    }
     this.handlersRegistered = true;
     this.ws.on('p2p-offer', async (data: { from: number; offer: RTCSessionDescriptionInit }) => {
-      console.log('[P2PVoiceService] Received offer from:', data.from);
-      this.currentPeerId = data.from;
-      // Создаем peer connection при получении offer (для обоих участников)
-      if (!this.peerConnection) {
-        await this.createPeerConnection(data.from);
+      // Игнорируем дублирующиеся offers от того же пира
+      if (this.isProcessingOffer && this.currentPeerId === data.from) {
+        return;
       }
-      if (this.peerConnection) {
-        await this.peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
-        const answer = await this.peerConnection.createAnswer();
-        await this.peerConnection.setLocalDescription(answer);
-        this.ws.send({
-          type: 'p2p-answer',
-          to: data.from,
-          answer: answer
-        });
-        console.log('[P2PVoiceService] Sent answer to:', data.from);
+      
+      this.isProcessingOffer = true;
+      this.currentPeerId = data.from;
+      
+      // Очищаем старые буферизованные кандидаты перед созданием нового соединения
+      this.pendingIceCandidates = [];
+      
+      try {
+        // ВСЕГДА пересоздаем соединение для нового offer
+        // Это гарантирует корректный порядок m-lines в SDP
+        await this.createPeerConnection(data.from);
+        
+        if (this.peerConnection) {
+          await this.peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+          
+          // Теперь обрабатываем буферизованные ICE кандидаты
+          // (те, что пришли ПОСЛЕ createPeerConnection, но ДО setRemoteDescription)
+          if (this.pendingIceCandidates.length > 0) {
+            for (const candidate of this.pendingIceCandidates) {
+              try {
+                await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+              } catch (e) {
+                // Игнорируем ошибки - кандидат может быть невалидным
+              }
+            }
+            this.pendingIceCandidates = []; // Очищаем буфер
+          }
+          
+          const answer = await this.peerConnection.createAnswer();
+          await this.peerConnection.setLocalDescription(answer);
+          this.ws.send({
+            type: 'p2p-answer',
+            to: data.from,
+            answer: answer
+          });
+        }
+      } catch (error) {
+        console.error('[P2P] Ошибка обработки offer:', error);
+        // При ошибке очищаем всё
+        this.stopCall();
+      } finally {
+        this.isProcessingOffer = false;
       }
     });
 
     this.ws.on('p2p-answer', async (data: { from: number; answer: RTCSessionDescriptionInit }) => {
-      if (this.peerConnection) {
-        await this.peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+      if (this.peerConnection && this.currentPeerId === data.from) {
+        try {
+          await this.peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+        } catch (error) {
+          console.error('[P2P] Ошибка установки answer:', error);
+          this.stopCall();
+        }
       }
     });
 
     this.ws.on('p2p-ice-candidate', (data: { from: number; candidate: RTCIceCandidateInit }) => {
-      if (this.peerConnection && data.candidate) {
+      // Игнорируем кандидаты не от текущего пира
+      if (!this.peerConnection || !data.candidate || this.currentPeerId !== data.from) {
+        return;
+      }
+      
+      // Проверяем, установлен ли remoteDescription
+      if (!this.peerConnection.remoteDescription) {
+        // RemoteDescription еще не установлен, буферизуем ICE candidate
+        this.pendingIceCandidates.push(data.candidate);
+      } else {
+        // RemoteDescription установлен, добавляем кандидат напрямую
         this.peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate))
-          .catch(e => console.error("Ошибка добавления ICE candidate:", e));
+          .catch(e => console.error("[P2P] Ошибка ICE candidate:", e));
       }
     });
 
@@ -128,6 +174,9 @@ class P2PVoiceService extends EventEmitter {
   }
 
   public async acceptCall(callerId: number, caller: User) {
+    // Очищаем любое предыдущее соединение
+    this.stopCall();
+    
     // Не создаем peer connection здесь, а только после получения offer
     this.currentPeerId = callerId;
     this.ws.send({
@@ -140,6 +189,9 @@ class P2PVoiceService extends EventEmitter {
   }
   
   public async createOffer(recipientId: number) {
+    // Очищаем буфер перед созданием нового соединения
+    this.pendingIceCandidates = [];
+    
     await this.createPeerConnection(recipientId);
     if(this.peerConnection) {
       const offer = await this.peerConnection.createOffer();
@@ -153,17 +205,13 @@ class P2PVoiceService extends EventEmitter {
   }
 
   public declineCall(callerId: number) {
-    console.log('[P2PVoiceService] declineCall called with callerId:', callerId);
     if (!callerId || typeof callerId !== 'number') {
-      console.error('[P2PVoiceService] declineCall: invalid callerId:', callerId);
       return;
     }
-    const message = {
+    this.ws.send({
       type: 'p2p-decline-call',
       to: callerId
-    };
-    console.log('[P2PVoiceService] Sending decline message:', message);
-    this.ws.send(message);
+    });
   }
 
   // Храним информацию о текущем звонящем для возможности отклонения
@@ -187,12 +235,25 @@ class P2PVoiceService extends EventEmitter {
   }
 
   public stopCall() {
+    // Останавливаем screen sharing если активно
+    if (this.isScreenSharing) {
+      this.stopScreenShare();
+    }
+    
     this.localStream?.getTracks().forEach(track => track.stop());
+    this.screenStream?.getTracks().forEach(track => track.stop());
     this.peerConnection?.close();
     this.peerConnection = null;
     this.localStream = null;
     this.remoteStream = null;
+    this.screenStream = null;
+    this.originalAudioTrack = null;
     this.currentPeerId = null;
+    this.isScreenSharing = false;
+    
+    // Очищаем буфер и флаги
+    this.pendingIceCandidates = [];
+    this.isProcessingOffer = false;
   }
 
   // Управление микрофоном
@@ -221,6 +282,82 @@ class P2PVoiceService extends EventEmitter {
 
   public getIsDeafened(): boolean {
     return this.isDeafened;
+  }
+
+  // Управление демонстрацией экрана
+  public async startScreenShare(): Promise<void> {
+    if (!this.peerConnection || this.isScreenSharing) {
+      return;
+    }
+
+    try {
+      // Получаем поток экрана
+      this.screenStream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: false
+      });
+
+      const screenTrack = this.screenStream.getVideoTracks()[0];
+      
+      // Сохраняем оригинальный аудио трек
+      if (this.localStream) {
+        this.originalAudioTrack = this.localStream.getAudioTracks()[0];
+      }
+
+      // Находим sender для видео (или создаем новый)
+      const videoSender = this.peerConnection.getSenders().find(s => s.track?.kind === 'video');
+      
+      if (videoSender) {
+        // Заменяем существующий видео трек
+        await videoSender.replaceTrack(screenTrack);
+      } else {
+        // Добавляем новый видео трек
+        this.peerConnection.addTrack(screenTrack, this.screenStream);
+      }
+
+      this.isScreenSharing = true;
+      this.emit('screen_share_changed', this.isScreenSharing);
+
+      // Обработчик остановки демонстрации (когда пользователь нажимает "Прекратить показ" в браузере)
+      screenTrack.onended = () => {
+        this.stopScreenShare();
+      };
+
+    } catch (error) {
+      console.error('[P2P] Ошибка запуска screen share:', error);
+      this.isScreenSharing = false;
+      this.emit('screen_share_changed', this.isScreenSharing);
+    }
+  }
+
+  public stopScreenShare(): void {
+    if (!this.peerConnection || !this.isScreenSharing) {
+      return;
+    }
+
+    try {
+      // Останавливаем все треки screen stream
+      this.screenStream?.getTracks().forEach(track => track.stop());
+
+      // Находим sender для видео
+      const videoSender = this.peerConnection.getSenders().find(s => s.track?.kind === 'video');
+      
+      if (videoSender) {
+        // Удаляем видео трек
+        this.peerConnection.removeTrack(videoSender);
+      }
+
+      this.screenStream = null;
+      this.isScreenSharing = false;
+      this.emit('screen_share_changed', this.isScreenSharing);
+
+    } catch (error) {
+      console.error('[P2P] Ошибка остановки screen share:', error);
+    }
+  }
+
+  public getIsScreenSharing(): boolean {
+    return this.isScreenSharing;
   }
 }
 

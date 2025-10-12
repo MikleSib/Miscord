@@ -184,7 +184,6 @@ class WebSocketService {
       this.ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          console.log('[WS] Получено сообщение:', data);
           
           // Автоматически отвечаем на ping
           if (data.type === 'ping') {
@@ -247,20 +246,22 @@ class WebSocketService {
   }
 
   private emit(event: string, data: any) {
-    if (this.listeners[event]) {
+    if (this.listeners[event] && this.listeners[event].length > 0) {
       this.listeners[event].forEach(handler => handler(data));
-    } else {
-        console.log('🔔 Нет обработчика для типа:', event);
+    } else if (process.env.NODE_ENV === 'development') {
+      // Логируем только критичные необработанные события
+      if (event.startsWith('p2p-') || event === 'error') {
+        console.warn('[WS] ⚠️ Нет обработчика для события:', event);
+      }
     }
   }
 
   send(data: any) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       const messageStr = JSON.stringify(data);
-      console.log('[WS] Отправка сообщения:', messageStr);
       this.ws.send(messageStr);
-    } else {
-      console.warn('[WS] WebSocket не открыт, сообщение не отправлено:', data);
+    } else if (process.env.NODE_ENV === 'development') {
+      console.warn('[WS] WebSocket не открыт, сообщение не отправлено');
     }
   }
 

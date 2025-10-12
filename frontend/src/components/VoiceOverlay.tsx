@@ -1,7 +1,7 @@
 'use client'
 
 import { Box, Typography, Avatar, IconButton } from '@mui/material';
-import { X, Monitor, UserPlus, Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
+import { X, Monitor, MonitorOff, UserPlus, Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
 import { useVoiceStore } from '../store/slices/voiceSlice';
 import { useAuthStore } from '../store/store';
 import { useStore } from '../lib/store';
@@ -100,19 +100,34 @@ export function VoiceOverlay({ onHangUp, participantsList, channelName, serverNa
   const { currentServer } = useStore();
 
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isDeafened, setIsDeafened] = useState(false);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
 
   // Обработка входящего аудио потока для P2P звонков
   useEffect(() => {
     const handleRemoteStream = (stream: MediaStream) => {
       console.log('[VoiceOverlay] Received remote stream:', stream);
       setRemoteStream(stream);
+      
+      // Проверяем наличие видео треков
+      const hasVideo = stream.getVideoTracks().length > 0;
+      setHasRemoteVideo(hasVideo);
+      
+      // Обрабатываем аудио
       if (remoteAudioRef.current) {
         remoteAudioRef.current.srcObject = stream;
         remoteAudioRef.current.volume = 1.0;
         remoteAudioRef.current.play().catch(e => console.error('Error playing remote audio:', e));
+      }
+      
+      // Обрабатываем видео (screen share)
+      if (hasVideo && remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = stream;
+        remoteVideoRef.current.play().catch(e => console.error('Error playing remote video:', e));
       }
     };
 
@@ -124,18 +139,25 @@ export function VoiceOverlay({ onHangUp, participantsList, channelName, serverNa
       setIsDeafened(deafened);
     };
 
+    const handleScreenShareChanged = (sharing: boolean) => {
+      setIsScreenSharing(sharing);
+    };
+
     p2pVoiceService.on('remote_stream_received', handleRemoteStream);
     p2pVoiceService.on('mute_changed', handleMuteChanged);
     p2pVoiceService.on('deafen_changed', handleDeafenChanged);
+    p2pVoiceService.on('screen_share_changed', handleScreenShareChanged);
 
     // Синхронизация начального состояния
     setIsMuted(p2pVoiceService.getIsMuted());
     setIsDeafened(p2pVoiceService.getIsDeafened());
+    setIsScreenSharing(p2pVoiceService.getIsScreenSharing());
 
     return () => {
       p2pVoiceService.off('remote_stream_received', handleRemoteStream);
       p2pVoiceService.off('mute_changed', handleMuteChanged);
       p2pVoiceService.off('deafen_changed', handleDeafenChanged);
+      p2pVoiceService.off('screen_share_changed', handleScreenShareChanged);
     };
   }, []);
 
@@ -165,6 +187,17 @@ export function VoiceOverlay({ onHangUp, participantsList, channelName, serverNa
     } else {
       // Обычный голосовой канал
       storeToggleDeafen();
+    }
+  };
+
+  const toggleScreenShare = async () => {
+    if (onHangUp) {
+      // P2P звонок - только для P2P доступна screen share пока
+      if (isScreenSharing) {
+        p2pVoiceService.stopScreenShare();
+      } else {
+        await p2pVoiceService.startScreenShare();
+      }
     }
   };
 
@@ -380,12 +413,22 @@ export function VoiceOverlay({ onHangUp, participantsList, channelName, serverNa
           {isDeafened ? <VolumeX size={16} /> : <Volume2 size={16} />}
         </IconButton>
         
-        {/* Дополнительные действия */}
+        {/* Кнопка демонстрации экрана */}
         <IconButton
           size="small"
-          sx={{ color: '#b9bbbe', '&:hover': { color: '#dcddde' } }}
+          onClick={toggleScreenShare}
+          sx={{ 
+            color: isScreenSharing ? '#43b581' : '#b9bbbe',
+            backgroundColor: isScreenSharing ? 'rgba(67, 181, 129, 0.1)' : 'transparent',
+            '&:hover': { 
+              color: isScreenSharing ? '#43b581' : '#dcddde',
+              backgroundColor: isScreenSharing ? 'rgba(67, 181, 129, 0.2)' : 'rgba(255, 255, 255, 0.1)',
+            },
+            border: isScreenSharing ? '1px solid #43b581' : 'none',
+          }}
+          title={isScreenSharing ? "Остановить демонстрацию экрана" : "Демонстрация экрана"}
         >
-          <Monitor size={16} />
+          {isScreenSharing ? <MonitorOff size={16} /> : <Monitor size={16} />}
         </IconButton>
       </Box>
 
@@ -395,6 +438,55 @@ export function VoiceOverlay({ onHangUp, participantsList, channelName, serverNa
         autoPlay
         style={{ display: 'none' }}
       />
+
+      {/* Video элемент для отображения screen share от собеседника */}
+      {hasRemoteVideo && (
+        <Box
+          sx={{
+            position: 'fixed',
+            top: 80,
+            right: 20,
+            width: 400,
+            maxWidth: 'calc(100vw - 40px)',
+            borderRadius: '12px',
+            overflow: 'hidden',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
+            border: '2px solid #43b581',
+            backgroundColor: '#000',
+            zIndex: 9999,
+          }}
+        >
+          <Box
+            sx={{
+              padding: '8px 12px',
+              backgroundColor: 'rgba(67, 181, 129, 0.9)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <Typography sx={{ fontSize: '12px', fontWeight: 600, color: 'white' }}>
+              Демонстрация экрана
+            </Typography>
+            <IconButton
+              size="small"
+              onClick={() => setHasRemoteVideo(false)}
+              sx={{ color: 'white', padding: '2px' }}
+            >
+              <X size={16} />
+            </IconButton>
+          </Box>
+          <video
+            ref={remoteVideoRef}
+            autoPlay
+            style={{
+              width: '100%',
+              height: 'auto',
+              display: 'block',
+            }}
+          />
+        </Box>
+      )}
     </Box>
   );
 }
