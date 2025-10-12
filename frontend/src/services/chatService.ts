@@ -76,6 +76,13 @@ class ChatService {
       this.ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          
+          // Автоматически отвечаем на ping
+          if (data.type === 'ping') {
+            this.ws?.send(JSON.stringify({ type: 'pong' }));
+            return;
+          }
+          
           if (data.type === 'new_message' && this.messageHandler) {
             this.messageHandler(data.data);
           }

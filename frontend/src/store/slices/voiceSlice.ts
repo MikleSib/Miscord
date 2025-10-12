@@ -146,7 +146,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       });
       
       // Подключаемся к голосовому каналу
-      await voiceService.connect(channelId, token);
+      await voiceService.connect(channelId, token, get().isMuted, get().isDeafened);
       
      
       

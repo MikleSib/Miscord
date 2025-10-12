@@ -99,59 +99,74 @@ async def websocket_voice_endpoint(
             "is_sharing_screen": False
         }
         
+        print(f"[Voice] Пользователь {user.id} ({user.username}) подключился к каналу {channel_id}, ожидаем сообщение 'join'")
+        
         try:
-            # Отправка списка участников новому пользователю
-            participants = []
-            for uid, conn_info in voice_connections[channel_id].items():
-                if uid != user.id:
-                    # Получаем полную информацию о пользователе
-                    user_info_result = await db.execute(select(User).where(User.id == uid))
-                    user_info = user_info_result.scalar_one_or_none()
-                    
-                    participants.append({
-                        "user_id": uid,
-                        "username": conn_info["username"],
-                        "display_name": user_info.display_name if user_info else None,
-                        "avatar_url": user_info.avatar_url if user_info else None,
-                        "is_muted": conn_info["is_muted"],
-                        "is_deafened": conn_info["is_deafened"],
-                        "is_sharing_screen": conn_info["is_sharing_screen"]
-                    })
-            
-            await websocket.send_json({
-                "type": "participants",
-                "participants": participants,
-                "ice_servers": settings.ICE_SERVERS
-            })
-            
-            # Уведомление других участников о новом пользователе
-            join_message = {
-                "type": "user_joined_voice",
-                "user_id": user.id,
-                "username": user.display_name or user.username,
-                "display_name": user.display_name,
-                "avatar_url": user.avatar_url
-            }
-            
-            # Отправляем всем, кроме отправителя. На клиенте нужно будет игнорировать это сообщение, если from_id == user.id
-            await manager.send_to_channel(channel_id, join_message)
-            
-
-            # Глобальное уведомление всем онлайн пользователям
-            global_join_message = {
-                "type": "voice_channel_join",
-                "user_id": user.id,
-                "username": user.display_name or user.username,
-                "voice_channel_id": channel_id,
-                "voice_channel_name": voice_channel.name
-            }
-            await manager.broadcast(global_join_message)
-            
             # Обработка сообщений WebRTC
             while True:
                 data = await websocket.receive_json()
                 
-                if data["type"] == "offer":
+                if data["type"] == "join":
+                    # Обработка сообщения о подключении пользователя
+                    print(f"[Voice] Получено сообщение 'join' от пользователя {user.id} ({user.username})")
+                    
+                    # Обновляем начальные статусы из сообщения
+                    is_muted = data.get("is_muted", False)
+                    is_deafened = data.get("is_deafened", False)
+                    voice_connections[channel_id][user.id]["is_muted"] = is_muted
+                    voice_connections[channel_id][user.id]["is_deafened"] = is_deafened
+                    
+                    # Отправка списка участников новому пользователю
+                    participants = []
+                    for uid, conn_info in voice_connections[channel_id].items():
+                        if uid != user.id:
+                            # Получаем полную информацию о пользователе
+                            user_info_result = await db.execute(select(User).where(User.id == uid))
+                            user_info = user_info_result.scalar_one_or_none()
+                            
+                            participants.append({
+                                "user_id": uid,
+                                "username": conn_info["username"],
+                                "display_name": user_info.display_name if user_info else None,
+                                "avatar_url": user_info.avatar_url if user_info else None,
+                                "is_muted": conn_info["is_muted"],
+                                "is_deafened": conn_info["is_deafened"],
+                                "is_sharing_screen": conn_info["is_sharing_screen"]
+                            })
+                    
+                    await websocket.send_json({
+                        "type": "participants",
+                        "participants": participants,
+                        "ice_servers": settings.ICE_SERVERS
+                    })
+                    print(f"[Voice] Отправлен список из {len(participants)} участников пользователю {user.id}")
+                    
+                    # Уведомление других участников о новом пользователе
+                    join_message = {
+                        "type": "user_joined_voice",
+                        "user_id": user.id,
+                        "username": user.display_name or user.username,
+                        "display_name": user.display_name,
+                        "avatar_url": user.avatar_url,
+                        "is_muted": is_muted,
+                        "is_deafened": is_deafened
+                    }
+                    
+                    await manager.send_to_channel(channel_id, join_message)
+                    print(f"[Voice] Уведомление о присоединении пользователя {user.id} отправлено в канал {channel_id}")
+                    
+                    # Глобальное уведомление всем онлайн пользователям
+                    global_join_message = {
+                        "type": "voice_channel_join",
+                        "user_id": user.id,
+                        "username": user.display_name or user.username,
+                        "voice_channel_id": channel_id,
+                        "voice_channel_name": voice_channel.name
+                    }
+                    await manager.broadcast(global_join_message)
+                    print(f"[Voice] Глобальное уведомление о присоединении к каналу {channel_id} отправлено")
+                
+                elif data["type"] == "offer":
                     # Пересылка offer целевому пользователю
                     target_id = data.get("target_id")
                     if target_id and target_id in voice_connections[channel_id]:
@@ -276,6 +291,10 @@ async def websocket_voice_endpoint(
                     await manager.send_to_channel(channel_id, screen_share_message)
 
                     print(f"Пользователь {user.username} остановил демонстрацию экрана")
+                
+                elif data["type"] == "pong":
+                    # Ответ на ping - просто игнорируем, соединение живо
+                    pass
                 
                 else:
                     print(f"Неизвестный тип сообщения: {data['type']}")

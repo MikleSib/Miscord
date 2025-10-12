@@ -87,25 +87,34 @@ export const useStore = create<AppState>()(
 
       // Выбор канала
       selectChannel: (channelId: number) => {
-        const { currentServer, user } = get();
+        const { currentServer, user, currentChannel } = get();
         if (currentServer) {
           const channel = currentServer.channels.find(c => c.id === channelId);
           if (channel) {
             set({ currentChannel: channel });
-            // Подключаемся к WebSocket чата
-            if (channel.type === 'text' && user) {
-              const token = localStorage.getItem('access_token');
-              if (token) {
-                console.log('[store] Отключаем предыдущее соединение');
-                chatService.disconnect();
-                console.log('[store] Подключаемся к каналу', channel.id, 'с токеном длиной', token.length);
-                chatService.connect(channel.id, token);
+            
+            // Управление WebSocket чата только если это не тот же канал
+            if (channel.id !== currentChannel?.id) {
+              if (channel.type === 'text' && user) {
+                const token = localStorage.getItem('access_token');
+                if (token) {
+                  console.log('[store] Отключаем предыдущее соединение чата');
+                  chatService.disconnect();
+                  console.log('[store] Подключаемся к текстовому каналу', channel.id, 'с токеном длиной', token.length);
+                  chatService.connect(channel.id, token);
+                } else {
+                  console.error('[store] Токен не найден в localStorage');
+                }
+              } else if (channel.type === 'voice') {
+                // Для голосовых каналов НЕ отключаем чат - пользователь может читать и текстовый канал
+                console.log('[store] Выбран голосовой канал', channel.id, '- WebSocket чата не трогаем');
               } else {
-                console.error('[store] Токен не найден в localStorage');
+                // Для других типов каналов отключаемся от чата
+                console.log('[store] Отключаемся от чата (канал типа:', channel.type, ')');
+                chatService.disconnect();
               }
             } else {
-              console.log('[store] Отключаемся от чата (канал не текстовый или нет пользователя)');
-              chatService.disconnect();
+              console.log('[store] Канал не изменился, WebSocket не трогаем');
             }
           }
         }

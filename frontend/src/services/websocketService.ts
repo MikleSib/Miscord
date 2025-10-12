@@ -185,6 +185,13 @@ class WebSocketService {
         try {
           const data = JSON.parse(event.data);
           console.log('[WS] Получено сообщение:', data);
+          
+          // Автоматически отвечаем на ping
+          if (data.type === 'ping') {
+            this.send({ type: 'pong' });
+            return;
+          }
+          
           this.emit(data.type, data);
         } catch (error) {
           console.error('Ошибка обработки WebSocket сообщения:', error);

@@ -195,7 +195,7 @@ class VoiceService {
     }
   }
 
-  async connect(voiceChannelId: number, token: string) {
+  async connect(voiceChannelId: number, token: string, isMuted: boolean = false, isDeafened: boolean = false) {
     
     
     // Проверяем, не подключены ли мы уже к этому каналу
@@ -302,6 +302,17 @@ class VoiceService {
     return new Promise<void>((resolve, reject) => {
       this.ws!.onopen = () => {
         console.log('[VoiceService] Голосовой WebSocket подключен! ReadyState:', this.ws?.readyState);
+        
+        // Отправляем сообщение о подключении на сервер
+        const joinMessage = {
+          type: 'join',
+          channel_id: voiceChannelId,
+          is_muted: isMuted,
+          is_deafened: isDeafened
+        };
+        console.log('[VoiceService] Отправляем сообщение о подключении:', joinMessage);
+        this.ws!.send(JSON.stringify(joinMessage));
+        
         resolve();
       };
 
@@ -578,6 +589,11 @@ class VoiceService {
         if (this.onScreenShareChanged) {
           this.onScreenShareChanged(data.user_id, false);
         }
+        break;
+
+      case 'ping':
+        // Автоматически отвечаем на ping
+        this.sendMessage({ type: 'pong' });
         break;
 
       default:
