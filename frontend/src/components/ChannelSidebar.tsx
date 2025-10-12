@@ -764,10 +764,10 @@ export function ChannelSidebar() {
                               
                               <div className="flex gap-1">
                                 {participant.is_muted && (
-                                  <MicOff className="w-3 h-3 text-red-400" />
+                                  <MicOff key="muted" className="w-3 h-3 text-red-400" />
                                 )}
                                 {participant.is_deafened && (
-                                  <Headphones className="w-3 h-3 text-red-400" />
+                                  <Headphones key="deafened" className="w-3 h-3 text-red-400" />
                                 )}
                               </div>
                             </div>

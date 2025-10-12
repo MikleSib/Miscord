@@ -1,6 +1,7 @@
 from fastapi import WebSocket, WebSocketDisconnect, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, delete
+from sqlalchemy.orm import selectinload
 import json
 import asyncio
 from typing import Dict
@@ -141,7 +142,7 @@ async def websocket_voice_endpoint(
                     })
                     print(f"[Voice] Отправлен список из {len(participants)} участников пользователю {user.id}")
                     
-                    # Уведомление других участников о новом пользователе
+                    # Уведомление участников голосового канала о новом пользователе
                     join_message = {
                         "type": "user_joined_voice",
                         "user_id": user.id,
@@ -153,23 +154,53 @@ async def websocket_voice_endpoint(
                         "is_deafened": is_deafened
                     }
                     
-                    # Логируем текущих участников канала перед отправкой
-                    print(f"[Voice] Участники канала {channel_id} перед отправкой: {list(voice_connections.get(channel_id, {}).keys())}")
-                    print(f"[Voice] Manager channel_connections для канала {channel_id}: {list(manager.channel_connections.get(channel_id, {}).keys())}")
+                    # Отправляем уведомление напрямую участникам голосового канала
+                    print(f"[Voice] Участники голосового канала {channel_id}: {list(voice_connections.get(channel_id, {}).keys())}")
+                    for uid, conn_info in voice_connections.get(channel_id, {}).items():
+                        if uid != user.id:  # Не отправляем самому себе
+                            try:
+                                await conn_info["websocket"].send_json(join_message)
+                                print(f"[Voice] Уведомление user_joined_voice отправлено пользователю {uid} в голосовой канал {channel_id}")
+                            except Exception as e:
+                                print(f"[Voice] Ошибка отправки пользователю {uid}: {e}")
                     
-                    await manager.send_to_channel(channel_id, join_message)
-                    print(f"[Voice] Уведомление о присоединении пользователя {user.id} отправлено в канал {channel_id}")
+                    # Получаем server_id (channel_id) через голосовой канал
+                    vc_query = await db.execute(
+                        select(VoiceChannel).options(selectinload(VoiceChannel.channel)).where(VoiceChannel.id == channel_id)
+                    )
+                    vc = vc_query.scalar_one_or_none()
+                    server_id = vc.channel.id if vc and vc.channel else None
                     
-                    # Глобальное уведомление всем онлайн пользователям
-                    global_join_message = {
-                        "type": "voice_channel_join",
-                        "user_id": user.id,
-                        "username": user.display_name or user.username,
-                        "voice_channel_id": channel_id,
-                        "voice_channel_name": voice_channel.name
-                    }
-                    await manager.broadcast(global_join_message)
-                    print(f"[Voice] Глобальное уведомление о присоединении к каналу {channel_id} отправлено")
+                    # Уведомление только членов сервера (а не всех онлайн пользователей)
+                    if server_id:
+                        # Получаем всех членов сервера
+                        members_query = await db.execute(
+                            select(ChannelMember).where(ChannelMember.channel_id == server_id)
+                        )
+                        server_members = members_query.scalars().all()
+                        
+                        global_join_message = {
+                            "type": "voice_channel_join",
+                            "user_id": user.id,
+                            "username": user.display_name or user.username,
+                            "voice_channel_id": channel_id,
+                            "voice_channel_name": voice_channel.name,
+                            "server_id": server_id,
+                            "display_name": user.display_name,
+                            "avatar_url": user.avatar_url
+                        }
+                        
+                        # Отправляем только членам этого сервера
+                        sent_count = 0
+                        for member in server_members:
+                            if member.user_id != user.id:  # Не отправляем самому себе
+                                try:
+                                    await manager.send_personal_message(global_join_message, member.user_id)
+                                    sent_count += 1
+                                except Exception as e:
+                                    print(f"[Voice] Ошибка отправки уведомления пользователю {member.user_id}: {e}")
+                        
+                        print(f"[Voice] Уведомление voice_channel_join отправлено {sent_count} членам сервера {server_id}")
                 
                 elif data["type"] == "offer":
                     # Пересылка offer целевому пользователю
@@ -333,18 +364,54 @@ async def websocket_voice_endpoint(
             )
             await db.commit()
             
-            # Уведомление других участников об уходе
+            # Уведомление участников голосового канала об уходе
             leave_message = {
                 "type": "user_left_voice",
-                "user_id": user.id
-            }
-            await manager.send_to_channel(channel_id, leave_message)
-            
-            # Глобальное уведомление всем онлайн пользователям
-            global_leave_message = {
-                "type": "voice_channel_leave",
                 "user_id": user.id,
-                "username": user.display_name or user.username,
                 "voice_channel_id": channel_id
             }
-            await manager.broadcast(global_leave_message)
+            
+            # Отправляем уведомление напрямую оставшимся участникам голосового канала
+            print(f"[Voice] Оповещаем участников о выходе пользователя {user.id} из канала {channel_id}")
+            for uid, conn_info in voice_connections.get(channel_id, {}).items():
+                try:
+                    await conn_info["websocket"].send_json(leave_message)
+                    print(f"[Voice] Уведомление user_left_voice отправлено пользователю {uid}")
+                except Exception as e:
+                    print(f"[Voice] Ошибка отправки пользователю {uid}: {e}")
+            
+            # Получаем server_id (channel_id) через голосовой канал
+            vc_leave_query = await db.execute(
+                select(VoiceChannel).options(selectinload(VoiceChannel.channel)).where(VoiceChannel.id == channel_id)
+            )
+            vc_obj = vc_leave_query.scalar_one_or_none()
+            leave_server_id = vc_obj.channel.id if vc_obj and vc_obj.channel else None
+            
+            # Уведомление только членов сервера (а не всех онлайн пользователей)
+            if leave_server_id:
+                # Получаем всех членов сервера
+                leave_members_query = await db.execute(
+                    select(ChannelMember).where(ChannelMember.channel_id == leave_server_id)
+                )
+                leave_server_members = leave_members_query.scalars().all()
+                
+                global_leave_message = {
+                    "type": "voice_channel_leave",
+                    "user_id": user.id,
+                    "username": user.display_name or user.username,
+                    "voice_channel_id": channel_id,
+                    "server_id": leave_server_id,
+                    "display_name": user.display_name
+                }
+                
+                # Отправляем только членам этого сервера
+                leave_sent_count = 0
+                for member in leave_server_members:
+                    if member.user_id != user.id:  # Не отправляем самому себе
+                        try:
+                            await manager.send_personal_message(global_leave_message, member.user_id)
+                            leave_sent_count += 1
+                        except Exception as e:
+                            print(f"[Voice] Ошибка отправки уведомления пользователю {member.user_id}: {e}")
+                
+                print(f"[Voice] Уведомление voice_channel_leave отправлено {leave_sent_count} членам сервера {leave_server_id}")

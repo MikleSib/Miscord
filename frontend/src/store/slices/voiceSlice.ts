@@ -81,23 +81,25 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
 
 
       // Настраиваем обработчики событий
+      
+      // Обработчик присоединения участника
       voiceService.onParticipantJoin((participant) => {
+        console.log('[VoiceSlice] 👤 Участник присоединился:', participant);
         get().addParticipant({
           user_id: participant.user_id,
           username: participant.username,
           display_name: participant.display_name,
           avatar_url: participant.avatar_url,
-          is_muted: false,
-          is_deafened: false,
+          is_muted: participant.is_muted || false,
+          is_deafened: participant.is_deafened || false,
         });
       });
-
+      
+      // Обработчик выхода участника
       voiceService.onParticipantLeave((userId) => {
-
+        console.log('[VoiceSlice] 👋 Участник покинул канал:', userId);
         get().removeParticipant(userId);
       });
-
-     
       
       // Обработчик изменения голосовой активности
       voiceService.onSpeakingChange((userId, isSpeaking) => {
@@ -202,11 +204,20 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   
   setParticipants: (participants) => set({ participants }),
   
-  addParticipant: (participant) => set((state) => ({
-    participants: state.participants.find(p => p.user_id === participant.user_id)
-      ? state.participants
-      : [...state.participants, participant],
-  })),
+  addParticipant: (participant) => {
+    console.log('[VoiceSlice] addParticipant вызван:', participant);
+    const exists = get().participants.find(p => p.user_id === participant.user_id);
+    if (exists) {
+      console.log('[VoiceSlice] Участник уже существует, не добавляем');
+    } else {
+      console.log('[VoiceSlice] Добавляем нового участника в список');
+    }
+    return set((state) => ({
+      participants: state.participants.find(p => p.user_id === participant.user_id)
+        ? state.participants
+        : [...state.participants, participant],
+    }));
+  },
   
   removeParticipant: (userId) => set((state) => ({
     participants: state.participants.filter(p => p.user_id !== userId),

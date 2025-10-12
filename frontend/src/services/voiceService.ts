@@ -487,6 +487,8 @@ class VoiceService {
             is_muted: data.is_muted,
             is_deafened: data.is_deafened
           });
+        } else {
+          console.warn('🔊 [VoiceService] onParticipantJoined НЕ ЗАРЕГИСТРИРОВАН! Пользователь не будет добавлен в UI');
         }
         
         // Создаем соединение только если это не мы сами
@@ -1288,6 +1290,7 @@ class VoiceService {
   }
 
   onParticipantJoin(callback: (participant: any) => void) {
+    console.log('🔊 [VoiceService] onParticipantJoin зарегистрирован');
     this.onParticipantJoined = callback;
   }
 
