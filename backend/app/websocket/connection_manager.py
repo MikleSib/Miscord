@@ -33,32 +33,42 @@ class ConnectionManager:
         while True:
             try:
                 pubsub = self.redis_client.pubsub()
-                # Подписываемся на личные сообщения и сообщения каналов
-                await pubsub.psubscribe("user:*", "channel:*")
-                print("Subscribed to user:* and channel:* patterns in Redis")
+                # Подписываемся на личные сообщения, сообщения каналов и broadcast
+                await pubsub.psubscribe("user:*", "channel:*", "broadcast")
+                print("Subscribed to user:*, channel:* patterns and broadcast channel in Redis")
                 
                 while True:
                     message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
-                    if not message or message.get("type") != "pmessage":
+                    if not message:
                         await asyncio.sleep(0.01)
                         continue
 
-                    raw_channel = message['channel'].decode('utf-8')
-                    data = message['data'].decode('utf-8')
+                    # Обрабатываем разные типы сообщений
+                    if message.get("type") == "pmessage":
+                        raw_channel = message['channel'].decode('utf-8')
+                        data = message['data'].decode('utf-8')
 
-                    if raw_channel.startswith("user:"):
-                        user_id = int(raw_channel.split(':', 1)[1])
-                        if user_id in self.active_connections:
-                            print(f"Redis: Forwarding personal message to user {user_id}: {data}")
-                            await self._send_to_user_str(user_id, data)
-                        else:
-                            print(f"Redis: User {user_id} not connected locally, message dropped: {data}")
+                        if raw_channel.startswith("user:"):
+                            user_id = int(raw_channel.split(':', 1)[1])
+                            if user_id in self.active_connections:
+                                print(f"Redis: Forwarding personal message to user {user_id}: {data}")
+                                await self._send_to_user_str(user_id, data)
+                            else:
+                                print(f"Redis: User {user_id} not connected locally, message dropped: {data}")
+                        
+                        elif raw_channel.startswith("channel:"):
+                            channel_id = int(raw_channel.split(':', 1)[1])
+                            if channel_id in self.channel_connections:
+                                print(f"Redis: Forwarding message to channel {channel_id}")
+                                await self._send_to_channel_str(channel_id, data)
                     
-                    elif raw_channel.startswith("channel:"):
-                        channel_id = int(raw_channel.split(':', 1)[1])
-                        if channel_id in self.channel_connections:
-                            print(f"Redis: Forwarding message to channel {channel_id}")
-                            await self._send_to_channel_str(channel_id, data)
+                    elif message.get("type") == "message" and message.get("channel") == b"broadcast":
+                        # Broadcast сообщение - отправляем всем подключенным пользователям
+                        data = message['data'].decode('utf-8')
+                        print(f"Redis: Broadcasting message to all users: {data}")
+                        all_users = list(self.active_connections.keys())
+                        for user_id in all_users:
+                            await self._send_to_user_str(user_id, data)
             
             except Exception as e:
                 print(f"Error in Redis listener: {e}. Reconnecting in 5 seconds...")
@@ -145,14 +155,15 @@ class ConnectionManager:
 
     async def broadcast(self, message: dict):
         """Рассылка всем пользователям на всех инстансах (если есть Redis)."""
-        # Эта функция может быть неэффективной, если много пользователей.
-        # Для массовых рассылок лучше использовать специальные каналы.
+        message_str = json.dumps(message)
+        
         if self.redis_client:
-            # Можно реализовать через специальный 'broadcast' канал
-            pass
+            # Публикуем в специальный broadcast канал Redis
+            await self.redis_client.publish("broadcast", message_str)
+            print(f"[WS] Broadcast сообщение опубликовано в Redis: {message.get('type')}")
         else:
-            # Локальная рассылка
-            message_str = json.dumps(message)
+            # Локальная рассылка (fallback без Redis)
+            print(f"[WS] Broadcast локально: {message.get('type')}")
             all_users = list(self.active_connections.keys())
             for user_id in all_users:
                 await self._send_to_user_str(user_id, message_str)

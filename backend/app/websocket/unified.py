@@ -448,6 +448,17 @@ async def handle_join_voice(
         "avatar_url": user.avatar_url
     })
 
+    # Глобальное уведомление всем онлайн пользователям
+    # Получаем информацию о канале для имени
+    voice_channel_name = voice_channel.name if voice_channel else f"Channel {voice_channel_id}"
+    await manager.broadcast({
+        "type": "voice_channel_join",
+        "user_id": user.id,
+        "username": user.display_name or user.username,
+        "voice_channel_id": voice_channel_id,
+        "voice_channel_name": voice_channel_name
+    })
+
     print(f"[UnifiedWS] 🎤 {user.username} присоединился к голосовому каналу {voice_channel_id}")
     return voice_channel_id
 
@@ -497,6 +508,14 @@ async def cleanup_voice_connection(
     await manager.send_to_channel(voice_channel_id, {
         "type": "user_left_voice",
         "user_id": user.id
+    })
+
+    # Глобальное уведомление всем онлайн пользователям
+    await manager.broadcast({
+        "type": "voice_channel_leave",
+        "user_id": user.id,
+        "username": user.display_name or user.username,
+        "voice_channel_id": voice_channel_id
     })
 
     print(f"[UnifiedWS] 🔇 {user.username} покинул голосовой канал {voice_channel_id}")

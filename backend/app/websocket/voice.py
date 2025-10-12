@@ -136,16 +136,15 @@ async def websocket_voice_endpoint(
             # Отправляем всем, кроме отправителя. На клиенте нужно будет игнорировать это сообщение, если from_id == user.id
             await manager.send_to_channel(channel_id, join_message)
             
-            # Глобальное уведомление не реализовано в полной мере в ConnectionManager
-            # # Глобальное уведомление всем онлайн пользователям
-            # global_join_message = {
-            #     "type": "voice_channel_join",
-            #     "user_id": user.id,
-            #     "username": user.display_name or user.username,
-            #     "voice_channel_id": channel_id,
-            #     "voice_channel_name": voice_channel.name
-            # }
-            # await manager.broadcast(global_join_message)
+            # Глобальное уведомление всем онлайн пользователям
+            global_join_message = {
+                "type": "voice_channel_join",
+                "user_id": user.id,
+                "username": user.display_name or user.username,
+                "voice_channel_id": channel_id,
+                "voice_channel_name": voice_channel.name
+            }
+            await manager.broadcast(global_join_message)
             
             # Обработка сообщений WebRTC
             while True:
@@ -316,12 +315,11 @@ async def websocket_voice_endpoint(
             }
             await manager.send_to_channel(channel_id, leave_message)
             
-            # Глобальное уведомление не реализовано в полной мере в ConnectionManager
-            # # Глобальное уведомление всем онлайн пользователям
-            # global_leave_message = {
-            #     "type": "voice_channel_leave",
-            #     "user_id": user.id,
-            #     "username": user.display_name or user.username,
-            #     "voice_channel_id": channel_id
-            # }
-            # await manager.broadcast(global_leave_message)
+            # Глобальное уведомление всем онлайн пользователям
+            global_leave_message = {
+                "type": "voice_channel_leave",
+                "user_id": user.id,
+                "username": user.display_name or user.username,
+                "voice_channel_id": channel_id
+            }
+            await manager.broadcast(global_leave_message)
