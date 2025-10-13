@@ -5,6 +5,7 @@ import { DirectMessage, User } from '../types'
 import directMessageService from '../services/directMessageService'
 import websocketService from '../services/websocketService'
 import uploadService from '../services/uploadService'
+import api from '../services/api'
 import { useAuthStore } from '../store/store'
 import p2pVoiceService from '../services/p2pVoiceService'
 import { Phone, PhoneOff, Send, X, Clock, PlusCircle, Smile, Reply, Trash2, Edit } from 'lucide-react'
@@ -106,9 +107,52 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
       }
     };
 
+    const handleDMDeleted = (payload: any) => {
+      const data = payload.data || payload;
+      console.log('[DirectMessageArea] Сообщение удалено:', data);
+      setMessages((prev) => prev.filter(m => m.id !== data.message_id));
+    };
+
+    const handleDMReactionUpdated = (payload: any) => {
+      const data = payload.data || payload;
+      console.log('[DirectMessageArea] Реакция обновлена:', data);
+      
+      setMessages((prev) => prev.map(msg => {
+        if (msg.id !== data.message_id) return msg;
+        
+        // Обновляем реакции для сообщения
+        const updatedReactions = msg.reactions || [];
+        const reactionIndex = updatedReactions.findIndex(r => r.emoji === data.emoji);
+        
+        if (data.reaction.count === 0) {
+          // Удаляем реакцию если count = 0
+          return {
+            ...msg,
+            reactions: updatedReactions.filter(r => r.emoji !== data.emoji)
+          };
+        } else if (reactionIndex !== -1) {
+          // Обновляем существующую реакцию
+          const newReactions = [...updatedReactions];
+          newReactions[reactionIndex] = data.reaction;
+          return { ...msg, reactions: newReactions };
+        } else {
+          // Добавляем новую реакцию
+          return {
+            ...msg,
+            reactions: [...updatedReactions, data.reaction]
+          };
+        }
+      }));
+    };
+
     websocketService.on('dm', handleNewMessage);
+    websocketService.on('dm_deleted', handleDMDeleted);
+    websocketService.on('dm_reaction_updated', handleDMReactionUpdated);
+    
     return () => {
       websocketService.off('dm', handleNewMessage);
+      websocketService.off('dm_deleted', handleDMDeleted);
+      websocketService.off('dm_reaction_updated', handleDMReactionUpdated);
     };
   }, [friend.id, user?.id]);
 
@@ -227,13 +271,25 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
   }
 
   const handleDeleteMessage = async (messageId: number | string) => {
-    // Пока только для pending сообщений
+    // Для pending сообщений
     if (typeof messageId === 'string') {
       handleDeletePendingMessage(messageId);
-    } else {
-      // TODO: Добавить API для удаления отправленных сообщений
+      return;
+    }
+    
+    // Для отправленных сообщений
+    try {
       console.log('Удаление отправленного сообщения:', messageId);
-      alert('Удаление отправленных сообщений будет добавлено позже');
+      await api.delete(`/api/dms/${messageId}`);
+      // Удаляем из UI сразу (оптимистично)
+      setMessages((prev) => prev.filter(m => m.id !== messageId));
+    } catch (error: any) {
+      console.error('Ошибка удаления сообщения:', error);
+      if (error.response?.status === 403) {
+        alert('Сообщение можно удалить только в течение 5 минут после отправки');
+      } else {
+        alert('Не удалось удалить сообщение');
+      }
     }
   }
 
@@ -248,10 +304,19 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
     return diffMinutes < 5;
   }
 
-  const handleAddReaction = (messageId: number | string, emoji: string) => {
-    // TODO: Интеграция с API для добавления реакций
-    console.log('Добавление реакции:', emoji, 'к сообщению', messageId);
-    setShowEmojiPicker(null);
+  const handleAddReaction = async (messageId: number | string, emoji: string) => {
+    // Не обрабатываем pending сообщения
+    if (typeof messageId === 'string') {
+      return;
+    }
+    
+    try {
+      console.log('Добавление реакции:', emoji, 'к сообщению', messageId);
+      await api.post(`/api/dms/${messageId}/reactions`, { emoji });
+      setShowEmojiPicker(null);
+    } catch (error) {
+      console.error('Ошибка добавления реакции:', error);
+    }
   }
 
   const toggleEmojiPicker = (messageId: number | string) => {
