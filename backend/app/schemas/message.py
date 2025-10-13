@@ -74,3 +74,4 @@ from app.schemas.reaction import ReactionResponse
 
 # Update forward references
 Message.model_rebuild()
+DirectMessageSchema.model_rebuild()
