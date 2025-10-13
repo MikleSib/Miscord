@@ -17,11 +17,12 @@ async def get_messages(db: AsyncSession, user1_id: int, user2_id: int, skip: int
     # Сортируем сообщения по времени в возрастающем порядке для правильного отображения
     return sorted(messages, key=lambda x: x.timestamp)
 
-async def create_message(db: AsyncSession, sender_id: int, recipient_id: int, content: str = None, attachments: list = None):
+async def create_message(db: AsyncSession, sender_id: int, recipient_id: int, content: str = None, attachments: list = None, reply_to_id: int = None):
     db_message = DirectMessage(
         sender_id=sender_id,
         recipient_id=recipient_id,
-        content=content
+        content=content,
+        reply_to_id=reply_to_id
     )
     
     # Добавляем вложения если они есть
@@ -34,10 +35,14 @@ async def create_message(db: AsyncSession, sender_id: int, recipient_id: int, co
     await db.commit()
     await db.refresh(db_message)
     
-    # Загружаем с attachments
+    # Загружаем с attachments, reactions, и reply_to
     result = await db.execute(
         select(DirectMessage)
         .where(DirectMessage.id == db_message.id)
-        .options(selectinload(DirectMessage.attachments))
+        .options(
+            selectinload(DirectMessage.attachments),
+            selectinload(DirectMessage.reactions),
+            selectinload(DirectMessage.reply_to)
+        )
     )
     return result.scalar_one()

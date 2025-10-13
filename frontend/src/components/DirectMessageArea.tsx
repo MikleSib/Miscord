@@ -7,7 +7,7 @@ import websocketService from '../services/websocketService'
 import uploadService from '../services/uploadService'
 import { useAuthStore } from '../store/store'
 import p2pVoiceService from '../services/p2pVoiceService'
-import { Phone, PhoneOff, Send, X, Clock, PlusCircle } from 'lucide-react'
+import { Phone, PhoneOff, Send, X, Clock, PlusCircle, Smile, Reply, Trash2, Edit } from 'lucide-react'
 import { UserAvatar } from './ui/user-avatar'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
@@ -29,6 +29,9 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [isSending, setIsSending] = useState(false)
   const [viewingImage, setViewingImage] = useState<string | null>(null)
+  const [replyingTo, setReplyingTo] = useState<DirectMessage | null>(null)
+  const [hoveredMessageId, setHoveredMessageId] = useState<number | string | null>(null)
+  const [showEmojiPicker, setShowEmojiPicker] = useState<number | string | null>(null)
 
   // Загрузка сообщений с пагинацией
   const fetchMessages = async (loadSkip: number = 0, loadLimit: number = 30) => {
@@ -215,6 +218,48 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
     setViewingImage(null);
   }
 
+  const handleReply = (message: DirectMessage) => {
+    setReplyingTo(message);
+  }
+
+  const handleCancelReply = () => {
+    setReplyingTo(null);
+  }
+
+  const handleDeleteMessage = async (messageId: number | string) => {
+    // Пока только для pending сообщений
+    if (typeof messageId === 'string') {
+      handleDeletePendingMessage(messageId);
+    } else {
+      // TODO: Добавить API для удаления отправленных сообщений
+      console.log('Удаление отправленного сообщения:', messageId);
+      alert('Удаление отправленных сообщений будет добавлено позже');
+    }
+  }
+
+  const canDeleteMessage = (msg: DirectMessage) => {
+    if (msg.isPending) return true;
+    if (msg.sender_id !== user?.id) return false;
+    
+    // Можно удалить если прошло менее 5 минут
+    const messageTime = new Date(msg.timestamp).getTime();
+    const now = new Date().getTime();
+    const diffMinutes = (now - messageTime) / (1000 * 60);
+    return diffMinutes < 5;
+  }
+
+  const handleAddReaction = (messageId: number | string, emoji: string) => {
+    // TODO: Интеграция с API для добавления реакций
+    console.log('Добавление реакции:', emoji, 'к сообщению', messageId);
+    setShowEmojiPicker(null);
+  }
+
+  const toggleEmojiPicker = (messageId: number | string) => {
+    setShowEmojiPicker(showEmojiPicker === messageId ? null : messageId);
+  }
+
+  const quickEmojis = ['❤️', '👍', '😂', '😮', '😢', '🙏', '👏', '🔥'];
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "auto" })
   }
@@ -266,11 +311,16 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
           const isPending = msg.isPending || false;
           
           return (
-            <div key={msg.id} className={`flex items-start gap-3 ${isCurrentUser ? 'justify-end' : ''} mb-2 group`}>
+            <div 
+              key={msg.id} 
+              className={`flex items-start gap-3 ${isCurrentUser ? 'justify-end' : ''} mb-2 group relative px-2 py-1 rounded-lg transition-all ${hoveredMessageId === msg.id ? 'bg-[#2c2d32]' : ''}`}
+              onMouseEnter={() => setHoveredMessageId(msg.id)}
+              onMouseLeave={() => setHoveredMessageId(null)}
+            >
               {!isCurrentUser && showAuthor && <UserAvatar user={messageUser as User} />}
               {!isCurrentUser && !showAuthor && <div className="w-10" />}
 
-              <div className={`flex flex-col ${isCurrentUser ? 'items-end' : 'items-start'}`}>
+              <div className={`flex flex-col ${isCurrentUser ? 'items-end' : 'items-start'} flex-1`}>
                 {showAuthor && (
                   <div className="flex items-center gap-2 mb-1">
                     <p className="font-semibold text-white">{messageUser?.username}</p>
@@ -307,23 +357,80 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
                   
                   {/* Message content */}
                   {msg.content && (
-                    <div className="flex items-center gap-2">
-                      <div className={`${isPending ? 'text-gray-400 opacity-70' : 'text-white'} ${isCurrentUser ? 'bg-blue-600' : 'bg-gray-700'} rounded-lg px-3 py-2 ${isPending ? 'bg-opacity-70' : ''}`}>
-                        {msg.content}
-                      </div>
-                      {isPending && isCurrentUser && msg.tempId && (
+                    <div className={`${isPending ? 'text-gray-400 opacity-70' : 'text-white'} ${isCurrentUser ? 'bg-blue-600' : 'bg-gray-700'} rounded-lg px-3 py-2 ${isPending ? 'bg-opacity-70' : ''}`}>
+                      {msg.content}
+                    </div>
+                  )}
+
+                  {/* Reactions */}
+                  {msg.reactions && msg.reactions.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {msg.reactions.map((reaction) => (
                         <button
-                          onClick={() => handleDeletePendingMessage(msg.tempId!)}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-red-500/20 rounded text-red-400"
-                          title="Отменить отправку"
+                          key={reaction.id}
+                          onClick={() => handleAddReaction(msg.id, reaction.emoji)}
+                          className={`flex items-center gap-1 px-2 py-1 rounded-full text-sm transition-colors ${
+                            reaction.currentUserReacted
+                              ? 'bg-blue-600/20 border border-blue-600'
+                              : 'bg-[#2c2d32] border border-[#3f4147] hover:border-gray-500'
+                          }`}
+                          title={reaction.users.map(u => u.username).join(', ')}
                         >
-                          <X className="w-4 h-4" />
+                          <span>{reaction.emoji}</span>
+                          <span className="text-xs text-gray-400">{reaction.count}</span>
                         </button>
-                      )}
+                      ))}
                     </div>
                   )}
                 </div>
               </div>
+
+              {/* Action Buttons - показываются при наведении */}
+              {hoveredMessageId === msg.id && !isPending && (
+                <div className="absolute top-0 right-12 flex items-center gap-1 bg-[#1e1f22] border border-[#3f4147] rounded-lg shadow-lg p-1">
+                  <button
+                    onClick={() => toggleEmojiPicker(msg.id)}
+                    className="p-1.5 hover:bg-[#2c2d32] rounded text-gray-400 hover:text-white transition-colors"
+                    title="Добавить реакцию"
+                  >
+                    <Smile className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleReply(msg)}
+                    className="p-1.5 hover:bg-[#2c2d32] rounded text-gray-400 hover:text-white transition-colors"
+                    title="Ответить"
+                  >
+                    <Reply className="w-4 h-4" />
+                  </button>
+                  {canDeleteMessage(msg) && (
+                    <button
+                      onClick={() => handleDeleteMessage(msg.id)}
+                      className="p-1.5 hover:bg-[#2c2d32] rounded text-red-400 hover:text-red-300 transition-colors"
+                      title="Удалить"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Emoji Picker */}
+              {showEmojiPicker === msg.id && (
+                <div className="absolute top-8 right-12 bg-[#1e1f22] border border-[#3f4147] rounded-lg shadow-xl p-2 z-10">
+                  <div className="grid grid-cols-4 gap-1">
+                    {quickEmojis.map((emoji) => (
+                      <button
+                        key={emoji}
+                        onClick={() => handleAddReaction(msg.id, emoji)}
+                        className="text-2xl p-2 hover:bg-[#2c2d32] rounded transition-colors"
+                        title={emoji}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {isCurrentUser && showAuthor && <UserAvatar user={messageUser as User} />}
               {isCurrentUser && !showAuthor && <div className="w-10" />}
@@ -337,6 +444,26 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
       <div className="px-4 pb-4 border-t border-[#2c2d32] flex-shrink-0">
         <form onSubmit={handleSendMessage} className="bg-[#383a40] rounded-lg flex flex-col">
           
+          {/* Reply Preview */}
+          {replyingTo && (
+            <div className="flex items-center justify-between p-3 border-b border-[#2c2d32] bg-[#2c2d32]/50">
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <Reply className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-gray-400">Ответ для {replyingTo.author?.username || friend.username}</p>
+                  <p className="text-sm text-white truncate">{replyingTo.content || 'Изображение'}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleCancelReply}
+                className="text-gray-400 hover:text-white transition-colors flex-shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
           {/* File Previews */}
           {files.length > 0 && (
             <div className="flex gap-2 p-2 border-b border-[#2c2d32]">
@@ -382,7 +509,7 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
               type="text"
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
-              placeholder={`Написать @${friend.username}`}
+              placeholder={replyingTo ? 'Напишите ответ...' : `Написать @${friend.username}`}
               className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none py-3"
               disabled={isSending}
             />

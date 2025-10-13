@@ -791,6 +791,7 @@ async def handle_dm_message(user: User, message_data: dict, db: AsyncSession, ma
     recipient_id = message_data.get("recipient_id")
     content = message_data.get("content", "").strip()
     attachments = message_data.get("attachments", [])
+    reply_to_id = message_data.get("reply_to_id")
 
     # Валидация: должен быть либо контент, либо вложения
     if (not content and not attachments) or not recipient_id:
@@ -805,7 +806,8 @@ async def handle_dm_message(user: User, message_data: dict, db: AsyncSession, ma
         sender_id=user.id, 
         recipient_id=recipient_id, 
         content=content if content else None,
-        attachments=attachments
+        attachments=attachments,
+        reply_to_id=reply_to_id
     )
 
     author = await db.get(User, user.id)
@@ -835,6 +837,13 @@ async def handle_dm_message(user: User, message_data: dict, db: AsyncSession, ma
             } for att in (db_message.attachments or [])
         ],
         "reactions": [],
+        "reply_to": None if not db_message.reply_to else {
+            "id": db_message.reply_to.id,
+            "content": db_message.reply_to.content,
+            "timestamp": db_message.reply_to.timestamp,
+            "sender_id": db_message.reply_to.sender_id,
+            "recipient_id": db_message.reply_to.recipient_id,
+        }
     }
 
     message_to_send = {
