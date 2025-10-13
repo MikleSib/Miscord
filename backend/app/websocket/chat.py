@@ -298,12 +298,24 @@ async def websocket_notifications_endpoint(
                     elif message_data.get("type") == "dm_message":
                         recipient_id = message_data.get("recipient_id")
                         content = message_data.get("content", "").strip()
+                        attachments = message_data.get("attachments", [])
+                        reply_to_id = message_data.get("reply_to_id")
 
-                        if not content or not recipient_id:
+                        # Валидация: должен быть либо контент, либо вложения
+                        if (not content and not attachments) or not recipient_id:
+                            continue
+                        
+                        # Ограничения
+                        if len(content) > 5000 or len(attachments) > 3:
                             continue
 
                         db_message = await direct_message_service.create_message(
-                            db, sender_id=user.id, recipient_id=recipient_id, content=content
+                            db, 
+                            sender_id=user.id, 
+                            recipient_id=recipient_id, 
+                            content=content if content else None,
+                            attachments=attachments,
+                            reply_to_id=reply_to_id
                         )
                         
                         author = await db.get(User, user.id)
@@ -325,8 +337,21 @@ async def websocket_notifications_endpoint(
                                 "created_at": author.created_at,
                                 "updated_at": author.updated_at,
                             },
-                            "attachments": [],
+                            "attachments": [
+                                {
+                                    "id": att.id,
+                                    "file_url": att.file_url,
+                                    "message_id": att.dm_message_id
+                                } for att in (db_message.attachments or [])
+                            ],
                             "reactions": [],
+                            "reply_to": None if not db_message.reply_to else {
+                                "id": db_message.reply_to.id,
+                                "content": db_message.reply_to.content,
+                                "timestamp": db_message.reply_to.timestamp,
+                                "sender_id": db_message.reply_to.sender_id,
+                                "recipient_id": db_message.reply_to.recipient_id,
+                            }
                         }
                         
                         message_to_send = {
