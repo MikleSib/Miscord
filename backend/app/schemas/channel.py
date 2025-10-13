@@ -31,6 +31,15 @@ class VoiceChannelBase(BaseModel):
 class VoiceChannelCreate(VoiceChannelBase):
     channel_id: int
 
+class TextChannelUpdate(BaseModel):
+    name: Optional[str] = None
+    position: Optional[int] = None
+
+class VoiceChannelUpdate(BaseModel):
+    name: Optional[str] = None
+    position: Optional[int] = None
+    max_users: Optional[int] = None
+
 class TextChannel(TextChannelBase):
     id: int
     channel_id: int

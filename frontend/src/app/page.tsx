@@ -24,6 +24,7 @@ import { useAppInitialization } from '../hooks/redux'
 import { ServerUserSidebar } from '../components/ServerUserSidebar'
 import { UserProfileBar } from '../components/UserProfileBar'
 import { VoiceConnectionPanel } from '../components/VoiceConnectionPanel'
+import SettingsModal from '../components/SettingsModal'
 import authService from '../services/authService'
 import { User } from '../types'
 
@@ -54,6 +55,7 @@ export default function HomePage() {
     lastError: undefined as string | undefined
   })
   const [showUserSidebar, setShowUserSidebar] = useState(true)
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false)
 
   useEffect(() => {
     setIsMounted(true)
@@ -378,6 +380,14 @@ export default function HomePage() {
     setToastNotifications(prev => prev.filter(toast => toast.id !== toastId));
   };
 
+  const handleOpenSettings = () => {
+    setIsSettingsModalOpen(true);
+  };
+
+  const handleCloseSettings = () => {
+    setIsSettingsModalOpen(false);
+  };
+
   if (!isMounted) {
     return null // Предотвращаем гидратацию
   }
@@ -481,7 +491,7 @@ export default function HomePage() {
 
       {/* Общий профиль пользователя внизу под серверами и каналами */}
       <div className="absolute bottom-2 left-2 z-50 max-w-[calc(100vw-16px)]">
-        <UserProfileBar />
+        <UserProfileBar onSettingsClick={handleOpenSettings} />
       </div>
 
       {/* Индикатор состояния подключения */}
@@ -504,6 +514,12 @@ export default function HomePage() {
           />
         ))}
       </div>
+
+      {/* Модал настроек */}
+      <SettingsModal
+        isOpen={isSettingsModalOpen}
+        onClose={handleCloseSettings}
+      />
     </div>
   )
 }

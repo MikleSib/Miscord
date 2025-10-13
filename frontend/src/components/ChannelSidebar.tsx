@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation'
 import { cn } from '../lib/utils'
 import { Button } from './ui/button'
 import voiceService from '../services/voiceService'
+import { Channel } from '../types'
 import {
   Dialog,
   DialogContent,
@@ -29,6 +30,7 @@ import {
 import channelService from '../services/channelService'
 import { UserAvatar } from './ui/user-avatar'
 import { ServerSettingsModal } from './ServerSettingsModal'
+import { ChannelSettingsModal } from './ChannelSettingsModal'
 
 // Компонент для аватарки с анимацией при разговоре
 interface SpeakingAvatarProps {
@@ -201,7 +203,10 @@ export function ChannelSidebar() {
   // Состояние для контекстного меню заголовка сервера
   const [serverContextMenu, setServerContextMenu] = useState<{ mouseX: number; mouseY: number } | null>(null);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
-  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false)
+  const [isChannelSettingsModalOpen, setIsChannelSettingsModalOpen] = useState(false)
+  const [selectedChannelForSettings, setSelectedChannelForSettings] = useState<Channel | null>(null)
+  const [hoveredChannel, setHoveredChannel] = useState<number | null>(null)
 
   const [inviteUsername, setInviteUsername] = useState('');
   const [inviteError, setInviteError] = useState('');
@@ -587,6 +592,41 @@ export function ChannelSidebar() {
     handleServerContextMenuClose();
   };
 
+  const handleChannelSettings = (channel: Channel) => {
+    // Проверяем, является ли текущий пользователь владельцем сервера
+    if (currentServer && currentServer.owner_id === user?.id) {
+      setSelectedChannelForSettings(channel);
+      setIsChannelSettingsModalOpen(true);
+    }
+  };
+
+  const handleChannelUpdate = (updatedChannel: Channel) => {
+    // Обновляем канал в сторе
+    if (currentServer) {
+      const updatedChannels = currentServer.channels.map(c =>
+        c.id === updatedChannel.id ? updatedChannel : c
+      );
+      // Обновляем состояние сервера через store
+      // Поскольку у нас нет прямого доступа к store здесь, просто обновляем локальное состояние
+      // В реальном приложении это должно быть сделано через action в store
+    }
+  };
+
+  const handleChannelDelete = (channelId: number) => {
+    // Удаляем канал из сервера
+    if (currentServer) {
+      const updatedChannels = currentServer.channels.filter(c => c.id !== channelId);
+      // Здесь можно обновить состояние сервера
+      // Если удаленный канал был текущим, выбираем другой канал
+      if (currentChannel?.id === channelId) {
+        const nextChannel = updatedChannels[0];
+        if (nextChannel) {
+          selectChannel(nextChannel.id);
+        }
+      }
+    }
+  };
+
   const handleCopyServerId = () => {
     if (currentServer) {
       navigator.clipboard.writeText(currentServer.id.toString());
@@ -655,24 +695,44 @@ export function ChannelSidebar() {
             </div>
             <div className="px-2 space-y-0.5">
               {textChannels.map((channel) => (
-                <Button
+                <div
                   key={channel.id}
-                  variant="ghost"
-                  size="sm"
-                  className={cn(
-                    "w-full justify-start gap-1.5 h-8 px-2 text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                    currentChannel?.id === channel.id && "bg-accent text-foreground border-l-4 border-l-blue-500"
-                  )}
-                  onClick={() => handleChannelClick(channel)}
+                  className="relative group"
+                  onMouseEnter={() => setHoveredChannel(channel.id)}
+                  onMouseLeave={() => setHoveredChannel(null)}
                 >
-                  <Hash className={cn(
-                    "w-4 h-4",
-                    currentChannel?.id === channel.id ? "text-foreground" : "text-muted-foreground"
-                  )} />
-                  <span className={cn(
-                    currentChannel?.id === channel.id ? "text-foreground font-medium" : ""
-                  )}>{channel.name}</span>
-                </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={cn(
+                      "w-full justify-start gap-1.5 h-8 px-2 text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                      currentChannel?.id === channel.id && "bg-accent text-foreground border-l-4 border-l-blue-500"
+                    )}
+                    onClick={() => handleChannelClick(channel)}
+                  >
+                    <Hash className={cn(
+                      "w-4 h-4",
+                      currentChannel?.id === channel.id ? "text-foreground" : "text-muted-foreground"
+                    )} />
+                    <span className={cn(
+                      currentChannel?.id === channel.id ? "text-foreground font-medium" : ""
+                    )}>{channel.name}</span>
+                  </Button>
+                  {hoveredChannel === channel.id && currentServer && currentServer.owner_id === user?.id && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-2 top-1/2 transform -translate-y-1/2 w-6 h-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-accent/50"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleChannelSettings(channel);
+                      }}
+                      title="Настройки канала"
+                    >
+                      <Settings className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+                    </Button>
+                  )}
+                </div>
               ))}
               {textChannels.length === 0 && (
                 <div className="px-2 py-2 text-xs text-muted-foreground">
@@ -698,29 +758,49 @@ export function ChannelSidebar() {
                 const channelParticipants = getChannelParticipants(channel.id);
                 return (
                   <div key={channel.id}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className={cn(
-                        "w-full justify-start gap-1.5 h-8 px-2",
-                        currentChannel?.id === channel.id && "bg-accent",
-                        currentVoiceChannelId === channel.id && "bg-green-600/20 border border-green-500/50"
-                      )}
-                      onClick={() => handleChannelClick(channel)}
+                    <div
+                      className="relative group"
+                      onMouseEnter={() => setHoveredChannel(channel.id)}
+                      onMouseLeave={() => setHoveredChannel(null)}
                     >
-                      <Volume2 className={cn(
-                        "w-4 h-4",
-                        currentVoiceChannelId === channel.id && "text-green-400"
-                      )} />
-                      <span className={cn(
-                        currentVoiceChannelId === channel.id && "text-green-400"
-                      )}>
-                        {channel.name}
-                      </span>
-                      {currentVoiceChannelId === channel.id && (
-                        <div className="ml-auto w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className={cn(
+                          "w-full justify-start gap-1.5 h-8 px-2",
+                          currentChannel?.id === channel.id && "bg-accent",
+                          currentVoiceChannelId === channel.id && "bg-green-600/20 border border-green-500/50"
+                        )}
+                        onClick={() => handleChannelClick(channel)}
+                      >
+                        <Volume2 className={cn(
+                          "w-4 h-4",
+                          currentVoiceChannelId === channel.id && "text-green-400"
+                        )} />
+                        <span className={cn(
+                          currentVoiceChannelId === channel.id && "text-green-400"
+                        )}>
+                          {channel.name}
+                        </span>
+                        {currentVoiceChannelId === channel.id && (
+                          <div className="ml-auto w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                        )}
+                      </Button>
+                      {hoveredChannel === channel.id && currentServer && currentServer.owner_id === user?.id && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="absolute right-2 top-1/2 transform -translate-y-1/2 w-6 h-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-accent/50"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleChannelSettings(channel);
+                          }}
+                          title="Настройки канала"
+                        >
+                          <Settings className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+                        </Button>
                       )}
-                    </Button>
+                    </div>
                     
                     {/* Участники голосового канала */}
                     {channelParticipants.length > 0 && (
@@ -1107,6 +1187,19 @@ export function ChannelSidebar() {
         server={currentServer}
         onServerUpdate={() => {}}
       />
+
+      {selectedChannelForSettings && (
+        <ChannelSettingsModal
+          isOpen={isChannelSettingsModalOpen}
+          onClose={() => {
+            setIsChannelSettingsModalOpen(false)
+            setSelectedChannelForSettings(null)
+          }}
+          channel={selectedChannelForSettings}
+          onChannelUpdate={handleChannelUpdate}
+          onChannelDelete={handleChannelDelete}
+        />
+      )}
 
       {/* Invite User Modal */}
       <Dialog 

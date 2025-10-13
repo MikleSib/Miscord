@@ -2,13 +2,15 @@ import { Mic, MicOff, Headphones, VolumeX, Settings } from 'lucide-react';
 import { UserAvatar } from './ui/user-avatar';
 import { useAuthStore } from '../store/store';
 import { useVoiceStore } from '../store/slices/voiceSlice';
-import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-export function UserProfileBar() {
+interface UserProfileBarProps {
+  onSettingsClick?: () => void;
+}
+
+export function UserProfileBar({ onSettingsClick }: UserProfileBarProps) {
   const { user } = useAuthStore();
   const { isMuted, isDeafened, toggleMute, toggleDeafen } = useVoiceStore();
-  const router = useRouter();
   const [showCopiedTooltip, setShowCopiedTooltip] = useState(false);
 
   const handleMuteToggle = () => {
@@ -20,7 +22,9 @@ export function UserProfileBar() {
   };
 
   const handleSettings = () => {
-    router.push('/settings');
+    if (onSettingsClick) {
+      onSettingsClick();
+    }
   };
 
   const handleCopyUsername = async () => {

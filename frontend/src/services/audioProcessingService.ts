@@ -73,7 +73,6 @@ export class AudioProcessingService {
     return [
       { engine: 'browser', supported: true, name: 'Браузерные фильтры' },
       { engine: 'rnnoise', supported: true, name: 'RNNoise (базовый)' },
-      { engine: 'deepfilternet', supported: this.deepFilterNetSupported, name: 'DeepFilterNet (продвинутый)' },
     ];
   }
 

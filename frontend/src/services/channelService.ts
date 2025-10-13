@@ -28,6 +28,12 @@ export interface UpdateServerRequest {
   icon?: string;
 }
 
+export interface UpdateChannelRequest {
+  name?: string;
+  type?: 'text' | 'voice';
+  position?: number;
+}
+
 class ChannelService {
   async getUserChannels(): Promise<Channel[]> {
     const response = await api.get<Channel[]>('/api/channels/');
@@ -108,6 +114,24 @@ class ChannelService {
 
   async deleteServer(serverId: number): Promise<void> {
     await api.delete(`/api/channels/${serverId}`);
+  }
+
+  async updateTextChannel(textChannelId: number, data: { name?: string; position?: number }): Promise<any> {
+    const response = await api.put(`/api/channels/text/${textChannelId}`, data);
+    return response.data;
+  }
+
+  async updateVoiceChannel(voiceChannelId: number, data: { name?: string; position?: number; max_users?: number }): Promise<any> {
+    const response = await api.put(`/api/channels/voice/${voiceChannelId}`, data);
+    return response.data;
+  }
+
+  async deleteTextChannel(textChannelId: number): Promise<void> {
+    await api.delete(`/api/channels/text/${textChannelId}`);
+  }
+
+  async deleteVoiceChannel(voiceChannelId: number): Promise<void> {
+    await api.delete(`/api/channels/voice/${voiceChannelId}`);
   }
 }
 
