@@ -40,16 +40,22 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
     setIsLoading(true)
     try {
       const messageHistory = await directMessageService.getMessages(friend.id, loadSkip, loadLimit)
+      // Гарантируем, что reactions всегда массив
+      const messagesWithReactions = messageHistory.map(msg => ({
+        ...msg,
+        reactions: msg.reactions || []
+      }));
+      
       if (loadSkip === 0) {
         // Первоначальная загрузка
-        setMessages(messageHistory)
-        setSkip(messageHistory.length)
-        setHasMore(messageHistory.length === loadLimit)
+        setMessages(messagesWithReactions)
+        setSkip(messagesWithReactions.length)
+        setHasMore(messagesWithReactions.length === loadLimit)
       } else {
         // Подгрузка старых сообщений
-        setMessages((prev) => [...messageHistory, ...prev])
-        setSkip(loadSkip + messageHistory.length)
-        setHasMore(messageHistory.length === loadLimit)
+        setMessages((prev) => [...messagesWithReactions, ...prev])
+        setSkip(loadSkip + messagesWithReactions.length)
+        setHasMore(messagesWithReactions.length === loadLimit)
       }
     } catch (error) {
       console.error('Ошибка загрузки личных сообщений:', error)

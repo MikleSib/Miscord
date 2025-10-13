@@ -12,8 +12,8 @@ async def get_messages(db: AsyncSession, user1_id: int, user2_id: int, skip: int
                 (DirectMessage.sender_id == user2_id) & (DirectMessage.recipient_id == user1_id)
             )
         ).options(
-            selectinload(DirectMessage.attachments),
-            selectinload(DirectMessage.reactions)
+            selectinload(DirectMessage.attachments)
+            # reactions приходят через WebSocket
         ).order_by(DirectMessage.timestamp.desc()).offset(skip).limit(limit)
     )
     messages = result.scalars().all()

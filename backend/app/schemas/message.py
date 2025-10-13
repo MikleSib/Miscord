@@ -47,7 +47,7 @@ class DirectMessageSchema(BaseModel):
     # Добавляем поля, которые ожидает фронтенд
     author: Optional[UserResponse] = None
     attachments: List[AttachmentSchema] = []  # Поддержка вложений
-    reactions: List["ReactionResponse"] = []  # Поддержка реакций (для будущего)
+    # reactions будут приходить через WebSocket, не включаем в GET запрос
     text_channel_id: Optional[int] = None
     is_edited: Optional[bool] = False
     is_deleted: Optional[bool] = False
