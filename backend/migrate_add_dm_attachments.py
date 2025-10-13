@@ -8,10 +8,10 @@
 """
 import asyncio
 from sqlalchemy import text
-from app.db.database import async_engine
+from app.db.database import engine
 
 async def migrate():
-    async with async_engine.begin() as conn:
+    async with engine.begin() as conn:
         print("Начало миграции...")
         
         # Проверяем существование колонки dm_message_id

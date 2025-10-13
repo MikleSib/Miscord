@@ -9,10 +9,10 @@
 """
 import asyncio
 from sqlalchemy import text
-from app.db.database import async_engine
+from app.db.database import engine
 
 async def migrate():
-    async with async_engine.begin() as conn:
+    async with engine.begin() as conn:
         print("Начало миграции для интерактивных DM...")
         
         # 1. Добавляем reply_to_id в direct_messages
