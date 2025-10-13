@@ -68,11 +68,16 @@ export interface Message {
 }
 
 export interface DirectMessage {
-  id: number;
+  id: number | string; // Может быть временным ID (строка) для pending сообщений
   content: string;
   timestamp: string;
   sender_id: number;
   recipient_id: number;
+  author?: User; // Данные автора (могут прийти с сервера)
+  attachments?: Attachment[];
+  reactions?: Reaction[];
+  isPending?: boolean; // Статус отправки
+  tempId?: string; // Временный ID для отслеживания pending сообщений
 }
 
 // Бэкенд типы (для API)

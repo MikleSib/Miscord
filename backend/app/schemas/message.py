@@ -40,12 +40,14 @@ class Message(BaseModel):
 
 class DirectMessageSchema(BaseModel):
     id: int
-    content: str
+    content: Optional[str] = None  # Nullable для поддержки только фото
     timestamp: datetime
     sender_id: int
     recipient_id: int
     # Добавляем поля, которые ожидает фронтенд
     author: Optional[UserResponse] = None
+    attachments: List[AttachmentSchema] = []  # Поддержка вложений
+    reactions: List["ReactionResponse"] = []  # Поддержка реакций (для будущего)
     text_channel_id: Optional[int] = None
     is_edited: Optional[bool] = False
     is_deleted: Optional[bool] = False
