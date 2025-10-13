@@ -11,7 +11,10 @@ async def get_messages(db: AsyncSession, user1_id: int, user2_id: int, skip: int
                 (DirectMessage.sender_id == user1_id) & (DirectMessage.recipient_id == user2_id),
                 (DirectMessage.sender_id == user2_id) & (DirectMessage.recipient_id == user1_id)
             )
-        ).options(selectinload(DirectMessage.attachments)).order_by(DirectMessage.timestamp.desc()).offset(skip).limit(limit)
+        ).options(
+            selectinload(DirectMessage.attachments),
+            selectinload(DirectMessage.reactions)
+        ).order_by(DirectMessage.timestamp.desc()).offset(skip).limit(limit)
     )
     messages = result.scalars().all()
     # Сортируем сообщения по времени в возрастающем порядке для правильного отображения
