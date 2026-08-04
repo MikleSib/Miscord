@@ -17,72 +17,7 @@ interface VoiceOverlayProps {
   serverName?: string;
 }
 
-// Компонент для аватарки с анимацией при разговоре
-interface SpeakingAvatarProps {
-  user: {
-    username?: string;
-    display_name?: string;
-    avatar_url?: string | null;
-  };
-  isSpeaking: boolean;
-  size?: number;
-}
-
-function SpeakingAvatar({ user, isSpeaking, size = 24 }: SpeakingAvatarProps) {
-  return (
-    <Box
-      sx={{
-        position: 'relative',
-        display: 'inline-block',
-      }}
-    >
-      {/* Анимированная обводка */}
-      {isSpeaking && (
-        <Box
-          sx={{
-            position: 'absolute',
-            top: -3,
-            left: -3,
-            width: size + 6,
-            height: size + 6,
-            borderRadius: '50%',
-            background: 'linear-gradient(45deg, #00ff88, #00cc6a)',
-            animation: 'speaking-pulse 1.5s ease-in-out infinite',
-            '@keyframes speaking-pulse': {
-              '0%': {
-                transform: 'scale(1)',
-                opacity: 0.8,
-              },
-              '50%': {
-                transform: 'scale(1.1)',
-                opacity: 1,
-              },
-              '100%': {
-                transform: 'scale(1)',
-                opacity: 0.8,
-              },
-            },
-          }}
-        />
-      )}
-      
-      {/* Основная аватарка */}
-      <UserAvatar
-        user={user}
-        size={size}
-        sx={{ 
-          backgroundColor: isSpeaking ? '#00ff88' : (!user.avatar_url ? '#5865f2' : 'transparent'),
-          color: 'white',
-          fontWeight: 600,
-          zIndex: 1,
-          position: 'relative',
-          border: isSpeaking ? '2px solid #00ff88' : '2px solid transparent',
-          transition: 'all 0.2s ease-in-out',
-        }}
-      />
-    </Box>
-  );
-}
+import { SpeakingAvatar } from './SpeakingAvatar'
 
 export function VoiceOverlay({ onHangUp, participantsList, channelName, serverName }: VoiceOverlayProps) {
   const {
@@ -255,17 +190,17 @@ export function VoiceOverlay({ onHangUp, participantsList, channelName, serverNa
         }}
       >
         <Box>
-          <Typography variant="body2" sx={{ color: '#dcddde', fontWeight: 600 }}>
+          <Typography variant="body2" sx={{ color: '#f5f5f5', fontWeight: 600 }}>
             {channelName || currentVoiceChannel?.name || 'Голосовой звонок'}
           </Typography>
-          <Typography variant="caption" sx={{ color: '#72767d' }}>
+          <Typography variant="caption" sx={{ color: '#7d7e87' }}>
             {serverName || currentServer?.name}
           </Typography>
         </Box>
         <IconButton 
           size="small" 
           onClick={disconnectFromVoiceChannel}
-          sx={{ color: '#b9bbbe', '&:hover': { color: '#f04747' } }}
+          sx={{ color: '#cdcdcf', '&:hover': { color: '#da3e44' } }}
         >
           <X size={16} />
         </IconButton>
@@ -274,7 +209,7 @@ export function VoiceOverlay({ onHangUp, participantsList, channelName, serverNa
       {/* Участники */}
       <Box>
         {allParticipants.map((participant) => {
-          const isSpeaking = speakingUsers.has(participant.user_id);
+          const isSpeaking = Boolean(speakingUsers[participant.user_id]);
           
           return (
             <Box
@@ -299,7 +234,7 @@ export function VoiceOverlay({ onHangUp, participantsList, channelName, serverNa
               <Typography
                 variant="body2"
                 sx={{
-                  color: isSpeaking ? '#00ff88' : '#dcddde',
+                  color: isSpeaking ? '#23a55a' : '#f5f5f5',
                   flex: 1,
                   fontSize: '14px',
                   fontWeight: isSpeaking ? 600 : 400,
@@ -311,7 +246,7 @@ export function VoiceOverlay({ onHangUp, participantsList, channelName, serverNa
                   <Typography
                     component="span"
                     variant="caption"
-                    sx={{ color: '#72767d', ml: 1 }}
+                    sx={{ color: '#7d7e87', ml: 1 }}
                   >
                     (Вы)
                   </Typography>
@@ -325,7 +260,7 @@ export function VoiceOverlay({ onHangUp, participantsList, channelName, serverNa
                   <MicOff 
                     size={14} 
                     style={{ 
-                      color: '#f04747',
+                      color: '#da3e44',
                       opacity: 0.8 
                     }} 
                   />
@@ -333,7 +268,7 @@ export function VoiceOverlay({ onHangUp, participantsList, channelName, serverNa
                   <Mic 
                     size={14} 
                     style={{ 
-                      color: '#43b581',
+                      color: '#23a55a',
                       opacity: 0.8 
                     }} 
                   />
@@ -344,7 +279,7 @@ export function VoiceOverlay({ onHangUp, participantsList, channelName, serverNa
                   <VolumeX 
                     size={14} 
                     style={{ 
-                      color: '#f04747',
+                      color: '#da3e44',
                       opacity: 0.8 
                     }} 
                   />
@@ -352,7 +287,7 @@ export function VoiceOverlay({ onHangUp, participantsList, channelName, serverNa
                   <Volume2 
                     size={14} 
                     style={{ 
-                      color: '#43b581',
+                      color: '#23a55a',
                       opacity: 0.8 
                     }} 
                   />
@@ -364,7 +299,7 @@ export function VoiceOverlay({ onHangUp, participantsList, channelName, serverNa
         
         {allParticipants.length === 0 && (
           <Box sx={{ padding: '16px', textAlign: 'center' }}>
-            <Typography variant="body2" sx={{ color: '#72767d' }}>
+            <Typography variant="body2" sx={{ color: '#7d7e87' }}>
               Нет участников
             </Typography>
           </Box>
@@ -386,12 +321,12 @@ export function VoiceOverlay({ onHangUp, participantsList, channelName, serverNa
           size="small" 
           onClick={toggleMute}
           sx={{ 
-            color: isMuted ? '#f04747' : '#43b581',
+            color: isMuted ? '#da3e44' : '#23a55a',
             backgroundColor: isMuted ? 'rgba(240, 71, 71, 0.1)' : 'rgba(67, 181, 129, 0.1)',
             '&:hover': { 
               backgroundColor: isMuted ? 'rgba(240, 71, 71, 0.2)' : 'rgba(67, 181, 129, 0.2)',
             },
-            border: `1px solid ${isMuted ? '#f04747' : '#43b581'}`,
+            border: `1px solid ${isMuted ? '#da3e44' : '#23a55a'}`,
           }}
         >
           {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
@@ -402,12 +337,12 @@ export function VoiceOverlay({ onHangUp, participantsList, channelName, serverNa
           size="small" 
           onClick={toggleDeafen}
           sx={{ 
-            color: isDeafened ? '#f04747' : '#43b581',
+            color: isDeafened ? '#da3e44' : '#23a55a',
             backgroundColor: isDeafened ? 'rgba(240, 71, 71, 0.1)' : 'rgba(67, 181, 129, 0.1)',
             '&:hover': { 
               backgroundColor: isDeafened ? 'rgba(240, 71, 71, 0.2)' : 'rgba(67, 181, 129, 0.2)',
             },
-            border: `1px solid ${isDeafened ? '#f04747' : '#43b581'}`,
+            border: `1px solid ${isDeafened ? '#da3e44' : '#23a55a'}`,
           }}
         >
           {isDeafened ? <VolumeX size={16} /> : <Volume2 size={16} />}
@@ -418,13 +353,13 @@ export function VoiceOverlay({ onHangUp, participantsList, channelName, serverNa
           size="small"
           onClick={toggleScreenShare}
           sx={{ 
-            color: isScreenSharing ? '#43b581' : '#b9bbbe',
+            color: isScreenSharing ? '#23a55a' : '#cdcdcf',
             backgroundColor: isScreenSharing ? 'rgba(67, 181, 129, 0.1)' : 'transparent',
             '&:hover': { 
-              color: isScreenSharing ? '#43b581' : '#dcddde',
+              color: isScreenSharing ? '#23a55a' : '#f5f5f5',
               backgroundColor: isScreenSharing ? 'rgba(67, 181, 129, 0.2)' : 'rgba(255, 255, 255, 0.1)',
             },
-            border: isScreenSharing ? '1px solid #43b581' : 'none',
+            border: isScreenSharing ? '1px solid #23a55a' : 'none',
           }}
           title={isScreenSharing ? "Остановить демонстрацию экрана" : "Демонстрация экрана"}
         >
@@ -451,7 +386,7 @@ export function VoiceOverlay({ onHangUp, participantsList, channelName, serverNa
             borderRadius: '12px',
             overflow: 'hidden',
             boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
-            border: '2px solid #43b581',
+            border: '2px solid #23a55a',
             backgroundColor: '#000',
             zIndex: 9999,
           }}

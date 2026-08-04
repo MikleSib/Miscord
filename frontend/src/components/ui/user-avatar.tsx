@@ -23,6 +23,7 @@ export const UserAvatar: React.FC<UserAvatarProps> = ({
 
   return (
     <Avatar
+      key={avatarUrl || 'no-avatar'}
       src={avatarUrl || undefined}
       className={className}
       sx={{

@@ -63,21 +63,46 @@ async def websocket_voice_endpoint(
         if not voice_channel:
             await websocket.close(code=4004, reason="Voice channel not found")
             return
-        
-        # Убираем проверку членства - все пользователи могут заходить в любые каналы
-        
-        # Проверка лимита пользователей
+
+        membership_result = await db.execute(
+            select(ChannelMember).where(
+                and_(
+                    ChannelMember.channel_id == voice_channel.channel_id,
+                    ChannelMember.user_id == user.id
+                )
+            )
+        )
+        if not membership_result.scalar_one_or_none():
+            await websocket.close(code=4003, reason="Server membership required")
+            return
+
+        existing_connection = voice_connections.get(channel_id, {}).get(user.id)
+        if existing_connection:
+            await websocket.close(code=4006, reason="Voice channel already connected")
+            return
+
+        # Voice presence is ephemeral. Remove a row left by an interrupted client before counting capacity.
+        await db.execute(
+            delete(VoiceChannelUser).where(
+                and_(
+                    VoiceChannelUser.voice_channel_id == channel_id,
+                    VoiceChannelUser.user_id == user.id
+                )
+            )
+        )
+        await db.commit()
         active_users_count = await db.execute(
             select(VoiceChannelUser).where(
                 VoiceChannelUser.voice_channel_id == channel_id
             )
         )
-        if len(active_users_count.scalars().all()) >= voice_channel.max_users:
+        if voice_channel.max_users and len(active_users_count.scalars().all()) >= voice_channel.max_users:
             await websocket.close(code=4005, reason="Voice channel is full")
             return
         
         # manager.connect() сам вызывает websocket.accept()
-        await manager.connect(websocket, user.id, channel_id)
+        manager_channel_id = -channel_id
+        await manager.connect(websocket, user.id, manager_channel_id)
         
         # Добавление в голосовой канал в БД
         voice_user = VoiceChannelUser(
@@ -106,8 +131,9 @@ async def websocket_voice_endpoint(
             # Обработка сообщений WebRTC
             while True:
                 data = await websocket.receive_json()
+                message_type = data.get('type')
                 
-                if data["type"] == "join":
+                if message_type == "join":
                     # Обработка сообщения о подключении пользователя
                     print(f"[Voice] Получено сообщение 'join' от пользователя {user.id} ({user.username})")
                     
@@ -202,37 +228,36 @@ async def websocket_voice_endpoint(
                         
                         print(f"[Voice] Уведомление voice_channel_join отправлено {sent_count} членам сервера {server_id}")
                 
-                elif data["type"] == "offer":
-                    # Пересылка offer целевому пользователю
+                elif message_type == "offer":
                     target_id = data.get("target_id")
-                    if target_id and target_id in voice_connections[channel_id]:
-                        await manager.send_personal_message({
+                    target_connection = voice_connections.get(channel_id, {}).get(target_id)
+                    if target_connection and data.get("offer"):
+                        await target_connection["websocket"].send_json({
                             "type": "offer",
                             "from_id": user.id,
                             "offer": data["offer"]
-                        }, target_id)
-                
-                elif data["type"] == "answer":
-                    # Пересылка answer целевому пользователю
+                        })
+
+                elif message_type == "answer":
                     target_id = data.get("target_id")
-                    if target_id and target_id in voice_connections[channel_id]:
-                        await manager.send_personal_message({
+                    target_connection = voice_connections.get(channel_id, {}).get(target_id)
+                    if target_connection and data.get("answer"):
+                        await target_connection["websocket"].send_json({
                             "type": "answer",
                             "from_id": user.id,
                             "answer": data["answer"]
-                        }, target_id)
-                
-                elif data["type"] == "ice_candidate":
-                    # Пересылка ICE candidate целевому пользователю
+                        })
+
+                elif message_type == "ice_candidate":
                     target_id = data.get("target_id")
-                    if target_id and target_id in voice_connections[channel_id]:
-                        await manager.send_personal_message({
+                    target_connection = voice_connections.get(channel_id, {}).get(target_id)
+                    if target_connection and data.get("candidate"):
+                        await target_connection["websocket"].send_json({
                             "type": "ice_candidate",
                             "from_id": user.id,
                             "candidate": data["candidate"]
-                        }, target_id)
-                
-                elif data["type"] == "mute":
+                        })
+                elif message_type == "mute":
                     # Обновление статуса mute
                     is_muted = data.get("is_muted", False)
                     voice_connections[channel_id][user.id]["is_muted"] = is_muted
@@ -257,9 +282,9 @@ async def websocket_voice_endpoint(
                         "user_id": user.id,
                         "is_muted": is_muted
                     }
-                    await manager.send_to_channel(channel_id, mute_message)
+                    await manager.send_to_channel(manager_channel_id, mute_message)
                 
-                elif data["type"] == "deafen":
+                elif message_type == "deafen":
                     # Обновление статуса deafen
                     is_deafened = data.get("is_deafened", False)
                     voice_connections[channel_id][user.id]["is_deafened"] = is_deafened
@@ -284,9 +309,9 @@ async def websocket_voice_endpoint(
                         "user_id": user.id,
                         "is_deafened": is_deafened
                     }
-                    await manager.send_to_channel(channel_id, deafen_message)
+                    await manager.send_to_channel(manager_channel_id, deafen_message)
                 
-                elif data["type"] == "speaking":
+                elif message_type == "speaking":
                     # Обработка информации о голосовой активности
                     is_speaking = data.get("is_speaking", False)
                     
@@ -296,9 +321,9 @@ async def websocket_voice_endpoint(
                         "user_id": user.id,
                         "is_speaking": is_speaking
                     }
-                    await manager.send_to_channel(channel_id, speaking_message)
+                    await manager.send_to_channel(manager_channel_id, speaking_message)
                 
-                elif data["type"] == "screen_share_start":
+                elif message_type == "screen_share_start":
                     # Обновляем состояние пользователя
                     voice_connections[channel_id][user.id]["is_sharing_screen"] = True
 
@@ -309,11 +334,11 @@ async def websocket_voice_endpoint(
                         "username": user.display_name or user.username
                     }
 
-                    await manager.send_to_channel(channel_id, screen_share_message)
+                    await manager.send_to_channel(manager_channel_id, screen_share_message)
 
                     print(f"Пользователь {user.username} начал демонстрацию экрана")
                 
-                elif data["type"] == "screen_share_stop":
+                elif message_type == "screen_share_stop":
                     # Обновляем состояние пользователя
                     voice_connections[channel_id][user.id]["is_sharing_screen"] = False
 
@@ -324,19 +349,19 @@ async def websocket_voice_endpoint(
                         "username": user.display_name or user.username
                     }
 
-                    await manager.send_to_channel(channel_id, screen_share_message)
+                    await manager.send_to_channel(manager_channel_id, screen_share_message)
 
                     print(f"Пользователь {user.username} остановил демонстрацию экрана")
                 
-                elif data["type"] == "pong":
+                elif message_type == "pong":
                     # Ответ на ping - просто игнорируем, соединение живо
                     pass
                 
                 else:
-                    print(f"Неизвестный тип сообщения: {data['type']}")
+                    print(f"Неизвестный тип сообщения: {message_type}")
                     await websocket.send_text(json.dumps({
                         "type": "error",
-                        "message": f"Неизвестный тип сообщения: {data['type']}"
+                        "message": f"Неизвестный тип сообщения: {message_type}"
                     }))
         
         except WebSocketDisconnect:
@@ -344,16 +369,14 @@ async def websocket_voice_endpoint(
         except Exception as e:
             print(f"Voice WebSocket error: {e}")
         finally:
-            await manager.disconnect(websocket, user.id, channel_id)
+            await manager.disconnect(websocket, user.id, manager_channel_id)
             # Удаление из голосового канала
-            if channel_id in voice_connections and user.id in voice_connections[channel_id]:
-                del voice_connections[channel_id][user.id]
-                
-                # Если канал пуст, удаляем его
-                if not voice_connections[channel_id]:
+            channel_connections = voice_connections.get(channel_id)
+            connection_info = channel_connections.get(user.id) if channel_connections else None
+            if connection_info and connection_info.get("websocket") is websocket:
+                del channel_connections[user.id]
+                if not channel_connections:
                     del voice_connections[channel_id]
-            
-            # Удаление из БД
             await db.execute(
                 delete(VoiceChannelUser).where(
                     and_(

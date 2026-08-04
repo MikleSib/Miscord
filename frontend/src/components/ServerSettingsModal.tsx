@@ -1,11 +1,24 @@
 'use client'
 
-import React, { useState, useRef } from 'react'
-import { X, Camera, Upload, Trash2 } from 'lucide-react'
-import { Button } from './ui/button'
+import React, { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
+import type { LucideIcon } from 'lucide-react'
+import { Ban, Info, Link2, LogOut, ScrollText, Shield, Trash2, Users, X } from 'lucide-react'
+
 import { Server } from '../types'
 import channelService from '../services/channelService'
-import uploadService from '../services/uploadService'
+import { useStore } from '../lib/store'
+import { useVoiceStore } from '../store/slices/voiceSlice'
+import { cn } from '../lib/utils'
+import { Permissions } from '../lib/permissions'
+import { useServerPermissions } from '../lib/serverPermissions'
+import { ConfirmDialog } from './server-settings/ConfirmDialog'
+import { ServerOverviewTab } from './server-settings/ServerOverviewTab'
+import { ServerMembersTab } from './server-settings/ServerMembersTab'
+import { ServerRolesTab } from './server-settings/ServerRolesTab'
+import { ServerInvitesTab } from './server-settings/ServerInvitesTab'
+import { ServerBansTab } from './server-settings/ServerBansTab'
+import { ServerAuditLogTab } from './server-settings/ServerAuditLogTab'
 
 interface ServerSettingsModalProps {
   isOpen: boolean
@@ -14,345 +27,282 @@ interface ServerSettingsModalProps {
   onServerUpdate: (updatedServer: Server) => void
 }
 
+type TabId = 'overview' | 'members' | 'roles' | 'invites' | 'bans' | 'audit'
+
+interface TabItem {
+  id: TabId
+  label: string
+  icon: LucideIcon
+  group?: 'users' | 'moderation'
+  /** Право, без которого вкладка не показывается. undefined — доступна всем участникам. */
+  permission?: number
+}
+
+const TABS: TabItem[] = [
+  { id: 'overview', label: 'Профиль сервера', icon: Info },
+  { id: 'members', label: 'Участники', icon: Users, group: 'users' },
+  { id: 'roles', label: 'Роли', icon: Shield, group: 'users', permission: Permissions.MANAGE_ROLES },
+  { id: 'invites', label: 'Приглашения', icon: Link2, group: 'users', permission: Permissions.CREATE_INVITE },
+  { id: 'bans', label: 'Блокировки', icon: Ban, group: 'moderation', permission: Permissions.BAN_MEMBERS },
+  { id: 'audit', label: 'Журнал аудита', icon: ScrollText, group: 'moderation', permission: Permissions.VIEW_AUDIT_LOG },
+]
+
+const GROUP_LABELS: Record<string, string> = {
+  users: 'Пользователи',
+  moderation: 'Модерация',
+}
+
+/** Выше сайдбара (z-50), профиля (z-50/60) и lightbox (z-100). */
+const MODAL_Z_INDEX = 100
+
 export function ServerSettingsModal({ isOpen, onClose, server, onServerUpdate }: ServerSettingsModalProps) {
-  const [activeTab, setActiveTab] = useState('overview')
-  const [serverName, setServerName] = useState(server.name)
-  const [serverDescription, setServerDescription] = useState(server.description || '')
-  const [serverIcon, setServerIcon] = useState(server.icon || '')
-  const [iconFile, setIconFile] = useState<File | null>(null)
-  const [iconPreview, setIconPreview] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState('')
+  const { removeServer, selectServer } = useStore()
+  const { can, isOwner } = useServerPermissions(isOpen ? server.id : null)
+
+  const [mounted, setMounted] = useState(false)
+
+  const [activeTab, setActiveTab] = useState<TabId>('overview')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
-  
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [isLeaving, setIsLeaving] = useState(false)
+  const [dangerError, setDangerError] = useState('')
 
-  const handleIconChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      // Проверяем размер файла (максимум 5МБ)
-      if (file.size > 5 * 1024 * 1024) {
-        setError('Размер файла не должен превышать 5МБ')
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  const visibleTabs = useMemo(
+    () => TABS.filter((tab) => tab.permission === undefined || can(tab.permission)),
+    [can]
+  )
+
+  useEffect(() => {
+    if (!isOpen) return
+    setActiveTab('overview')
+    setDangerError('')
+    setShowDeleteConfirm(false)
+    setShowLeaveConfirm(false)
+  }, [isOpen, server.id])
+
+  // Права могли измениться на ходу — не оставляем открытой недоступную вкладку
+  useEffect(() => {
+    if (!visibleTabs.some((tab) => tab.id === activeTab)) {
+      setActiveTab('overview')
+    }
+  }, [visibleTabs, activeTab])
+
+  useEffect(() => {
+    if (!isOpen) return
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (showDeleteConfirm || showLeaveConfirm) {
+        setShowDeleteConfirm(false)
+        setShowLeaveConfirm(false)
         return
       }
-      
-      // Проверяем тип файла
-      if (!file.type.startsWith('image/')) {
-        setError('Файл должен быть изображением')
-        return
-      }
-      
-      setIconFile(file)
-      setError('')
-      
-      // Создаем превью
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        setIconPreview(e.target?.result as string)
-      }
-      reader.readAsDataURL(file)
-    }
-  }
-
-  const handleSave = async () => {
-    if (!serverName.trim()) {
-      setError('Название сервера не может быть пустым')
-      return
+      onClose()
     }
 
-    setIsLoading(true)
-    setError('')
-    
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    document.addEventListener('keydown', handleEscape)
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [isOpen, onClose, showDeleteConfirm, showLeaveConfirm])
+
+  const handleLeaveServer = async () => {
+    setIsLeaving(true)
+    setDangerError('')
     try {
-      let iconUrl = serverIcon
+      const voiceState = useVoiceStore.getState()
+      const inVoiceOnThisServer =
+        voiceState.currentVoiceChannelId &&
+        server.channels.some(
+          (channel) => channel.type === 'voice' && channel.id === voiceState.currentVoiceChannelId
+        )
 
-      // Загружаем новую иконку если выбрана
-      if (iconFile) {
-        const uploadResponse = await uploadService.uploadFile(iconFile)
-        iconUrl = uploadResponse.file_url
+      if (inVoiceOnThisServer) {
+        useVoiceStore.getState().disconnectFromVoiceChannel()
       }
 
-      // Обновляем сервер
-      const updatedServer = await channelService.updateServer(server.id, {
-        name: serverName.trim(),
-        description: serverDescription.trim() || undefined,
-        icon: iconUrl || undefined
-      })
-
-      // Обновляем сервер в родительском компоненте
-      onServerUpdate({
-        ...server,
-        name: updatedServer.name,
-        description: updatedServer.description,
-        icon: updatedServer.icon
-      })
-
+      await channelService.leaveServer(server.id)
+      removeServer(server.id)
+      await selectServer(0)
       onClose()
     } catch (error: any) {
-      console.error('Ошибка сохранения настроек сервера:', error)
-      setError(error.response?.data?.detail || 'Не удалось сохранить настройки сервера')
+      console.error('Ошибка выхода из сервера:', error)
+      setDangerError(error.response?.data?.detail || 'Не удалось покинуть сервер')
     } finally {
-      setIsLoading(false)
+      setIsLeaving(false)
+      setShowLeaveConfirm(false)
     }
   }
 
   const handleDeleteServer = async () => {
     setIsDeleting(true)
+    setDangerError('')
     try {
       await channelService.deleteServer(server.id)
-      // Закрываем модальное окно - WebSocket уведомление автоматически обновит состояние
+      // Состояние обновит WebSocket-событие server_deleted
       onClose()
-      console.log('Сервер успешно удален, ожидаем WebSocket уведомление для обновления состояния')
     } catch (error: any) {
       console.error('Ошибка удаления сервера:', error)
-      setError(error.response?.data?.detail || 'Не удалось удалить сервер')
+      setDangerError(error.response?.data?.detail || 'Не удалось удалить сервер')
     } finally {
       setIsDeleting(false)
       setShowDeleteConfirm(false)
     }
   }
 
-  const handleCancel = () => {
-    setServerName(server.name)
-    setServerDescription(server.description || '')
-    setServerIcon(server.icon || '')
-    setIconFile(null)
-    setIconPreview(null)
-    setError('')
-    setShowDeleteConfirm(false)
-    onClose()
-  }
+  if (!isOpen || !mounted) return null
 
-  if (!isOpen) return null
+  const activeTabItem = TABS.find((tab) => tab.id === activeTab) ?? TABS[0]
 
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-background w-[960px] h-[640px] rounded-lg shadow-xl flex overflow-hidden">
+  let renderedGroup: string | undefined
+
+  return createPortal(
+    <div
+      className="fixed inset-0 flex items-center justify-center p-4"
+      style={{ zIndex: MODAL_Z_INDEX }}
+    >
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+
+      <div className="relative flex w-full max-w-5xl h-[680px] max-h-[92vh] overflow-hidden rounded-xl border border-border bg-background shadow-2xl">
         {/* Sidebar */}
-        <div className="w-60 bg-secondary border-r border-border flex flex-col">
-          <div className="p-4 border-b border-border">
-            <h2 className="text-lg font-semibold">{server.name}</h2>
-          </div>
-          
-          {/* Navigation */}
-          <div className="flex-1 p-2">
-            <div className="space-y-1">
-              <button
-                onClick={() => setActiveTab('overview')}
-                className={`w-full text-left px-3 py-2 rounded text-sm transition ${
-                  activeTab === 'overview' 
-                    ? 'bg-primary text-primary-foreground' 
-                    : 'hover:bg-accent text-muted-foreground'
-                }`}
-              >
-                Профиль сервера
-              </button>
-              
-              <div className="text-xs text-muted-foreground uppercase px-3 py-2 font-semibold">
-                Пользователи
-              </div>
-              <button className="w-full text-left px-3 py-2 rounded text-sm text-muted-foreground hover:bg-accent transition opacity-50 cursor-not-allowed">
-                Участники
-              </button>
-              <button className="w-full text-left px-3 py-2 rounded text-sm text-muted-foreground hover:bg-accent transition opacity-50 cursor-not-allowed">
-                Роли
-              </button>
-              <button className="w-full text-left px-3 py-2 rounded text-sm text-muted-foreground hover:bg-accent transition opacity-50 cursor-not-allowed">
-                Приглашения
-              </button>
-              
-              <div className="text-xs text-muted-foreground uppercase px-3 py-2 font-semibold">
-                Модерация
-              </div>
-              <button className="w-full text-left px-3 py-2 rounded text-sm text-muted-foreground hover:bg-accent transition opacity-50 cursor-not-allowed">
-                Журнал аудита
-              </button>
-              <button className="w-full text-left px-3 py-2 rounded text-sm text-muted-foreground hover:bg-accent transition opacity-50 cursor-not-allowed">
-                Автомодерация
-              </button>
-              
-              <div className="text-xs text-muted-foreground uppercase px-3 py-2 font-semibold">
-                Приложения
-              </div>
-              <button className="w-full text-left px-3 py-2 rounded text-sm text-muted-foreground hover:bg-accent transition opacity-50 cursor-not-allowed">
-                Интеграции
-              </button>
-              <button className="w-full text-left px-3 py-2 rounded text-sm text-muted-foreground hover:bg-accent transition opacity-50 cursor-not-allowed">
-                Виджеты сервера
-              </button>
-            </div>
+        <div className="flex w-60 flex-none flex-col border-r border-border bg-secondary">
+          <div className="border-b border-border px-4 py-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Настройки сервера
+            </p>
+            <h2 className="mt-1 truncate text-base font-semibold" title={server.name}>
+              {server.name}
+            </h2>
           </div>
 
-          {/* Delete Server Button */}
-          <div className="p-2 border-t border-border">
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              className="w-full text-left px-3 py-2 rounded text-sm text-red-500 hover:bg-red-500/10 transition flex items-center gap-2"
-            >
-              <Trash2 className="w-4 h-4" />
-              Удалить сервер
-            </button>
+          <nav className="scrollbar-thin flex-1 space-y-1 overflow-y-auto p-2">
+            {visibleTabs.map((tab) => {
+              const Icon = tab.icon
+              const showGroupLabel = tab.group && tab.group !== renderedGroup
+              if (tab.group) renderedGroup = tab.group
+
+              return (
+                <React.Fragment key={tab.id}>
+                  {showGroupLabel && (
+                    <div className="px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {GROUP_LABELS[tab.group as string]}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab(tab.id)}
+                    className={cn(
+                      'flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm transition-colors',
+                      activeTab === tab.id
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                    )}
+                  >
+                    <Icon className="h-4 w-4 flex-none" />
+                    <span className="truncate">{tab.label}</span>
+                  </button>
+                </React.Fragment>
+              )
+            })}
+          </nav>
+
+          <div className="border-t border-border p-2">
+            {isOwner ? (
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(true)}
+                className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm text-red-500 transition-colors hover:bg-red-500/10"
+              >
+                <Trash2 className="h-4 w-4 flex-none" />
+                Удалить сервер
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowLeaveConfirm(true)}
+                className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm text-red-500 transition-colors hover:bg-red-500/10"
+              >
+                <LogOut className="h-4 w-4 flex-none" />
+                Покинуть сервер
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Main Content */}
-        <div className="flex-1 flex flex-col">
-          {/* Header */}
-          <div className="p-6 border-b border-border flex justify-between items-center">
-            <h1 className="text-xl font-semibold">
-              {activeTab === 'overview' && 'Профиль сервера'}
-            </h1>
+        {/* Content */}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex h-14 flex-none items-center justify-between border-b border-border px-6">
+            <h1 className="text-lg font-semibold">{activeTabItem.label}</h1>
             <button
-              onClick={handleCancel}
-              className="p-2 hover:bg-accent rounded-full transition"
+              type="button"
+              onClick={onClose}
+              aria-label="Закрыть настройки"
+              className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
-              <X className="w-5 h-5" />
+              <X className="h-5 w-5" />
             </button>
           </div>
 
-          {/* Content */}
-          {activeTab === 'overview' && (
-            <div className="flex-1 p-6 overflow-y-auto">
-              <div className="max-w-2xl space-y-6">
-                {error && (
-                  <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-                    {error}
-                  </div>
-                )}
-
-                {/* Server Icon */}
-                <div>
-                  <label className="block text-sm font-medium mb-2">Значок сервера</label>
-                  <div className="flex items-center gap-4">
-                    <div className="relative">
-                      <div className="w-20 h-20 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-2xl font-semibold overflow-hidden">
-                        {iconPreview || serverIcon ? (
-                          <img 
-                            src={iconPreview || serverIcon} 
-                            alt="Server icon" 
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          server.name.slice(0, 2).toUpperCase()
-                        )}
-                      </div>
-                      <button
-                        onClick={() => fileInputRef.current?.click()}
-                        className="absolute -bottom-1 -right-1 w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center hover:bg-blue-600 transition"
-                      >
-                        <Camera className="w-3 h-3" />
-                      </button>
-                    </div>
-                    <div>
-                      <button
-                        onClick={() => fileInputRef.current?.click()}
-                        className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition flex items-center gap-2"
-                      >
-                        <Upload className="w-4 h-4" />
-                        Загрузить изображение
-                      </button>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Рекомендуется размер 512x512. Максимум 5МБ.
-                      </p>
-                    </div>
-                  </div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleIconChange}
-                    className="hidden"
-                  />
-                </div>
-
-                {/* Server Name */}
-                <div>
-                  <label htmlFor="serverName" className="block text-sm font-medium mb-2">
-                    Название сервера
-                  </label>
-                  <input
-                    id="serverName"
-                    type="text"
-                    value={serverName}
-                    onChange={(e) => setServerName(e.target.value)}
-                    className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                    maxLength={100}
-                    placeholder="Введите название сервера"
-                  />
-                </div>
-
-                {/* Server Description */}
-                <div>
-                  <label htmlFor="serverDescription" className="block text-sm font-medium mb-2">
-                    Описание сервера
-                  </label>
-                  <textarea
-                    id="serverDescription"
-                    value={serverDescription}
-                    onChange={(e) => setServerDescription(e.target.value)}
-                    className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary resize-none"
-                    rows={3}
-                    maxLength={500}
-                    placeholder="Краткое описание сервера"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {serverDescription.length}/500
-                  </p>
-                </div>
-
-                {/* Server Info */}
-                <div className="bg-secondary p-4 rounded-lg">
-                  <h3 className="font-medium mb-2">Информация о сервере</h3>
-                  <div className="space-y-1 text-sm text-muted-foreground">
-                    <p>ID сервера: {server.id}</p>
-                    <p>Дата создания: {new Date().toLocaleDateString()}</p>
-                  </div>
-                </div>
+          <div className="min-h-0 flex-1">
+            {dangerError && (
+              <div className="mx-6 mt-4 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+                {dangerError}
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Footer */}
-          <div className="p-6 border-t border-border flex justify-end gap-3">
-            <Button variant="outline" onClick={handleCancel} disabled={isLoading}>
-              Отмена
-            </Button>
-            <Button onClick={handleSave} disabled={isLoading}>
-              {isLoading ? 'Сохранение...' : 'Сохранить изменения'}
-            </Button>
+            {activeTab === 'overview' && (
+              <ServerOverviewTab server={server} onServerUpdate={onServerUpdate} />
+            )}
+            {activeTab === 'members' && <ServerMembersTab server={server} />}
+            {activeTab === 'roles' && <ServerRolesTab server={server} />}
+            {activeTab === 'invites' && <ServerInvitesTab server={server} />}
+            {activeTab === 'bans' && <ServerBansTab server={server} />}
+            {activeTab === 'audit' && <ServerAuditLogTab server={server} />}
           </div>
         </div>
       </div>
 
-      {/* Delete Confirmation Modal */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-60">
-          <div className="bg-background p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
-            <h3 className="text-lg font-semibold mb-4 text-red-500">Удалить сервер</h3>
-            <p className="text-sm text-muted-foreground mb-6">
-              Вы уверены, что хотите удалить сервер <strong>"{server.name}"</strong>? 
-              Это действие нельзя отменить. Все каналы и сообщения будут удалены навсегда.
-            </p>
-            <div className="flex gap-3 justify-end">
-              <Button 
-                variant="outline" 
-                onClick={() => setShowDeleteConfirm(false)}
-                disabled={isDeleting}
-              >
-                Отмена
-              </Button>
-              <Button 
-                onClick={handleDeleteServer}
-                disabled={isDeleting}
-                className="bg-red-500 hover:bg-red-600 text-white"
-              >
-                {isDeleting ? 'Удаление...' : 'Удалить сервер'}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+      <ConfirmDialog
+        open={showLeaveConfirm}
+        title="Покинуть сервер"
+        description={
+          <>
+            Вы уверены, что хотите покинуть сервер <strong>«{server.name}»</strong>? Чтобы вернуться,
+            вас снова нужно будет пригласить.
+          </>
+        }
+        confirmLabel="Покинуть сервер"
+        pendingLabel="Выход..."
+        isPending={isLeaving}
+        onConfirm={handleLeaveServer}
+        onCancel={() => setShowLeaveConfirm(false)}
+      />
+
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        title="Удалить сервер"
+        description={
+          <>
+            Вы уверены, что хотите удалить сервер <strong>«{server.name}»</strong>? Это действие нельзя
+            отменить: все каналы и сообщения будут удалены навсегда.
+          </>
+        }
+        confirmLabel="Удалить сервер"
+        pendingLabel="Удаление..."
+        isPending={isDeleting}
+        onConfirm={handleDeleteServer}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
+    </div>,
+    document.body
   )
-} 
+}

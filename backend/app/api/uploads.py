@@ -1,8 +1,10 @@
-import shutil
 import logging
-from fastapi import APIRouter, UploadFile, File, HTTPException, status, Depends
+import os
+import shutil
 from pathlib import Path
 from uuid import uuid4
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 
 from app.core.config import settings
 from app.core.dependencies import get_current_active_user
@@ -16,6 +18,9 @@ router = APIRouter()
 # Используем абсолютный путь относительно текущей рабочей директории
 UPLOADS_DIR = Path.cwd() / "static" / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+# nginx в Docker читает эти файлы напрямую — папки должны быть доступны «всем на чтение»
+os.chmod(UPLOADS_DIR.parent, 0o755)
+os.chmod(UPLOADS_DIR, 0o755)
 logger.info(f"[UPLOAD] Папка загрузок: {UPLOADS_DIR.absolute()}")
 
 @router.post("/upload")
@@ -64,6 +69,7 @@ async def upload_file(
         try:
             with file_path.open("wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
+            os.chmod(file_path, 0o644)
             logger.info(f"[UPLOAD] Файл успешно сохранен: {file_path}")
         except Exception as e:
             logger.error(f"[UPLOAD] Ошибка сохранения файла: {e}")

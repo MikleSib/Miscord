@@ -25,8 +25,135 @@ export interface Server {
   name: string;
   description?: string;
   icon?: string;
+  banner?: string | null;
+  is_public?: boolean;
   owner_id?: number;
+  created_at?: string;
+  members_count?: number;
   channels: Channel[];
+}
+
+// --- Управление сервером (Discord-подобные настройки) ---
+
+export interface Role {
+  id: number;
+  server_id: number;
+  name: string;
+  color?: string | null;
+  position: number;
+  permissions: number;
+  is_default: boolean;
+  created_at?: string | null;
+  members_count?: number;
+}
+
+export interface ServerMember {
+  id: number;
+  user_id: number;
+  username: string;
+  display_name?: string | null;
+  nickname?: string | null;
+  email?: string;
+  avatar_url?: string | null;
+  is_online?: boolean;
+  is_active?: boolean;
+  is_owner: boolean;
+  joined_at?: string | null;
+  roles: Role[];
+  role_ids: number[];
+  color?: string | null;
+  top_role_position: number;
+  permissions: number;
+}
+
+export interface ServerBan {
+  id: number;
+  user_id: number;
+  reason?: string | null;
+  created_at?: string | null;
+  user?: {
+    id: number;
+    username: string;
+    display_name?: string | null;
+    avatar_url?: string | null;
+  } | null;
+  moderator?: {
+    id: number;
+    username: string;
+  } | null;
+}
+
+export interface ServerInvite {
+  id: number;
+  code: string;
+  server_id: number;
+  inviter_id?: number | null;
+  inviter?: {
+    id: number;
+    username: string;
+    avatar_url?: string | null;
+  } | null;
+  target_text_channel_id?: number | null;
+  max_uses?: number | null;
+  uses: number;
+  expires_at?: string | null;
+  created_at?: string | null;
+  is_expired: boolean;
+}
+
+export interface InvitePreview {
+  code: string;
+  server_id: number;
+  server_name: string;
+  server_icon?: string | null;
+  server_description?: string | null;
+  members_count: number;
+  online_count: number;
+  inviter_name?: string | null;
+  is_expired: boolean;
+  is_member: boolean;
+  is_banned: boolean;
+  expires_at?: string | null;
+}
+
+export interface AuditLogEntry {
+  id: number;
+  action: string;
+  target_type?: string | null;
+  target_id?: number | null;
+  target_name?: string | null;
+  changes?: Record<string, any> | null;
+  reason?: string | null;
+  created_at?: string | null;
+  actor?: {
+    id: number;
+    username: string;
+    avatar_url?: string | null;
+  } | null;
+}
+
+export interface PermissionCatalogItem {
+  key: string;
+  value: number;
+  label: string;
+  description: string;
+  group: string;
+}
+
+export interface PermissionCatalog {
+  permissions: PermissionCatalogItem[];
+  groups: Array<{ key: string; label: string }>;
+  all: number;
+  default: number;
+}
+
+export interface ServerMembershipInfo {
+  server_id: number;
+  user_id: number;
+  is_owner: boolean;
+  permissions: number;
+  top_role_position: number;
+  roles: Role[];
 }
 
 export interface Channel {

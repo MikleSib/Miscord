@@ -24,8 +24,10 @@ export interface CreateVoiceChannelRequest {
 
 export interface UpdateServerRequest {
   name?: string;
-  description?: string;
-  icon?: string;
+  description?: string | null;
+  icon?: string | null;
+  banner?: string | null;
+  is_public?: boolean;
 }
 
 export interface UpdateChannelRequest {
@@ -110,6 +112,10 @@ class ChannelService {
   async updateServer(serverId: number, data: UpdateServerRequest): Promise<BackendChannel> {
     const response = await api.put<BackendChannel>(`/api/channels/${serverId}`, data);
     return response.data;
+  }
+
+  async leaveServer(serverId: number): Promise<void> {
+    await api.post(`/api/channels/${serverId}/leave`);
   }
 
   async deleteServer(serverId: number): Promise<void> {

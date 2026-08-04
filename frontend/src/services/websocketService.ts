@@ -40,6 +40,12 @@ class WebSocketService {
   }) => void) {
     this.connectionStatusHandlers.push(handler);
     this.notifyConnectionStatus();
+
+    return () => {
+      this.connectionStatusHandlers = this.connectionStatusHandlers.filter(
+        (registeredHandler) => registeredHandler !== handler
+      );
+    };
   }
 
   // Регистрация обработчиков сообщений
@@ -47,7 +53,21 @@ class WebSocketService {
     this.on('channel_invitation', handler);
   }
 
-  onUserJoinedChannel(handler: (data: { user_id: number; username: string; channel_id: number }) => void) {
+  onUserJoinedChannel(handler: (data: {
+    user_id: number;
+    username?: string;
+    display_name?: string | null;
+    avatar_url?: string | null;
+    channel_id: number;
+    user?: {
+      id: number;
+      username?: string;
+      display_name?: string | null;
+      avatar_url?: string | null;
+      email?: string;
+      is_online?: boolean;
+    };
+  }) => void) {
     this.on('user_joined_channel', handler);
   }
 
@@ -139,6 +159,15 @@ class WebSocketService {
 
   onUserStatusChanged(handler: (data: { user_id: number; username: string; is_online: boolean }) => void) {
     this.on('user_status_changed', handler);
+  }
+
+  onUserProfileUpdated(handler: (data: {
+    user_id: number;
+    username?: string;
+    display_name?: string | null;
+    avatar_url?: string | null;
+  }) => void) {
+    this.on('user_profile_updated', handler);
   }
 
   // P2P call events

@@ -56,9 +56,9 @@ function createWindow() {
   console.log('NODE_ENV:', process.env.NODE_ENV);
   console.log('isDev:', isDev);
   
-  // Всегда загружаем сайт stream-cash.ru (не локальные файлы)
-  console.log('Загружаем https://stream-cash.ru/');
-  mainWindow.loadURL('https://stream-cash.ru/');
+  // Всегда загружаем сайт miscord.ru (не локальные файлы)
+  console.log('Загружаем https://miscord.ru/');
+  mainWindow.loadURL('https://miscord.ru/');
 
   // Показываем окно когда оно готово
   mainWindow.once('ready-to-show', () => {
@@ -77,7 +77,7 @@ function createWindow() {
     const parsedUrl = new URL(navigationUrl);
     
     // Если ссылка ведет на другой домен, открываем в браузере
-    if (parsedUrl.origin !== 'https://stream-cash.ru') {
+    if (parsedUrl.origin !== 'https://miscord.ru') {
       event.preventDefault();
       shell.openExternal(navigationUrl);
     }

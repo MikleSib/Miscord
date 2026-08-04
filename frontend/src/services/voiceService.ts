@@ -1,8 +1,11 @@
 import { audioProcessingService } from './audioProcessingService';
+import { useNoiseSuppressionStore } from '../store/noiseSuppressionStore';
+import { useAudioDeviceStore } from '../store/audioDeviceStore';
+import { useAuthStore } from '../store/store';
 import soundService from './soundService';
 import { advancedNoiseGate } from './advancedNoiseGate';
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://stream-cash.ru';
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://miscord.ru';
 
 
 // Глобальная переменная для отслеживания экземпляра
@@ -21,6 +24,7 @@ interface PeerConnection {
 
 class VoiceService {
   private ws: WebSocket | null = null;
+  private rawInputStream: MediaStream | null = null;
   private localStream: MediaStream | null = null;
   private screenStream: MediaStream | null = null; // Поток демонстрации экрана
   private peerConnections: Map<number, PeerConnection> = new Map();
@@ -36,11 +40,18 @@ class VoiceService {
   private analyser: AnalyserNode | null = null;
   private vadInterval: NodeJS.Timeout | number | null = null;
   private isSpeaking: boolean = false;
+  private localSpeechDetected = false;
+  private speakingIndicatorActive = false;
+  private outboundStatsTimer: ReturnType<typeof setInterval> | null = null;
+  private lastOutboundAudioBytes = new Map<number, number>();
   private speakingUsers: Set<number> = new Set();
   private onParticipantsReceivedCallback: ((participants: any[]) => void) | null = null;
   private onParticipantStatusChangedCallback: ((userId: number, status: Partial<{ is_muted: boolean; is_deafened: boolean }>) => void) | null = null;
+  private onConnectionStateChanged: ((state: 'connected' | 'disconnected' | 'error', message?: string) => void) | null = null;
   private isScreenSharing: boolean = false; // Статус демонстрации экрана
   private onScreenShareChanged: ((userId: number, isSharing: boolean) => void) | null = null;
+  private isMuted: boolean = false;
+  private isDeafened: boolean = false;
   private adaptiveQualityEnabled: boolean = true; // Включено ли адаптивное качество
   // Локальный справочник участников: userId -> { username, avatar_url }
   private participantDirectory: Map<number, { username: string; avatar_url?: string }> = new Map();
@@ -101,9 +112,11 @@ class VoiceService {
         if (e.type === 'keydown' && !this.isPTTActive) {
           this.isPTTActive = true;
           this.unmute(); // Включаем микрофон
+          this.setLocalSpeechDetected(true);
           console.log('🎙️ PTT активирован');
         } else if (e.type === 'keyup' && this.isPTTActive) {
           this.isPTTActive = false;
+          this.setLocalSpeechDetected(false);
           this.mute(); // Отключаем микрофон
           console.log('🎙️ PTT деактивирован');
         }
@@ -219,120 +232,136 @@ class VoiceService {
     
     this.voiceChannelId = voiceChannelId;
     this.token = token;
+    this.isMuted = isMuted;
+    this.isDeafened = isDeafened;
 
     // Получаем доступ к микрофону
     try {
-      // КРИТИЧНО: Используем максимальные настройки браузерного шумоподавления
-      // Это единственный способ, который гарантированно работает с WebRTC
+      const noiseSuppressionSettings = useNoiseSuppressionStore.getState();
+      const useBrowserNoiseSuppression =
+        noiseSuppressionSettings.enabled && noiseSuppressionSettings.engine === 'browser';
+
+      // Не включаем два шумодава одновременно: каскадная обработка делает речь
+      // металлической. AGC оставляем включённым, чтобы уровень микрофона был нормальным.
       const rawStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
-          noiseSuppression: true,
+          noiseSuppression: useBrowserNoiseSuppression,
           autoGainControl: true,
-          // Дополнительные настройки для максимального качества
           sampleRate: 48000,
           channelCount: 1,
-          // АГРЕССИВНОЕ подавление низкочастотных шумов (дыхание)
-          // Эти advanced constraints поддерживаются в Chrome/Electron
-          // @ts-ignore - Google constraints не в TypeScript типах, но работают в runtime
-          advanced: [
-            { echoCancellation: { exact: true } },
-            { noiseSuppression: { exact: true } },
-            { autoGainControl: { exact: true } },
-            // Включаем экспериментальные фильтры для дыхания
-            // @ts-ignore
-            { googEchoCancellation: { exact: true } },
-            // @ts-ignore
-            { googAutoGainControl: { exact: true } },
-            // @ts-ignore
-            { googNoiseSuppression: { exact: true } },
-            // @ts-ignore - Высокочастотный фильтр - убирает дыхание!
-            { googHighpassFilter: { exact: true } },
-            // @ts-ignore - Детекция печати
-            { googTypingNoiseDetection: { exact: true } },
-            // @ts-ignore
-            { googAudioMirroring: { exact: false } },
-          ]
         },
         video: false,
       });
+      this.rawInputStream = rawStream;
+
+      const bindSpeakingCallbacks = () => {
+        audioProcessingService.setOnSpeechStart(() => {
+          if (this.inputMode !== 'voice-activity') return;
+          if (this.isMuted || this.isDeafened) return;
+          this.setLocalSpeechDetected(true);
+        });
+
+        audioProcessingService.setOnSpeechEnd(() => {
+          if (this.inputMode !== 'voice-activity') return;
+          this.setLocalSpeechDetected(false);
+        });
+      };
+
+      bindSpeakingCallbacks();
 
       // Инициализируем audioProcessingService и получаем обработанный поток
       const processedStream = await audioProcessingService.initialize(rawStream);
       
       // Используем обработанный поток для WebRTC (с VAD и другими эффектами)
       this.localStream = processedStream;
-      
-      // Настраиваем callbacks для VAD
-      audioProcessingService.setOnSpeechStart(() => {
-        console.log('🎙️ VAD: Речь началась');
-        this.sendMessage({
-          type: 'speaking',
-          is_speaking: true
-        });
+      // Громкость микрофона из настроек (по умолчанию 100%)
+      audioProcessingService.setInputVolume(useAudioDeviceStore.getState().inputVolume ?? 100);
+      audioProcessingService.setMuted(isMuted);
+      processedStream.getAudioTracks().forEach((track) => {
+        track.enabled = !isMuted;
       });
+
+      // VAD стартует внутри initialize — перезапускаем, чтобы callbacks точно были подключены
+      await audioProcessingService.refreshSpeakingDetection();
       
-      audioProcessingService.setOnSpeechEnd(() => {
-        console.log('🎙️ VAD: Речь закончилась');
-        this.sendMessage({
-          type: 'speaking',
-          is_speaking: false
-        });
-      });
-      
-      audioProcessingService.setOnVolumeChange((volume) => {
-        // Используем для визуализации уровня громкости
-        // VAD теперь полностью управляется через audioProcessingService
-      });
-      
-      // Анализируем громкость для визуализации (используем исходный поток)
-      audioProcessingService.analyzeVolume(rawStream);
-      
-      // НЕ инициализируем старую детекцию голосовой активности - используем только audioProcessingService
+      // Индикатор читает уже очищенный сигнал, а не исходный микрофон.
+      audioProcessingService.analyzeVolume(processedStream);
     } catch (error) {
       console.error('🎙️ Ошибка доступа к микрофону:', error);
+      this.rawInputStream?.getTracks().forEach((track) => track.stop());
+      this.rawInputStream = null;
       throw new Error('Не удалось получить доступ к микрофону');
     }
 
     // Подключаемся к WebSocket
-    const wsUrl = `${WS_URL}/ws/voice/${voiceChannelId}?token=${token}`;
+    const wsUrl = `${WS_URL}/ws/voice/${voiceChannelId}?token=${encodeURIComponent(token)}`;
     console.log('[VoiceService] Подключаемся к голосовому WebSocket:', wsUrl.replace(/token=.+/, 'token=***'));
-    this.ws = new WebSocket(wsUrl);
+    const socket = new WebSocket(wsUrl);
+    this.ws = socket;
 
     return new Promise<void>((resolve, reject) => {
-      this.ws!.onopen = () => {
-        console.log('[VoiceService] Голосовой WebSocket подключен! ReadyState:', this.ws?.readyState);
-        
-        // Отправляем сообщение о подключении на сервер
+      let settled = false;
+      const connectionTimeout = globalThis.setTimeout(() => {
+        if (settled || this.ws !== socket) return;
+        settled = true;
+        const callback = this.onConnectionStateChanged;
+        this.cleanup();
+        callback?.('error', 'Сервер голосового канала не ответил вовремя');
+        reject(new Error('Сервер голосового канала не ответил вовремя'));
+      }, 15000);
+
+      const clearConnectionTimeout = () => globalThis.clearTimeout(connectionTimeout);
+
+      socket.onopen = () => {
         const joinMessage = {
           type: 'join',
           channel_id: voiceChannelId,
           is_muted: isMuted,
           is_deafened: isDeafened
         };
-        console.log('[VoiceService] Отправляем сообщение о подключении:', joinMessage);
-        this.ws!.send(JSON.stringify(joinMessage));
-        
+        socket.send(JSON.stringify(joinMessage));
+        settled = true;
+        clearConnectionTimeout();
+        this.onConnectionStateChanged?.('connected');
         resolve();
       };
 
-      this.ws!.onerror = (error) => {
-        console.error('🎙️ Ошибка Voice WebSocket:', error);
-        reject(new Error('Ошибка подключения WebSocket'));
+      socket.onerror = (event) => {
+        console.error('🎙️ Ошибка Voice WebSocket:', event);
+        if (!settled) {
+          settled = true;
+          clearConnectionTimeout();
+          const callback = this.onConnectionStateChanged;
+          this.cleanup();
+          callback?.('error', 'Не удалось подключиться к голосовому каналу');
+          reject(new Error('Не удалось подключиться к голосовому каналу'));
+        }
       };
 
-      this.ws!.onmessage = async (event) => {
-        console.log('🎙️ Получено сообщение WebSocket:', event.data);
-        const data = JSON.parse(event.data);
-        await this.handleMessage(data);
+      socket.onmessage = async (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          await this.handleMessage(data);
+        } catch (error) {
+          console.error('🎙️ Некорректное сообщение голосового WebSocket:', error);
+        }
       };
 
-      this.ws!.onclose = (event) => {
-        console.log('[VoiceService] Voice WebSocket отключен! Код:', event.code, 'Причина:', event.reason);
-        console.log('[VoiceService] WebSocket readyState после закрытия:', (event.target as WebSocket)?.readyState);
-        console.log('[VoiceService] Текущий voiceChannelId:', this.voiceChannelId);
-        // Не вызываем cleanup() здесь, чтобы избежать рекурсии
-        // cleanup() должен вызываться только при явном отключении пользователем
+      socket.onclose = (event) => {
+        clearConnectionTimeout();
+
+        if (!settled) {
+          settled = true;
+          reject(new Error(event.reason || 'Голосовое соединение было закрыто'));
+        }
+
+        if (this.ws === socket) {
+          const callback = this.onConnectionStateChanged;
+          const reason = event.reason || (event.code === 1000 ? undefined : 'Соединение с голосовым каналом потеряно');
+          this.cleanup();
+          callback?.('disconnected', reason);
+        }
       };
     });
   }
@@ -344,68 +373,33 @@ class VoiceService {
    * @returns Модифицированный SDP с поддержкой RED.
    */
   private enableOpusRed(sdp: string): string {
-    // Ищем описание аудио медиа секции
-    if (!sdp.includes('m=audio')) {
+    if (!sdp.includes('m=audio')) return sdp;
+
+    const opusMatch = sdp.match(/a=rtpmap:(\d+) opus\/48000\/2/i);
+    const redMatch = sdp.match(/a=rtpmap:(\d+) red\/48000\/2/i);
+    if (!opusMatch || !redMatch) {
       return sdp;
     }
 
-    // 1. Находим payload type для Opus
-    const opusRegex = /a=rtpmap:(\d+) opus\/48000\/2/i;
-    const opusMatch = sdp.match(opusRegex);
-    if (!opusMatch) {
-      console.warn('🔊 RED: Opus payload type не найден в SDP. RED не будет включен.');
-      return sdp;
-    }
     const opusPayloadType = opusMatch[1];
-
-    // 2. Проверяем, не включен ли уже RED
-    const redRegex = /a=rtpmap:(\d+) red\/48000\/2/i;
-    if (sdp.match(redRegex)) {
-      console.log('🔊 RED: Поддержка RED уже включена в SDP.');
-      return sdp;
-    }
-
-    // 3. Выбираем свободный payload type для RED (обычно в диапазоне 96-127)
-    // Возьмем 111 как стандартное значение, если оно не занято
-    const redPayloadType = '111';
-
-    // 4. Добавляем строки для RED в SDP
-    const opusRtpmapLine = `a=rtpmap:${opusPayloadType} opus/48000/2`;
-    const redSdpLines = [
-      `a=rtpmap:${redPayloadType} red/48000/2`,
-      `a=fmtp:${redPayloadType} ${opusPayloadType}/${opusPayloadType}` // RED будет дублировать Opus
-    ].join('\r\n');
-
-    let newSdp = sdp.replace(opusRtpmapLine, `${opusRtpmapLine}\r\n${redSdpLines}`);
-
-    // 5. Добавляем payload type для RED в m=audio строку
+    const redPayloadType = redMatch[1];
     const mAudioRegex = /(m=audio\s\d+\s[A-Z/]+\s)(.*)/;
-    const mAudioMatch = newSdp.match(mAudioRegex);
-    if (mAudioMatch) {
-      const prefix = mAudioMatch[1];
-      let payloadTypes = mAudioMatch[2].split(' ');
-      // Вставляем RED перед Opus для приоритета
-      const opusIndex = payloadTypes.indexOf(opusPayloadType);
-      if (opusIndex !== -1) {
-        payloadTypes.splice(opusIndex, 0, redPayloadType);
-      } else {
-        payloadTypes.push(redPayloadType);
-      }
-      
-      newSdp = newSdp.replace(mAudioRegex, `${prefix}${payloadTypes.join(' ')}`);
-      console.log('🔊 RED: Успешно внедрен в SDP для Opus.', { opusPayloadType, redPayloadType });
-    } else {
-       console.warn('🔊 RED: Не удалось найти m=audio строку для модификации.');
-    }
+    const mAudioMatch = sdp.match(mAudioRegex);
+    if (!mAudioMatch) return sdp;
 
-    return newSdp;
+    const payloadTypes = mAudioMatch[2]
+      .split(' ')
+      .filter((payloadType) => payloadType !== redPayloadType);
+    const opusIndex = payloadTypes.indexOf(opusPayloadType);
+    payloadTypes.splice(opusIndex >= 0 ? opusIndex : 0, 0, redPayloadType);
+
+    return sdp.replace(mAudioRegex, `${mAudioMatch[1]}${payloadTypes.join(' ')}`);
   }
-
   private async handleMessage(data: any) {
     
     switch (data.type) {
       case 'participants':
-        this.iceServers = data.ice_servers;
+        this.iceServers = Array.isArray(data.ice_servers) ? data.ice_servers : [];
 
         // Передаем список участников в store
         if (this.onParticipantsReceivedCallback) {
@@ -528,7 +522,8 @@ class VoiceService {
         break;
         
       case 'user_speaking':
-        // Обработка информации о том, что пользователь говорит
+        // Свою обводку управляем по факту отправки аудио, не по эху с сервера
+        if (data.user_id === useAuthStore.getState().user?.id) break;
         if (this.onSpeakingChanged) {
           this.onSpeakingChanged(data.user_id, data.is_speaking);
         }
@@ -620,7 +615,14 @@ class VoiceService {
   }
 
   private async createPeerConnection(userId: number, createOffer: boolean) {
-    
+    const existingPeer = this.peerConnections.get(userId)?.pc;
+    if (existingPeer && existingPeer.connectionState !== 'closed' && existingPeer.connectionState !== 'failed') {
+      return;
+    }
+    if (existingPeer) {
+      this.removePeerConnection(userId);
+    }
+
     const pc = new RTCPeerConnection({
       iceServers: this.iceServers,
     });
@@ -677,26 +679,24 @@ class VoiceService {
        
           });
           
-          const remoteAudio = new Audio();
+          let remoteAudio = document.getElementById(`remote-audio-${userId}`) as HTMLAudioElement | null;
+          if (!remoteAudio) {
+            remoteAudio = new Audio();
+            remoteAudio.id = `remote-audio-${userId}`;
+            remoteAudio.autoplay = true;
+            remoteAudio.controls = false;
+            remoteAudio.style.display = 'none';
+            document.body.appendChild(remoteAudio);
+          }
           remoteAudio.srcObject = new MediaStream(audioTracks);
-          remoteAudio.autoplay = true;
-          remoteAudio.controls = false;
-          remoteAudio.muted = false;
-          remoteAudio.volume = 1.0;
-          
-          remoteAudio.id = `remote-audio-${userId}`;
-          remoteAudio.style.display = 'none';
-          document.body.appendChild(remoteAudio);
-          
-          // Применяем сохраненную громкость если есть
-          setTimeout(() => {
-            const savedVolume = localStorage.getItem(`voice-volume-${userId}`);
-            if (savedVolume) {
-              const volume = parseInt(savedVolume);
-              remoteAudio.volume = Math.min(volume / 100, 3.0);
-             
-            }
-          }, 100);
+          remoteAudio.muted = this.isDeafened;
+          // Общая громкость вывода (по умолчанию 100%) × персональная громкость участника
+          const outputVolume = (useAudioDeviceStore.getState().outputVolume ?? 100) / 100;
+          const savedVolume = localStorage.getItem(`voice-volume-${userId}`);
+          const participantVolume = savedVolume
+            ? Math.min(Math.max(Number.parseInt(savedVolume, 10) || 100, 0), 100) / 100
+            : 1;
+          remoteAudio.volume = Math.min(1, Math.max(0, outputVolume * participantVolume));
           
           // Пытаемся воспроизвести аудио
           const playPromise = remoteAudio.play();
@@ -988,12 +988,6 @@ class VoiceService {
     };
 
     // Обработка состояния соединения
-    pc.onconnectionstatechange = () => {
-    };
-
-    pc.oniceconnectionstatechange = () => {
-    };
-
     this.peerConnections.set(userId, { pc, userId });
 
     if (createOffer) {
@@ -1130,6 +1124,9 @@ class VoiceService {
       peerConnection.pc.close();
       this.peerConnections.delete(userId);
     }
+    this.pendingIceCandidates.delete(userId);
+    this.speakingUsers.delete(userId);
+    this.onSpeakingChanged?.(userId, false);
     
     // Удаляем аудио элемент из DOM
     const audioElement = document.getElementById(`remote-audio-${userId}`);
@@ -1166,7 +1163,30 @@ class VoiceService {
     }
   }
 
+  /** Громкость своего микрофона (0–100). По умолчанию 100. */
+  setInputVolume(percent: number) {
+    audioProcessingService.setInputVolume(percent);
+  }
+
+  /** Громкость всех входящих голосов (0–100). По умолчанию 100. */
+  setOutputVolume(percent: number) {
+    const clamped = Math.min(100, Math.max(0, Math.round(percent)));
+    useAudioDeviceStore.getState().setOutputVolume(clamped);
+    const outputFactor = clamped / 100;
+
+    if (typeof document === 'undefined') return;
+    document.querySelectorAll<HTMLAudioElement>('[id^="remote-audio-"]').forEach((audio) => {
+      const userId = audio.id.replace('remote-audio-', '');
+      const savedVolume = localStorage.getItem(`voice-volume-${userId}`);
+      const participantFactor = savedVolume
+        ? Math.min(Math.max(Number.parseInt(savedVolume, 10) || 100, 0), 100) / 100
+        : 1;
+      audio.volume = Math.min(1, Math.max(0, outputFactor * participantFactor));
+    });
+  }
+
   setMuted(muted: boolean) {
+    this.isMuted = muted;
     // Используем audio processing service для управления mute
     audioProcessingService.setMuted(muted);
     
@@ -1190,11 +1210,16 @@ class VoiceService {
     
     // Отправляем сообщение на сервер
     this.sendMessage({ type: 'mute', is_muted: muted });
+
+    if (muted) {
+      this.setLocalSpeechDetected(false);
+    }
     
     console.log(`🎙️ Микрофон ${muted ? 'заглушен' : 'включен'} - RTP пакеты ${muted ? 'НЕ отправляются' : 'отправляются'} (как в Discord!)`);
   }
 
   setDeafened(deafened: boolean) {
+    this.isDeafened = deafened;
     console.log(`🔊 Установка deafened: ${deafened}`);
 
     // Заглушаем/включаем все удаленные аудио элементы
@@ -1218,26 +1243,22 @@ class VoiceService {
   }): Promise<void> {
     console.log('🔄 Обновление аудио настроек:', settings);
 
-    try {
-      if (this.localStream) {
-        const audioTracks = this.localStream.getAudioTracks();
-        if (audioTracks.length > 0) {
-          const track = audioTracks[0];
+    audioProcessingService.updateConfig({
+      ...(settings.echoCancellation === undefined
+        ? {}
+        : { echoCancellation: settings.echoCancellation }),
+      ...(settings.autoGainControl === undefined
+        ? {}
+        : { autoGainControl: settings.autoGainControl }),
+    });
 
-          // Применяем новые настройки к треку
-          await track.applyConstraints({
-            echoCancellation: settings.echoCancellation ?? true,
-            noiseSuppression: settings.noiseSuppression ?? true,
-            autoGainControl: settings.autoGainControl ?? true,
-          });
-
-          console.log('✅ Аудио настройки обновлены на медиа треке');
-        }
-      }
-    } catch (error) {
-      console.error('❌ Ошибка обновления аудио настроек:', error);
-      // Если не удалось обновить существующий трек, создаем новый поток
-      await this.recreateMediaStream(settings);
+    if (settings.noiseSuppression !== undefined) {
+      const noiseSuppressionStore = useNoiseSuppressionStore.getState();
+      noiseSuppressionStore.setEnabled(settings.noiseSuppression);
+      await audioProcessingService.setNoiseSuppression(
+        settings.noiseSuppression,
+        noiseSuppressionStore.engine
+      );
     }
   }
 
@@ -1350,6 +1371,11 @@ class VoiceService {
       }
     });
     this.peerConnections.clear();
+    this.pendingIceCandidates.clear();
+    this.participantDirectory.clear();
+    this.speakingUsers.clear();
+    this.removePTTHandlers();
+    this.hideAudioPermissionNotification();
 
     // Останавливаем потоки демонстрации экрана
     if (this.screenStream) {
@@ -1358,12 +1384,6 @@ class VoiceService {
     }
     this.isScreenSharing = false;
 
-    // Очищаем все видео элементы из контейнера
-    const videoContainer = document.getElementById('screen-share-container-chat');
-    if (videoContainer) {
-      videoContainer.innerHTML = '';
-      console.log('🖥️ Очищен контейнер screen-share-container-chat');
-    }
 
     // Удаляем все возможные видео элементы которые могли остаться
     document.querySelectorAll('video[id^="remote-video-"]').forEach(video => {
@@ -1375,6 +1395,11 @@ class VoiceService {
     if (this.localStream) {
       this.localStream.getTracks().forEach(track => track.stop());
       this.localStream = null;
+    }
+
+    if (this.rawInputStream) {
+      this.rawInputStream.getTracks().forEach(track => track.stop());
+      this.rawInputStream = null;
     }
 
     // Очищаем VAD
@@ -1551,7 +1576,134 @@ class VoiceService {
     
     this.analyser = null;
     this.isSpeaking = false;
+    this.localSpeechDetected = false;
+    this.stopOutboundAudioMonitor();
+    this.applySpeakingIndicator(false);
+    this.lastOutboundAudioBytes.clear();
     this.speakingUsers.clear();
+  }
+
+  /** Сразу обновляем свою зелёную обводку, не дожидаясь эха с сервера */
+  private notifyLocalSpeaking(isSpeaking: boolean) {
+    const userId = useAuthStore.getState().user?.id;
+    if (!userId || !this.onSpeakingChanged) return;
+    this.onSpeakingChanged(userId, isSpeaking);
+  }
+
+  /** Есть ли хотя бы один собеседник с установленным аудио-соединением */
+  private hasConnectedAudioPeer(): boolean {
+    if (this.isMuted || this.isDeafened) return false;
+
+    const audioTrack = this.localStream?.getAudioTracks()[0];
+    if (!audioTrack?.enabled || audioTrack.readyState !== 'live') return false;
+
+    for (const { pc } of Array.from(this.peerConnections.values())) {
+      if (pc.connectionState !== 'connected') continue;
+      const hasEnabledAudioSender = pc
+        .getSenders()
+        .some((sender) => sender.track?.kind === 'audio' && sender.track.enabled);
+      if (hasEnabledAudioSender) return true;
+    }
+
+    return false;
+  }
+
+  private async seedOutboundBytesBaseline(): Promise<void> {
+    for (const { pc, userId } of Array.from(this.peerConnections.values())) {
+      if (pc.connectionState !== 'connected') continue;
+
+      try {
+        const stats = await pc.getStats();
+        stats.forEach((report) => {
+          if (report.type === 'outbound-rtp' && report.kind === 'audio') {
+            this.lastOutboundAudioBytes.set(userId, report.bytesSent ?? 0);
+          }
+        });
+      } catch {
+        // ignore transient stats errors
+      }
+    }
+  }
+
+  private startOutboundAudioMonitor(): void {
+    if (this.outboundStatsTimer) return;
+
+    this.outboundStatsTimer = setInterval(() => {
+      void this.pollOutboundAudio();
+    }, 120);
+  }
+
+  private stopOutboundAudioMonitor(): void {
+    if (!this.outboundStatsTimer) return;
+    clearInterval(this.outboundStatsTimer);
+    this.outboundStatsTimer = null;
+  }
+
+  /** Проверяем, что аудио-пакеты реально уходят собеседникам (WebRTC outbound-rtp). */
+  private async pollOutboundAudio(): Promise<void> {
+    if (this.isMuted || this.isDeafened || !this.localSpeechDetected) {
+      this.applySpeakingIndicator(false);
+      return;
+    }
+
+    if (!this.hasConnectedAudioPeer()) {
+      this.applySpeakingIndicator(false);
+      return;
+    }
+
+    let bytesIncreased = false;
+
+    for (const { pc, userId } of Array.from(this.peerConnections.values())) {
+      if (pc.connectionState !== 'connected') continue;
+
+      try {
+        const stats = await pc.getStats();
+        stats.forEach((report) => {
+          if (report.type === 'outbound-rtp' && report.kind === 'audio') {
+            const bytes = report.bytesSent ?? 0;
+            const previous = this.lastOutboundAudioBytes.get(userId);
+            if (previous !== undefined && bytes > previous) {
+              bytesIncreased = true;
+            }
+            this.lastOutboundAudioBytes.set(userId, bytes);
+          }
+        });
+      } catch {
+        // ignore transient stats errors
+      }
+    }
+
+    this.applySpeakingIndicator(bytesIncreased);
+  }
+
+  private setLocalSpeechDetected(detected: boolean): void {
+    if (this.localSpeechDetected === detected) return;
+    this.localSpeechDetected = detected;
+
+    if (detected) {
+      void this.seedOutboundBytesBaseline().then(() => {
+        if (this.localSpeechDetected) {
+          this.startOutboundAudioMonitor();
+        }
+      });
+      return;
+    }
+
+    this.stopOutboundAudioMonitor();
+    this.applySpeakingIndicator(false);
+  }
+
+  /** Обводка и событие для других — только когда голос реально ушёл по WebRTC */
+  private applySpeakingIndicator(active: boolean): void {
+    if (this.speakingIndicatorActive === active) return;
+
+    this.speakingIndicatorActive = active;
+    this.isSpeaking = active;
+    this.notifyLocalSpeaking(active);
+    this.sendMessage({
+      type: 'speaking',
+      is_speaking: active,
+    });
   }
 
   onSpeakingChange(callback: (userId: number, isSpeaking: boolean) => void) {
@@ -1564,6 +1716,10 @@ class VoiceService {
 
   onParticipantStatusChanged(callback: (userId: number, status: Partial<{ is_muted: boolean; is_deafened: boolean }>) => void) {
     this.onParticipantStatusChangedCallback = callback;
+  }
+
+  onConnectionStateChange(callback: (state: 'connected' | 'disconnected' | 'error', message?: string) => void) {
+    this.onConnectionStateChanged = callback;
   }
 
   // Демонстрация экрана
@@ -1871,6 +2027,12 @@ class VoiceService {
 
   onScreenShareChange(callback: (userId: number, isSharing: boolean) => void) {
     this.onScreenShareChanged = callback;
+
+    return () => {
+      if (this.onScreenShareChanged === callback) {
+        this.onScreenShareChanged = null;
+      }
+    };
   }
 
   // Управление адаптивным качеством

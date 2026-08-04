@@ -235,16 +235,77 @@ export function HomePageContent() {
       setFriends(prev => prev.filter(f => f.id !== friend_id));
     };
 
+    const handleUserProfileUpdated = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      const data = detail.data || detail;
+      if (!data?.user_id) return;
+
+      setFriends((prev) =>
+        prev.map((friend) =>
+          friend.id === data.user_id
+            ? {
+                ...friend,
+                username: data.username ?? friend.username,
+                display_name: data.display_name !== undefined ? data.display_name ?? undefined : friend.display_name,
+                avatar_url: data.avatar_url !== undefined ? data.avatar_url ?? undefined : friend.avatar_url,
+              }
+            : friend
+        )
+      );
+
+      setSelectedFriend((prev) => {
+        if (!prev || prev.id !== data.user_id) return prev;
+        return {
+          ...prev,
+          username: data.username ?? prev.username,
+          display_name: data.display_name !== undefined ? data.display_name ?? undefined : prev.display_name,
+          avatar_url: data.avatar_url !== undefined ? data.avatar_url ?? undefined : prev.avatar_url,
+        };
+      });
+
+      setPendingRequests((prev) =>
+        prev.map((req) => {
+          const target = req.from_user || req;
+          if (target.id !== data.user_id) return req;
+          if (req.from_user) {
+            return {
+              ...req,
+              from_user: {
+                ...req.from_user,
+                username: data.username ?? req.from_user.username,
+                display_name:
+                  data.display_name !== undefined
+                    ? data.display_name ?? undefined
+                    : req.from_user.display_name,
+                avatar_url:
+                  data.avatar_url !== undefined
+                    ? data.avatar_url ?? undefined
+                    : req.from_user.avatar_url,
+              },
+            };
+          }
+          return {
+            ...req,
+            username: data.username ?? req.username,
+            display_name: data.display_name !== undefined ? data.display_name ?? undefined : req.display_name,
+            avatar_url: data.avatar_url !== undefined ? data.avatar_url ?? undefined : req.avatar_url,
+          };
+        })
+      );
+    };
+
     websocketService.on('new_friend_request', handleNewFriendRequest);
     websocketService.on('friend_request_accepted', handleFriendRequestAccepted);
     websocketService.on('friend_request_rejected', handleFriendRequestRejected);
     websocketService.on('friend_removed', handleFriendRemoved);
+    window.addEventListener('user_profile_updated', handleUserProfileUpdated);
     
     return () => {
       websocketService.off('new_friend_request', handleNewFriendRequest);
       websocketService.off('friend_request_accepted', handleFriendRequestAccepted);
       websocketService.off('friend_request_rejected', handleFriendRequestRejected);
       websocketService.off('friend_removed', handleFriendRemoved);
+      window.removeEventListener('user_profile_updated', handleUserProfileUpdated);
     }
   }, [])
 
@@ -308,7 +369,7 @@ export function HomePageContent() {
         const onlineFriends = friends.filter(friend => friend.is_online);
         return (
           <div>
-            <h3 className="text-xs font-bold uppercase text-[#8e9297] mb-2">
+            <h3 className="text-xs font-bold uppercase text-[#999aa1] mb-2">
               В сети — {onlineFriends.length}
             </h3>
             {onlineFriends.length > 0 ? (
@@ -318,7 +379,7 @@ export function HomePageContent() {
                     <UserAvatar user={friend} />
                     <div className="ml-3">
                       <p className="text-white">{friend.username}</p>
-                      <p className="text-xs text-[#8e9297]">В сети</p>
+                      <p className="text-xs text-[#999aa1]">В сети</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -327,7 +388,7 @@ export function HomePageContent() {
                         e.stopPropagation(); 
                         setSelectedFriend(friend); 
                       }} 
-                      className="p-1 text-[#8e9297] hover:text-white"
+                      className="p-1 text-[#999aa1] hover:text-white"
                     >
                       <MessageSquare size={20} />
                     </button>
@@ -336,7 +397,7 @@ export function HomePageContent() {
                         e.stopPropagation(); 
                         handleCallUser(friend); 
                       }} 
-                      className="p-1 text-[#8e9297] hover:text-white"
+                      className="p-1 text-[#999aa1] hover:text-white"
                     >
                       <Phone size={20} />
                     </button>
@@ -344,7 +405,7 @@ export function HomePageContent() {
                 </div>
               ))
             ) : (
-              <div className="text-center text-[#8e9297] mt-20">
+              <div className="text-center text-[#999aa1] mt-20">
                 <p>Никого нет в сети.</p>
               </div>
             )}
@@ -353,7 +414,7 @@ export function HomePageContent() {
       case 'all':
         return (
           <div>
-            <h3 className="text-xs font-bold uppercase text-[#8e9297] mb-2">
+            <h3 className="text-xs font-bold uppercase text-[#999aa1] mb-2">
               Все друзья — {sortedFriends.length}
             </h3>
             {sortedFriends.length > 0 ? (
@@ -363,7 +424,7 @@ export function HomePageContent() {
                     <UserAvatar user={friend} />
                     <div className="ml-3">
                       <p className="text-white">{friend.username}</p>
-                      <p className={`text-xs ${friend.is_online ? 'text-green-400' : 'text-[#8e9297]'}`}>
+                      <p className={`text-xs ${friend.is_online ? 'text-green-400' : 'text-[#999aa1]'}`}>
                         {friend.is_online ? 'В сети' : 'Не в сети'}
                       </p>
                     </div>
@@ -374,7 +435,7 @@ export function HomePageContent() {
                         e.stopPropagation(); 
                         setSelectedFriend(friend); 
                       }} 
-                      className="p-1 text-[#8e9297] hover:text-white"
+                      className="p-1 text-[#999aa1] hover:text-white"
                     >
                       <MessageSquare size={20} />
                     </button>
@@ -383,7 +444,7 @@ export function HomePageContent() {
                         e.stopPropagation(); 
                         handleCallUser(friend); 
                       }} 
-                      className="p-1 text-[#8e9297] hover:text-white"
+                      className="p-1 text-[#999aa1] hover:text-white"
                     >
                       <Phone size={20} />
                     </button>
@@ -391,7 +452,7 @@ export function HomePageContent() {
                 </div>
               ))
             ) : (
-              <div className="text-center text-[#8e9297] mt-20">
+              <div className="text-center text-[#999aa1] mt-20">
                 <p>Здесь пока никого нет. Может, стоит добавить друзей?</p>
               </div>
             )}
@@ -400,7 +461,7 @@ export function HomePageContent() {
       case 'pending':
         return (
           <div>
-            <h3 className="text-xs font-bold uppercase text-[#8e9297] mb-2">
+            <h3 className="text-xs font-bold uppercase text-[#999aa1] mb-2">
               Входящие — {pendingRequests.length}
             </h3>
             {pendingRequests.length > 0 ? (
@@ -410,7 +471,7 @@ export function HomePageContent() {
                     <UserAvatar user={request} />
                     <div className="ml-3">
                       <p className="text-white">{request.username}</p>
-                      <p className="text-xs text-[#8e9297]">Входящий запрос в друзья</p>
+                      <p className="text-xs text-[#999aa1]">Входящий запрос в друзья</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -424,12 +485,12 @@ export function HomePageContent() {
                 </div>
               ))
             ) : (
-              <p className="text-center text-[#8e9297] mt-20">Нет ожидающих запросов в друзья.</p>
+              <p className="text-center text-[#999aa1] mt-20">Нет ожидающих запросов в друзья.</p>
             )}
           </div>
         )
       default:
-        return <p className="text-center text-[#8e9297] mt-20">Контент для "{activeTab}" еще не реализован.</p>
+        return <p className="text-center text-[#999aa1] mt-20">Контент для "{activeTab}" еще не реализован.</p>
     }
   }
 
@@ -517,14 +578,14 @@ export function HomePageContent() {
         {/* Top bar for friends page */}
         <div className="flex items-center h-12 px-4 border-b border-[#212226] shadow-md flex-shrink-0">
           <div className="flex items-center">
-            <Users className="w-6 h-6 text-[#8e9297] mr-2" />
+            <Users className="w-6 h-6 text-[#999aa1] mr-2" />
             <h2 className="text-white font-semibold">Друзья</h2>
           </div>
         </div>
         <nav className="flex items-center p-2 space-x-2">
-          <button onClick={() => setActiveTab('all')} className={`px-2 py-1 text-sm font-medium rounded ${activeTab === 'all' ? 'bg-[#404249] text-white' : 'text-[#8e9297] hover:bg-[#35373c] hover:text-white'}`}>Все</button>
+          <button onClick={() => setActiveTab('all')} className={`px-2 py-1 text-sm font-medium rounded ${activeTab === 'all' ? 'bg-[#414248] text-white' : 'text-[#999aa1] hover:bg-[#3e3f45] hover:text-white'}`}>Все</button>
           <div className="relative">
-            <button onClick={() => setActiveTab('pending')} className={`px-2 py-1 text-sm font-medium rounded ${activeTab === 'pending' ? 'bg-[#404249] text-white' : 'text-[#8e9297] hover:bg-[#35373c] hover:text-white'}`}>Ожидание</button>
+            <button onClick={() => setActiveTab('pending')} className={`px-2 py-1 text-sm font-medium rounded ${activeTab === 'pending' ? 'bg-[#414248] text-white' : 'text-[#999aa1] hover:bg-[#3e3f45] hover:text-white'}`}>Ожидание</button>
             {pendingRequests.length > 0 && (
               <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center font-bold">
                 {pendingRequests.length}
@@ -540,7 +601,7 @@ export function HomePageContent() {
       </div>
 
       {/* Main content area */}
-      <div className="flex-1 bg-[#313338] h-screen flex flex-col">
+      <div className="flex-1 bg-[#323339] h-screen flex flex-col">
         {selectedFriend ? (
           <DirectMessageArea friend={selectedFriend} />
         ) : (
@@ -554,9 +615,9 @@ export function HomePageContent() {
       {/* Add Friend Modal */}
       {isAddFriendModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-[#313338] p-6 rounded-lg w-96">
+          <div className="bg-[#323339] p-6 rounded-lg w-96">
             <h2 className="text-xl font-bold text-white mb-4">Добавить в друзья</h2>
-            <p className="text-[#b5bac1] text-sm mb-4">
+            <p className="text-[#999aa1] text-sm mb-4">
               Вы можете добавить друга по его имени пользователя. Не забудьте, что регистр имеет значение!
             </p>
             <input
@@ -564,7 +625,7 @@ export function HomePageContent() {
               value={friendUsername}
               onChange={(e) => setFriendUsername(e.target.value)}
               placeholder="Введите имя пользователя"
-              className="w-full bg-[#1e1f22] text-white rounded px-3 py-2 mb-4 border border-[#383a40] focus:ring-2 focus:ring-[#5865f2]"
+              className="w-full bg-[#1e1f22] text-white rounded px-3 py-2 mb-4 border border-[#393a41] focus:ring-2 focus:ring-[#5865f2]"
             />
             {addFriendError && <p className="text-red-500 text-sm mb-4">{addFriendError}</p>}
             <div className="flex justify-end">

@@ -11,6 +11,7 @@ import authService from '../services/authService';
 import { VoiceInputSettings } from './VoiceInputSettings';
 import { NoiseSuppressionSettings } from './NoiseSuppressionSettings';
 import { AudioDeviceSettings } from './AudioDeviceSettings';
+import { applyUserProfileUpdate } from '../lib/userProfileSync';
 
 const SIDEBAR_ITEMS = [
   {
@@ -31,7 +32,7 @@ interface SettingsModalProps {
 }
 
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-  const { user, updateUser } = useAuthStore();
+  const { user } = useAuthStore();
   const [activeTab, setActiveTab] = useState('profile');
   const [displayName, setDisplayName] = useState('');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -84,7 +85,12 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       setIsLoading(true);
       try {
         const response = await authService.uploadAvatar(file);
-        updateUser({ ...user, avatar_url: response.avatar_url });
+        applyUserProfileUpdate({
+          user_id: user.id,
+          username: user.username,
+          display_name: user.display_name,
+          avatar_url: response.avatar_url,
+        });
         console.log('Аватар загружен:', response.avatar_url);
       } catch (error) {
         console.error('Ошибка загрузки аватара:', error);
@@ -114,8 +120,12 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       // Обновляем отображаемое имя
       if (displayName !== (user.display_name || user.username)) {
         await authService.updateProfile({ display_name: displayName });
-        // Обновляем локальные данные пользователя
-        updateUser({ ...user, display_name: displayName });
+        applyUserProfileUpdate({
+          user_id: user.id,
+          username: user.username,
+          display_name: displayName,
+          avatar_url: user.avatar_url,
+        });
       }
 
       // Показываем успешное сообщение (можно добавить toast)
@@ -134,8 +144,12 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       await authService.deleteAvatar();
       setAvatarPreview(null);
       setAvatarFile(null);
-      // Обновляем данные пользователя в store
-      updateUser({ ...user, avatar_url: undefined });
+      applyUserProfileUpdate({
+        user_id: user.id,
+        username: user.username,
+        display_name: user.display_name,
+        avatar_url: null,
+      });
       console.log('Аватар удален');
     } catch (error) {
       console.error('Ошибка удаления аватара:', error);

@@ -15,6 +15,8 @@ class Channel(Base):
     name = Column(String, nullable=False)
     description = Column(String, nullable=True)
     icon = Column(String, nullable=True)  # URL иконки сервера
+    banner = Column(String, nullable=True)  # URL баннера сервера
+    is_public = Column(Boolean, default=False, nullable=False)
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -24,6 +26,7 @@ class Channel(Base):
     text_channels = relationship("TextChannel", back_populates="channel", cascade="all, delete-orphan")
     voice_channels = relationship("VoiceChannel", back_populates="channel", cascade="all, delete-orphan")
     members = relationship("ChannelMember", back_populates="channel", cascade="all, delete-orphan")
+    roles = relationship("Role", back_populates="server", cascade="all, delete-orphan")
 
 class TextChannel(Base):
     __tablename__ = "text_channels"
@@ -58,6 +61,7 @@ class ChannelMember(Base):
     id = Column(Integer, primary_key=True, index=True)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    nickname = Column(String, nullable=True)  # Серверный никнейм
     joined_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Отношения

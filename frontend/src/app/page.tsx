@@ -27,6 +27,11 @@ import { VoiceConnectionPanel } from '../components/VoiceConnectionPanel'
 import SettingsModal from '../components/SettingsModal'
 import authService from '../services/authService'
 import { User } from '../types'
+import { bindUserProfileSync } from '../lib/userProfileSync'
+import { bindMemberSync } from '../lib/memberSync'
+
+bindUserProfileSync()
+bindMemberSync()
 
 export default function HomePage() {
   const router = useRouter()
@@ -117,15 +122,6 @@ export default function HomePage() {
   }, [isMounted, token, isAuthenticated, router, initializeWebSocket, loadServers, disconnectWebSocket])
 
   useEffect(() => {
-    if (!authUser || !token) {
-      router.push('/login')
-      return
-    }
-    
-    loadServers()
-  }, [authUser, token, router, loadServers])
-
-  useEffect(() => {
     // Подписываемся на изменения демонстрации экрана
     const handleScreenShareChange = (userId: number, isSharing: boolean) => {
       setSharingUsers(prev => {
@@ -187,7 +183,7 @@ export default function HomePage() {
     };
 
     // Подписываемся на изменения статуса подключения WebSocket
-    websocketService.onConnectionStatusChange((status) => {
+    const unsubscribeConnectionStatus = websocketService.onConnectionStatusChange((status) => {
       setConnectionStatus({
         isConnected: status.isConnected,
         isReconnecting: status.isReconnecting,
@@ -197,32 +193,39 @@ export default function HomePage() {
       });
     });
 
-    voiceService.onScreenShareChange(handleScreenShareChange);
+    const unsubscribeScreenShare = voiceService.onScreenShareChange(handleScreenShareChange);
     if (typeof window !== 'undefined') {
       window.addEventListener('open_screen_share', handleOpenScreenShare);
       window.addEventListener('screen_share_start', handleScreenShareStartEvent);
     }
 
     return () => {
+      unsubscribeConnectionStatus()
+      unsubscribeScreenShare()
       if (typeof window !== 'undefined') {
         window.removeEventListener('open_screen_share', handleOpenScreenShare);
         window.removeEventListener('screen_share_start', handleScreenShareStartEvent);
       }
     };
-  }, [sharingUsers, authUser]);
+  }, [authUser]);
 
   // Состояние для P2P звонков
   const [isIncomingCall, setIsIncomingCall] = useState(false);
   const [isOutgoingCall, setIsOutgoingCall] = useState(false);
   const [currentCaller, setCurrentCaller] = useState<User | null>(null);
+  const currentCallerRef = useRef<User | null>(null);
   const [currentCallee, setCurrentCallee] = useState<User | null>(null);
+
+  useEffect(() => {
+    currentCallerRef.current = currentCaller
+  }, [currentCaller])
   const [inCall, setInCall] = useState(false);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
 
   // Обработчики P2P звонков - должны работать на всех страницах
   useEffect(() => {
-    if (!authUser) return;
+    if (!authUser || !currentServer) return;
 
     const handleIncomingCall = (incomingCaller: any) => {
       console.log('[HomePage] handleIncomingCall:', { incomingCaller, authUser });
@@ -245,7 +248,7 @@ export default function HomePage() {
       setInCall(true);
       // Инициатор звонка (caller) создает offer после подтверждения
       // Если я - инициатор звонка (caller), то я создаю offer для получателя
-      if (currentCaller?.id === authUser?.id) {
+      if (currentCallerRef.current?.id === authUser?.id) {
           p2pVoiceService.createOffer(data.recipient.id);
       }
       // Если я - принимающий (callee), то я уже создал peer connection в acceptCall
@@ -258,7 +261,7 @@ export default function HomePage() {
       setIsOutgoingCall(false);
       setIsIncomingCall(false);
       // Показываем уведомление звонящему, что звонок отклонен
-      if (currentCaller?.id === authUser?.id) {
+      if (currentCallerRef.current?.id === authUser?.id) {
         console.log('Звонок отклонен получателем!');
         // Для звонящего - завершаем звонок полностью
         handleCallEnded();
@@ -299,7 +302,7 @@ export default function HomePage() {
       websocketService.off('p2p-call-ended', handleCallEnded);
       p2pVoiceService.off('remote_stream_received', handleRemoteStream);
     };
-  }, [authUser]);
+  }, [authUser, currentServer]);
 
   // useEffect для обработки изменений remoteStream
   useEffect(() => {
@@ -396,7 +399,7 @@ export default function HomePage() {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <div className="skeleton mx-auto mb-4 h-8 w-8 rounded-lg"></div>
           <p>Проверка аутентификации...</p>
         </div>
       </div>
@@ -407,7 +410,7 @@ export default function HomePage() {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <div className="skeleton mx-auto mb-4 h-8 w-8 rounded-lg"></div>
           <p>Загрузка серверов...</p>
         </div>
       </div>
@@ -415,7 +418,7 @@ export default function HomePage() {
   }
 
   return (
-    <div className="h-screen flex bg-background relative">
+    <div className="app-shell relative flex h-[100dvh] overflow-hidden">
       <div className="relative z-50">
         <ServerList />
       </div>
@@ -425,7 +428,7 @@ export default function HomePage() {
           <div className="relative z-40">
             <ChannelSidebar />
           </div>
-          <div className="flex-1 flex flex-col">
+          <div className="flex min-w-0 flex-1 flex-col">
             <ChatArea showUserSidebar={showUserSidebar} setShowUserSidebar={setShowUserSidebar} />
           </div>
           {showUserSidebar && <ServerUserSidebar />}
@@ -484,14 +487,10 @@ export default function HomePage() {
         style={{ display: 'none' }}
       />
 
-      {/* Панель голосового подключения над профилем пользователя */}
-      <div className="absolute bottom-20 left-2 z-50 max-w-[calc(100vw-16px)]">
+      {/* Единый dock: голос + профиль (как в Discord) */}
+      <div className="user-dock absolute bottom-2 left-2 z-50">
         <VoiceConnectionPanel />
-      </div>
-
-      {/* Общий профиль пользователя внизу под серверами и каналами */}
-      <div className="absolute bottom-2 left-2 z-50 max-w-[calc(100vw-16px)]">
-        <UserProfileBar onSettingsClick={handleOpenSettings} />
+        <UserProfileBar embedded onSettingsClick={handleOpenSettings} />
       </div>
 
       {/* Индикатор состояния подключения */}

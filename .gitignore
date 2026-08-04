@@ -2,6 +2,7 @@
 node_modules/
 frontend/node_modules/
 frontend/.next/
+frontend/.next-dev/
 frontend/.turbo/
 frontend/.cache/
 frontend/out/
@@ -37,6 +38,7 @@ backend/.env
 backend/.env.*
 
 # Python / Backend
+backend/static/uploads/
 backend/venv/
 **/__pycache__/
 **/*.pyc
@@ -69,3 +71,49 @@ env/
 node_modules/
 
 /frontend/build
+
+# Agent skills (keep project skills, ignore duplicate harness dirs)
+.aider-desk/
+.autohand/
+.augment/
+.bob/
+.adal/
+.pochi/
+.zcode/
+.jazz/
+.codeartsdoer/
+.codemaker/
+.codebuddy/
+.forge/
+.crush/
+.devin/
+.inferencesh/
+.cortex/
+.factory/
+.commandcode/
+.windsurf/
+.iflow/
+.continue/
+.goose/
+.openhands/
+.lingma/
+.kimchi/
+.hermes/
+.terramind/
+.reasonix/
+.kilocode/
+.junie/
+.kode/
+.ona/
+.roo/
+.tabnine/
+.mux/
+.qwen/
+.neovate/
+.moxby/
+.mcpjam/
+.tinycloud/
+.zencoder/
+agent/
+data/
+skills/

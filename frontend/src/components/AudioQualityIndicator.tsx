@@ -33,7 +33,7 @@ export const AudioQualityIndicator: React.FC<AudioQualityIndicatorProps> = ({
   };
 
   return (
-    <div className="flex items-center gap-3 px-3 py-2 bg-[#2b2d31] rounded-lg">
+    <div className="flex items-center gap-3 px-3 py-2 bg-[#2c2d32] rounded-lg">
       {/* Статус подключения */}
       <div className="flex items-center gap-1">
         {isConnected ? (
@@ -44,7 +44,7 @@ export const AudioQualityIndicator: React.FC<AudioQualityIndicatorProps> = ({
       </div>
 
       {/* Разделитель */}
-      <div className="w-px h-4 bg-[#4e4f56]" />
+      <div className="w-px h-4 bg-[#44454a]" />
 
       {/* Индикаторы функций */}
       <div className="flex items-center gap-2 text-xs">
@@ -52,7 +52,7 @@ export const AudioQualityIndicator: React.FC<AudioQualityIndicatorProps> = ({
         {vadEnabled && (
           <div
             className={`flex items-center gap-1 px-2 py-0.5 rounded ${
-              isSpeaking && !isMuted ? 'bg-green-500/20 text-green-400' : 'bg-[#36373e] text-[#949ba4]'
+              isSpeaking && !isMuted ? 'bg-green-500/20 text-green-400' : 'bg-[#36373e] text-[#999aa1]'
             }`}
             title="Детекция голоса"
           >
@@ -67,7 +67,7 @@ export const AudioQualityIndicator: React.FC<AudioQualityIndicatorProps> = ({
             className={`flex items-center gap-1 px-2 py-0.5 rounded ${
               advancedNoiseSuppressionEnabled
                 ? 'bg-purple-500/20 text-purple-400'
-                : 'bg-[#36373e] text-[#949ba4]'
+                : 'bg-[#36373e] text-[#999aa1]'
             }`}
             title={
               advancedNoiseSuppressionEnabled
@@ -94,7 +94,7 @@ export const AudioQualityIndicator: React.FC<AudioQualityIndicatorProps> = ({
                 className={`w-1 h-${bar * 2} rounded-full transition-all ${
                   signalQuality >= bar * 25
                     ? getQualityColor(signalQuality)
-                    : 'bg-[#4e4f56]'
+                    : 'bg-[#44454a]'
                 }`}
                 style={{ height: `${bar * 3}px` }}
               />

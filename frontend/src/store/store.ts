@@ -29,7 +29,7 @@ interface StoreState {
   voiceChannelUsers: { [channelId: number]: Array<{ user_id: number; username: string }> };
   setServers: (servers: Server[]) => void;
   selectServer: (serverId: number) => void;
-  selectChannel: (channelId: number) => void;
+  selectChannel: (channelId: number, channelType?: 'text' | 'voice') => void;
   addChannel: (serverId: number, channel: Channel) => void;
   loadServers: () => Promise<void>;
   addUserToVoiceChannel: (channelId: number, user: { user_id: number; username: string }) => void;
@@ -94,12 +94,14 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
   
-  selectChannel: (channelId) => {
-    console.log('[Store] selectChannel вызван с channelId:', channelId);
+  selectChannel: (channelId, channelType) => {
+    console.log('[Store] selectChannel вызван с channelId:', channelId, 'type:', channelType);
     const currentServer = get().currentServer;
     console.log('[Store] currentServer:', currentServer);
     if (currentServer) {
-      const channel = currentServer.channels.find(c => c.id === channelId);
+      const channel = currentServer.channels.find(
+        (c) => c.id === channelId && (channelType ? c.type === channelType : true)
+      );
       console.log('[Store] найден канал:', channel);
       if (channel) {
         console.log('[Store] устанавливаем currentChannel:', channel);

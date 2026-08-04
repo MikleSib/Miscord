@@ -3,10 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import asyncio
+from sqlalchemy import delete
 
 from app.core.config import settings
 from app.db.database import engine, Base
-from app.api import auth, channels, uploads, reactions, friends, direct_messages
+from app.api import auth, channels, servers, uploads, reactions, friends, direct_messages
 from app.websocket import chat, voice
 from app.websocket.connection_manager import manager
 from app.websocket.chat import websocket_chat_endpoint, websocket_notifications_endpoint
@@ -14,6 +15,7 @@ from app.websocket.voice import websocket_voice_endpoint
 from app.websocket.unified import websocket_unified_endpoint
 from app.services.user_activity_service import user_activity_service
 from app.db.database import AsyncSessionLocal
+from app.models import VoiceChannelUser
 
 # Создание таблиц при старте
 @asynccontextmanager
@@ -21,6 +23,10 @@ async def lifespan(app: FastAPI):
     # Startup
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    # Voice presence is runtime state; it must not survive a backend restart.
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(VoiceChannelUser))
+        await db.commit()
     
     # Инициализация Redis для WebSocket
     await manager.init_redis()
@@ -54,6 +60,7 @@ app.add_middleware(
 # Подключение роутеров
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(channels.router, prefix="/api/channels", tags=["channels"])
+app.include_router(servers.router, prefix="/api/servers", tags=["server-management"])
 app.include_router(uploads.router, prefix="/api", tags=["uploads"])
 app.include_router(reactions.router, prefix="/api", tags=["reactions"])
 app.include_router(friends.router, prefix="/api/friends", tags=["friends"])

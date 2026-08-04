@@ -1,329 +1,196 @@
-'use client';
+'use client'
 
-import React, { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import {
-  Container,
-  Paper,
-  TextField,
-  Button,
-  Typography,
-  Box,
-  Alert,
-  InputAdornment,
-  IconButton,
-  Fade,
-  Zoom,
-} from '@mui/material';
-import {
-  Person as PersonIcon,
-  Lock as LockIcon,
-  Visibility,
-  VisibilityOff,
-} from '@mui/icons-material';
-import { useAuthStore } from '../../store/store';
-import { useStore } from '../../lib/store';
-import authService from '../../services/authService';
+import { FormEvent, useEffect, useState } from 'react'
+import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { ArrowRight, Eye, EyeOff, Loader2, LockKeyhole, MessagesSquare, User } from 'lucide-react'
+import { useAuthStore } from '../../store/store'
+import { useStore } from '../../lib/store'
+import authService from '../../services/authService'
 
-const LoginPage: React.FC = () => {
-  const router = useRouter();
-  const { user, isAuthenticated, isLoading, error, loginStart, loginSuccess, loginFailure, clearError } = useAuthStore();
-  const { setUser: setStoreUser } = useStore();
-  const [isMounted, setIsMounted] = useState(false);
-  
-  const [formData, setFormData] = useState({
-    username: '',
-    password: '',
-  });
-  const [showPassword, setShowPassword] = useState(false);
+/** Разрешаем только внутренние пути вида `/invite/abc`, без внешних URL. */
+function safeRedirectPath(value: string | null): string {
+  if (!value || !value.startsWith('/') || value.startsWith('//')) return '/'
+  return value
+}
+
+export default function LoginPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const redirectTo = safeRedirectPath(searchParams.get('redirect'))
+  const {
+    user,
+    isAuthenticated,
+    isLoading,
+    error,
+    loginStart,
+    loginSuccess,
+    loginFailure,
+    clearError,
+  } = useAuthStore()
+  const { setUser: setStoreUser } = useStore()
+  const [formData, setFormData] = useState({ username: '', password: '' })
+  const [showPassword, setShowPassword] = useState(false)
+  const [isCheckingSession, setIsCheckingSession] = useState(true)
 
   useEffect(() => {
-    setIsMounted(true);
-  }, []);
+    let active = true
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    loginStart();
-    
-    try {
-      const { access_token } = await authService.login(formData);
-      
-      // Сначала сохраняем токен в хранилище
-      useAuthStore.getState().setToken(access_token);
-
-      // Теперь делаем запрос с уже установленным токеном
-      const user = await authService.getCurrentUser();
-      
-      // Сохраняем пользователя в оба store
-      loginSuccess(user, access_token);
-      setStoreUser(user);
-      
-    } catch (err: any) {
-      const errorMessage = err.response?.data?.detail || 'Ошибка входа';
-      loginFailure(errorMessage);
-    }
-  };
-
-  useEffect(() => {
-    // Проверяем, есть ли уже сохраненный токен
-    const checkExistingAuth = async () => {
+    const restoreSession = async () => {
       try {
-        const savedToken = localStorage.getItem('access_token');
-        if (savedToken) {
-          // Проверяем валидность токена
-          const user = await authService.getCurrentUser();
-          if (user) {
-            useAuthStore.getState().loginSuccess(user, savedToken);
-            setStoreUser(user);
-            router.push('/');
-            return;
-          }
-        }
-      } catch (error) {
-        // Очищаем недействительный токен
-        localStorage.removeItem('access_token');
-        useAuthStore.getState().logout();
+        const savedToken = localStorage.getItem('access_token')
+        if (!savedToken) return
+
+        useAuthStore.getState().setToken(savedToken)
+        const restoredUser = await authService.getCurrentUser()
+        if (!active) return
+        useAuthStore.getState().loginSuccess(restoredUser, savedToken)
+        setStoreUser(restoredUser)
+        router.replace(redirectTo)
+      } catch {
+        localStorage.removeItem('access_token')
+        useAuthStore.getState().logout()
+      } finally {
+        if (active) setIsCheckingSession(false)
       }
-    };
-
-    if (isMounted) {
-      checkExistingAuth();
     }
-  }, [isMounted, router, setStoreUser]);
 
-  useEffect(() => {
-    // Этот эффект будет следить за состоянием аутентификации
-    // и выполнять перенаправление после успешного входа.
-    if (isMounted && isAuthenticated && user) {
-      router.push('/');
-    }
-  }, [isAuthenticated, user, router, isMounted]);
-
-  useEffect(() => {
+    restoreSession()
     return () => {
-      clearError();
-    };
-  }, [clearError]);
+      active = false
+      clearError()
+    }
+  }, [clearError, redirectTo, router, setStoreUser])
 
-  // Не рендерим до тех пор, пока компонент не смонтирован
-  if (!isMounted) {
-    return null;
+  useEffect(() => {
+    if (isAuthenticated && user) router.replace(redirectTo)
+  }, [isAuthenticated, redirectTo, router, user])
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault()
+    clearError()
+    loginStart()
+
+    try {
+      const { access_token } = await authService.login(formData)
+      useAuthStore.getState().setToken(access_token)
+      const currentUser = await authService.getCurrentUser()
+      loginSuccess(currentUser, access_token)
+      setStoreUser(currentUser)
+    } catch (requestError: any) {
+      loginFailure(requestError.response?.data?.detail || 'Не удалось войти. Проверьте логин и пароль.')
+    }
   }
 
   return (
-    <Box
-      sx={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        padding: 2,
-      }}
-    >
-      <Container component="main" maxWidth="xs">
-        <Fade in={isMounted} timeout={800}>
-          <Box>
-            <Zoom in={isMounted} timeout={1000}>
-              <Box
-                sx={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  mb: 3,
-                }}
-              >
-                <Box
-                  sx={{
-                    mb: 2,
-                  }}
-                >
-                  <img 
-                    src="/image.svg" 
-                    alt="Miscord Logo" 
-                    style={{ 
-                      width: '120px', 
-                      height: 'auto',
-                      filter: 'drop-shadow(0 4px 12px rgba(0, 0, 0, 0.3))'
-                    }} 
-                  />
-                </Box>
-                <Typography
-                  variant="h3"
-                  sx={{
-                    color: 'white',
-                    fontWeight: 700,
-                    textShadow: '0 4px 12px rgba(0, 0, 0, 0.2)',
-                  }}
-                >
-                  Miscord
-                </Typography>
-                <Typography
-                  variant="body1"
-                  sx={{
-                    color: 'rgba(255, 255, 255, 0.9)',
-                    mt: 1,
-                  }}
-                >
-                  Войдите в свой аккаунт
-                </Typography>
-              </Box>
-            </Zoom>
+    <main className="auth-shell">
+      <div className="auth-layout">
+        <section className="auth-story" aria-label="О Miscord">
+          <div>
+            <div className="auth-brand-mark">
+              <img src="/image.svg" alt="" className="h-8 w-8 object-contain" />
+            </div>
+            <p className="mt-7 text-sm font-semibold text-primary">Miscord</p>
+            <h1 className="mt-3 max-w-md text-4xl font-bold leading-[1.08] tracking-[-0.035em] text-balance">
+              Один разговор. Без лишнего шума.
+            </h1>
+            <p className="mt-5 max-w-sm text-sm leading-6 text-muted-foreground">
+              Текстовые каналы, голосовые комнаты и демонстрация экрана в одном спокойном рабочем пространстве.
+            </p>
+          </div>
+          <div className="flex items-center gap-3 text-sm text-muted-foreground">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-background/50">
+              <MessagesSquare className="h-4 w-4 text-primary" />
+            </span>
+            <span>Вернитесь к разговору с того места, где остановились.</span>
+          </div>
+        </section>
 
-            <Paper
-              elevation={12}
-              sx={{
-                padding: 4,
-                width: '100%',
-                borderRadius: 3,
-                background: 'rgba(255, 255, 255, 0.95)',
-                backdropFilter: 'blur(10px)',
-              }}
-            >
-              {error && (
-                <Fade in={!!error}>
-                  <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>
-                    {error}
-                  </Alert>
-                </Fade>
-              )}
+        <section className="auth-card" aria-labelledby="login-title">
+          <div className="mb-8 md:hidden">
+            <div className="auth-brand-mark">
+              <img src="/image.svg" alt="Логотип Miscord" className="h-8 w-8 object-contain" />
+            </div>
+          </div>
 
-              <Box component="form" onSubmit={handleSubmit}>
-                <TextField
-                  margin="normal"
-                  required
-                  fullWidth
-                  id="username"
-                  label="Имя пользователя"
+          <div>
+            <p className="text-sm font-semibold text-primary">С возвращением</p>
+            <h2 id="login-title" className="mt-2 text-3xl font-bold tracking-[-0.03em]">Войдите в Miscord</h2>
+            <p className="mt-2 text-sm text-muted-foreground">Продолжите общение в своих каналах.</p>
+          </div>
+
+          {error && (
+            <div className="mt-6 rounded-lg border border-destructive/35 bg-destructive/10 px-3.5 py-3 text-sm text-red-300" role="alert">
+              {error}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="mt-7 grid gap-5">
+            <label className="auth-field">
+              <span className="text-sm font-medium text-foreground">Имя пользователя</span>
+              <span className="auth-input-wrap">
+                <User className="h-4 w-4 flex-none" aria-hidden="true" />
+                <input
+                  className="auth-input"
                   name="username"
                   autoComplete="username"
                   autoFocus
-                  value={formData.username}
-                  onChange={handleChange}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <PersonIcon sx={{ color: '#667eea' }} />
-                      </InputAdornment>
-                    ),
-                  }}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      '&:hover fieldset': {
-                        borderColor: '#667eea',
-                      },
-                      '&.Mui-focused fieldset': {
-                        borderColor: '#667eea',
-                      },
-                    },
-                    '& .MuiInputLabel-root.Mui-focused': {
-                      color: '#667eea',
-                    },
-                  }}
-                />
-                <TextField
-                  margin="normal"
                   required
-                  fullWidth
-                  name="password"
-                  label="Пароль"
-                  type={showPassword ? 'text' : 'password'}
-                  id="password"
-                  autoComplete="current-password"
-                  value={formData.password}
-                  onChange={handleChange}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <LockIcon sx={{ color: '#667eea' }} />
-                      </InputAdornment>
-                    ),
-                    endAdornment: (
-                      <InputAdornment position="end">
-                        <IconButton
-                          aria-label="toggle password visibility"
-                          onClick={() => setShowPassword(!showPassword)}
-                          edge="end"
-                        >
-                          {showPassword ? <VisibilityOff /> : <Visibility />}
-                        </IconButton>
-                      </InputAdornment>
-                    ),
-                  }}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      '&:hover fieldset': {
-                        borderColor: '#667eea',
-                      },
-                      '&.Mui-focused fieldset': {
-                        borderColor: '#667eea',
-                      },
-                    },
-                    '& .MuiInputLabel-root.Mui-focused': {
-                      color: '#667eea',
-                    },
-                  }}
+                  value={formData.username}
+                  onChange={(event) => setFormData((current) => ({ ...current, username: event.target.value }))}
+                  placeholder="Ваш логин"
                 />
-                <Button
-                  type="submit"
-                  fullWidth
-                  variant="contained"
-                  disabled={isLoading}
-                  sx={{
-                    mt: 3,
-                    mb: 2,
-                    py: 1.5,
-                    fontSize: '1.1rem',
-                    fontWeight: 600,
-                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                    borderRadius: 2,
-                    textTransform: 'none',
-                    boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)',
-                    '&:hover': {
-                      background: 'linear-gradient(135deg, #5568d3 0%, #6a3f8f 100%)',
-                      boxShadow: '0 6px 16px rgba(102, 126, 234, 0.5)',
-                      transform: 'translateY(-2px)',
-                    },
-                    '&:disabled': {
-                      background: 'linear-gradient(135deg, #a0a0a0 0%, #808080 100%)',
-                    },
-                    transition: 'all 0.3s ease',
-                  }}
-                >
-                  {isLoading ? 'Вход...' : 'Войти'}
-                </Button>
-                <Box textAlign="center">
-                  <Link href="/register" style={{ textDecoration: 'none' }}>
-                    <Typography
-                      variant="body2"
-                      sx={{
-                        cursor: 'pointer',
-                        color: '#667eea',
-                        fontWeight: 500,
-                        '&:hover': {
-                          textDecoration: 'underline',
-                        },
-                      }}
-                    >
-                      Нет аккаунта? Зарегистрироваться
-                    </Typography>
-                  </Link>
-                </Box>
-              </Box>
-            </Paper>
-          </Box>
-        </Fade>
-      </Container>
-    </Box>
-  );
-};
+              </span>
+            </label>
 
-export default LoginPage; 
+            <label className="auth-field">
+              <span className="text-sm font-medium text-foreground">Пароль</span>
+              <span className="auth-input-wrap">
+                <LockKeyhole className="h-4 w-4 flex-none" aria-hidden="true" />
+                <input
+                  className="auth-input"
+                  name="password"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  required
+                  value={formData.password}
+                  onChange={(event) => setFormData((current) => ({ ...current, password: event.target.value }))}
+                  placeholder="Введите пароль"
+                />
+                <button
+                  type="button"
+                  className="rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground"
+                  onClick={() => setShowPassword((visible) => !visible)}
+                  aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </span>
+            </label>
+
+            <button className="auth-submit mt-1" type="submit" disabled={isLoading || isCheckingSession}>
+              {isLoading || isCheckingSession ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {isCheckingSession ? 'Проверяем сессию' : 'Входим'}
+                </>
+              ) : (
+                <>
+                  Войти
+                  <ArrowRight className="h-4 w-4" />
+                </>
+              )}
+            </button>
+          </form>
+
+          <p className="mt-6 text-sm text-muted-foreground">
+            Нет аккаунта?{' '}
+            <Link href="/register" className="font-semibold text-primary hover:underline hover:underline-offset-4">
+              Создать аккаунт
+            </Link>
+          </p>
+        </section>
+      </div>
+    </main>
+  )
+}

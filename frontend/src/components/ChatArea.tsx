@@ -282,7 +282,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
 
   if (!currentChannel) {
     return (
-      <div className="flex-1 bg-background flex items-center justify-center">
+      <div className="app-shell flex min-w-0 flex-1 items-center justify-center">
         <div className="text-muted-foreground text-center">
           <p className="text-2xl mb-2">Добро пожаловать!</p>
           <p>Выберите канал для начала общения</p>
@@ -292,16 +292,16 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   }
 
   return (
-    <div className="flex-1 bg-background flex flex-col h-screen">
+    <div className="flex h-full min-w-0 flex-1 flex-col bg-background">
       {/* Channel Header */}
-      <div className="h-12 px-4 flex items-center border-b border-border flex-shrink-0 justify-between">
+      <div className="app-header flex h-12 flex-shrink-0 items-center justify-between border-b px-4">
         <div className="flex items-center">
           <Hash className="w-5 h-5 text-muted-foreground mr-2" />
           <span className="font-semibold">{currentChannel.name}</span>
         </div>
         <div className="flex items-center space-x-2">
           <button
-            className="p-2 rounded hover:bg-muted transition flex items-center"
+            className="interactive-row flex items-center p-2 text-muted-foreground hover:text-foreground"
             title={showUserSidebar ? 'Скрыть список участников' : 'Показать список участников'}
             onClick={() => setShowUserSidebar(!showUserSidebar)}
           >
@@ -322,7 +322,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
       />
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-1 chat-scroll">
+      <div className="chat-scroll flex-1 space-y-1 overflow-y-auto px-5 py-4">
         {chatLoading && (
           <div className="text-center text-muted-foreground py-4">
             Загрузка истории сообщений...
@@ -371,8 +371,8 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
 
       {/* Message Input */}
       {currentChannel.type === 'text' && (
-        <div className="p-4 border-t border-border flex-shrink-0">
-          <form onSubmit={handleSendMessage} className="bg-secondary rounded-lg p-2 flex flex-col">
+        <div className="flex-shrink-0 border-t border-border/70 p-3">
+          <form onSubmit={handleSendMessage} className="flex flex-col rounded-xl border border-[#3e3f45] bg-[#393a41] p-2">
             
             {/* File Previews */}
             {files.length > 0 && (

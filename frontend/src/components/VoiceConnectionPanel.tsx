@@ -1,232 +1,206 @@
-import React, { useState, useEffect } from 'react';
-import { Phone, PhoneOff, Monitor, MonitorOff, Wifi, WifiOff, Loader, Mic, MicOff, Settings } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Loader,
+  Phone,
+  Rss,
+  ScreenShare,
+  ScreenShareOff,
+  Shapes,
+  SunMedium,
+  VideoOff,
+  X,
+} from 'lucide-react';
 import { useVoiceStore } from '../store/slices/voiceSlice';
 import { useStore } from '../lib/store';
 import voiceService from '../services/voiceService';
-import { VoiceActivityIndicator } from './VoiceActivityIndicator';
-import { AudioSettingsModal } from './AudioSettingsModal';
+import { audioProcessingService } from '../services/audioProcessingService';
+import { useNoiseSuppressionStore } from '../store/noiseSuppressionStore';
 
 export function VoiceConnectionPanel() {
-  const { 
-    isConnected, 
-    currentVoiceChannelId, 
-    participants, 
-    disconnectFromVoiceChannel 
+  const {
+    isConnected,
+    isConnecting,
+    currentVoiceChannelId,
+    error,
+    disconnectFromVoiceChannel,
+    setError,
   } = useVoiceStore();
-  
   const { currentServer } = useStore();
   const [isScreenSharing, setIsScreenSharing] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'connecting' | 'disconnected'>('disconnected');
-  const [isMuted, setIsMuted] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [screenShareError, setScreenShareError] = useState<string | null>(null);
+  const [isNoiseSuppressionToggling, setIsNoiseSuppressionToggling] = useState(false);
+  const noiseSuppressionEnabled = useNoiseSuppressionStore((state) => state.enabled);
+  const noiseSuppressionEngine = useNoiseSuppressionStore((state) => state.engine);
+  const noiseSuppressionStatus = useNoiseSuppressionStore((state) => state.runtimeStatus);
+  const setNoiseSuppressionEnabled = useNoiseSuppressionStore((state) => state.setEnabled);
+  const setNoiseSuppressionEngine = useNoiseSuppressionStore((state) => state.setEngine);
 
-  // Получаем название текущего канала
-  const currentChannel = currentServer?.channels.find((channel: any) => 
-    Number(channel.id) === currentVoiceChannelId && channel.type === 'voice'
+  const currentChannel = useMemo(
+    () =>
+      currentServer?.channels.find(
+        (channel: any) => Number(channel.id) === currentVoiceChannelId && channel.type === 'voice'
+      ),
+    [currentServer, currentVoiceChannelId]
   );
 
-  // Обновляем статус демонстрации экрана
   useEffect(() => {
     const updateScreenShareStatus = () => {
       setIsScreenSharing(voiceService.getScreenSharingStatus());
     };
 
-    // Обновляем статус при изменении подключения
     updateScreenShareStatus();
-    
-    // Подписываемся на изменения статуса демонстрации экрана
-    const handleScreenShareChange = () => {
-      updateScreenShareStatus();
-    };
-
-    window.addEventListener('screen_share_start', handleScreenShareChange);
-    window.addEventListener('screen_share_stop', handleScreenShareChange);
-
+    window.addEventListener('screen_share_start', updateScreenShareStatus);
+    window.addEventListener('screen_share_stop', updateScreenShareStatus);
     return () => {
-      window.removeEventListener('screen_share_start', handleScreenShareChange);
-      window.removeEventListener('screen_share_stop', handleScreenShareChange);
+      window.removeEventListener('screen_share_start', updateScreenShareStatus);
+      window.removeEventListener('screen_share_stop', updateScreenShareStatus);
     };
   }, []);
 
-  // Обновляем статус подключения
-  useEffect(() => {
-    if (isConnected) {
-      setConnectionStatus('connected');
-    } else if (currentVoiceChannelId) {
-      setConnectionStatus('connecting');
-    } else {
-      setConnectionStatus('disconnected');
-    }
-  }, [isConnected, currentVoiceChannelId]);
-
-
-
-  // Не показываем панель если не подключены к голосовому каналу
-  if (!currentVoiceChannelId) {
-    return null;
-  }
-
   const handleToggleScreenShare = async () => {
+    setScreenShareError(null);
     if (isScreenSharing) {
       voiceService.stopScreenShare();
-    } else {
-      const success = await voiceService.startScreenShare();
-      if (!success) {
-        console.error('Не удалось начать демонстрацию экрана');
-        // Здесь можно добавить уведомление об ошибке
-      }
+      return;
+    }
+
+    const started = await voiceService.startScreenShare();
+    if (!started) {
+      setScreenShareError('Не удалось начать демонстрацию. Проверьте разрешение на захват экрана.');
     }
   };
 
-  const handleDisconnect = () => {
-    disconnectFromVoiceChannel();
-  };
+  const handleToggleNoiseSuppression = async () => {
+    const isMiscordAISelected =
+      noiseSuppressionEnabled && noiseSuppressionEngine === 'miscord-ai';
+    const nextEnabled = !isMiscordAISelected;
 
-  const handleToggleMute = () => {
-    setIsMuted(!isMuted);
-    voiceService.setMuted(!isMuted);
-  };
-
-  // Функция для склонения слова "участник"
-  const getParticipantsCountText = (count: number): string => {
-    const lastDigit = count % 10;
-    const lastTwoDigits = count % 100;
-    
-    // Особые случаи для 11, 12, 13, 14
-    if (lastTwoDigits >= 11 && lastTwoDigits <= 14) {
-      return `${count} участников`;
-    }
-    
-    // Обычные правила склонения
-    if (lastDigit === 1) {
-      return `${count} участник`;
-    } else if (lastDigit >= 2 && lastDigit <= 4) {
-      return `${count} участника`;
-    } else {
-      return `${count} участников`;
+    setIsNoiseSuppressionToggling(true);
+    setNoiseSuppressionEngine('miscord-ai');
+    setNoiseSuppressionEnabled(nextEnabled);
+    try {
+      await audioProcessingService.setNoiseSuppression(nextEnabled, 'miscord-ai');
+    } finally {
+      setIsNoiseSuppressionToggling(false);
     }
   };
 
-  const getConnectionStatusText = () => {
-    switch (connectionStatus) {
-      case 'connected':
-        return 'Подключено';
-      case 'connecting':
-        return 'Подключение...';
-      default:
-        return 'Отключено';
-    }
-  };
+  if (!currentVoiceChannelId && error) {
+    return (
+      <div className="user-dock__voice user-dock__voice--error" role="alert">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-foreground">Голосовое соединение прервано</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{error}</p>
+        </div>
+        <button
+          type="button"
+          className="voice-control"
+          onClick={() => setError(null)}
+          aria-label="Закрыть сообщение"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+    );
+  }
 
-  const getConnectionStatusIcon = () => {
-    switch (connectionStatus) {
-      case 'connected':
-        return <Wifi className="w-4 h-4 text-green-400" />;
-      case 'connecting':
-        return <Loader className="w-4 h-4 text-yellow-400 animate-spin" />;
-      default:
-        return <WifiOff className="w-4 h-4 text-red-400" />;
-    }
-  };
+  if (!currentVoiceChannelId) return null;
+
+  const statusTitle = isConnected
+    ? 'Голосовая связь подключена'
+    : isConnecting
+      ? 'Подключение...'
+      : 'Нет соединения';
+
+  const channelLabel = currentChannel?.name || `Канал ${currentVoiceChannelId}`;
+  const serverLabel = currentServer?.name || 'Сервер';
 
   return (
-    <div className="w-[315px] max-w-[calc(100vw-16px)] bg-[#36373e] rounded-t-lg border-t border-[#4e4f56] shadow-lg animate-slide-up">
-      {/* Заголовок с названием канала */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-[#4e4f56]">
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          <div className="flex items-center gap-1">
-            <Phone className="w-4 h-4 text-green-400 flex-shrink-0" />
-            {getConnectionStatusIcon()}
+    <section className="user-dock__voice" aria-label="Управление голосовым каналом">
+      <header className="user-dock__voice-header">
+        <div className="user-dock__voice-status">
+          <div className={`user-dock__signal ${isConnected ? 'is-online' : isConnecting ? 'is-connecting' : 'is-offline'}`}>
+            {isConnecting ? <Loader className="h-[18px] w-[18px] animate-spin" /> : <Rss className="h-[18px] w-[18px]" />}
           </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium text-white truncate">
-              {currentChannel?.name || `Голосовой канал ${currentVoiceChannelId}`}
-            </div>
-            <div className="text-xs text-[#b5bac1]">
-              {getConnectionStatusText()} • {getParticipantsCountText(participants.length)}
-            </div>
+          <div className="min-w-0">
+            <p className={`user-dock__voice-title truncate ${isConnected ? 'is-connected' : ''}`}>
+              {statusTitle}
+            </p>
+            <p className="user-dock__voice-subtitle truncate">
+              {channelLabel} / {serverLabel}
+            </p>
           </div>
         </div>
+        <div className="user-dock__voice-utilities">
+          <span className="user-dock__voice-levels" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+          </span>
+          <button
+          type="button"
+          onClick={disconnectFromVoiceChannel}
+          className="voice-icon-button user-dock__disconnect"
+          aria-label="Отключиться от голосового канала"
+          title="Отключиться"
+        >
+            <Phone className="h-[18px] w-[18px]" />
+          </button>
+        </div>
+      </header>
+
+      {(screenShareError || error) && (
+        <p className="mx-2 mb-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-red-300" role="alert">
+          {screenShareError || error}
+        </p>
+      )}
+
+      <div className="user-dock__voice-actions">
+        <button type="button" className="voice-control h-9 flex-1" disabled aria-label="Камера пока недоступна" title="Камера скоро">
+          <VideoOff className="h-[18px] w-[18px]" />
+        </button>
+        <button
+          type="button"
+          onClick={handleToggleScreenShare}
+          className={`voice-control h-9 flex-1 ${isScreenSharing ? 'is-active' : ''}`}
+          aria-label={isScreenSharing ? 'Остановить демонстрацию экрана' : 'Начать демонстрацию экрана'}
+          aria-pressed={isScreenSharing}
+          disabled={!isConnected}
+          title={isScreenSharing ? 'Остановить демонстрацию' : 'Демонстрация экрана'}
+        >
+          {isScreenSharing ? <ScreenShareOff className="h-[18px] w-[18px]" /> : <ScreenShare className="h-[18px] w-[18px]" />}
+        </button>
+        <button type="button" className="voice-control h-9 flex-1" disabled aria-label="Активности пока недоступны" title="Активности скоро">
+          <Shapes className="h-[18px] w-[18px]" />
+        </button>
+        <button
+          type="button"
+          onClick={handleToggleNoiseSuppression}
+          className={`voice-control ${
+            noiseSuppressionEnabled && noiseSuppressionEngine === 'miscord-ai' ? 'is-active' : ''
+          }`}
+          disabled={!isConnected || isNoiseSuppressionToggling}
+          aria-label={
+            noiseSuppressionEnabled && noiseSuppressionEngine === 'miscord-ai'
+              ? 'Выключить Miscord AI'
+              : 'Включить Miscord AI'
+          }
+          aria-pressed={noiseSuppressionEnabled && noiseSuppressionEngine === 'miscord-ai'}
+          title={
+            noiseSuppressionStatus === 'fallback'
+              ? 'Miscord AI: временно используется резервный режим'
+              : 'Miscord AI: шумоподавление'
+          }
+        >
+          {isNoiseSuppressionToggling || noiseSuppressionStatus === 'loading' ? (
+            <Loader className="h-[18px] w-[18px] animate-spin" />
+          ) : (
+            <SunMedium className="h-[19px] w-[19px]" />
+          )}
+        </button>
       </div>
-
-      {/* Кнопки управления */}
-      <div className="flex flex-col gap-2 px-3 py-2">
-        {/* Верхний ряд - основные кнопки */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Индикатор голосовой активности */}
-          <div className="px-2">
-            <VoiceActivityIndicator 
-              isActive={isConnected && !isMuted} 
-              isMuted={isMuted}
-              size="medium"
-            />
-          </div>
-
-          {/* Кнопка микрофона */}
-          <button
-            onClick={handleToggleMute}
-            className={`p-2 rounded transition-colors flex-shrink-0 ${
-              isMuted
-                ? 'bg-red-500 text-white hover:bg-red-600'
-                : 'bg-[#4e4f56] text-[#b5bac1] hover:bg-[#5a5b63]'
-            }`}
-            title={isMuted ? 'Включить микрофон' : 'Выключить микрофон'}
-          >
-            {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-          </button>
-
-          {/* Кнопка настроек */}
-          <button
-            onClick={() => setIsSettingsOpen(true)}
-            className="p-2 rounded bg-[#4e4f56] text-[#b5bac1] hover:bg-[#5a5b63] transition-colors flex-shrink-0"
-            title="Настройки аудио"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Нижний ряд - кнопки действий */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Кнопка демонстрации экрана */}
-          <button
-            onClick={handleToggleScreenShare}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded text-sm font-medium transition-colors flex-shrink-0 ${
-              isScreenSharing
-                ? 'bg-red-500 text-white hover:bg-red-600'
-                : 'bg-[#5865f2] text-white hover:bg-[#4752c4]'
-            }`}
-            title={isScreenSharing ? 'Остановить демонстрацию экрана' : 'Демонстрация экрана'}
-          >
-            {isScreenSharing ? (
-              <>
-                <MonitorOff className="w-4 h-4" />
-                <span className="hidden sm:inline">Остановить</span>
-              </>
-            ) : (
-              <>
-                <Monitor className="w-4 h-4" />
-                <span className="hidden sm:inline">Демка</span>
-              </>
-            )}
-          </button>
-
-          {/* Кнопка отключения */}
-          <button
-            onClick={handleDisconnect}
-            className="flex items-center gap-2 px-3 py-1.5 rounded text-sm font-medium bg-red-500 text-white hover:bg-red-600 transition-colors flex-shrink-0"
-            title="Отключиться от голосового канала"
-          >
-            <PhoneOff className="w-4 h-4" />
-            <span className="hidden sm:inline">Отключиться</span>
-          </button>
-        </div>
-      </div>
-      
-      {/* Модальное окно настроек */}
-      <AudioSettingsModal 
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-      />
-    </div>
+    </section>
   );
-} 
+}

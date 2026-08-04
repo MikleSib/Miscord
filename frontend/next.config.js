@@ -2,6 +2,9 @@ const path = require('path');
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Keep the long-running dev server isolated from `next build` output.
+  // Sharing `.next` makes dev serve stale HTML after a production build.
+  distDir: process.env.NODE_ENV === 'development' ? '.next-dev' : '.next',
   output: process.env.ELECTRON ? 'export' : 'standalone',
   trailingSlash: true,
   images: {
@@ -14,7 +17,7 @@ const nextConfig = {
         source: '/api/:path*',
         destination: process.env.NEXT_PUBLIC_API_URL
           ? `${process.env.NEXT_PUBLIC_API_URL}/api/:path*`
-          : 'https://stream-cash.ru/api/:path*',
+          : 'https://miscord.ru/api/:path*',
       },
     ];
   },

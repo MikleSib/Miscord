@@ -8,6 +8,7 @@ import chatService from '../services/chatService';
 import { useAuthStore } from '../store/store';
 // Импортируем p2pVoiceService для гарантии инициализации обработчиков до подключения WebSocket
 import p2pVoiceService from '../services/p2pVoiceService';
+import { applyMemberJoined, applyMemberLeft } from './memberSync';
 
 interface AppState {
   // Данные
@@ -23,7 +24,7 @@ interface AppState {
 
   // Действия для серверов
   selectServer: (serverId: number) => Promise<void>;
-  selectChannel: (channelId: number) => void;
+  selectChannel: (channelId: number, channelType?: 'text' | 'voice') => void;
   addServer: (server: Server) => void;
   updateServer: (serverId: number, updates: Partial<Server>) => void;
   removeServer: (serverId: number) => void;
@@ -88,15 +89,21 @@ export const useStore = create<AppState>()(
       },
 
       // Выбор канала
-      selectChannel: (channelId: number) => {
+      selectChannel: (channelId: number, channelType?: 'text' | 'voice') => {
         const { currentServer, user, currentChannel } = get();
         if (currentServer) {
-          const channel = currentServer.channels.find(c => c.id === channelId);
+          // text_channels и voice_channels имеют отдельные id-последовательности,
+          // поэтому ищем по паре id + type, иначе general/General оба с id=1 путаются
+          const channel = currentServer.channels.find(
+            (c) => c.id === channelId && (channelType ? c.type === channelType : true)
+          );
           if (channel) {
+            const isSameChannel =
+              channel.id === currentChannel?.id && channel.type === currentChannel?.type;
             set({ currentChannel: channel });
             
             // Управление WebSocket чата только если это не тот же канал
-            if (channel.id !== currentChannel?.id) {
+            if (!isSameChannel) {
               if (channel.type === 'text' && user) {
                 const token = localStorage.getItem('access_token');
                 if (token) {
@@ -186,26 +193,32 @@ export const useStore = create<AppState>()(
       // Добавление канала
       addChannel: (serverId: number, channel: Channel) => {
         set((state) => {
-          const updatedServers = state.servers.map(server => {
-            if (server.id === serverId) {
-              // Проверяем, существует ли уже канал с таким ID
-              const existingChannel = server.channels.find(c => c.id === channel.id);
-              if (existingChannel) {
-                // Если канал уже существует, возвращаем сервер без изменений
-                return server;
-              }
-              return { ...server, channels: [...server.channels, channel] };
+          const appendIfMissing = (channels: Channel[]) => {
+            // id уникален только внутри типа (text/voice — разные таблицы)
+            if (channels.some((c) => c.id === channel.id && c.type === channel.type)) {
+              return channels;
             }
-            return server;
-          });
+            return [...channels, channel];
+          };
 
-          const updatedCurrentServer = state.currentServer?.id === serverId
-            ? updatedServers.find(s => s.id === serverId) || state.currentServer
-            : state.currentServer;
+          const updatedServers = state.servers.map((server) =>
+            server.id === serverId
+              ? { ...server, channels: appendIfMissing(server.channels) }
+              : server
+          );
+
+          // Обновляем currentServer напрямую, чтобы список каналов сразу перерисовался
+          const updatedCurrentServer =
+            state.currentServer?.id === serverId
+              ? {
+                  ...state.currentServer,
+                  channels: appendIfMissing(state.currentServer.channels),
+                }
+              : state.currentServer;
 
           return {
             servers: updatedServers,
-            currentServer: updatedCurrentServer
+            currentServer: updatedCurrentServer,
           };
         });
       },
@@ -448,8 +461,9 @@ export const useStore = create<AppState>()(
 
       // Инициализация WebSocket
       initializeWebSocket: (token: string) => {
-        websocketService.connect(token);
+        p2pVoiceService.setCurrentUser(useAuthStore.getState().user);
         p2pVoiceService.registerWebSocketHandlers();
+        websocketService.connect(token);
         
         // Обработка приглашения в канал
         websocketService.onChannelInvitation((data) => {
@@ -487,15 +501,31 @@ export const useStore = create<AppState>()(
           }
           
           // Добавляем новый сервер в список
+          const textChannels = (data.server.text_channels || []).map((tc: any) => ({
+            id: tc.id,
+            name: tc.name,
+            type: 'text' as const,
+            serverId: data.server.id,
+          }));
+          const voiceChannels = (data.server.voice_channels || []).map((vc: any) => ({
+            id: vc.id,
+            name: vc.name,
+            type: 'voice' as const,
+            serverId: data.server.id,
+          }));
           const newServer: Server = {
             id: data.server.id,
             name: data.server.name,
             description: data.server.description,
             icon: data.server.icon,
             owner_id: data.server.owner_id,
-            channels: []
+            channels: [...textChannels, ...voiceChannels],
           };
           get().addServer(newServer);
+          const stateAfterAdd = get();
+          if (!stateAfterAdd.currentServer || stateAfterAdd.currentServer.id === data.server.id) {
+            void get().loadServerDetails(data.server.id);
+          }
         });
 
         // Обработка обновления сервера
@@ -600,24 +630,29 @@ export const useStore = create<AppState>()(
           get().addChannel(data.channel_id, newChannel);
         });
         
-        // Обработка присоединения пользователя
+        // Присоединение участника к серверу — сразу в правый список
         websocketService.onUserJoinedChannel((data) => {
-          console.log('Пользователь присоединился к каналу:', data);
-          
-          const { currentServer } = get();
-          if (currentServer?.id === data.channel_id) {
-            get().loadServerDetails(data.channel_id);
-          }
+          console.log('Пользователь присоединился к серверу:', data);
+          applyMemberJoined({
+            channel_id: data.channel_id,
+            user_id: data.user_id,
+            username: data.username,
+            display_name: data.display_name,
+            avatar_url: data.avatar_url,
+            user: data.user
+              ? {
+                  ...data.user,
+                  display_name: data.user.display_name ?? undefined,
+                  avatar_url: data.user.avatar_url ?? undefined,
+                }
+              : undefined,
+          });
         });
         
-        // Обработка выхода пользователя
+        // Выход участника из сервера
         websocketService.onUserLeftChannel((data) => {
-          console.log('Пользователь покинул канал:', data);
-          
-          const { currentServer } = get();
-          if (currentServer?.id === data.channel_id) {
-            get().loadServerDetails(data.channel_id);
-          }
+          console.log('Пользователь покинул сервер:', data);
+          applyMemberLeft(data);
         });
         
         // Обработка обновления канала
@@ -742,6 +777,13 @@ export const useStore = create<AppState>()(
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('user_status_changed', { detail: data }));
           }
+        });
+
+        // Смена аватара / имени — сразу у всех онлайн
+        websocketService.onUserProfileUpdated((payload) => {
+          const data = (payload as any)?.data || payload;
+          if (!data?.user_id || typeof window === 'undefined') return;
+          window.dispatchEvent(new CustomEvent('user_profile_updated', { detail: data }));
         });
       },
 

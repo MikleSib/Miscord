@@ -28,109 +28,12 @@ import {
   IconButton,
 } from '@mui/material'
 import channelService from '../services/channelService'
-import { UserAvatar } from './ui/user-avatar'
+import { applyMemberJoined } from '../lib/memberSync'
 import { ServerSettingsModal } from './ServerSettingsModal'
 import { ChannelSettingsModal } from './ChannelSettingsModal'
 
 // Компонент для аватарки с анимацией при разговоре
-interface SpeakingAvatarProps {
-  user: {
-    username?: string;
-    display_name?: string;
-    avatar_url?: string | null;
-  };
-  isSpeaking: boolean;
-  isScreenSharing?: boolean;
-  size?: number;
-}
-
-function SpeakingAvatar({ user, isSpeaking, isScreenSharing, size = 20 }: SpeakingAvatarProps) {
-  return (
-    <Box
-      sx={{
-        position: 'relative',
-        display: 'inline-block',
-      }}
-    >
-      {/* Анимированная обводка для разговора */}
-      {isSpeaking && !isScreenSharing && (
-        <Box
-          sx={{
-            position: 'absolute',
-            top: -2,
-            left: -2,
-            width: size + 4,
-            height: size + 4,
-            borderRadius: '50%',
-            background: 'linear-gradient(45deg, #00ff88, #00cc6a)',
-            animation: 'speaking-pulse 1.5s ease-in-out infinite',
-            '@keyframes speaking-pulse': {
-              '0%': {
-                transform: 'scale(1)',
-                opacity: 0.8,
-              },
-              '50%': {
-                transform: 'scale(1.1)',
-                opacity: 1,
-              },
-              '100%': {
-                transform: 'scale(1)',
-                opacity: 0.8,
-              },
-            },
-          }}
-        />
-      )}
-
-      {/* Рамка для демонстрации экрана */}
-      {isScreenSharing && (
-        <Box
-          sx={{
-            position: 'absolute',
-            top: -3,
-            left: -3,
-            width: size + 6,
-            height: size + 6,
-            borderRadius: '50%',
-            border: '2px solid #22c55e',
-            background: 'linear-gradient(45deg, #22c55e, #16a34a)',
-            animation: 'screen-share-pulse 2s ease-in-out infinite',
-            '@keyframes screen-share-pulse': {
-              '0%': {
-                transform: 'scale(1)',
-                opacity: 0.9,
-              },
-              '50%': {
-                transform: 'scale(1.05)',
-                opacity: 1,
-              },
-              '100%': {
-                transform: 'scale(1)',
-                opacity: 0.9,
-              },
-            },
-          }}
-        />
-      )}
-      
-      {/* Основная аватарка */}
-      <UserAvatar
-        user={user}
-        size={size}
-        sx={{ 
-          backgroundColor: isScreenSharing ? '#22c55e' : (isSpeaking ? '#00ff88' : (!user.avatar_url ? '#5865f2' : 'transparent')),
-          color: 'white',
-          fontWeight: 600,
-          zIndex: 1,
-          position: 'relative',
-          border: isScreenSharing ? '2px solid #16a34a' : (isSpeaking ? '1px solid #00ff88' : '1px solid transparent'),
-          transition: 'all 0.2s ease-in-out',
-        }}
-      />
-    </Box>
-  );
-}
-
+import { SpeakingAvatar } from './SpeakingAvatar'
 export function ChannelSidebar() {
   const { currentServer, currentChannel, selectChannel, addChannel, loadServers } = useStore()
   const { 
@@ -143,7 +46,9 @@ export function ChannelSidebar() {
     isConnected,
     toggleMute,
     toggleDeafen,
-    speakingUsers
+    speakingUsers,
+    isConnecting,
+    setError
   } = useVoiceStore()
   const { user, logout } = useAuthStore()
   const router = useRouter()
@@ -166,37 +71,6 @@ export function ChannelSidebar() {
   // Состояние для пользователей, демонстрирующих экран
   const [screenSharingUsers, setScreenSharingUsers] = useState<Set<number>>(new Set());
 
-  // Обработчики событий демонстрации экрана
-  useEffect(() => {
-    const handleScreenShareStart = (event: any) => {
-      const { user_id, username } = event.detail;
-      setScreenSharingUsers(prev => {
-        const newSet = new Set(prev);
-        newSet.add(user_id);
-        return newSet;
-      });
-    };
-
-    const handleScreenShareStop = (event: any) => {
-      const { user_id, username } = event.detail;
-      setScreenSharingUsers(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(user_id);
-        return newSet;
-      });
-
-    };
-
-    window.addEventListener('screen_share_start', handleScreenShareStart);
-    window.addEventListener('screen_share_stop', handleScreenShareStop);
-
-    return () => {
-      window.removeEventListener('screen_share_start', handleScreenShareStart);
-      window.removeEventListener('screen_share_stop', handleScreenShareStop);
-    };
-  }, []);
-
-  // Состояние для UserPanel функциональности
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [activeSharingUsers, setActiveSharingUsers] = useState<{ userId: number; username: string }[]>([]);
 
@@ -214,6 +88,8 @@ export function ChannelSidebar() {
 
   // Ref для отслеживания загружаемых каналов (предотвращаем дублирующиеся запросы)
   const loadingChannelsRef = useRef<Set<number>>(new Set());
+  // Канал, из которого только что вышли — чтобы сразу убрать себя из списка
+  const previousVoiceChannelIdRef = useRef<number | null>(null);
 
   // Загружаем участников голосового канала
   // Используем useCallback чтобы функция была стабильной для обработчиков событий
@@ -227,9 +103,16 @@ export function ChannelSidebar() {
     
     try {
       const members = await channelService.getVoiceChannelMembers(voiceChannelId);
+      const currentUserId = useAuthStore.getState().user?.id;
+      const liveChannelId = useVoiceStore.getState().currentVoiceChannelId;
+      // Если мы уже вышли из канала, а API ещё отдаёт нас — не возвращаем себя в UI
+      const nextMembers =
+        currentUserId && liveChannelId !== voiceChannelId
+          ? members.filter((member: any) => (member.id ?? member.user_id) !== currentUserId)
+          : members;
       setVoiceChannelMembers(prev => ({
         ...prev,
-        [voiceChannelId]: members
+        [voiceChannelId]: nextMembers
       }));
     } catch (error) {
       console.error('Ошибка загрузки участников голосового канала:', error);
@@ -256,22 +139,114 @@ export function ChannelSidebar() {
     }
   }, [currentServer, loadVoiceChannelMembers]);
 
+  // При выходе из голоса сервер не шлёт нам самим leave — чистим локальный список сразу
+  useEffect(() => {
+    const previousChannelId = previousVoiceChannelIdRef.current;
+    previousVoiceChannelIdRef.current = currentVoiceChannelId;
+
+    if (!user?.id) return;
+    if (previousChannelId == null) return;
+    if (currentVoiceChannelId === previousChannelId) return;
+
+    setVoiceChannelMembers((prev) => {
+      const existing = prev[previousChannelId];
+      if (!existing?.length) return prev;
+      const filtered = existing.filter(
+        (member) => (member.id ?? member.user_id) !== user.id
+      );
+      if (filtered.length === existing.length) return prev;
+      return {
+        ...prev,
+        [previousChannelId]: filtered,
+      };
+    });
+
+    // Подтянем актуальный список с сервера (без нас)
+    void loadVoiceChannelMembers(previousChannelId);
+  }, [currentVoiceChannelId, user?.id, loadVoiceChannelMembers]);
+
+  // Мгновенно обновляем аватар/имя в списках голосовых каналов
+  useEffect(() => {
+    const handleUserProfileUpdated = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      const data = detail.data || detail;
+      if (!data?.user_id) return;
+
+      setVoiceChannelMembers((prev) => {
+        const next: Record<number, any[]> = {};
+        for (const [channelId, members] of Object.entries(prev)) {
+          next[Number(channelId)] = members.map((member) => {
+            const memberId = member.id ?? member.user_id;
+            if (memberId !== data.user_id) return member;
+            return {
+              ...member,
+              username: data.username ?? member.username,
+              display_name:
+                data.display_name !== undefined
+                  ? data.display_name ?? undefined
+                  : member.display_name,
+              avatar_url:
+                data.avatar_url !== undefined
+                  ? data.avatar_url ?? undefined
+                  : member.avatar_url,
+            };
+          });
+        }
+        return next;
+      });
+    };
+
+    window.addEventListener('user_profile_updated', handleUserProfileUpdated);
+    return () => window.removeEventListener('user_profile_updated', handleUserProfileUpdated);
+  }, []);
+
   // Обработка уведомлений о голосовых каналах
   useEffect(() => {
     const handleVoiceChannelJoin = (event: any) => {
       const data = event.detail;
-      // Обновляем список участников для этого канала
-      if (data.voice_channel_id) {
-        loadVoiceChannelMembers(data.voice_channel_id);
-      }
+      if (!data?.voice_channel_id || !data?.user_id) return;
+
+      setVoiceChannelMembers((prev) => {
+        const channelId = data.voice_channel_id;
+        const existing = prev[channelId] || [];
+        if (existing.some((member) => (member.id ?? member.user_id) === data.user_id)) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          [channelId]: [
+            ...existing,
+            {
+              id: data.user_id,
+              user_id: data.user_id,
+              username: data.username,
+              display_name: data.display_name,
+              avatar_url: data.avatar_url,
+              is_muted: false,
+              is_deafened: false,
+            },
+          ],
+        };
+      });
+
+      loadVoiceChannelMembers(data.voice_channel_id);
     };
 
     const handleVoiceChannelLeave = (event: any) => {
       const data = event.detail;
-      // Обновляем список участников для этого канала
-      if (data.voice_channel_id) {
-        loadVoiceChannelMembers(data.voice_channel_id);
-      }
+      if (!data?.voice_channel_id || !data?.user_id) return;
+
+      setVoiceChannelMembers((prev) => {
+        const channelId = data.voice_channel_id;
+        const existing = prev[channelId] || [];
+        return {
+          ...prev,
+          [channelId]: existing.filter((member) => (member.id ?? member.user_id) !== data.user_id),
+        };
+      });
+
+      loadVoiceChannelMembers(data.voice_channel_id);
     };
 
     // Обработчики глобальных событий
@@ -316,6 +291,7 @@ export function ChannelSidebar() {
     // Обработчики событий демонстрации экрана для UserPanel
     const handleScreenShareStartForUserPanel = (event: any) => {
       const { user_id, username } = event.detail;
+      updateScreenShareStatus();
       setActiveSharingUsers(prev => {
         if (!prev.find(u => u.userId === user_id)) {
           return [...prev, { userId: user_id, username }];
@@ -326,6 +302,7 @@ export function ChannelSidebar() {
 
     const handleScreenShareStopForUserPanel = (event: any) => {
       const { user_id } = event.detail;
+      updateScreenShareStatus();
       setActiveSharingUsers(prev => prev.filter(u => u.userId !== user_id));
     };
 
@@ -337,10 +314,7 @@ export function ChannelSidebar() {
     window.addEventListener('screen_share_stop', handleScreenShareStopForUserPanel);
 
     // Можно добавить слушатель событий если нужно
-    const interval = setInterval(updateScreenShareStatus, 1000);
-    
     return () => {
-      clearInterval(interval);
       window.removeEventListener('screen_share_start', handleScreenShareStartForUserPanel);
       window.removeEventListener('screen_share_stop', handleScreenShareStopForUserPanel);
     };
@@ -360,19 +334,26 @@ export function ChannelSidebar() {
     toggleDeafen();
   };
 
-  const handleDisconnect = () => {
-    disconnectFromVoiceChannel();
-  };
-
-  const handleScreenShareToggle = async () => {
-    if (isScreenSharing) {
-      voiceService.stopScreenShare();
-    } else {
-      await voiceService.startScreenShare();
+  const handleDisconnect = async () => {
+    try {
+      await disconnectFromVoiceChannel()
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Не удалось отключиться от голосового канала')
     }
-    setIsScreenSharing(voiceService.getScreenSharingStatus());
   };
-
+  const handleScreenShareToggle = async () => {
+    try {
+      if (isScreenSharing) {
+        voiceService.stopScreenShare()
+      } else {
+        await voiceService.startScreenShare()
+      }
+      setIsScreenSharing(voiceService.getScreenSharingStatus())
+      setError(null)
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Не удалось запустить демонстрацию экрана')
+    }
+  };
   const handleViewScreenShare = () => {
     // Создаем событие для открытия ScreenShareOverlay
     const event = new CustomEvent('open_screen_share', {
@@ -384,12 +365,14 @@ export function ChannelSidebar() {
     window.dispatchEvent(event);
   };
 
+  const isSelectedChannel = (channel: { id: number; type: string }) =>
+    currentChannel?.id === channel.id && currentChannel?.type === channel.type
+
   const handleChannelClick = async (channel: any) => {
-    
     if (channel.type === 'voice') {
-      // Проверяем, не подключены ли мы уже к этому каналу
+      if (isConnecting) return
+      // Уже в этом голосовом — текстовый канал не трогаем
       if (currentVoiceChannelId === channel.id) {
-        selectChannel(channel.id);
         return;
       }
 
@@ -404,39 +387,92 @@ export function ChannelSidebar() {
       // Обновляем список участников перед подключением
       await loadVoiceChannelMembers(channel.id);
       
-      // Подключаемся к новому голосовому каналу
+      // Подключаемся к голосу, но НЕ меняем выбранный текстовый канал
       try {
         await connectToVoiceChannel(channel.id);
-        selectChannel(channel.id);
       } catch (error) {
+        setError(error instanceof Error ? error.message : 'Не удалось подключиться к голосовому каналу')
       }
     } else {
       // Для текстовых каналов просто выбираем
-      selectChannel(channel.id);
+      selectChannel(channel.id, 'text');
     }
   }
 
-  // Функция для получения участников конкретного голосового канала
+  // Участники голосового канала: API (уже в канале) + live WebRTC-список
   const getChannelParticipants = (channelId: number) => {
-   
-    if (currentVoiceChannelId === channelId) {
-      // Если это текущий канал, показываем всех участников включая текущего пользователя
-      const currentUserParticipant = participants.find(p => p.user_id === user?.id);
-      const allParticipants = [
-        ...(user ? [{
-          user_id: user.id,
-          username: user.display_name || user.username,
-          display_name: user.display_name,
-          avatar_url: user.avatar_url,
-          is_muted: currentUserParticipant?.is_muted ?? false,
-          is_deafened: currentUserParticipant?.is_deafened ?? false,
-        }] : []),
-        ...participants.filter(p => p.user_id !== user?.id),
-      ];
-      return allParticipants;
+    const fromApi = voiceChannelMembers[channelId] || [];
+    const normalize = (member: any) => {
+      const userId = member.user_id ?? member.id;
+      return {
+        user_id: userId,
+        username: member.username || member.display_name || 'User',
+        display_name: member.display_name,
+        avatar_url: member.avatar_url,
+        is_muted: Boolean(member.is_muted),
+        is_deafened: Boolean(member.is_deafened),
+      };
+    };
+
+    if (currentVoiceChannelId !== channelId) {
+      // Не в этом канале — себя не показываем (иначе после выхода «зависаем» в списке)
+      return fromApi
+        .map(normalize)
+        .filter((member) => !user || member.user_id !== user.id);
     }
-    // Для других каналов показываем загруженных участников
-    return voiceChannelMembers[channelId] || [];
+
+    // Пока идёт подключение, participants ещё пустой — друзья уже в канале
+    // должны оставаться видимыми из API, иначе кажется что вы один.
+    const byId = new Map<number, ReturnType<typeof normalize>>();
+
+    for (const member of fromApi) {
+      const normalized = normalize(member);
+      if (normalized.user_id != null) {
+        byId.set(normalized.user_id, normalized);
+      }
+    }
+
+    for (const participant of participants) {
+      byId.set(participant.user_id, {
+        user_id: participant.user_id,
+        username: participant.username || participant.display_name || 'User',
+        display_name: participant.display_name,
+        avatar_url: participant.avatar_url,
+        is_muted: Boolean(participant.is_muted),
+        is_deafened: Boolean(participant.is_deafened),
+      });
+    }
+
+    if (user && !byId.has(user.id)) {
+      byId.set(user.id, {
+        user_id: user.id,
+        username: user.display_name || user.username,
+        display_name: user.display_name,
+        avatar_url: user.avatar_url,
+        is_muted: false,
+        is_deafened: false,
+      });
+    } else if (user && byId.has(user.id)) {
+      // Свои mute/deafen — из актуального voice store
+      const self = byId.get(user.id)!;
+      const liveSelf = participants.find((p) => p.user_id === user.id);
+      byId.set(user.id, {
+        ...self,
+        username: user.display_name || user.username,
+        display_name: user.display_name,
+        avatar_url: user.avatar_url,
+        is_muted: liveSelf?.is_muted ?? self.is_muted,
+        is_deafened: liveSelf?.is_deafened ?? self.is_deafened,
+      });
+    }
+
+    const merged = Array.from(byId.values());
+    // Себя всегда сверху списка
+    if (!user) return merged;
+    return [
+      ...merged.filter((p) => p.user_id === user.id),
+      ...merged.filter((p) => p.user_id !== user.id),
+    ];
   }
 
   // Обработка правого клика по участнику
@@ -444,6 +480,12 @@ export function ChannelSidebar() {
     event.preventDefault();
     event.stopPropagation();
     
+    const savedVolume = Number.parseInt(localStorage.getItem(`voice-volume-${participant.user_id}`) ?? '100', 10)
+    const normalizedVolume = Number.isFinite(savedVolume) ? Math.min(100, Math.max(0, savedVolume)) : 100
+    setParticipantVolumes((currentVolumes) => ({
+      ...currentVolumes,
+      [participant.user_id]: currentVolumes[participant.user_id] ?? normalizedVolume,
+    }))
     setContextMenu({
       mouseX: event.clientX,
       mouseY: event.clientY,
@@ -480,66 +522,47 @@ export function ChannelSidebar() {
   };
 
   // Получение громкости участника (по умолчанию 100%)
-  const getParticipantVolume = (userId: number): number => {
-    // Сначала проверяем состояние
-    if (participantVolumes[userId] !== undefined) {
-      return participantVolumes[userId];
-    }
-    
-    // Затем проверяем localStorage
-    const savedVolume = localStorage.getItem(`voice-volume-${userId}`);
-    if (savedVolume) {
-      const volume = parseInt(savedVolume);
-      // Обновляем состояние
-      setParticipantVolumes(prev => ({
-        ...prev,
-        [userId]: volume
-      }));
-      return volume;
-    }
-    
-    return 100; // По умолчанию 100%
-  };
+  const getParticipantVolume = (userId: number): number => participantVolumes[userId] ?? 100
 
-  // Установка громкости участника
   const setParticipantVolume = (userId: number, volume: number) => {
-    setParticipantVolumes(prev => ({
-      ...prev,
-      [userId]: volume
-    }));
+    const normalizedVolume = Math.min(100, Math.max(0, volume))
 
-    // Сохраняем в localStorage
-    localStorage.setItem(`voice-volume-${userId}`, volume.toString());
+    setParticipantVolumes((currentVolumes) => ({
+      ...currentVolumes,
+      [userId]: normalizedVolume,
+    }))
+    localStorage.setItem(`voice-volume-${userId}`, normalizedVolume.toString())
 
-    // Применяем громкость к аудио элементу
-    const audioElement = document.getElementById(`remote-audio-${userId}`) as HTMLAudioElement;
+    const audioElement = document.getElementById(`remote-audio-${userId}`) as HTMLAudioElement | null
     if (audioElement) {
-      audioElement.volume = Math.min(volume / 100, 3.0); // Ограничиваем до 300% (3.0)
+      audioElement.volume = normalizedVolume / 100
     }
-  };
-
+  }
   const handleCreateTextChannel = async () => {
     if (!newChannelName.trim() || !currentServer) return
 
     setIsCreating(true)
     try {
       const newTextChannel = await channelService.createTextChannel(currentServer.id, {
-        name: newChannelName,
-        position: currentServer.channels.length,
+        name: newChannelName.trim(),
+        position: currentServer.channels.filter((c) => c.type === 'text').length,
       })
 
-      const newChannel = {
+      const newChannel: Channel = {
         id: newTextChannel.id,
         name: newTextChannel.name,
-        type: 'text' as const,
+        type: 'text',
         serverId: currentServer.id,
+        position: newTextChannel.position,
       }
 
       addChannel(currentServer.id, newChannel)
+      selectChannel(newChannel.id, 'text')
       setIsCreateTextModalOpen(false)
       setNewChannelName('')
     } catch (error) {
       console.error('Ошибка создания текстового канала:', error)
+      setError('Не удалось создать текстовый канал')
     } finally {
       setIsCreating(false)
     }
@@ -551,16 +574,18 @@ export function ChannelSidebar() {
     setIsCreating(true)
     try {
       const newVoiceChannel = await channelService.createVoiceChannel(currentServer.id, {
-        name: newChannelName,
-        position: currentServer.channels.length,
+        name: newChannelName.trim(),
+        position: currentServer.channels.filter((c) => c.type === 'voice').length,
         max_users: 10,
       })
 
-      const newChannel = {
+      const newChannel: Channel = {
         id: newVoiceChannel.id,
         name: newVoiceChannel.name,
-        type: 'voice' as const,
+        type: 'voice',
         serverId: currentServer.id,
+        position: newVoiceChannel.position,
+        max_users: newVoiceChannel.max_users,
       }
 
       addChannel(currentServer.id, newChannel)
@@ -568,6 +593,7 @@ export function ChannelSidebar() {
       setNewChannelName('')
     } catch (error) {
       console.error('Ошибка создания голосового канала:', error)
+      setError('Не удалось создать голосовой канал')
     } finally {
       setIsCreating(false)
     }
@@ -600,33 +626,25 @@ export function ChannelSidebar() {
     }
   };
 
-  const handleChannelUpdate = (updatedChannel: Channel) => {
-    // Обновляем канал в сторе
-    if (currentServer) {
-      const updatedChannels = currentServer.channels.map(c =>
-        c.id === updatedChannel.id ? updatedChannel : c
-      );
-      // Обновляем состояние сервера через store
-      // Поскольку у нас нет прямого доступа к store здесь, просто обновляем локальное состояние
-      // В реальном приложении это должно быть сделано через action в store
-    }
-  };
+  const handleChannelUpdate = () => {
+    void loadServers()
+  }
 
-  const handleChannelDelete = (channelId: number) => {
-    // Удаляем канал из сервера
-    if (currentServer) {
-      const updatedChannels = currentServer.channels.filter(c => c.id !== channelId);
-      // Здесь можно обновить состояние сервера
-      // Если удаленный канал был текущим, выбираем другой канал
-      if (currentChannel?.id === channelId) {
-        const nextChannel = updatedChannels[0];
-        if (nextChannel) {
-          selectChannel(nextChannel.id);
-        }
+  const handleChannelDelete = (channelId: number, channelType?: 'text' | 'voice') => {
+    if (
+      currentServer &&
+      currentChannel?.id === channelId &&
+      (!channelType || currentChannel.type === channelType)
+    ) {
+      const nextChannel = currentServer.channels.find(
+        (channel) => !(channel.id === channelId && channel.type === (channelType || currentChannel.type))
+      )
+      if (nextChannel) {
+        selectChannel(nextChannel.id, nextChannel.type)
       }
     }
-  };
-
+    void loadServers()
+  }
   const handleCopyServerId = () => {
     if (currentServer) {
       navigator.clipboard.writeText(currentServer.id.toString());
@@ -639,10 +657,17 @@ export function ChannelSidebar() {
     setIsInviting(true);
     setInviteError('');
     try {
-      await channelService.inviteUserToServer(currentServer.id, inviteUsername);
+      const result = await channelService.inviteUserToServer(currentServer.id, inviteUsername);
+      applyMemberJoined({
+        channel_id: currentServer.id,
+        user_id: result.user_id,
+        username: result.username,
+        display_name: result.display_name,
+        avatar_url: result.avatar_url,
+        user: result.user,
+      });
       setIsInviteModalOpen(false);
       setInviteUsername('');
-      // Можно добавить уведомление об успешном приглашении
     } catch (error: any) {
       console.error('Ошибка приглашения пользователя:', error);
       if (error.response?.data?.detail) {
@@ -657,7 +682,7 @@ export function ChannelSidebar() {
 
   if (!currentServer) {
     return (
-      <div className="w-60 bg-secondary flex flex-col">
+      <div className="app-sidebar flex h-full flex-col border-r">
         <div className="h-12 px-4 flex items-center border-b border-border">
           <span className="font-semibold">Выберите сервер</span>
         </div>
@@ -670,10 +695,10 @@ export function ChannelSidebar() {
 
   return (
     <>
-      <div className="w-64 bg-[#2c2d32] flex flex-col h-screen">
+      <div className="app-sidebar flex h-full flex-col border-r">
         {/* Server Header */}
         <div
-          className="h-12 px-4 flex items-center justify-between border-b border-[#393a3f] cursor-pointer hover:bg-[#35373c]"
+          className="interactive-row mx-3 mb-2 mt-3 flex h-10 cursor-pointer items-center justify-between border border-border/60 px-3 text-sm hover:text-foreground"
           onClick={handleServerHeaderContextMenu}
         >
           <span className="font-semibold">{currentServer.name}</span>
@@ -684,7 +709,7 @@ export function ChannelSidebar() {
         <div className="flex-1 overflow-y-auto scrollbar-thin">
           {/* Text Channels */}
           <div className="pt-4">
-            <div className="px-2 mb-1">
+            <div className="mb-1 px-3">
               <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground uppercase">
                 <span>Текстовые каналы</span>
                 <Plus 
@@ -693,7 +718,7 @@ export function ChannelSidebar() {
                 />
               </div>
             </div>
-            <div className="px-2 space-y-0.5">
+            <div className="space-y-0.5 px-3">
               {textChannels.map((channel) => (
                 <div
                   key={channel.id}
@@ -705,17 +730,17 @@ export function ChannelSidebar() {
                     variant="ghost"
                     size="sm"
                     className={cn(
-                      "w-full justify-start gap-1.5 h-8 px-2 text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                      currentChannel?.id === channel.id && "bg-accent text-foreground border-l-4 border-l-blue-500"
+                      "interactive-row h-9 w-full justify-start gap-2 px-2.5 text-muted-foreground hover:text-foreground",
+                      isSelectedChannel(channel) && "bg-accent text-foreground"
                     )}
                     onClick={() => handleChannelClick(channel)}
                   >
                     <Hash className={cn(
                       "w-4 h-4",
-                      currentChannel?.id === channel.id ? "text-foreground" : "text-muted-foreground"
+                      isSelectedChannel(channel) ? "text-foreground" : "text-muted-foreground"
                     )} />
                     <span className={cn(
-                      currentChannel?.id === channel.id ? "text-foreground font-medium" : ""
+                      isSelectedChannel(channel) ? "text-foreground font-medium" : ""
                     )}>{channel.name}</span>
                   </Button>
                   {hoveredChannel === channel.id && currentServer && currentServer.owner_id === user?.id && (
@@ -744,7 +769,7 @@ export function ChannelSidebar() {
 
           {/* Voice Channels */}
           <div className="pt-4">
-            <div className="px-2 mb-1">
+            <div className="mb-1 px-3">
               <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground uppercase">
                 <span>Голосовые каналы</span>
                 <Plus 
@@ -753,7 +778,7 @@ export function ChannelSidebar() {
                 />
               </div>
             </div>
-            <div className="px-2 space-y-0.5">
+            <div className="space-y-0.5 px-3">
               {voiceChannels.map((channel) => {
                 const channelParticipants = getChannelParticipants(channel.id);
                 return (
@@ -767,11 +792,11 @@ export function ChannelSidebar() {
                         variant="ghost"
                         size="sm"
                         className={cn(
-                          "w-full justify-start gap-1.5 h-8 px-2",
-                          currentChannel?.id === channel.id && "bg-accent",
-                          currentVoiceChannelId === channel.id && "bg-green-600/20 border border-green-500/50"
+                          "interactive-row h-9 w-full justify-start gap-2 px-2.5 text-muted-foreground",
+                          currentVoiceChannelId === channel.id && "bg-[#23a55a]/10 text-[#23a55a] ring-1 ring-inset ring-[#23a55a]/20"
                         )}
                         onClick={() => handleChannelClick(channel)}
+                        disabled={isConnecting && currentVoiceChannelId !== channel.id}
                       >
                         <Volume2 className={cn(
                           "w-4 h-4",
@@ -783,7 +808,7 @@ export function ChannelSidebar() {
                           {channel.name}
                         </span>
                         {currentVoiceChannelId === channel.id && (
-                          <div className="ml-auto w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                          <div className="voice-status-dot ml-auto" />
                         )}
                       </Button>
                       {hoveredChannel === channel.id && currentServer && currentServer.owner_id === user?.id && (
@@ -810,10 +835,14 @@ export function ChannelSidebar() {
                           return (
                             <div
                               key={participant.user_id}
-                              className="flex items-center gap-2 px-2 py-1 rounded hover:bg-accent/50 transition-colors cursor-pointer"
+                              className="interactive-row flex cursor-pointer items-center gap-2 overflow-visible px-2 py-1.5"
                               onContextMenu={(e) => handleParticipantContextMenu(e, participant)}
                             >
-                              <SpeakingAvatar user={participant} isSpeaking={speakingUsers.has(participant.user_id)} isScreenSharing={isScreenSharing} />
+                              <SpeakingAvatar
+                                user={participant}
+                                isSpeaking={Boolean(speakingUsers[participant.user_id])}
+                                isScreenSharing={isScreenSharing}
+                              />
                               <Typography
                                 variant="caption"
                                 className={cn(
@@ -834,7 +863,7 @@ export function ChannelSidebar() {
                               {isScreenSharing && (
                                 <div className="flex items-center gap-1">
                                   {/* Анимированная точка */}
-                                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                                  <div className="voice-status-dot" />
                                   
                                   {/* Кнопка для просмотра */}
                                   <Button
@@ -882,64 +911,192 @@ export function ChannelSidebar() {
       </div>
 
       {/* Модальное окно создания текстового канала */}
-      <Dialog open={isCreateTextModalOpen} onClose={() => setIsCreateTextModalOpen(false)}>
-        <DialogContent>
-          <DialogTitle>Создать текстовый канал</DialogTitle>
-          <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <TextField
-              label="Название канала"
-              value={newChannelName}
-              onChange={(e) => setNewChannelName(e.target.value)}
-              fullWidth
-              required
-            />
-            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', mt: 2 }}>
-              <Button
-                variant="outline"
-                onClick={() => setIsCreateTextModalOpen(false)}
-                disabled={isCreating}
-              >
-                Отмена
-              </Button>
-              <Button
-                onClick={handleCreateTextChannel}
-                disabled={!newChannelName.trim() || isCreating}
-              >
-                {isCreating ? 'Создание...' : 'Создать'}
-              </Button>
-            </Box>
-          </Box>
+      <Dialog
+        open={isCreateTextModalOpen}
+        onClose={() => {
+          if (!isCreating) {
+            setIsCreateTextModalOpen(false)
+            setNewChannelName('')
+          }
+        }}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{
+          sx: {
+            backgroundColor: '#323339',
+            color: 'white',
+            borderRadius: '12px',
+            border: '1px solid #3e3f45',
+          },
+        }}
+      >
+        <DialogContent sx={{ padding: '24px' }}>
+          <div className="mb-5 flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-bold text-white">Создать текстовый канал</h2>
+              <p className="mt-1 text-sm text-[#999aa1]">Введите название для нового канала</p>
+            </div>
+            <IconButton
+              onClick={() => {
+                setIsCreateTextModalOpen(false)
+                setNewChannelName('')
+              }}
+              disabled={isCreating}
+              sx={{ color: '#999aa1' }}
+            >
+              <X size={20} />
+            </IconButton>
+          </div>
+          <TextField
+            label="Название канала"
+            value={newChannelName}
+            onChange={(e) => setNewChannelName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && newChannelName.trim() && !isCreating) {
+                void handleCreateTextChannel()
+              }
+            }}
+            fullWidth
+            required
+            autoFocus
+            name="miscord-text-channel-name"
+            autoComplete="off"
+            inputProps={{
+              autoComplete: 'off',
+              autoCorrect: 'off',
+              autoCapitalize: 'off',
+              spellCheck: false,
+              'data-lpignore': 'true',
+              'data-1p-ignore': 'true',
+              'data-form-type': 'other',
+            }}
+            InputLabelProps={{ sx: { color: '#999aa1' } }}
+            InputProps={{
+              sx: {
+                color: 'white',
+                backgroundColor: '#1e1f22',
+                borderRadius: '8px',
+                '& fieldset': { borderColor: '#3e3f45' },
+                '&:hover fieldset': { borderColor: '#5865f2' },
+                '&.Mui-focused fieldset': { borderColor: '#5865f2' },
+              },
+            }}
+          />
+          <div className="mt-6 flex justify-end gap-3">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsCreateTextModalOpen(false)
+                setNewChannelName('')
+              }}
+              disabled={isCreating}
+              className="border-[#4e5058] bg-transparent text-white hover:bg-[#4e5058]"
+            >
+              Отмена
+            </Button>
+            <Button
+              onClick={() => void handleCreateTextChannel()}
+              disabled={!newChannelName.trim() || isCreating}
+              className="bg-[#5865f2] text-white hover:bg-[#4752c4]"
+            >
+              {isCreating ? 'Создание...' : 'Создать'}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 
       {/* Create Voice Channel Modal */}
-      <Dialog open={isCreateVoiceModalOpen} onClose={() => setIsCreateVoiceModalOpen(false)}>
-        <DialogContent>
-          <DialogTitle>Создать голосовой канал</DialogTitle>
-          <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <TextField
-              label="Название канала"
-              value={newChannelName}
-              onChange={(e) => setNewChannelName(e.target.value)}
-              fullWidth
-              required
-            />
-            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', mt: 2 }}>
-              <Button
-                variant="outline"
-                onClick={() => setIsCreateVoiceModalOpen(false)}
-                disabled={isCreating}
-              >
-                Отмена
-              </Button>
-              <Button
-                onClick={handleCreateVoiceChannel}
-                disabled={!newChannelName.trim() || isCreating}
-              >
-                {isCreating ? 'Создание...' : 'Создать'}
-              </Button>
-            </Box>
-          </Box>
+      <Dialog
+        open={isCreateVoiceModalOpen}
+        onClose={() => {
+          if (!isCreating) {
+            setIsCreateVoiceModalOpen(false)
+            setNewChannelName('')
+          }
+        }}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{
+          sx: {
+            backgroundColor: '#323339',
+            color: 'white',
+            borderRadius: '12px',
+            border: '1px solid #3e3f45',
+          },
+        }}
+      >
+        <DialogContent sx={{ padding: '24px' }}>
+          <div className="mb-5 flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-bold text-white">Создать голосовой канал</h2>
+              <p className="mt-1 text-sm text-[#999aa1]">Введите название для нового канала</p>
+            </div>
+            <IconButton
+              onClick={() => {
+                setIsCreateVoiceModalOpen(false)
+                setNewChannelName('')
+              }}
+              disabled={isCreating}
+              sx={{ color: '#999aa1' }}
+            >
+              <X size={20} />
+            </IconButton>
+          </div>
+          <TextField
+            label="Название канала"
+            value={newChannelName}
+            onChange={(e) => setNewChannelName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && newChannelName.trim() && !isCreating) {
+                void handleCreateVoiceChannel()
+              }
+            }}
+            fullWidth
+            required
+            autoFocus
+            name="miscord-voice-channel-name"
+            autoComplete="off"
+            inputProps={{
+              autoComplete: 'off',
+              autoCorrect: 'off',
+              autoCapitalize: 'off',
+              spellCheck: false,
+              'data-lpignore': 'true',
+              'data-1p-ignore': 'true',
+              'data-form-type': 'other',
+            }}
+            InputLabelProps={{ sx: { color: '#999aa1' } }}
+            InputProps={{
+              sx: {
+                color: 'white',
+                backgroundColor: '#1e1f22',
+                borderRadius: '8px',
+                '& fieldset': { borderColor: '#3e3f45' },
+                '&:hover fieldset': { borderColor: '#5865f2' },
+                '&.Mui-focused fieldset': { borderColor: '#5865f2' },
+              },
+            }}
+          />
+          <div className="mt-6 flex justify-end gap-3">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsCreateVoiceModalOpen(false)
+                setNewChannelName('')
+              }}
+              disabled={isCreating}
+              className="border-[#4e5058] bg-transparent text-white hover:bg-[#4e5058]"
+            >
+              Отмена
+            </Button>
+            <Button
+              onClick={() => void handleCreateVoiceChannel()}
+              disabled={!newChannelName.trim() || isCreating}
+              className="bg-[#5865f2] text-white hover:bg-[#4752c4]"
+            >
+              {isCreating ? 'Создание...' : 'Создать'}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
       
@@ -955,24 +1112,24 @@ export function ChannelSidebar() {
         }
         PaperProps={{
           sx: {
-            backgroundColor: 'rgb(47, 49, 54)',
-            border: '1px solid rgb(60, 63, 69)',
+            backgroundColor: 'rgb(44, 45, 50)',
+            border: '1px solid rgb(62, 63, 69)',
             borderRadius: '8px',
             minWidth: '250px',
             boxShadow: '0 8px 16px rgba(0, 0, 0, 0.24)',
             '& .MuiMenuItem-root': {
-              color: 'rgb(220, 221, 222)',
+              color: 'rgb(245, 245, 245)',
               fontSize: '14px',
               padding: '8px 12px',
               '&:hover': {
-                backgroundColor: 'rgb(64, 68, 75)',
+                backgroundColor: 'rgb(62, 63, 69)',
               },
               '&.Mui-disabled': {
-                color: 'rgb(114, 118, 125)',
+                color: 'rgb(125, 126, 135)',
               },
             },
             '& .MuiDivider-root': {
-              borderColor: 'rgb(60, 63, 69)',
+              borderColor: 'rgb(62, 63, 69)',
               margin: '4px 0',
             },
           },
@@ -983,7 +1140,7 @@ export function ChannelSidebar() {
             {/* Заголовок с информацией о пользователе */}
             <Paper
               sx={{
-                backgroundColor: 'rgb(54, 57, 63)',
+                backgroundColor: 'rgb(57, 58, 65)',
                 margin: '8px',
                 padding: '12px',
                 borderRadius: '6px',
@@ -1008,7 +1165,7 @@ export function ChannelSidebar() {
                     sx={{ 
                       fontWeight: 600, 
                       fontSize: '16px', 
-                      color: 'rgb(220, 221, 222)',
+                      color: 'rgb(245, 245, 245)',
                       lineHeight: 1.2,
                     }}
                   >
@@ -1017,7 +1174,7 @@ export function ChannelSidebar() {
                   <Typography 
                     sx={{ 
                       fontSize: '12px', 
-                      color: 'rgb(163, 166, 170)',
+                      color: 'rgb(153, 154, 161)',
                       lineHeight: 1,
                     }}
                   >
@@ -1033,7 +1190,7 @@ export function ChannelSidebar() {
                 <Typography 
                   sx={{ 
                     fontSize: '12px', 
-                    color: 'rgb(163, 166, 170)', 
+                    color: 'rgb(153, 154, 161)',
                     marginBottom: '8px',
                     fontWeight: 500,
                   }}
@@ -1044,7 +1201,7 @@ export function ChannelSidebar() {
                   value={getParticipantVolume(contextMenu.participant.user_id)}
                   onChange={(_, value) => setParticipantVolume(contextMenu.participant.user_id, value as number)}
                   min={0}
-                  max={300}
+                  max={100}
                   step={5}
                   sx={{
                     color: 'rgb(88, 101, 242)',
@@ -1054,7 +1211,7 @@ export function ChannelSidebar() {
                       border: 'none',
                     },
                     '& .MuiSlider-rail': {
-                      backgroundColor: 'rgb(79, 84, 92)',
+                      backgroundColor: 'rgb(68, 69, 74)',
                     },
                     '& .MuiSlider-thumb': {
                       backgroundColor: 'rgb(255, 255, 255)',
@@ -1077,14 +1234,14 @@ export function ChannelSidebar() {
               <>
                 <MenuItem onClick={handleSendMessage}>
                   <ListItemIcon sx={{ minWidth: '36px' }}>
-                    <Hash size={18} color="rgb(163, 166, 170)" />
+                    <Hash size={18} color="rgb(153, 154, 161)" />
                   </ListItemIcon>
                   <ListItemText primary="Отправить сообщение" />
                 </MenuItem>
                 
                 <MenuItem onClick={handleViewProfile}>
                   <ListItemIcon sx={{ minWidth: '36px' }}>
-                    <UserCheck size={18} color="rgb(163, 166, 170)" />
+                    <UserCheck size={18} color="rgb(153, 154, 161)" />
                   </ListItemIcon>
                   <ListItemText primary="Посмотреть профиль" />
                 </MenuItem>
@@ -1094,18 +1251,18 @@ export function ChannelSidebar() {
                 {/* Модерационные действия (пока отключены) */}
                 <MenuItem onClick={handleMuteUser} disabled>
                   <ListItemIcon sx={{ minWidth: '36px' }}>
-                    <Volume1 size={18} color="rgb(114, 118, 125)" />
+                    <Volume1 size={18} color="rgb(125, 126, 135)" />
                   </ListItemIcon>
                   <ListItemText primary="Заглушить пользователя" />
                 </MenuItem>
                 
                 <MenuItem onClick={handleKickUser} disabled>
                   <ListItemIcon sx={{ minWidth: '36px' }}>
-                    <UserX size={18} color="rgb(237, 66, 69)" />
+                    <UserX size={18} color="rgb(218, 62, 68)" />
                   </ListItemIcon>
                   <ListItemText 
                     primary="Исключить из канала" 
-                    primaryTypographyProps={{ color: 'rgb(237, 66, 69)' }}
+                    primaryTypographyProps={{ color: 'rgb(218, 62, 68)' }}
                   />
                 </MenuItem>
               </>
@@ -1115,7 +1272,7 @@ export function ChannelSidebar() {
             {contextMenu.participant.user_id === user?.id && (
               <MenuItem onClick={handleViewProfile}>
                 <ListItemIcon sx={{ minWidth: '36px' }}>
-                  <UserCheck size={18} color="rgb(163, 166, 170)" />
+                  <UserCheck size={18} color="rgb(153, 154, 161)" />
                 </ListItemIcon>
                 <ListItemText primary="Мой профиль" />
               </MenuItem>
@@ -1136,24 +1293,24 @@ export function ChannelSidebar() {
         }
         PaperProps={{
           sx: {
-            backgroundColor: 'rgb(47, 49, 54)',
-            border: '1px solid rgb(60, 63, 69)',
+            backgroundColor: 'rgb(44, 45, 50)',
+            border: '1px solid rgb(62, 63, 69)',
             borderRadius: '8px',
             minWidth: '200px',
             boxShadow: '0 8px 16px rgba(0, 0, 0, 0.24)',
             '& .MuiMenuItem-root': {
-              color: 'rgb(220, 221, 222)',
+              color: 'rgb(245, 245, 245)',
               fontSize: '14px',
               padding: '8px 12px',
               '&:hover': {
-                backgroundColor: 'rgb(64, 68, 75)',
+                backgroundColor: 'rgb(62, 63, 69)',
               },
               '&.Mui-disabled': {
-                color: 'rgb(114, 118, 125)',
+                color: 'rgb(125, 126, 135)',
               },
             },
             '& .MuiDivider-root': {
-              borderColor: 'rgb(60, 63, 69)',
+              borderColor: 'rgb(62, 63, 69)',
               margin: '4px 0',
             },
           },
@@ -1161,21 +1318,21 @@ export function ChannelSidebar() {
       >
         <MenuItem onClick={handleInviteToServer}>
           <ListItemIcon sx={{ minWidth: '36px' }}>
-            <UserPlus size={18} color="rgb(163, 166, 170)" />
+            <UserPlus size={18} color="rgb(153, 154, 161)" />
           </ListItemIcon>
           <ListItemText primary="Пригласить людей" />
         </MenuItem>
         <Divider />
         <MenuItem onClick={handleServerSettings}>
           <ListItemIcon sx={{ minWidth: '36px' }}>
-            <Settings size={18} color="rgb(163, 166, 170)" />
+            <Settings size={18} color="rgb(153, 154, 161)" />
           </ListItemIcon>
           <ListItemText primary="Настройки сервера" />
         </MenuItem>
         <Divider />
         <MenuItem onClick={handleCopyServerId}>
           <ListItemIcon sx={{ minWidth: '36px' }}>
-            <Copy size={18} color="rgb(163, 166, 170)" />
+            <Copy size={18} color="rgb(153, 154, 161)" />
           </ListItemIcon>
           <ListItemText primary="Копировать ID" />
         </MenuItem>
@@ -1185,7 +1342,7 @@ export function ChannelSidebar() {
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
         server={currentServer}
-        onServerUpdate={() => {}}
+        onServerUpdate={() => { void loadServers() }}
       />
 
       {selectedChannelForSettings && (
@@ -1213,7 +1370,7 @@ export function ChannelSidebar() {
         fullWidth
         PaperProps={{
           sx: {
-            backgroundColor: '#313338',
+            backgroundColor: '#323339',
             color: 'white',
             borderRadius: '8px',
             minWidth: '440px'
@@ -1225,7 +1382,7 @@ export function ChannelSidebar() {
             <div className="flex justify-between items-center mb-6">
               <div>
                 <h2 className="text-xl font-bold text-white mb-1">Пригласить пользователя</h2>
-                <p className="text-[#b5bac1] text-sm">
+                <p className="text-[#999aa1] text-sm">
                   {currentServer ? `на сервер ${currentServer.name}` : 'на сервер'}
                 </p>
               </div>
@@ -1235,7 +1392,7 @@ export function ChannelSidebar() {
                   setInviteError('')
                   setInviteUsername('')
                 }}
-                sx={{ color: '#b5bac1' }}
+                sx={{ color: '#999aa1' }}
               >
                 <X size={24} />
               </IconButton>
@@ -1243,7 +1400,7 @@ export function ChannelSidebar() {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-[#b5bac1] mb-2">
+                <label className="block text-sm font-medium text-[#999aa1] mb-2">
                   Имя пользователя *
                 </label>
                 <TextField
@@ -1259,7 +1416,7 @@ export function ChannelSidebar() {
                       color: 'white',
                       fontSize: '16px',
                       '& fieldset': {
-                        borderColor: '#383a40',
+                        borderColor: '#393a41',
                       },
                       '&:hover fieldset': {
                         borderColor: '#5865f2',
@@ -1268,14 +1425,14 @@ export function ChannelSidebar() {
                         borderColor: '#5865f2',
                       },
                       '&.Mui-error fieldset': {
-                        borderColor: '#ed4245',
+                        borderColor: '#da3e44',
                       },
                     },
                     '& .MuiInputBase-input': {
                       padding: '12px 16px',
                     },
                     '& .MuiFormHelperText-root': {
-                      color: '#ed4245',
+                      color: '#da3e44',
                       marginLeft: 0,
                       marginTop: '8px',
                     },
@@ -1284,14 +1441,14 @@ export function ChannelSidebar() {
               </div>
 
               {!inviteError && (
-                <div className="bg-[#2b2d31] p-4 rounded-lg">
+                <div className="bg-[#2c2d32] p-4 rounded-lg">
                   <div className="flex items-start gap-3">
                     <div className="w-10 h-10 bg-[#5865f2] rounded-full flex items-center justify-center text-white font-semibold">
                       ?
                     </div>
                     <div>
                       <h4 className="text-white font-medium text-sm mb-1">Как пригласить пользователя</h4>
-                      <p className="text-[#b5bac1] text-xs leading-relaxed">
+                      <p className="text-[#999aa1] text-xs leading-relaxed">
                         Введите точное имя пользователя. После приглашения пользователь получит уведомление 
                         и сможет присоединиться к серверу.
                       </p>

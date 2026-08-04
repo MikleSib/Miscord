@@ -5,6 +5,8 @@ import { Mic, Volume2, RefreshCw } from 'lucide-react';
 import { Slider } from './ui/slider';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group';
 import { Label } from './ui/label';
+import { useAudioDeviceStore } from '../store/audioDeviceStore';
+import voiceService from '../services/voiceService';
 
 interface MediaDevice {
   deviceId: string;
@@ -22,13 +24,27 @@ export const AudioDeviceSettings: React.FC<AudioDeviceSettingsProps> = ({ classN
   const [selectedInputDevice, setSelectedInputDevice] = useState<string>('');
   const [selectedOutputDevice, setSelectedOutputDevice] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
-  const [inputVolume, setInputVolume] = useState([75]);
-  const [outputVolume, setOutputVolume] = useState([75]);
+  const inputVolume = useAudioDeviceStore((s) => s.inputVolume);
+  const outputVolume = useAudioDeviceStore((s) => s.outputVolume);
+  const setInputVolumeStore = useAudioDeviceStore((s) => s.setInputVolume);
+  const setOutputVolumeStore = useAudioDeviceStore((s) => s.setOutputVolume);
   const [voiceProfile, setVoiceProfile] = useState('voice-activity');
   const [isTestingMicrophone, setIsTestingMicrophone] = useState(false);
   const [currentMicLevel, setCurrentMicLevel] = useState(0);
   const [testStream, setTestStream] = useState<MediaStream | null>(null);
   const [testAudioContext, setTestAudioContext] = useState<AudioContext | null>(null);
+
+  const handleInputVolumeChange = (values: number[]) => {
+    const next = values[0] ?? 100;
+    setInputVolumeStore(next);
+    voiceService.setInputVolume(next);
+  };
+
+  const handleOutputVolumeChange = (values: number[]) => {
+    const next = values[0] ?? 100;
+    setOutputVolumeStore(next);
+    voiceService.setOutputVolume(next);
+  };
 
   // Получаем список устройств
   const loadDevices = async () => {
@@ -243,7 +259,7 @@ export const AudioDeviceSettings: React.FC<AudioDeviceSettingsProps> = ({ classN
 
         <div className="bg-secondary p-4 rounded-lg border border-border">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-foreground">Громкость: {inputVolume[0]}%</span>
+            <span className="text-foreground">Громкость: {inputVolume}%</span>
             <div className="flex space-x-2">
               <span className="text-xs text-muted-foreground">Низкая</span>
               <span className="text-xs text-muted-foreground">Высокая</span>
@@ -251,8 +267,8 @@ export const AudioDeviceSettings: React.FC<AudioDeviceSettingsProps> = ({ classN
           </div>
 
           <Slider
-            value={inputVolume}
-            onValueChange={setInputVolume}
+            value={[inputVolume]}
+            onValueChange={handleInputVolumeChange}
             min={0}
             max={100}
             step={1}
@@ -297,7 +313,7 @@ export const AudioDeviceSettings: React.FC<AudioDeviceSettingsProps> = ({ classN
 
         <div className="bg-secondary p-4 rounded-lg border border-border">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-foreground">Громкость: {outputVolume[0]}%</span>
+            <span className="text-foreground">Громкость: {outputVolume}%</span>
             <div className="flex space-x-2">
               <span className="text-xs text-muted-foreground">Низкая</span>
               <span className="text-xs text-muted-foreground">Высокая</span>
@@ -305,8 +321,8 @@ export const AudioDeviceSettings: React.FC<AudioDeviceSettingsProps> = ({ classN
           </div>
 
           <Slider
-            value={outputVolume}
-            onValueChange={setOutputVolume}
+            value={[outputVolume]}
+            onValueChange={handleOutputVolumeChange}
             min={0}
             max={100}
             step={1}

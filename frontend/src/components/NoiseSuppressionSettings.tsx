@@ -1,177 +1,239 @@
-import React, { useState, useEffect } from 'react';
-import { audioProcessingService, NoiseSuppressionEngine } from '../services/audioProcessingService';
-import { Label } from './ui/label';
-import { RadioGroup, RadioGroupItem } from './ui/radio-group';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
-import { Alert, AlertDescription } from './ui/alert';
-import { Info, Zap, Shield, Cpu } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Check,
+  Cpu,
+  Info,
+  Loader2,
+  Shield,
+  Sparkles,
+  AlertTriangle,
+} from 'lucide-react';
+import {
+  audioProcessingService,
+  NoiseSuppressionEngine,
+} from '../services/audioProcessingService';
+import { useNoiseSuppressionStore } from '../store/noiseSuppressionStore';
 
 interface NoiseSuppressionSettingsProps {
   currentEngine?: NoiseSuppressionEngine;
   onEngineChange?: (engine: NoiseSuppressionEngine) => void;
 }
 
+const runtimeLabels = {
+  idle: 'Выключено',
+  loading: 'Запускается',
+  active: 'Работает',
+  fallback: 'Резервный режим',
+  error: 'Ошибка',
+} as const;
+
 export const NoiseSuppressionSettings: React.FC<NoiseSuppressionSettingsProps> = ({
-  currentEngine = 'browser',
+  currentEngine,
   onEngineChange,
 }) => {
-  const [selectedEngine, setSelectedEngine] = useState<NoiseSuppressionEngine>(currentEngine);
+  const enabled = useNoiseSuppressionStore((state) => state.enabled);
+  const engine = useNoiseSuppressionStore((state) => state.engine);
+  const autoFallback = useNoiseSuppressionStore((state) => state.autoFallback);
+  const runtimeStatus = useNoiseSuppressionStore((state) => state.runtimeStatus);
+  const runtimeMessage = useNoiseSuppressionStore((state) => state.runtimeMessage);
+  const activeEngine = useNoiseSuppressionStore((state) => state.activeEngine);
+  const setEnabled = useNoiseSuppressionStore((state) => state.setEnabled);
+  const setEngine = useNoiseSuppressionStore((state) => state.setEngine);
+  const setAutoFallback = useNoiseSuppressionStore((state) => state.setAutoFallback);
+  const [isApplying, setIsApplying] = useState(false);
   const [supportedEngines, setSupportedEngines] = useState<
-    { engine: NoiseSuppressionEngine; supported: boolean; name: string }[]
-  >([]);
+    ReturnType<typeof audioProcessingService.getSupportedEngines>
+  >([
+    {
+      engine: 'miscord-ai',
+      supported: false,
+      name: 'Miscord AI',
+    },
+    {
+      engine: 'browser',
+      supported: true,
+      name: 'Стандартное',
+    },
+  ]);
 
   useEffect(() => {
-    // Получаем список поддерживаемых движков
-    const engines = audioProcessingService.getSupportedEngines();
-    setSupportedEngines(engines);
+    setSupportedEngines(audioProcessingService.getSupportedEngines());
   }, []);
 
-  const handleEngineChange = (value: string) => {
-    const engine = value as NoiseSuppressionEngine;
-    setSelectedEngine(engine);
-    onEngineChange?.(engine);
-  };
+  useEffect(() => {
+    if (currentEngine && currentEngine !== engine) {
+      setEngine(currentEngine);
+    }
+  }, [currentEngine, engine, setEngine]);
 
-  const getEngineIcon = (engine: NoiseSuppressionEngine) => {
-    switch (engine) {
-      case 'browser':
-        return <Shield className="w-5 h-5" />;
-      case 'rnnoise':
-        return <Cpu className="w-5 h-5" />;
-      case 'deepfilternet':
-        return <Zap className="w-5 h-5" />;
-      default:
-        return null;
+  const selectedEngineSupported = useMemo(
+    () => supportedEngines.find((item) => item.engine === engine)?.supported ?? true,
+    [engine, supportedEngines]
+  );
+
+  const apply = async (nextEnabled: boolean, nextEngine: NoiseSuppressionEngine) => {
+    setIsApplying(true);
+    try {
+      await audioProcessingService.setNoiseSuppression(nextEnabled, nextEngine);
+    } finally {
+      setIsApplying(false);
     }
   };
 
-  const getEngineDescription = (engine: NoiseSuppressionEngine) => {
-    switch (engine) {
-      case 'browser':
-        return 'Использует встроенные браузерные алгоритмы. Низкая нагрузка на CPU, базовое качество.';
-      case 'rnnoise':
-        return 'Классический ML-алгоритм. Средняя нагрузка на CPU, хорошее качество.';
-      case 'deepfilternet':
-        return 'Продвинутый Deep Learning. Высокая нагрузка на CPU, отличное качество для всего спектра (48kHz).';
-      default:
-        return '';
-    }
+  const handleEnabledChange = () => {
+    const nextEnabled = !enabled;
+    setEnabled(nextEnabled);
+    void apply(nextEnabled, engine);
   };
 
-  const getEnginePerformance = (engine: NoiseSuppressionEngine) => {
-    switch (engine) {
-      case 'browser':
-        return { cpu: 'Низкая', latency: '~5ms', quality: 'Базовое' };
-      case 'rnnoise':
-        return { cpu: 'Средняя', latency: '~10-15ms', quality: 'Хорошее' };
-      case 'deepfilternet':
-        return { cpu: 'Высокая', latency: '~20-30ms', quality: 'Отличное' };
-      default:
-        return { cpu: '-', latency: '-', quality: '-' };
-    }
+  const handleEngineChange = (nextEngine: NoiseSuppressionEngine) => {
+    const supported = supportedEngines.find((item) => item.engine === nextEngine)?.supported;
+    if (supported === false) return;
+
+    setEngine(nextEngine);
+    onEngineChange?.(nextEngine);
+    if (enabled) void apply(true, nextEngine);
   };
+
+  const statusTone =
+    runtimeStatus === 'fallback' || runtimeStatus === 'error'
+      ? 'border-amber-400/25 bg-amber-400/10 text-amber-200'
+      : runtimeStatus === 'active'
+        ? 'border-emerald-400/25 bg-emerald-400/10 text-emerald-200'
+        : 'border-border bg-background/50 text-muted-foreground';
 
   return (
-    <div className="bg-secondary border border-border rounded-lg p-6">
-      <div className="mb-6">
-        <div className="flex items-center gap-2 mb-2">
-          <Shield className="w-5 h-5 text-primary" />
-          <h3 className="text-lg font-semibold text-foreground">Движок шумоподавления</h3>
+    <section className="rounded-xl border border-border bg-secondary/70 p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex min-w-0 gap-3">
+          <div className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-emerald-400/10 text-emerald-400">
+            <Shield className="h-5 w-5" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-foreground">Шумоподавление</h3>
+            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+              Убирает клавиатуру, вентилятор и фоновый гул до отправки голоса в канал.
+            </p>
+          </div>
         </div>
-        <p className="text-sm text-muted-foreground">
-          Выберите алгоритм шумоподавления в зависимости от ваших требований к качеству и производительности
-        </p>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={enabled}
+          aria-label="Включить шумоподавление"
+          onClick={handleEnabledChange}
+          disabled={isApplying || !selectedEngineSupported}
+          className={`relative mt-1 h-6 w-11 shrink-0 rounded-full transition-colors ${
+            enabled ? 'bg-emerald-500' : 'bg-muted'
+          } disabled:cursor-not-allowed disabled:opacity-50`}
+        >
+          <span
+            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
+              enabled ? 'translate-x-5' : 'translate-x-0.5'
+            }`}
+          />
+        </button>
       </div>
-      <div className="space-y-4">
-        <RadioGroup value={selectedEngine} onValueChange={handleEngineChange}>
-          {supportedEngines.map(({ engine, supported, name }) => {
-            const perf = getEnginePerformance(engine);
-            const isSelected = selectedEngine === engine;
 
-            return (
-              <div
-                key={engine}
-                className={`relative flex items-start space-x-3 rounded-lg border p-4 transition-colors ${
-                  isSelected
-                    ? 'border-primary bg-primary/10'
-                    : 'border-border hover:border-border/80 bg-background'
-                } ${!supported ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+      <div className="mt-5 space-y-2">
+        {supportedEngines.map(({ engine: itemEngine, supported, name }) => {
+          const isSelected = engine === itemEngine;
+          const isAI = itemEngine === 'miscord-ai';
+
+          return (
+            <button
+              key={itemEngine}
+              type="button"
+              onClick={() => handleEngineChange(itemEngine)}
+              disabled={!supported || isApplying}
+              aria-pressed={isSelected}
+              className={`flex w-full items-start gap-3 rounded-lg border p-4 text-left transition-colors ${
+                isSelected
+                  ? 'border-emerald-400/40 bg-emerald-400/[0.07]'
+                  : 'border-border bg-background/45 hover:border-border/80 hover:bg-background/70'
+              } disabled:cursor-not-allowed disabled:opacity-45`}
+            >
+              <span
+                className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-md ${
+                  isSelected ? 'bg-emerald-400/15 text-emerald-300' : 'bg-muted text-muted-foreground'
+                }`}
               >
-                <RadioGroupItem
-                  value={engine}
-                  id={engine}
-                  disabled={!supported}
-                  className="mt-1"
-                />
-                <div className="flex-1 space-y-2">
-                  <Label
-                    htmlFor={engine}
-                    className={`flex items-center gap-2 font-medium text-foreground ${
-                      !supported ? 'cursor-not-allowed' : 'cursor-pointer'
-                    }`}
-                  >
-                    {getEngineIcon(engine)}
-                    {name}
-                    {!supported && (
-                      <span className="text-xs text-destructive">(Не поддерживается)</span>
-                    )}
-                  </Label>
-
-                  <p className="text-sm text-muted-foreground">{getEngineDescription(engine)}</p>
-
-                  <div className="grid grid-cols-3 gap-2 text-xs">
-                    <div>
-                      <span className="text-muted-foreground">CPU:</span>{' '}
-                      <span className="font-medium text-foreground">{perf.cpu}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Задержка:</span>{' '}
-                      <span className="font-medium text-foreground">{perf.latency}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Качество:</span>{' '}
-                      <span className="font-medium text-foreground">{perf.quality}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </RadioGroup>
-
-        
-
-        {selectedEngine === 'rnnoise' && (
-          <div className="bg-green-500/10 border border-green-500/20 p-4 rounded-lg">
-            <div className="flex items-start gap-3">
-              <Info className="h-4 w-4 text-green-400 mt-0.5 flex-shrink-0" />
-              <div className="text-sm text-green-200">
-                <strong>RNNoise</strong> - проверенный алгоритм, который обеспечивает хороший баланс между качеством и производительностью.
-                Подходит для большинства случаев использования.
-              </div>
-            </div>
-          </div>
-        )}
-
-        {selectedEngine === 'browser' && (
-          <div className="bg-yellow-500/10 border border-yellow-500/20 p-4 rounded-lg">
-            <div className="flex items-start gap-3">
-              <Info className="h-4 w-4 text-yellow-400 mt-0.5 flex-shrink-0" />
-              <div className="text-sm text-yellow-200">
-                <strong>Браузерные фильтры</strong> используют встроенные возможности браузера.
-                Это самый легковесный вариант, но качество может быть ниже чем у специализированных алгоритмов.
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div className="pt-4 border-t border-border">
-          <p className="text-xs text-muted-foreground">
-            💡 <strong>Совет:</strong> Начните с браузерных фильтров и переключайтесь на более продвинутые движки только если нужно лучшее качество.
-            Изменение движка требует переподключения к голосовому каналу.
-          </p>
-        </div>
+                {isAI ? <Sparkles className="h-4 w-4" /> : <Cpu className="h-4 w-4" />}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-foreground">{name}</span>
+                  {isAI && (
+                    <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-300">
+                      Рекомендуется
+                    </span>
+                  )}
+                  {!supported && (
+                    <span className="text-xs text-amber-300">Не поддерживается</span>
+                  )}
+                </span>
+                <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+                  {isAI
+                    ? 'Локальная рекуррентная нейросеть RNNoise. Лучше отделяет речь от постоянного и импульсного шума.'
+                    : 'Встроенная обработка WebRTC. Минимальная нагрузка и резервный вариант для слабых устройств.'}
+                </span>
+                <span className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+                  <span>{isAI ? 'AI · 48 кГц' : 'WebRTC'}</span>
+                  <span>{isAI ? 'Нагрузка: средняя' : 'Нагрузка: низкая'}</span>
+                  <span>{isAI ? 'Обработка: локально' : 'Обработка: в браузере'}</span>
+                </span>
+              </span>
+              <span
+                className={`mt-1 grid h-5 w-5 shrink-0 place-items-center rounded-full border ${
+                  isSelected
+                    ? 'border-emerald-400 bg-emerald-400 text-[#101713]'
+                    : 'border-muted-foreground/40'
+                }`}
+                aria-hidden="true"
+              >
+                {isSelected && <Check className="h-3.5 w-3.5" />}
+              </span>
+            </button>
+          );
+        })}
       </div>
-    </div>
+
+      <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-background/35 px-3.5 py-3">
+        <input
+          type="checkbox"
+          checked={autoFallback}
+          onChange={(event) => setAutoFallback(event.target.checked)}
+          className="mt-0.5 h-4 w-4 accent-emerald-500"
+        />
+        <span>
+          <span className="block text-sm font-medium text-foreground">Автоматический резервный режим</span>
+          <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+            Переключаться на WebRTC при перегрузке системы или ошибке AI-процессора.
+          </span>
+        </span>
+      </label>
+
+      {(runtimeStatus !== 'idle' || runtimeMessage) && (
+        <div className={`mt-4 flex items-start gap-2.5 rounded-lg border px-3.5 py-3 text-xs ${statusTone}`}>
+          {runtimeStatus === 'loading' || isApplying ? (
+            <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
+          ) : runtimeStatus === 'fallback' || runtimeStatus === 'error' ? (
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          ) : (
+            <Info className="mt-0.5 h-4 w-4 shrink-0" />
+          )}
+          <div>
+            <span className="font-semibold">{runtimeLabels[runtimeStatus]}</span>
+            {activeEngine === 'browser' && engine === 'miscord-ai' && ' · WebRTC'}
+            {runtimeMessage && <p className="mt-0.5 leading-relaxed opacity-85">{runtimeMessage}</p>}
+          </div>
+        </div>
+      )}
+
+      <p className="mt-4 flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
+        <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        Аудио обрабатывается на вашем устройстве и не отправляется внешнему AI-сервису.
+      </p>
+    </section>
   );
 };

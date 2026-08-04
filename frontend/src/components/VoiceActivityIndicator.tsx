@@ -74,7 +74,7 @@ export const VoiceActivityIndicator: React.FC<VoiceActivityIndicatorProps> = ({
             }`}
             style={{
               height: `${Math.max(20, height)}%`,
-              backgroundColor: isSpeaking ? '#10b981' : '#ffffff'
+              backgroundColor: isSpeaking ? '#23a55a' : '#ffffff'
             }}
           />
         );

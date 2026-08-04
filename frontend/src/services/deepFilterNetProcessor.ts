@@ -60,8 +60,11 @@ export class DeepFilterNetProcessor {
         // Некоторые бандлеры помещают API в default; поддержим оба варианта
         this.ort = (ortModule as any).default || (ortModule as any);
         const ortAny = this.ort as any;
-        // Настройка путей к wasm
-        const wasmPath = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.0/dist/';
+        // Локальные wasm из /public/onnx — без CDN (CSP / miscord.ru)
+        const wasmPath =
+          typeof window !== 'undefined'
+            ? `${window.location.origin}/onnx/`
+            : '/onnx/';
         if (typeof wasmPath === 'string' && ortAny?.env?.wasm) {
           ortAny.env.wasm.wasmPaths = wasmPath;
           // Настройка ONNX Runtime для оптимальной производительности

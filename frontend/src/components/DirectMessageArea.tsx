@@ -10,6 +10,7 @@ import { useAuthStore } from '../store/store'
 import p2pVoiceService from '../services/p2pVoiceService'
 import { Phone, PhoneOff, Send, X, Clock, PlusCircle, Smile, Reply, Trash2, Edit } from 'lucide-react'
 import { UserAvatar } from './ui/user-avatar'
+import { MediaLightbox, MediaLightboxItem } from './MediaLightbox'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 
@@ -29,7 +30,7 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
   const [hasMore, setHasMore] = useState(true)
   const [isLoading, setIsLoading] = useState(false)
   const [isSending, setIsSending] = useState(false)
-  const [viewingImage, setViewingImage] = useState<string | null>(null)
+  const [lightboxItem, setLightboxItem] = useState<MediaLightboxItem | null>(null)
   const [replyingTo, setReplyingTo] = useState<DirectMessage | null>(null)
   const [hoveredMessageId, setHoveredMessageId] = useState<number | string | null>(null)
   const [showEmojiPicker, setShowEmojiPicker] = useState<number | string | null>(null)
@@ -260,12 +261,21 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
     setMessages((prev) => prev.filter(m => m.tempId !== tempId));
   }
 
-  const handleImageClick = (imageUrl: string) => {
-    setViewingImage(imageUrl);
-  }
+  const handleImageClick = (msg: DirectMessage, imageUrl: string) => {
+    const author =
+      msg.author ||
+      (msg.sender_id === user?.id
+        ? user
+        : msg.sender_id === friend.id
+          ? friend
+          : { username: 'User' })
 
-  const handleCloseImageViewer = () => {
-    setViewingImage(null);
+    setLightboxItem({
+      url: imageUrl,
+      alt: 'Вложение',
+      author,
+      timestamp: msg.timestamp,
+    })
   }
 
   const handleReply = (message: DirectMessage) => {
@@ -354,7 +364,7 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-[#313338] min-h-0">
+    <div className="flex-1 flex flex-col bg-[#323339] min-h-0">
       {/* Top bar */}
       <div className="flex items-center justify-between h-12 px-4 border-b border-[#2c2d32] shadow-md flex-shrink-0">
         <div className="flex items-center">
@@ -409,19 +419,20 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
                 <div className="flex flex-col gap-2 max-w-lg">
                   {/* Attachments */}
                   {msg.attachments && msg.attachments.length > 0 && (
-                    <div className="flex flex-col gap-2">
+                    <div className="flex flex-col items-start gap-2">
                       {msg.attachments.map(att => (
-                        <div 
+                        <button
                           key={att.id}
-                          onClick={() => handleImageClick(att.file_url)}
-                          className="cursor-pointer"
+                          type="button"
+                          onClick={() => handleImageClick(msg, att.file_url)}
+                          className="media-thumb"
                         >
                           <img 
                             src={att.file_url} 
                             alt="Вложение"
-                            className={`max-w-xs max-h-80 rounded-md object-cover hover:opacity-90 transition-opacity ${isPending ? 'opacity-70' : ''}`}
+                            className={`max-w-xs max-h-80 rounded-md object-cover ${isPending ? 'opacity-70' : ''}`}
                           />
-                        </div>
+                        </button>
                       ))}
                     </div>
                   )}
@@ -443,7 +454,7 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
                           className={`flex items-center gap-1 px-2 py-1 rounded-full text-sm transition-colors ${
                             reaction.currentUserReacted
                               ? 'bg-blue-600/20 border border-blue-600'
-                              : 'bg-[#2c2d32] border border-[#3f4147] hover:border-gray-500'
+                              : 'bg-[#2c2d32] border border-[#3e3f45] hover:border-gray-500'
                           }`}
                           title={reaction.users.map(u => u.username).join(', ')}
                         >
@@ -458,7 +469,7 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
 
               {/* Action Buttons - показываются при наведении */}
               {hoveredMessageId === msg.id && !isPending && (
-                <div className="absolute top-0 right-12 flex items-center gap-1 bg-[#1e1f22] border border-[#3f4147] rounded-lg shadow-lg p-1">
+                <div className="absolute top-0 right-12 flex items-center gap-1 bg-[#1e1f22] border border-[#3e3f45] rounded-lg shadow-lg p-1">
                   <button
                     onClick={() => toggleEmojiPicker(msg.id)}
                     className="p-1.5 hover:bg-[#2c2d32] rounded text-gray-400 hover:text-white transition-colors"
@@ -487,7 +498,7 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
 
               {/* Emoji Picker */}
               {showEmojiPicker === msg.id && (
-                <div className="absolute top-8 right-12 bg-[#1e1f22] border border-[#3f4147] rounded-lg shadow-xl p-2 z-10">
+                <div className="absolute top-8 right-12 bg-[#1e1f22] border border-[#3e3f45] rounded-lg shadow-xl p-2 z-10">
                   <div className="grid grid-cols-4 gap-1">
                     {quickEmojis.map((emoji) => (
                       <button
@@ -513,7 +524,7 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
 
       {/* Input */}
       <div className="px-4 pb-4 border-t border-[#2c2d32] flex-shrink-0">
-        <form onSubmit={handleSendMessage} className="bg-[#383a40] rounded-lg flex flex-col">
+        <form onSubmit={handleSendMessage} className="bg-[#393a41] rounded-lg flex flex-col">
           
           {/* Reply Preview */}
           {replyingTo && (
@@ -595,27 +606,7 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
         </form>
       </div>
 
-      {/* Image Viewer Popup */}
-      {viewingImage && (
-        <div 
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-90 backdrop-blur-sm"
-          onClick={handleCloseImageViewer}
-        >
-          <button
-            onClick={handleCloseImageViewer}
-            className="absolute top-4 right-4 text-white hover:text-gray-300 transition-colors z-10"
-            aria-label="Закрыть"
-          >
-            <X className="w-8 h-8" />
-          </button>
-          <img 
-            src={viewingImage} 
-            alt="Просмотр изображения"
-            className="max-w-[90vw] max-h-[90vh] object-contain"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-      )}
+      <MediaLightbox item={lightboxItem} onClose={() => setLightboxItem(null)} />
     </div>
   )
 }

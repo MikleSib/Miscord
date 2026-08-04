@@ -1,7 +1,6 @@
 import websocketService from './websocketService';
 import { EventEmitter } from 'events';
 import { User } from '@/types';
-import authService from './authService';
 
 class P2PVoiceService extends EventEmitter {
   public peerConnection: RTCPeerConnection | null = null;
@@ -22,18 +21,13 @@ class P2PVoiceService extends EventEmitter {
 
   constructor() {
     super();
-    this.init();
-    // НЕ регистрируем обработчики в конструкторе!
-    // Регистрация происходит позже, после подключения WebSocket в store.initializeWebSocket()
   }
 
-  private async init() {
-    this.currentUser = await authService.getCurrentUser();
+  public setCurrentUser(user: User | null) {
+    this.currentUser = user;
   }
-
-  // Метод для регистрации WebSocket обработчиков
-  // Может вызываться много раз безопасно (например, после HMR)
   public registerWebSocketHandlers() {
+    if (this.handlersRegistered) return;
     this.handlersRegistered = true;
     this.ws.on('p2p-offer', async (data: { from: number; offer: RTCSessionDescriptionInit }) => {
       // Игнорируем дублирующиеся offers от того же пира

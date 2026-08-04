@@ -1,16 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore } from '../lib/store';
-import channelService from '../services/channelService';
 import { UserAvatar } from './ui/user-avatar';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { User } from '../types';
 import { onlineUsersService, OnlineUser } from '../services/onlineUsersService';
 
 export function ServerUserSidebar() {
   const { currentServerMembers, currentServer } = useStore();
-  const [collapsed, setCollapsed] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
-  const [updateCounter, setUpdateCounter] = useState(0);
 
 
 
@@ -52,10 +48,43 @@ export function ServerUserSidebar() {
       });
       
       // Принудительно обновляем компонент
-      setUpdateCounter(prev => prev + 1);
+    };
+
+    const handleUserProfileUpdated = () => {
+      setOnlineUsers((prev) => [...prev]);
+    };
+
+    const handleServerMemberJoined = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      const member = detail.user;
+      if (!member?.id) return;
+
+      if (member.is_online) {
+        setOnlineUsers((prev) => {
+          if (prev.some((user) => user.id === member.id)) return prev;
+          return [
+            ...prev,
+            {
+              id: member.id,
+              username: member.display_name || member.username,
+              email: member.email || '',
+              is_online: true,
+            },
+          ];
+        });
+      }
+    };
+
+    const handleServerMemberLeft = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      if (!detail.user_id) return;
+      setOnlineUsers((prev) => prev.filter((user) => user.id !== detail.user_id));
     };
 
     window.addEventListener('user_status_changed', handleUserStatusChanged);
+    window.addEventListener('user_profile_updated', handleUserProfileUpdated);
+    window.addEventListener('server_member_joined', handleServerMemberJoined);
+    window.addEventListener('server_member_left', handleServerMemberLeft);
 
     // Периодически обновляем список (каждые 2 минуты)
     const interval = setInterval(loadOnlineUsers, 2 * 60 * 1000);
@@ -63,10 +92,13 @@ export function ServerUserSidebar() {
     return () => {
       clearInterval(interval);
       window.removeEventListener('user_status_changed', handleUserStatusChanged);
+      window.removeEventListener('user_profile_updated', handleUserProfileUpdated);
+      window.removeEventListener('server_member_joined', handleServerMemberJoined);
+      window.removeEventListener('server_member_left', handleServerMemberLeft);
     };
   }, [currentServer?.id]);
 
-  if (!currentServer || collapsed) {
+  if (!currentServer) {
     return null;
   }
 
@@ -81,8 +113,8 @@ export function ServerUserSidebar() {
   const offline: User[] = membersWithStatus.filter((u: User) => !u.is_online);
 
   return (
-    <div className="w-64 bg-background border-l border-border flex flex-col h-full relative overflow-hidden">
-      <div className="p-4 pb-2 border-b border-border font-semibold text-sm text-muted-foreground">
+    <div className="relative flex h-full w-60 flex-col overflow-hidden border-l border-[#3e3f45] bg-[#323339]">
+      <div className="app-header border-b px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         Участники сервера
       </div>
       <div className="flex-1 overflow-y-auto p-2 space-y-4">
@@ -90,7 +122,7 @@ export function ServerUserSidebar() {
           <div className="text-xs text-green-500 font-bold mb-1">Онлайн — {online.length}</div>
           {online.length === 0 && <div className="text-xs text-muted-foreground">Нет онлайн</div>}
           {online.map((user: User) => (
-            <div key={user.id} className="flex items-center gap-2 py-1 px-2 rounded hover:bg-muted transition">
+            <div key={user.id} className="interactive-row flex items-center gap-2 px-2 py-1.5">
               <UserAvatar user={user} size={32} />
               <span className="font-medium text-sm text-foreground">{user.display_name || user.username}</span>
               <span className="ml-auto w-2 h-2 rounded-full bg-green-500" title="Онлайн" />
@@ -101,7 +133,7 @@ export function ServerUserSidebar() {
           <div className="text-xs text-muted-foreground font-bold mb-1">Оффлайн — {offline.length}</div>
           {offline.length === 0 && <div className="text-xs text-muted-foreground">Все онлайн</div>}
           {offline.map((user: User) => (
-            <div key={user.id} className="flex items-center gap-2 py-1 px-2 rounded hover:bg-muted transition opacity-60">
+            <div key={user.id} className="interactive-row flex items-center gap-2 px-2 py-1.5 opacity-60">
               <UserAvatar user={user} size={32} />
               <span className="font-medium text-sm text-foreground">{user.display_name || user.username}</span>
               <span className="ml-auto w-2 h-2 rounded-full bg-gray-400" title="Оффлайн" />

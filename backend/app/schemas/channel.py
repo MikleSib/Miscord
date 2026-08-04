@@ -7,6 +7,7 @@ class ChannelBase(BaseModel):
     name: str
     description: Optional[str] = None
     icon: Optional[str] = None
+    banner: Optional[str] = None
 
 class ChannelCreate(ChannelBase):
     pass
@@ -15,6 +16,8 @@ class ChannelUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     icon: Optional[str] = None
+    banner: Optional[str] = None
+    is_public: Optional[bool] = None
 
 class TextChannelBase(BaseModel):
     name: str
@@ -60,6 +63,7 @@ class VoiceChannel(VoiceChannelBase):
 class Channel(ChannelBase):
     id: int
     owner_id: int
+    is_public: bool = False
     created_at: datetime
     updated_at: Optional[datetime] = None
     owner: User

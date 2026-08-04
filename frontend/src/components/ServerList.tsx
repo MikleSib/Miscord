@@ -16,11 +16,12 @@ import {
   Tooltip
 } from '@mui/material'
 import channelService from '../services/channelService'
+import { applyMemberJoined } from '../lib/memberSync'
 import { ServerSettingsModal } from './ServerSettingsModal'
 import { Server } from '../types'
 
 export function ServerList() {
-  const { servers, currentServer, selectServer, addServer, updateServer } = useStore()
+  const { servers, currentServer, selectServer, loadServers, updateServer } = useStore()
   const { user } = useAuthStore()
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false)
@@ -83,15 +84,8 @@ export function ServerList() {
         description: `Сервер ${newServerName}`
       })
 
-      addServer({
-        id: newServer.id,
-        name: newServer.name,
-        description: newServer.description,
-        channels: [
-          { id: 1, name: 'general', type: 'text', serverId: newServer.id },
-          { id: 2, name: 'General', type: 'voice', serverId: newServer.id }
-        ]
-      })
+      await loadServers()
+      await selectServer(newServer.id)
 
       setIsCreateModalOpen(false)
       setNewServerName('')
@@ -123,7 +117,15 @@ export function ServerList() {
     setInviteError('')
     
     try {
-      await channelService.inviteUserToServer(currentServer.id, inviteUsername)
+      const result = await channelService.inviteUserToServer(currentServer.id, inviteUsername)
+      applyMemberJoined({
+        channel_id: currentServer.id,
+        user_id: result.user_id,
+        username: result.username,
+        display_name: result.display_name,
+        avatar_url: result.avatar_url,
+        user: result.user,
+      })
       setIsInviteModalOpen(false)
       setInviteUsername('')
     } catch (error: any) {
@@ -201,95 +203,104 @@ export function ServerList() {
 
   return (
     <>
-      <div className="w-[72px] bg-[#2c2d32] flex flex-col items-center py-3 gap-2 border-r border-[#393a3f] h-screen">
+      <div className="app-rail flex h-full flex-col items-center gap-3 border-r py-4">
         {/* Home Button */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className={cn(
-            "w-12 h-12 rounded-full transition-all",
-            !currentServer && "bg-primary text-primary-foreground"
+        <div className="relative flex w-full justify-center">
+          {!currentServer && (
+            <div className="absolute left-0 top-1/2 h-10 w-1 -translate-y-1/2 rounded-r-full bg-foreground" />
           )}
-          onClick={() => selectServer(0)}
-        >
-          <Home className="w-5 h-5" />
-        </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "h-12 w-12 rounded-[1.5rem] transition-[border-radius,background-color,color,transform] duration-200 ease-out",
+              !currentServer
+                ? "rounded-[0.9rem] bg-primary text-primary-foreground"
+                : "hover:rounded-[0.9rem] hover:bg-primary hover:text-primary-foreground",
+              "active:scale-[0.97]"
+            )}
+            onClick={() => selectServer(0)}
+          >
+            <Home className="w-5 h-5" />
+          </Button>
+        </div>
 
-        <div className="w-8 h-[2px] bg-border rounded-full" />
+        <div className="h-[2px] w-8 rounded-full bg-border" />
 
         {/* Server Icons */}
-        <div className="flex flex-col gap-2 flex-1">
-          {servers.map((server) => (
-            <div key={server.id} className="relative group">
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "w-12 h-12 rounded-2xl bg-secondary hover:bg-accent transition-all duration-200 overflow-hidden",
-                  currentServer?.id === server.id && "bg-primary text-primary-foreground hover:bg-primary/90",
-                  "hover:rounded-xl"
+        <div className="flex w-full flex-1 flex-col items-center gap-3">
+          {servers.map((server) => {
+            const isActive = currentServer?.id === server.id
+
+            return (
+              <div key={server.id} className="group relative flex w-full justify-center">
+                {isActive && (
+                  <div className="absolute left-0 top-1/2 h-10 w-1 -translate-y-1/2 rounded-r-full bg-foreground" />
                 )}
-                onClick={() => selectServer(server.id)}
-                onContextMenu={(e) => handleContextMenu(e, server)}
-              >
-                {server.icon ? (
-                  <img 
-                    src={server.icon} 
-                    alt={server.name} 
-                    className="w-full h-full object-cover rounded-2xl" 
-                  />
-                ) : (
-                  <span className="font-semibold text-lg">
-                    {server.name.slice(0, 2).toUpperCase()}
-                  </span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    "h-12 w-12 overflow-hidden rounded-[1.5rem] border border-border/60 bg-secondary transition-[border-radius,background-color,color,transform] duration-200 ease-out hover:rounded-[0.9rem] hover:bg-accent",
+                    isActive && "rounded-[0.9rem] bg-primary text-primary-foreground hover:bg-primary/90",
+                    "active:scale-[0.97]"
+                  )}
+                  onClick={() => selectServer(server.id)}
+                  onContextMenu={(e) => handleContextMenu(e, server)}
+                >
+                  {server.icon ? (
+                    <img
+                      src={server.icon}
+                      alt={server.name}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-lg font-semibold">
+                      {server.name.slice(0, 2).toUpperCase()}
+                    </span>
+                  )}
+                </Button>
+
+                {isActive && (
+                  <div className="absolute -right-0.5 top-0 opacity-0 transition-opacity duration-150 ease-out group-hover:opacity-100">
+                    <Tooltip title="Пригласить пользователя">
+                      <IconButton
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setIsInviteModalOpen(true)
+                        }}
+                        sx={{
+                          backgroundColor: 'rgba(67, 181, 129, 0.1)',
+                          color: '#23a55a',
+                          width: 24,
+                          height: 24,
+                          '&:hover': {
+                            backgroundColor: 'rgba(67, 181, 129, 0.2)',
+                          }
+                        }}
+                      >
+                        <UserPlus size={14} />
+                      </IconButton>
+                    </Tooltip>
+                  </div>
                 )}
-              </Button>
-              
-              {/* Индикатор активного сервера */}
-              {currentServer?.id === server.id && (
-                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary rounded-r-full -ml-2" />
-              )}
-              
-              {/* Кнопка приглашения при наведении на активный сервер */}
-              {currentServer?.id === server.id && (
-                <div className="absolute -right-1 top-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Tooltip title="Пригласить пользователя">
-                    <IconButton
-                      size="small"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setIsInviteModalOpen(true)
-                      }}
-                      sx={{
-                        backgroundColor: 'rgba(67, 181, 129, 0.1)',
-                        color: '#43b581',
-                        width: 24,
-                        height: 24,
-                        '&:hover': {
-                          backgroundColor: 'rgba(67, 181, 129, 0.2)',
-                        }
-                      }}
-                    >
-                      <UserPlus size={14} />
-                    </IconButton>
-                  </Tooltip>
-                </div>
-              )}
-            </div>
-          ))}
-          
+              </div>
+            )
+          })}
+
           {/* Add Server Button */}
           <Button
             variant="ghost"
             size="icon"
-            className="w-12 h-12 rounded-full transition-all hover:rounded-2xl hover:bg-primary hover:text-primary-foreground"
+            className="h-12 w-12 rounded-[1.5rem] border border-dashed border-border text-muted-foreground transition-[border-radius,background-color,color,transform] duration-200 ease-out hover:rounded-[0.9rem] hover:bg-primary hover:text-primary-foreground active:scale-[0.97]"
             onClick={() => setIsCreateModalOpen(true)}
           >
             <Plus className="w-5 h-5" />
           </Button>
         </div>
 
-        <div className="w-8 h-[2px] bg-border rounded-full" />
+        <div className="h-[2px] w-8 rounded-full bg-border" />
       </div>
 
       {/* Create Server Modal */}
@@ -304,7 +315,7 @@ export function ServerList() {
         fullWidth
         PaperProps={{
           sx: {
-            backgroundColor: '#313338',
+            backgroundColor: '#323339',
             color: 'white',
             borderRadius: '8px',
             minHeight: '500px'
@@ -317,7 +328,7 @@ export function ServerList() {
               <div className="flex justify-between items-center mb-6">
                 <div>
                   <h2 className="text-2xl font-bold text-white mb-2">Создайте свой сервер</h2>
-                  <p className="text-[#b5bac1] text-sm">Ваш сервер — это место, где вы можете тусоваться со своими друзьями. Создайте сервер и начните общаться.</p>
+                  <p className="text-[#999aa1] text-sm">Ваш сервер — это место, где вы можете тусоваться со своими друзьями. Создайте сервер и начните общаться.</p>
                 </div>
                 <IconButton
                   onClick={() => {
@@ -325,7 +336,7 @@ export function ServerList() {
                     setCreateStep('template')
                     setNewServerName('')
                   }}
-                  sx={{ color: '#b5bac1' }}
+                  sx={{ color: '#999aa1' }}
                 >
                   <X size={24} />
                 </IconButton>
@@ -336,16 +347,16 @@ export function ServerList() {
                   <div
                     key={template.id}
                     onClick={() => handleTemplateSelect(template.id)}
-                    className="flex items-center p-4 bg-[#2b2d31] hover:bg-[#35373c] rounded-lg cursor-pointer transition-colors group"
+                    className="flex items-center p-4 bg-[#2c2d32] hover:bg-[#3e3f45] rounded-lg cursor-pointer transition-colors group"
                   >
-                    <div className="flex items-center justify-center w-12 h-12 bg-[#404249] rounded-lg mr-4">
+                    <div className="flex items-center justify-center w-12 h-12 bg-[#414248] rounded-lg mr-4">
                       <span className="text-2xl">{template.icon}</span>
                     </div>
                     <div className="flex-1">
                       <h3 className="font-semibold text-white text-base">{template.name}</h3>
-                      <p className="text-[#b5bac1] text-sm">{template.description}</p>
+                      <p className="text-[#999aa1] text-sm">{template.description}</p>
                     </div>
-                    <ChevronRight size={20} className="text-[#b5bac1] group-hover:text-white transition-colors" />
+                    <ChevronRight size={20} className="text-[#999aa1] group-hover:text-white transition-colors" />
                   </div>
                 ))}
               </div>
@@ -357,7 +368,7 @@ export function ServerList() {
               <div className="flex justify-between items-center mb-6">
                 <div>
                   <h2 className="text-2xl font-bold text-white mb-2">Создать сервер</h2>
-                  <p className="text-[#b5bac1] text-sm">Дайте серверу индивидуальность с именем и значком. Вы всегда можете изменить это позже.</p>
+                  <p className="text-[#999aa1] text-sm">Дайте серверу индивидуальность с именем и значком. Вы всегда можете изменить это позже.</p>
                 </div>
                 <IconButton
                   onClick={() => {
@@ -365,7 +376,7 @@ export function ServerList() {
                     setCreateStep('template')
                     setNewServerName('')
                   }}
-                  sx={{ color: '#b5bac1' }}
+                  sx={{ color: '#999aa1' }}
                 >
                   <X size={24} />
                 </IconButton>
@@ -383,7 +394,7 @@ export function ServerList() {
                       backgroundColor: '#1e1f22',
                       color: 'white',
                       '& fieldset': {
-                        borderColor: '#383a40',
+                        borderColor: '#393a41',
                       },
                       '&:hover fieldset': {
                         borderColor: '#5865f2',
@@ -393,7 +404,7 @@ export function ServerList() {
                       },
                     },
                     '& .MuiInputLabel-root': {
-                      color: '#b5bac1',
+                      color: '#999aa1',
                       '&.Mui-focused': {
                         color: '#5865f2',
                       },
@@ -436,7 +447,7 @@ export function ServerList() {
         fullWidth
         PaperProps={{
           sx: {
-            backgroundColor: '#313338',
+            backgroundColor: '#323339',
             color: 'white',
             borderRadius: '8px',
             minWidth: '440px'
@@ -448,7 +459,7 @@ export function ServerList() {
             <div className="flex justify-between items-center mb-6">
               <div>
                 <h2 className="text-xl font-bold text-white mb-1">Пригласить пользователя</h2>
-                <p className="text-[#b5bac1] text-sm">
+                <p className="text-[#999aa1] text-sm">
                   {currentServer ? `на сервер ${currentServer.name}` : 'на сервер'}
                 </p>
               </div>
@@ -458,7 +469,7 @@ export function ServerList() {
                   setInviteError('')
                   setInviteUsername('')
                 }}
-                sx={{ color: '#b5bac1' }}
+                sx={{ color: '#999aa1' }}
               >
                 <X size={24} />
               </IconButton>
@@ -466,7 +477,7 @@ export function ServerList() {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-[#b5bac1] mb-2">
+                <label className="block text-sm font-medium text-[#999aa1] mb-2">
                   Имя пользователя *
                 </label>
                 <TextField
@@ -482,7 +493,7 @@ export function ServerList() {
                       color: 'white',
                       fontSize: '16px',
                       '& fieldset': {
-                        borderColor: '#383a40',
+                        borderColor: '#393a41',
                       },
                       '&:hover fieldset': {
                         borderColor: '#5865f2',
@@ -491,14 +502,14 @@ export function ServerList() {
                         borderColor: '#5865f2',
                       },
                       '&.Mui-error fieldset': {
-                        borderColor: '#ed4245',
+                        borderColor: '#da3e44',
                       },
                     },
                     '& .MuiInputBase-input': {
                       padding: '12px 16px',
                     },
                     '& .MuiFormHelperText-root': {
-                      color: '#ed4245',
+                      color: '#da3e44',
                       marginLeft: 0,
                       marginTop: '8px',
                     },
@@ -507,14 +518,14 @@ export function ServerList() {
               </div>
 
               {!inviteError && (
-                <div className="bg-[#2b2d31] p-4 rounded-lg">
+                <div className="bg-[#2c2d32] p-4 rounded-lg">
                   <div className="flex items-start gap-3">
                     <div className="w-10 h-10 bg-[#5865f2] rounded-full flex items-center justify-center text-white font-semibold">
                       ?
                     </div>
                     <div>
                       <h4 className="text-white font-medium text-sm mb-1">Как пригласить пользователя</h4>
-                      <p className="text-[#b5bac1] text-xs leading-relaxed">
+                      <p className="text-[#999aa1] text-xs leading-relaxed">
                         Введите точное имя пользователя. После приглашения пользователь получит уведомление 
                         и сможет присоединиться к серверу.
                       </p>

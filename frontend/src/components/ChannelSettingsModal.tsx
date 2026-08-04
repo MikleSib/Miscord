@@ -11,7 +11,7 @@ interface ChannelSettingsModalProps {
   onClose: () => void
   channel: Channel
   onChannelUpdate: (updatedChannel: Channel) => void
-  onChannelDelete?: (channelId: number) => void
+  onChannelDelete?: (channelId: number, channelType?: 'text' | 'voice') => void
 }
 
 export function ChannelSettingsModal({ isOpen, onClose, channel, onChannelUpdate, onChannelDelete }: ChannelSettingsModalProps) {
@@ -68,7 +68,7 @@ export function ChannelSettingsModal({ isOpen, onClose, channel, onChannelUpdate
       }
 
       if (onChannelDelete) {
-        onChannelDelete(channel.id)
+        onChannelDelete(channel.id, channel.type)
       }
 
       onClose()

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { VoiceUser, User } from '../../types';
 import voiceService from '../../services/voiceService';
+import channelService from '../../services/channelService';
 import { useAuthStore } from '../store';
 import soundService from '../../services/soundService';
 
@@ -9,6 +10,7 @@ type P2PCallStatus = 'idle' | 'outgoing' | 'incoming' | 'active';
 
 interface VoiceState {
   isConnected: boolean;
+  isConnecting: boolean;
   currentVoiceChannelId: number | null;
   participants: VoiceUser[];
   localStream: MediaStream | null;
@@ -17,7 +19,8 @@ interface VoiceState {
   isDeafened: boolean;
   wasMutedBeforeDeafen: boolean;
   error: string | null;
-  speakingUsers: Set<number>;
+  /** userId -> говорит ли сейчас (объект надёжнее Set для перерисовки React) */
+  speakingUsers: Record<number, boolean>;
   
   // P2P Call State
   callType: CallType;
@@ -46,6 +49,7 @@ interface VoiceState {
 
 export const useVoiceStore = create<VoiceState>((set, get) => ({
   isConnected: false,
+  isConnecting: false,
   currentVoiceChannelId: null,
   participants: [],
   localStream: null,
@@ -54,7 +58,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   isDeafened: false,
   wasMutedBeforeDeafen: false,
   error: null,
-  speakingUsers: new Set(),
+  speakingUsers: {},
 
   // P2P Call State
   callType: null,
@@ -66,13 +70,61 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       
       // Если уже подключены к каналу, сначала отключаемся
       const currentState = get();
+      if (currentState.isConnecting && currentState.currentVoiceChannelId === channelId) {
+        return;
+      }
       if (currentState.isConnected || currentState.currentVoiceChannelId) {
         get().disconnectFromVoiceChannel();
-        // Ждём завершения отключения
         await new Promise(resolve => setTimeout(resolve, 100));
       }
       
-      set({ error: null });
+      set({
+        error: null,
+        isConnecting: true,
+        isConnected: false,
+        currentVoiceChannelId: channelId,
+      });
+
+      // Сразу показываем тех, кто уже в канале (не ждём микрофон/WebRTC)
+      try {
+        const existingMembers = await channelService.getVoiceChannelMembers(channelId);
+        const currentUser = useAuthStore.getState().user;
+        const seeded: VoiceUser[] = existingMembers.map((member: any) => ({
+          user_id: member.user_id ?? member.id,
+          username: member.username || member.display_name || 'User',
+          display_name: member.display_name,
+          avatar_url: member.avatar_url,
+          is_muted: Boolean(member.is_muted),
+          is_deafened: Boolean(member.is_deafened),
+        }));
+        if (
+          currentUser &&
+          !seeded.some((participant) => participant.user_id === currentUser.id)
+        ) {
+          seeded.unshift({
+            user_id: currentUser.id,
+            username: currentUser.display_name || currentUser.username,
+            display_name: currentUser.display_name,
+            avatar_url: currentUser.avatar_url,
+            is_muted: get().isMuted,
+            is_deafened: get().isDeafened,
+          });
+        }
+        // Не затираем, если WebSocket уже прислал более свежий список
+        if (get().currentVoiceChannelId === channelId && get().participants.length === 0) {
+          set({ participants: seeded });
+        } else if (get().currentVoiceChannelId === channelId) {
+          const known = new Map(get().participants.map((p) => [p.user_id, p]));
+          for (const member of seeded) {
+            if (!known.has(member.user_id)) {
+              known.set(member.user_id, member);
+            }
+          }
+          set({ participants: Array.from(known.values()) });
+        }
+      } catch (seedError) {
+        console.warn('[VoiceSlice] Не удалось заранее загрузить участников канала:', seedError);
+      }
       
       const token = useAuthStore.getState().token;
       if (!token) {
@@ -81,6 +133,21 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
 
 
       // Настраиваем обработчики событий
+      voiceService.onConnectionStateChange((state, message) => {
+        if (state === 'connected') {
+          set({ isConnected: true, isConnecting: false, error: null });
+          return;
+        }
+
+        set({
+          isConnected: false,
+          isConnecting: false,
+          currentVoiceChannelId: null,
+          participants: [],
+          speakingUsers: {},
+          error: message || (state === 'error' ? 'Ошибка голосового соединения' : null),
+        });
+      });
       
       // Обработчик присоединения участника
       voiceService.onParticipantJoin((participant) => {
@@ -109,27 +176,19 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       
       // Обработчик получения списка участников
       voiceService.onParticipantsReceived((participants) => {
-       
-        
-        // Добавляем текущего пользователя если его нет в списке
+        const nextParticipants = [...participants];
         const currentUser = useAuthStore.getState().user;
-        if (currentUser) {
-          const hasCurrentUser = participants.some((p: any) => p.user_id === currentUser.id);
-          if (!hasCurrentUser) {
-           
-            participants.push({
-              user_id: currentUser.id,
-              username: currentUser.display_name || currentUser.username,
-              display_name: currentUser.display_name,
-              avatar_url: currentUser.avatar_url,
-              is_muted: get().isMuted,
-              is_deafened: get().isDeafened,
-            });
-          }
+        if (currentUser && !nextParticipants.some((participant: any) => participant.user_id === currentUser.id)) {
+          nextParticipants.push({
+            user_id: currentUser.id,
+            username: currentUser.display_name || currentUser.username,
+            display_name: currentUser.display_name,
+            avatar_url: currentUser.avatar_url,
+            is_muted: get().isMuted,
+            is_deafened: get().isDeafened,
+          });
         }
-        
-        get().setParticipants(participants);
-     
+        get().setParticipants(nextParticipants);
       });
       
       // Обработчик изменения статуса участников
@@ -171,6 +230,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       set({
         currentVoiceChannelId: channelId,
         isConnected: true,
+        isConnecting: false,
         error: null,
       });
 
@@ -180,25 +240,28 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       set({ 
         error: error.message || 'Ошибка подключения к голосовому каналу',
         isConnected: false,
+        isConnecting: false,
         currentVoiceChannelId: null,
       });
+      throw error;
     }
   },
   
   disconnectFromVoiceChannel: () => {
-    // Воспроизводим звук отключения для собственного отключения
-    soundService.playLeaveSound();
+    const wasInVoice = get().isConnected || get().isConnecting || get().currentVoiceChannelId !== null;
+    if (wasInVoice) {
+      soundService.playLeaveSound();
+    }
     
     voiceService.disconnect();
     set({
       isConnected: false,
+      isConnecting: false,
       currentVoiceChannelId: null,
       participants: [],
       localStream: null,
-      isMuted: false,
-      isDeafened: false,
-      wasMutedBeforeDeafen: false,
-      speakingUsers: new Set(),
+      speakingUsers: {},
+      error: null,
     });
   },
   
@@ -219,9 +282,14 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     }));
   },
   
-  removeParticipant: (userId) => set((state) => ({
-    participants: state.participants.filter(p => p.user_id !== userId),
-  })),
+  removeParticipant: (userId) => set((state) => {
+    const speakingUsers = { ...state.speakingUsers };
+    delete speakingUsers[userId];
+    return {
+      participants: state.participants.filter((p) => p.user_id !== userId),
+      speakingUsers,
+    };
+  }),
   
   updateParticipant: (participant) => set((state) => {
     const index = state.participants.findIndex(p => p.user_id === participant.user_id);
@@ -385,13 +453,16 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   
   setSpeaking: (userId, isSpeaking) => {
     set((state) => {
-      const newSpeakingUsers = new Set(state.speakingUsers);
-      if (isSpeaking) {
-        newSpeakingUsers.add(userId);
-      } else {
-        newSpeakingUsers.delete(userId);
+      if (Boolean(state.speakingUsers[userId]) === isSpeaking) {
+        return state;
       }
-      return { speakingUsers: newSpeakingUsers };
+      const speakingUsers = { ...state.speakingUsers };
+      if (isSpeaking) {
+        speakingUsers[userId] = true;
+      } else {
+        delete speakingUsers[userId];
+      }
+      return { speakingUsers };
     });
   },
 }));

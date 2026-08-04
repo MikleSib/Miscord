@@ -41,6 +41,32 @@ async def get_current_user(
     
     return user
 
+optional_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
+
+
+async def get_optional_user(
+    token: str | None = Depends(optional_oauth2_scheme),
+    db: AsyncSession = Depends(get_db)
+) -> User | None:
+    """Пользователь, если запрос авторизован. Иначе None (без ошибки).
+
+    Нужно для страниц вида «превью приглашения», доступных до входа в аккаунт.
+    """
+    if not token:
+        return None
+
+    payload = decode_access_token(token)
+    if payload is None:
+        return None
+
+    user_id = payload.get("sub")
+    if user_id is None:
+        return None
+
+    result = await db.execute(select(User).where(User.id == int(user_id)))
+    return result.scalar_one_or_none()
+
+
 async def get_current_active_user(
     current_user: User = Depends(get_current_user)
 ) -> User:

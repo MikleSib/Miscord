@@ -57,7 +57,7 @@ export function ScreenShareViewer({
     <>
       {/* Main Screen Share Area - показывается только когда НЕ свернуто */}
       {!isMinimized && (
-        <div className="fixed top-0 right-0 bottom-0 left-80 z-40 bg-black">
+        <div className="fixed bottom-0 right-0 top-0 left-[calc(var(--server-rail-width)+var(--channel-sidebar-width))] z-40 bg-black">
           {/* Header */}
           <div className="absolute top-0 left-0 right-0 z-10 bg-black/80 backdrop-blur-sm border-b border-gray-700">
             <div className="flex items-center justify-between px-4 py-3">

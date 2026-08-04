@@ -1,23 +1,28 @@
-import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
+import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import ElectronTitleBar from '@/components/ElectronTitleBar'
 
-const inter = Inter({ subsets: ['latin'] })
-
 export const metadata: Metadata = {
-  title: 'Miscord - От слова Misha епт',
-  description: 'Убийца дискорда',
+  title: {
+    default: 'Miscord',
+    template: '%s | Miscord',
+  },
+  description: 'Общайтесь в текстовых и голосовых каналах, созванивайтесь и делитесь экраном.',
+  applicationName: 'Miscord',
 }
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  colorScheme: 'dark',
+  themeColor: '#2c2d32',
+}
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ru" className="dark">
-      <body className={`${inter.className} bg-background text-foreground`}>
+      <body className="bg-background text-foreground">
         <ElectronTitleBar />
         {children}
       </body>

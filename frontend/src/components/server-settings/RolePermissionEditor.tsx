@@ -1,0 +1,98 @@
+'use client'
+
+import React from 'react'
+import { Lock } from 'lucide-react'
+
+import { cn } from '../../lib/utils'
+import { PermissionCatalog } from '../../types'
+
+interface RolePermissionEditorProps {
+  catalog: PermissionCatalog
+  /** Текущая битовая маска роли. */
+  value: number
+  /** Права самого пользователя — то, чего нет у него, выдать нельзя. */
+  ownPermissions: number
+  disabled?: boolean
+  onChange: (next: number) => void
+}
+
+/** Список переключателей прав, сгруппированный по разделам каталога. */
+export function RolePermissionEditor({
+  catalog,
+  value,
+  ownPermissions,
+  disabled = false,
+  onChange,
+}: RolePermissionEditorProps) {
+  const isAdministrator = (ownPermissions & findAdministrator(catalog)) !== 0
+
+  return (
+    <div className="space-y-6">
+      {catalog.groups.map((group) => {
+        const items = catalog.permissions.filter((item) => item.group === group.key)
+        if (items.length === 0) return null
+
+        return (
+          <div key={group.key}>
+            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {group.label}
+            </h4>
+            <div className="divide-y divide-border overflow-hidden rounded-lg border border-border">
+              {items.map((item) => {
+                const enabled = (value & item.value) !== 0
+                // Право можно менять только если оно есть у самого пользователя
+                const locked = disabled || (!isAdministrator && (ownPermissions & item.value) === 0)
+
+                return (
+                  <div
+                    key={item.key}
+                    className="flex items-start justify-between gap-4 bg-secondary/30 px-4 py-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                        {item.label}
+                        {locked && !disabled && (
+                          <span title="У вас нет этого права, поэтому выдать его нельзя">
+                            <Lock className="h-3 w-3 text-muted-foreground" />
+                          </span>
+                        )}
+                      </p>
+                      <p className="mt-0.5 text-sm text-muted-foreground">{item.description}</p>
+                    </div>
+
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={enabled}
+                      aria-label={item.label}
+                      disabled={locked}
+                      onClick={() =>
+                        onChange(enabled ? value & ~item.value : value | item.value)
+                      }
+                      className={cn(
+                        'relative mt-0.5 h-6 w-11 flex-none rounded-full transition-colors',
+                        enabled ? 'bg-primary' : 'bg-muted',
+                        locked && 'cursor-not-allowed opacity-50'
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'absolute top-1 h-4 w-4 rounded-full bg-white transition-transform',
+                          enabled ? 'translate-x-6' : 'translate-x-1'
+                        )}
+                      />
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function findAdministrator(catalog: PermissionCatalog): number {
+  return catalog.permissions.find((item) => item.key === 'ADMINISTRATOR')?.value ?? 0
+}

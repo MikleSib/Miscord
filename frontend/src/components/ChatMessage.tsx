@@ -8,6 +8,7 @@ import { Button } from './ui/button'
 import { formatMessageTime, formatMessageFullTime } from '../lib/utils'
 import { messageService } from '../services/messageService'
 import { useChatStore } from '../store/chatStore'
+import { MediaLightbox, MediaLightboxItem } from './MediaLightbox'
 
 interface ChatMessageProps {
   message: Message;
@@ -26,6 +27,7 @@ export function ChatMessage({ message, showAuthor, onReply, onReaction, currentU
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState(message.content || '')
   const [showMoreMenu, setShowMoreMenu] = useState(false)
+  const [lightboxItem, setLightboxItem] = useState<MediaLightboxItem | null>(null)
   
   const { deleteMessage, editMessage } = useChatStore()
 
@@ -77,7 +79,7 @@ export function ChatMessage({ message, showAuthor, onReply, onReaction, currentU
 
   return (
     <div 
-      className={`group relative flex items-start gap-3 py-1 px-2 rounded transition-colors hover:bg-muted/50 ${showAuthor ? 'mt-3' : ''}`}
+      className={`group relative flex items-start gap-3 py-1 px-2 rounded transition-colors hover:bg-[#3e3f45] ${showAuthor ? 'mt-3' : ''}`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
@@ -208,15 +210,27 @@ export function ChatMessage({ message, showAuthor, onReply, onReaction, currentU
 
         {/* Attachments */}
         {message.attachments && message.attachments.length > 0 && (
-          <div className="mt-2 flex flex-col gap-2">
+          <div className="mt-2 flex flex-col items-start gap-2">
             {message.attachments.map(att => (
-              <a key={att.id} href={att.file_url} target="_blank" rel="noopener noreferrer">
-                <img 
-                  src={att.file_url} 
+              <button
+                key={att.id}
+                type="button"
+                className="media-thumb"
+                onClick={() =>
+                  setLightboxItem({
+                    url: att.file_url,
+                    alt: 'Вложение',
+                    author: message.author,
+                    timestamp: message.timestamp,
+                  })
+                }
+              >
+                <img
+                  src={att.file_url}
                   alt="Вложение"
                   className="max-w-xs max-h-80 rounded-md object-cover"
                 />
-              </a>
+              </button>
             ))}
           </div>
         )}
@@ -229,7 +243,7 @@ export function ChatMessage({ message, showAuthor, onReply, onReaction, currentU
                 key={reaction.id}
                 className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs border transition-colors hover:bg-muted ${
                   reaction.currentUserReacted 
-                    ? 'bg-blue-100 border-blue-300 text-blue-700' 
+                    ? 'border-[#5865f2] bg-[#5865f2]/20 text-[#f5f5f5]'
                     : 'bg-background border-border'
                 }`}
                 onClick={() => handleReaction(reaction.emoji)}
@@ -242,6 +256,8 @@ export function ChatMessage({ message, showAuthor, onReply, onReaction, currentU
           </div>
         )}
       </div>
+
+      <MediaLightbox item={lightboxItem} onClose={() => setLightboxItem(null)} />
     </div>
   )
 } 

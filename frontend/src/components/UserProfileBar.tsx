@@ -1,107 +1,134 @@
-import { Mic, MicOff, Headphones, VolumeX, Settings } from 'lucide-react';
-import { UserAvatar } from './ui/user-avatar';
-import { useAuthStore } from '../store/store';
-import { useVoiceStore } from '../store/slices/voiceSlice';
-import { useState } from 'react';
+'use client'
+
+import { useEffect, useRef, useState } from 'react'
+import { ChevronDown, Headphones, Mic, MicOff, Settings, VolumeX } from 'lucide-react'
+import { SpeakingAvatar } from './SpeakingAvatar'
+import { useVoiceStore } from '../store/slices/voiceSlice'
+import { useAuthStore } from '../store/store'
+import { cn } from '../lib/utils'
 
 interface UserProfileBarProps {
-  onSettingsClick?: () => void;
+  onSettingsClick?: () => void
+  /** Встроен в общий dock — без собственной рамки */
+  embedded?: boolean
 }
 
-export function UserProfileBar({ onSettingsClick }: UserProfileBarProps) {
-  const { user } = useAuthStore();
-  const { isMuted, isDeafened, toggleMute, toggleDeafen } = useVoiceStore();
-  const [showCopiedTooltip, setShowCopiedTooltip] = useState(false);
+export function UserProfileBar({ onSettingsClick, embedded = false }: UserProfileBarProps) {
+  const { user } = useAuthStore()
+  const { currentVoiceChannelId, isMuted, isDeafened, toggleMute, toggleDeafen, speakingUsers } = useVoiceStore()
+  const [showCopiedTooltip, setShowCopiedTooltip] = useState(false)
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const handleMuteToggle = () => {
-    toggleMute();
-  };
-
-  const handleDeafenToggle = () => {
-    toggleDeafen();
-  };
-
-  const handleSettings = () => {
-    if (onSettingsClick) {
-      onSettingsClick();
-    }
-  };
+  useEffect(() => () => {
+    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
+  }, [])
 
   const handleCopyUsername = async () => {
-    if (user?.username) {
-      try {
-        await navigator.clipboard.writeText(user.username);
-        setShowCopiedTooltip(true);
-        setTimeout(() => setShowCopiedTooltip(false), 2000);
-      } catch (err) {
-        console.error('Ошибка копирования:', err);
-      }
+    if (!user?.username) return
+
+    try {
+      await navigator.clipboard.writeText(user.username)
+      setShowCopiedTooltip(true)
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
+      copiedTimerRef.current = setTimeout(() => setShowCopiedTooltip(false), 1800)
+    } catch (error) {
+      console.error('Не удалось скопировать имя пользователя:', error)
     }
-  };
+  }
+
+  const isInVoiceChannel = Boolean(currentVoiceChannelId)
+  const presenceLabel = user?.is_online === false ? '\u041d\u0435\u0432\u0438\u0434\u0438\u043c\u044b\u0439' : '\u0412 \u0441\u0435\u0442\u0438'
 
   return (
-    <div className="flex h-16 bg-[#36373e] transition-colors duration-200 rounded-lg w-[315px] max-w-[calc(100vw-16px)]">
-      {/* Левая часть - под серверами (68px) */}
-      <div className="w-[68px] flex items-center justify-center bg-transparent">
-        <UserAvatar
-          user={user || undefined}
-          size={40}
-          className="border-2 border-[#313338] transition-colors"
+    <div
+      className={cn(
+        'relative z-[60] flex items-center overflow-visible',
+        embedded ? 'user-dock__profile' : 'voice-panel',
+        isInVoiceChannel && 'is-voice-connected'
+      )}
+    >
+      <span className="user-dock__avatar overflow-visible">
+        <SpeakingAvatar
+          user={user}
+          size={32}
+          isSpeaking={Boolean(user?.id && speakingUsers[user.id])}
         />
-      </div>
-      
-      {/* Правая часть - под каналами */}
-      <div className="flex-1 flex items-center justify-center bg-transparent">
-        <div className="flex-1 min-w-0 ml-1 p-2 rounded hover:bg-[#45464e] transition-colors duration-200 cursor-pointer group relative" onClick={handleCopyUsername}>
-          <div className="font-medium text-[13px] text-white leading-5">
-            {user?.display_name || user?.username}
-          </div>
-          <div
-            className="text-xs text-[#b5bac1] font-mono transition-all duration-200 opacity-0 group-hover:opacity-100 group-hover:translate-y-0 translate-y-2"
+        <i className={cn('user-dock__presence', user?.is_online && 'is-online')} aria-hidden="true" />
+      </span>
+
+      <button
+        type="button"
+        onClick={handleCopyUsername}
+        className="interactive-row user-dock__identity relative z-[70] min-w-0 flex-1 overflow-visible text-left"
+        title="Скопировать имя пользователя"
+      >
+        <span className="user-dock__display-name block truncate">
+          {user?.display_name || user?.username}
+        </span>
+        <span className="user-dock__presence-label block truncate">
+          {isInVoiceChannel ? presenceLabel : `@${user?.username}`}
+        </span>
+        {showCopiedTooltip && (
+          <span
+            role="status"
+            className="pointer-events-none absolute bottom-full left-1 z-[100] mb-2 whitespace-nowrap rounded-md border border-border bg-popover px-2 py-1 text-xs text-foreground shadow-lg"
           >
-            {user?.username}
-          </div>
-          
-          {/* Тултип "Скопировано!" */}
-          {showCopiedTooltip && (
-            <div className="absolute -top-10 left-1/2 transform -translate-x-1/2 bg-[#1e1f22] text-white text-xs px-3 py-2 rounded-md whitespace-nowrap z-50 animate-fade-in shadow-lg border border-[#393a3f]">
-              Скопировано!
-              <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-[#1e1f22]"></div>
-            </div>
-          )}
-        </div>
-        <div className="flex gap-1 ml-2 mr-3 flex-shrink-0">
-          <button 
-            onClick={handleMuteToggle}
-            className={`w-8 h-8 flex items-center justify-center rounded transition-colors ${
-              isMuted 
-                ? 'bg-red-500 text-white hover:bg-red-600' 
-                : 'text-[#b5bac1] hover:bg-[#35373c] hover:text-white'
-            }`}
-            title={isMuted ? 'Включить микрофон' : 'Выключить микрофон'}
-          >
-            {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+            Скопировано
+          </span>
+        )}
+      </button>
+
+      <div className="user-dock__profile-controls">
+        <div className={cn('voice-split-control', isMuted && 'is-danger')}>
+          <button
+          type="button"
+          onClick={toggleMute}
+          className="voice-split-control__main"
+          aria-pressed={isMuted}
+          title={isMuted ? 'Включить микрофон' : 'Выключить микрофон'}
+        >
+            {isMuted ? <MicOff className="h-[18px] w-[18px]" /> : <Mic className="h-[18px] w-[18px]" />}
           </button>
-          <button 
-            onClick={handleDeafenToggle}
-            className={`w-8 h-8 flex items-center justify-center rounded transition-colors ${
-              isDeafened 
-                ? 'bg-red-500 text-white hover:bg-red-600' 
-                : 'text-[#b5bac1] hover:bg-[#35373c] hover:text-white'
-            }`}
-            title={isDeafened ? 'Включить звук' : 'Выключить звук'}
+          <button
+            type="button"
+            onClick={onSettingsClick}
+            className="voice-split-control__menu"
+            aria-label="Microphone settings"
+            title="Microphone settings"
           >
-            {isDeafened ? <VolumeX className="w-4 h-4" /> : <Headphones className="w-4 h-4" />}
-          </button>
-          <button 
-            onClick={handleSettings}
-            className="w-8 h-8 flex items-center justify-center rounded hover:bg-[#35373c] transition-colors text-[#b5bac1] hover:text-white"
-            title="Настройки пользователя"
-          >
-            <Settings className="w-4 h-4" />
+            <ChevronDown className="h-3 w-3" />
           </button>
         </div>
+
+        <div className={cn('voice-output-control', isDeafened && 'is-danger')}>
+          <button
+          type="button"
+          onClick={toggleDeafen}
+          className="voice-icon-button"
+          aria-pressed={isDeafened}
+          title={isDeafened ? 'Включить звук' : 'Выключить звук'}
+        >
+            {isDeafened ? <VolumeX className="h-[18px] w-[18px]" /> : <Headphones className="h-[18px] w-[18px]" />}
+          </button>
+          <button
+            type="button"
+            onClick={onSettingsClick}
+            className="voice-output-control__menu"
+            aria-label="Output settings"
+            title="Output settings"
+          >
+            <ChevronDown className="h-3 w-3" />
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={onSettingsClick}
+          className="voice-icon-button"
+          title="Настройки пользователя"
+        >
+          <Settings className="h-[19px] w-[19px]" />
+        </button>
       </div>
     </div>
-  );
-} 
+  )
+}

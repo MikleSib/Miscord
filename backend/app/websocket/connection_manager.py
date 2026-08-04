@@ -4,6 +4,8 @@ import json
 import redis.asyncio as redis
 import asyncio
 
+from app.core.config import settings
+
 class ConnectionManager:
     def __init__(self):
         # Активные WebSocket соединения по user_id
@@ -16,7 +18,7 @@ class ConnectionManager:
     async def init_redis(self):
         """Инициализация Redis и запуск слушателя pub/sub."""
         try:
-            self.redis_client = redis.from_url("redis://redis:6379")
+            self.redis_client = redis.from_url(settings.REDIS_URL)
             await self.redis_client.ping()
             print("Redis connected successfully")
             # Запускаем слушателя в фоне
@@ -43,12 +45,19 @@ class ConnectionManager:
                         await asyncio.sleep(0.01)
                         continue
 
-                    # Обрабатываем разные типы сообщений
+                    # psubscribe всегда отдаёт type=pmessage (не message!)
                     if message.get("type") == "pmessage":
                         raw_channel = message['channel'].decode('utf-8')
                         data = message['data'].decode('utf-8')
 
-                        if raw_channel.startswith("user:"):
+                        if raw_channel == "broadcast":
+                            # Создание каналов, статус онлайн, смена аватара и т.п.
+                            print(f"Redis: Broadcasting message to all users: {data[:200]}")
+                            all_users = list(self.active_connections.keys())
+                            for user_id in all_users:
+                                await self._send_to_user_str(user_id, data)
+
+                        elif raw_channel.startswith("user:"):
                             user_id = int(raw_channel.split(':', 1)[1])
                             if user_id in self.active_connections:
                                 print(f"Redis: Forwarding personal message to user {user_id}: {data}")
@@ -61,14 +70,6 @@ class ConnectionManager:
                             if channel_id in self.channel_connections:
                                 print(f"Redis: Forwarding message to channel {channel_id}")
                                 await self._send_to_channel_str(channel_id, data)
-                    
-                    elif message.get("type") == "message" and message.get("channel") == b"broadcast":
-                        # Broadcast сообщение - отправляем всем подключенным пользователям
-                        data = message['data'].decode('utf-8')
-                        print(f"Redis: Broadcasting message to all users: {data}")
-                        all_users = list(self.active_connections.keys())
-                        for user_id in all_users:
-                            await self._send_to_user_str(user_id, data)
             
             except Exception as e:
                 print(f"Error in Redis listener: {e}. Reconnecting in 5 seconds...")
@@ -97,7 +98,7 @@ class ConnectionManager:
                 del self.active_connections[user_id]
         
         if channel_id and channel_id in self.channel_connections:
-            if user_id in self.channel_connections[channel_id]:
+            if self.channel_connections[channel_id].get(user_id) is websocket:
                 del self.channel_connections[channel_id][user_id]
             if not self.channel_connections[channel_id]:
                 del self.channel_connections[channel_id]
