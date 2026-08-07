@@ -47,7 +47,7 @@ function formatCreatedAt(value: string): string {
       }).format(date)
 }
 
-export default function ChannelWebhooksTab({ channel }: ChannelWebhooksTabProps) {
+export function ChannelWebhooksTab({ channel }: ChannelWebhooksTabProps) {
   const [items, setItems] = useState<IncomingWebhook[]>([])
   const [channels, setChannels] = useState<ChannelOption[]>([])
   const [loading, setLoading] = useState(true)
