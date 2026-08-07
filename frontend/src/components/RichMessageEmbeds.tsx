@@ -3,7 +3,7 @@ import { resolveMediaUrl } from '../lib/mediaUrl'
 
 
 function external(url?: string): string | undefined {
-  return url ? resolveMediaUrl(url) : undefined
+  return url ? resolveMediaUrl(url) || undefined : undefined
 }
 
 
@@ -34,4 +34,3 @@ export function RichMessageEmbeds({ embeds }: { embeds: RichWebhookEmbed[] }) {
     </div>
   )
 }
-
