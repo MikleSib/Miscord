@@ -41,6 +41,7 @@ services:
       - redis
     volumes:
       - ./backend:/app
+      - media_data:/app/static/uploads
       - attachment_data:/app/data/attachments
       - attachment_quarantine:/app/data/quarantine
     networks:
@@ -88,6 +89,7 @@ services:
       - ./certbot/conf:/etc/letsencrypt
       - ./certbot/www:/var/www/certbot
       - ./backend/static:/app/static
+      - media_data:/app/static/uploads:ro
       - attachment_data:/app/data/attachments:ro
     depends_on:
       - frontend
@@ -125,6 +127,7 @@ services:
       --log-file=stdout
 
 volumes:
+  media_data:
   postgres_data:
   attachment_data:
   attachment_quarantine:
