@@ -37,7 +37,7 @@ function mediaItemClass(count: number, index: number): string {
   return 'aspect-square'
 }
 
-export function OutgoingMessageCard({ message, author, compact = false }: { message: OutgoingMessage; author: User; compact?: boolean }) {
+export function OutgoingMessageCard({ message, author, compact = false, grouped = false }: { message: OutgoingMessage; author: User; compact?: boolean; grouped?: boolean }) {
   const retry = useOutgoingMessageStore((state) => state.retry)
   const cancel = useOutgoingMessageStore((state) => state.cancel)
   const [showStatus, setShowStatus] = useState(() => {
@@ -82,9 +82,11 @@ export function OutgoingMessageCard({ message, author, compact = false }: { mess
   })
 
   return <article className={`group flex gap-3 px-4 py-2 ${compact ? 'justify-end' : ''} ${message.phase === 'failed' ? 'bg-red-500/5' : ''}`} aria-live="polite" data-client-nonce={message.clientNonce}>
-    {!compact && <UserAvatar user={author} size={40} className="mt-0.5 shrink-0" />}
+    {!compact && (grouped
+      ? <div className="w-10 shrink-0" aria-hidden="true" />
+      : <UserAvatar user={author} size={40} className="mt-0.5 shrink-0" />)}
     <div className={`min-w-0 ${compact ? 'max-w-[86%]' : 'flex-1'}`}>
-      {!compact && <div className="mb-1 flex items-center gap-2"><span className="truncate text-sm font-semibold text-white">{author.display_name || author.username}</span><span className="text-xs text-[#949ba4]">сейчас</span></div>}
+      {!compact && !grouped && <div className="mb-1 flex items-center gap-2"><span className="truncate text-sm font-semibold text-white">{author.display_name || author.username}</span><span className="text-xs text-[#949ba4]">сейчас</span></div>}
       <div className={compact ? 'rounded-2xl rounded-br-md bg-[#5865f2] px-3.5 py-2 text-white' : ''}>
         {message.content && <p className="whitespace-pre-wrap break-words text-[15px] leading-5">{message.content}</p>}
         {mediaAttachments.length > 0 && <div className={`mt-2 grid w-full max-w-lg gap-1 overflow-hidden rounded-xl ${mediaGridClass(mediaAttachments.length)}`}>

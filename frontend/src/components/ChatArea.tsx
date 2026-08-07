@@ -784,9 +784,20 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
                 </React.Fragment>
               )
             })}
-            {user && outgoingMessages.map((message) => (
-            <OutgoingMessageCard key={message.clientNonce} message={message} author={user} />
-          ))}
+            {user && outgoingMessages.map((message, index) => {
+              const previousAuthorId = index > 0
+                ? user.id
+                : messages[messages.length - 1]?.author?.id
+              const previousTimestamp = index > 0
+                ? outgoingMessages[index - 1]?.createdAt
+                : messages[messages.length - 1]?.timestamp
+              const elapsed = previousTimestamp
+                ? new Date(message.createdAt).getTime() - new Date(previousTimestamp).getTime()
+                : Number.POSITIVE_INFINITY
+              const grouped = previousAuthorId === user.id && elapsed >= 0 && elapsed < 5 * 60 * 1000
+
+              return <OutgoingMessageCard key={message.clientNonce} message={message} author={user} grouped={grouped} />
+            })}
           <div ref={messagesEndRef} />
           </div>
         </div>
