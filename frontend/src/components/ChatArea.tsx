@@ -18,6 +18,8 @@ import { Message, Role, ServerMember } from '../types'
 import { formatDateDivider } from '../lib/utils'
 import chatService from '../services/chatService'
 import uploadService from '../services/uploadService'
+import { appendChatFiles, MAX_CHAT_ATTACHMENTS } from '../lib/chatAttachments'
+import { PendingAttachmentPreview } from './PendingAttachmentPreview'
 import reactionService from '../services/reactionService'
 import serverService from '../services/serverService'
 import { formatSlowModeLabel } from '../lib/slowMode'
@@ -67,6 +69,8 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   
   const [messageInput, setMessageInput] = useState('')
   const [files, setFiles] = useState<File[]>([])
+  const [attachmentError, setAttachmentError] = useState<string | null>(null)
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [typingUsers, setTypingUsers] = useState<string[]>([])
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
@@ -81,6 +85,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     anchorRect: DOMRect
   } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const dragDepthRef = useRef(0)
   const messageInputRef = useRef<HTMLInputElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -467,19 +472,56 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     // Прочитанным станет само сообщение, когда оно окажется на экране (и фон плавно погаснет)
   }, [channelMentions, markMentionRead, scrollToMention])
 
+  const addFiles = useCallback((incoming: File[]) => {
+    const result = appendChatFiles(files, incoming)
+    setFiles(result.files)
+    setAttachmentError(result.error)
+  }, [files])
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      const selectedFiles = Array.from(e.target.files);
-      if (files.length + selectedFiles.length > 3) {
-        alert("Можно прикрепить не более 3 изображений.");
-        return;
-      }
-      setFiles(prev => [...prev, ...selectedFiles]);
-    }
+    addFiles(Array.from(e.target.files || []))
+    e.target.value = ''
+  }
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const pastedFiles = Array.from(e.clipboardData.items)
+      .filter((item) => item.kind === 'file')
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file))
+    if (!pastedFiles.length) return
+    e.preventDefault()
+    addFiles(pastedFiles)
+  }
+
+  const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!e.dataTransfer.types.includes('Files')) return
+    e.preventDefault()
+    dragDepthRef.current += 1
+    setIsDraggingFiles(true)
+  }
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!e.dataTransfer.types.includes('Files')) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+  }
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+    if (dragDepthRef.current === 0) setIsDraggingFiles(false)
+  }
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    dragDepthRef.current = 0
+    setIsDraggingFiles(false)
+    addFiles(Array.from(e.dataTransfer.files))
   }
 
   const handleRemoveFile = (index: number) => {
     setFiles(prev => prev.filter((_, i) => i !== index));
+    setAttachmentError(null)
   }
 
   const updateMentionState = (value: string, caret: number) => {
@@ -529,13 +571,8 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     console.log('[ChatArea] Начинаем отправку сообщения');
     setIsLoading(true)
     try {
-      const attachmentUrls: string[] = [];
-      for (const file of files) {
-        console.log('[ChatArea] Загружаем файл:', file.name);
-        const response = await uploadService.uploadFile(file);
-        attachmentUrls.push(response.file_url);
-        console.log('[ChatArea] Файл загружен:', response.file_url);
-      }
+      const uploadedFiles = await uploadService.uploadFiles(files)
+      const attachmentUrls = uploadedFiles.map((item) => item.file_url)
 
       const contentToSend = serializeLooseMentions(messageInput, mentionCandidates)
       
@@ -552,6 +589,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
       setMessageInput('')
       setMentionQuery(null)
       setFiles([])
+      setAttachmentError(null)
       setReplyingTo(null)
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
@@ -655,7 +693,22 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   }
 
   return (
-    <div className="relative flex h-full min-w-0 flex-1 flex-col bg-background">
+    <div
+      className="relative flex h-full min-w-0 flex-1 flex-col bg-background"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {isDraggingFiles && (
+        <div className="pointer-events-none absolute inset-3 z-50 grid place-items-center rounded-2xl border-2 border-dashed border-[#5865f2] bg-[#1e1f22]/90 backdrop-blur-sm">
+          <div className="text-center">
+            <PlusCircle className="mx-auto mb-3 h-10 w-10 text-[#7c86ff]" />
+            <p className="text-base font-semibold text-white">Добавить файлы в сообщение</p>
+            <p className="mt-1 text-sm text-[#b5bac1]">Изображения до 10 МиБ, видео до 20 МиБ</p>
+          </div>
+        </div>
+      )}
       {/* Channel Header */}
       <div className="app-header flex h-12 flex-shrink-0 items-center justify-between border-b px-4">
         <div className="flex items-center">
@@ -778,6 +831,11 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
             </div>
           )}
           <form onSubmit={handleSendMessage} className="relative flex flex-col rounded-xl border border-[#3e3f45] bg-[#393a41] p-2">
+            {attachmentError && (
+              <div className="mb-2 rounded-lg border border-[#da373c]/40 bg-[#da373c]/10 px-3 py-2 text-xs text-[#ffb8ba]">
+                {attachmentError}
+              </div>
+            )}
             {mentionQuery && (
               <MentionAutocomplete
                 candidates={filteredMentions}
@@ -789,22 +847,13 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
             
             {/* File Previews */}
             {files.length > 0 && (
-              <div className="flex gap-2 mb-2 p-2 border-b border-border">
+              <div className="mb-2 flex gap-2 overflow-x-auto border-b border-border p-2">
                 {files.map((file, index) => (
-                  <div key={index} className="relative">
-                    <img 
-                      src={URL.createObjectURL(file)} 
-                      alt="preview"
-                      className="w-20 h-20 object-cover rounded"
-                    />
-                    <button 
-                      type="button"
-                      onClick={() => handleRemoveFile(index)} 
-                      className="absolute top-0 right-0 bg-black/50 text-white rounded-full p-0.5"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
+                  <PendingAttachmentPreview
+                    key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
+                    file={file}
+                    onRemove={() => handleRemoveFile(index)}
+                  />
                 ))}
               </div>
             )}
@@ -814,7 +863,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
                 type="file"
                 ref={fileInputRef}
                 multiple
-                accept="image/*"
+                accept="image/png,image/jpeg,image/gif,image/webp,video/mp4,video/webm,video/quicktime"
                 onChange={handleFileChange}
                 className="hidden"
               />
@@ -824,7 +873,8 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
                 variant="ghost"
                 onClick={() => fileInputRef.current?.click()}
                 className="mr-2"
-                disabled={files.length >= 3}
+                disabled={files.length >= MAX_CHAT_ATTACHMENTS || isLoading || isSlowModeActive}
+                title="Прикрепить изображения или видео"
               >
                 <PlusCircle className="w-5 h-5" />
               </Button>
@@ -833,6 +883,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
                 type="text"
                 value={messageInput}
                 onChange={handleInputChange}
+                onPaste={handlePaste}
                 onKeyDown={handleInputKeyDown}
                 onClick={(e) => {
                   const target = e.currentTarget

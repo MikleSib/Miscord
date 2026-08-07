@@ -285,7 +285,7 @@ async def handle_chat_message(
     # Валидация
     if not content and not attachments:
         return
-    if len(content) > 5000 or len(attachments) > 3:
+    if len(content) > 5000 or len(attachments) > 10:
         return
 
     allowed, retry_after, limit_message = enforce_message_antispam(
@@ -870,7 +870,7 @@ async def handle_dm_message(user: User, message_data: dict, db: AsyncSession, ma
         return
     
     # Ограничения
-    if len(content) > 5000 or len(attachments) > 3:
+    if len(content) > 5000 or len(attachments) > 10:
         return
 
     allowed, retry_after, limit_message = enforce_message_antispam(

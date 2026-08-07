@@ -14,6 +14,7 @@ import { MessageContent } from './MessageContent'
 import { MessageLinkEmbeds } from './MessageLinkEmbeds'
 import { RichMessageEmbeds } from './RichMessageEmbeds'
 import { ManagedMessageAttachments } from './ManagedMessageAttachments'
+import { isVideoAttachment } from '../lib/chatAttachments'
 import { RichWebhookEmbed } from '../types/webhook'
 import { contentMentionsUser } from '../lib/mentions'
 import { useMentionNotificationStore } from '../store/mentionNotificationStore'
@@ -327,7 +328,18 @@ export function ChatMessage({
             {message.attachments.filter((att) => {
               const contentType = (att as typeof att & { content_type?: string | null }).content_type
               return !contentType || contentType.startsWith('image/')
-            }).map(att => (
+            }).map(att => isVideoAttachment(
+              (att as typeof att & { content_type?: string | null }).content_type,
+              att.file_url,
+            ) ? (
+              <video
+                key={att.id}
+                controls
+                preload="metadata"
+                src={att.file_url}
+                className="max-h-[360px] max-w-lg rounded-lg bg-black"
+              />
+            ) : (
               <button
                 key={att.id}
                 type="button"

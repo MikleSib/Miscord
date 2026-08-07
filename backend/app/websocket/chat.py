@@ -112,7 +112,7 @@ async def websocket_chat_endpoint(
                     if len(content) > 5000:
                         print("[WS_CHAT] Отклонено: слишком длинное сообщение")
                         continue
-                    if len(attachments) > 3:
+                    if len(attachments) > 10:
                         print("[WS_CHAT] Отклонено: слишком много вложений")
                         continue
 
@@ -364,7 +364,7 @@ async def websocket_notifications_endpoint(
                             continue
                         
                         # Ограничения
-                        if len(content) > 5000 or len(attachments) > 3:
+                        if len(content) > 5000 or len(attachments) > 10:
                             continue
 
                         allowed, retry_after, limit_message = enforce_message_antispam(

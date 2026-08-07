@@ -5,6 +5,8 @@ import { DirectMessage, User } from '../types'
 import directMessageService from '../services/directMessageService'
 import websocketService from '../services/websocketService'
 import uploadService from '../services/uploadService'
+import { appendChatFiles, isVideoAttachment, MAX_CHAT_ATTACHMENTS } from '../lib/chatAttachments'
+import { PendingAttachmentPreview } from './PendingAttachmentPreview'
 import api from '../services/api'
 import { useAuthStore } from '../store/store'
 import p2pVoiceService from '../services/p2pVoiceService'
@@ -30,10 +32,13 @@ export function DirectMessageArea({
   const [messages, setMessages] = useState<DirectMessage[]>([])
   const [newMessage, setNewMessage] = useState('')
   const [files, setFiles] = useState<File[]>([])
+  const [attachmentError, setAttachmentError] = useState<string | null>(null)
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false)
   const { user } = useAuthStore()
   const messagesEndRef = useRef<null | HTMLDivElement>(null)
   const messagesContainerRef = useRef<null | HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const dragDepthRef = useRef(0)
   const [skip, setSkip] = useState(0)
   const [hasMore, setHasMore] = useState(true)
   const [isLoading, setIsLoading] = useState(false)
@@ -300,19 +305,56 @@ export function DirectMessageArea({
     return () => container.removeEventListener('scroll', handleScroll);
   }, [skip, hasMore, isLoading, friend.id]);
 
+  const addFiles = (incoming: File[]) => {
+    const result = appendChatFiles(files, incoming)
+    setFiles(result.files)
+    setAttachmentError(result.error)
+  }
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      const selectedFiles = Array.from(e.target.files);
-      if (files.length + selectedFiles.length > 3) {
-        alert("Можно прикрепить не более 3 изображений.");
-        return;
-      }
-      setFiles(prev => [...prev, ...selectedFiles]);
-    }
+    addFiles(Array.from(e.target.files || []))
+    e.target.value = ''
+  }
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const pastedFiles = Array.from(e.clipboardData.items)
+      .filter((item) => item.kind === 'file')
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file))
+    if (!pastedFiles.length) return
+    e.preventDefault()
+    addFiles(pastedFiles)
+  }
+
+  const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!e.dataTransfer.types.includes('Files')) return
+    e.preventDefault()
+    dragDepthRef.current += 1
+    setIsDraggingFiles(true)
+  }
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!e.dataTransfer.types.includes('Files')) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+  }
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+    if (dragDepthRef.current === 0) setIsDraggingFiles(false)
+  }
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    dragDepthRef.current = 0
+    setIsDraggingFiles(false)
+    addFiles(Array.from(e.dataTransfer.files))
   }
 
   const handleRemoveFile = (index: number) => {
     setFiles(prev => prev.filter((_, i) => i !== index));
+    setAttachmentError(null)
   }
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -327,15 +369,11 @@ export function DirectMessageArea({
     setIsSending(true)
 
     try {
-      const attachmentUrls: string[] = []
-      for (const file of files) {
-        console.log('[DirectMessageArea] Загружаем файл:', file.name)
-        const response = await uploadService.uploadFile(file)
-        attachmentUrls.push(response.file_url)
-        console.log('[DirectMessageArea] Файл загружен:', response.file_url)
-      }
+      const uploadedFiles = await uploadService.uploadFiles(files)
+      const attachmentUrls = uploadedFiles.map((item) => item.file_url)
 
       await sendMessageContent(messageContent, attachmentUrls)
+      setAttachmentError(null)
     } catch (error) {
       console.error('[DirectMessageArea] Ошибка отправки:', error)
       alert('Не удалось отправить сообщение')
@@ -451,7 +489,22 @@ export function DirectMessageArea({
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-[#323339] min-h-0">
+    <div
+      className="relative flex min-h-0 flex-1 flex-col bg-[#323339]"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {isDraggingFiles && (
+        <div className="pointer-events-none absolute inset-3 z-50 grid place-items-center rounded-2xl border-2 border-dashed border-[#5865f2] bg-[#1e1f22]/90 backdrop-blur-sm">
+          <div className="text-center">
+            <PlusCircle className="mx-auto mb-3 h-10 w-10 text-[#7c86ff]" />
+            <p className="text-base font-semibold text-white">Добавить файлы в сообщение</p>
+            <p className="mt-1 text-sm text-[#b5bac1]">Изображения до 10 МиБ, видео до 20 МиБ</p>
+          </div>
+        </div>
+      )}
       {/* Top bar */}
       <div className="flex items-center justify-between h-12 px-4 border-b border-[#2c2d32] shadow-md flex-shrink-0">
         <div className="flex items-center">
@@ -507,17 +560,28 @@ export function DirectMessageArea({
                   {/* Attachments */}
                   {msg.attachments && msg.attachments.length > 0 && (
                     <div className="flex flex-col items-start gap-2">
-                      {msg.attachments.map(att => (
+                      {msg.attachments.map(att => isVideoAttachment(
+                        (att as typeof att & { content_type?: string | null }).content_type,
+                        att.file_url,
+                      ) ? (
+                        <video
+                          key={att.id}
+                          controls
+                          preload="metadata"
+                          src={att.file_url}
+                          className={`max-h-80 max-w-lg rounded-md bg-black ${isPending ? 'opacity-70' : ''}`}
+                        />
+                      ) : (
                         <button
                           key={att.id}
                           type="button"
                           onClick={() => handleImageClick(msg, att.file_url)}
                           className="media-thumb"
                         >
-                          <img 
-                            src={att.file_url} 
+                          <img
+                            src={att.file_url}
                             alt="Вложение"
-                            className={`max-w-xs max-h-80 rounded-md object-cover ${isPending ? 'opacity-70' : ''}`}
+                            className={`max-h-80 max-w-xs rounded-md object-cover ${isPending ? 'opacity-70' : ''}`}
                           />
                         </button>
                       ))}
@@ -629,6 +693,11 @@ export function DirectMessageArea({
           </div>
         )}
         <form onSubmit={handleSendMessage} className="bg-[#393a41] rounded-lg flex flex-col">
+          {attachmentError && (
+            <div className="m-2 rounded-lg border border-[#da373c]/40 bg-[#da373c]/10 px-3 py-2 text-xs text-[#ffb8ba]">
+              {attachmentError}
+            </div>
+          )}
           
           {/* Reply Preview */}
           {replyingTo && (
@@ -652,22 +721,13 @@ export function DirectMessageArea({
 
           {/* File Previews */}
           {files.length > 0 && (
-            <div className="flex gap-2 p-2 border-b border-[#2c2d32]">
+            <div className="flex gap-2 overflow-x-auto border-b border-[#2c2d32] p-2">
               {files.map((file, index) => (
-                <div key={index} className="relative">
-                  <img 
-                    src={URL.createObjectURL(file)} 
-                    alt="preview"
-                    className="w-20 h-20 object-cover rounded"
-                  />
-                  <button 
-                    type="button"
-                    onClick={() => handleRemoveFile(index)} 
-                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
+                <PendingAttachmentPreview
+                  key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
+                  file={file}
+                  onRemove={() => handleRemoveFile(index)}
+                />
               ))}
             </div>
           )}
@@ -678,7 +738,7 @@ export function DirectMessageArea({
               type="file"
               ref={fileInputRef}
               multiple
-              accept="image/*"
+              accept="image/png,image/jpeg,image/gif,image/webp,video/mp4,video/webm,video/quicktime"
               onChange={handleFileChange}
               className="hidden"
             />
@@ -686,8 +746,8 @@ export function DirectMessageArea({
               type="button"
               onClick={() => fileInputRef.current?.click()}
               className="text-gray-400 hover:text-white mr-2"
-              disabled={files.length >= 3 || isSending || isRateLimited}
-              title="Прикрепить изображение"
+              disabled={files.length >= MAX_CHAT_ATTACHMENTS || isSending || isRateLimited}
+              title="Прикрепить изображения или видео"
             >
               <PlusCircle className="w-5 h-5" />
             </button>
@@ -695,6 +755,7 @@ export function DirectMessageArea({
               type="text"
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
+              onPaste={handlePaste}
               placeholder={replyingTo ? 'Напишите ответ...' : `Написать @${friend.username}`}
               className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none py-3"
               disabled={isSending || isRateLimited}

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from app.core.dependencies import get_current_active_user
 from app.core.media import to_public_media_path
 from app.models.user import User
-from app.services.image_upload import read_and_validate_image, save_image_bytes
+from app.services.image_upload import read_and_validate_chat_media
 from app.services.object_storage import ObjectStorageError, store_public_image
 from app.services.rate_limit import rate_limit_user
 
@@ -31,14 +31,19 @@ async def upload_file(
     """Загрузка изображения: только реальные PNG/JPEG/GIF/WEBP."""
     rate_limit_user(current_user.id, "upload", limit=30, window=60, request=request)
     try:
-        data, extension, content_type = await read_and_validate_image(file)
+        data, extension, content_type = await read_and_validate_chat_media(file)
         file_url, storage_key = await store_public_image("uploads", data, extension, content_type)
         logger.info(
             "[UPLOAD] user=%s object=%s",
             current_user.id,
             storage_key.rsplit("/", 1)[-1],
         )
-        return {"file_url": file_url}
+        return {
+            "file_url": file_url,
+            "filename": Path(file.filename or f"attachment{extension}").name[:255],
+            "content_type": content_type,
+            "size_bytes": len(data),
+        }
     except HTTPException:
         raise
     except ObjectStorageError as exc:
