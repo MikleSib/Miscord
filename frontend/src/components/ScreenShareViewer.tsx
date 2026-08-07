@@ -75,14 +75,14 @@ export function ScreenShareViewer({
             <div className="flex min-w-0 items-center gap-2">
               <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-[#da373c]" />
               <span className="truncate font-medium text-white">
-                Р­РєСЂР°РЅ {selectedUser.username}
+                Экран {selectedUser.username}
               </span>
             </div>
             <span className="hidden text-sm text-[#b5bac1] sm:inline">
               {qualityLabel}
             </span>
             <span className="rounded bg-[#da373c] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-              Р’ СЌС„РёСЂРµ
+              Р’ эфире
             </span>
           </div>
 
@@ -91,7 +91,7 @@ export function ScreenShareViewer({
               type="button"
               onClick={handleFullscreen}
               className="min-h-11 min-w-11 rounded p-2 text-[#b5bac1] transition-colors hover:bg-[#2b2d31] hover:text-white"
-              title="РџРѕР»РЅРѕСЌРєСЂР°РЅРЅС‹Р№ СЂРµР¶РёРј"
+              title="Полноэкранный режим"
             >
               <Maximize2 className="h-4 w-4" />
             </button>
@@ -99,7 +99,7 @@ export function ScreenShareViewer({
               type="button"
               onClick={onClose}
               className="min-h-11 min-w-11 rounded p-2 text-[#b5bac1] transition-colors hover:bg-[#2b2d31] hover:text-white"
-              title="Р—Р°РєСЂС‹С‚СЊ"
+              title="Закрыть"
             >
               <X className="h-4 w-4" />
             </button>
@@ -113,7 +113,7 @@ export function ScreenShareViewer({
           className="relative flex h-full w-full items-center justify-center bg-black"
         >
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-[#949ba4]">
-            <p>Р—Р°РіСЂСѓР·РєР° РІРёРґРµРѕ РѕС‚ {selectedUser.username}...</p>
+            <p>Загрузка видео от {selectedUser.username}...</p>
           </div>
         </div>
       </div>

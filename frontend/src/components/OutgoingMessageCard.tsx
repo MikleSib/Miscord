@@ -16,9 +16,15 @@ const phaseLabels: Record<OutgoingMessage['phase'], string> = {
   failed: 'Не отправлено',
 }
 
+const STATUS_DELAY_MS = 5000
+
 export function OutgoingMessageCard({ message, author, compact = false }: { message: OutgoingMessage; author: User; compact?: boolean }) {
   const retry = useOutgoingMessageStore((state) => state.retry)
   const cancel = useOutgoingMessageStore((state) => state.cancel)
+  const [showStatus, setShowStatus] = useState(() => {
+    if (message.phase === 'failed') return true
+    return Date.now() - new Date(message.createdAt).getTime() >= STATUS_DELAY_MS
+  })
   const [previews] = useState(() => message.attachments.map((attachment) => ({
     localId: attachment.localId,
     url: URL.createObjectURL(attachment.file),
@@ -26,6 +32,23 @@ export function OutgoingMessageCard({ message, author, compact = false }: { mess
   })))
 
   useEffect(() => () => previews.forEach((preview) => URL.revokeObjectURL(preview.url)), [previews])
+
+  useEffect(() => {
+    if (message.phase === 'failed') {
+      setShowStatus(true)
+      return
+    }
+
+    const remaining = STATUS_DELAY_MS - (Date.now() - new Date(message.createdAt).getTime())
+    if (remaining <= 0) {
+      setShowStatus(true)
+      return
+    }
+
+    setShowStatus(false)
+    const timer = window.setTimeout(() => setShowStatus(true), remaining)
+    return () => window.clearTimeout(timer)
+  }, [message.clientNonce, message.createdAt, message.phase])
 
   const uploadedBytes = message.attachments.reduce((sum, item) => sum + item.file.size * (item.progress / 100), 0)
   const totalBytes = message.attachments.reduce((sum, item) => sum + item.file.size, 0)
@@ -51,13 +74,13 @@ export function OutgoingMessageCard({ message, author, compact = false }: { mess
           })}
         </div>}
       </div>
-      <div className={`mt-1 flex h-8 items-center gap-2 overflow-hidden text-xs ${message.phase === 'failed' ? 'text-red-400' : 'text-[#949ba4]'}`}>
+      {showStatus && <div className={`mt-1 flex h-8 items-center gap-2 overflow-hidden text-xs ${message.phase === 'failed' ? 'text-red-400' : 'text-[#949ba4]'}`}>
         {message.phase === 'failed' ? <AlertCircle className="size-3.5 shrink-0" /> : <Clock3 className="size-3.5 shrink-0" />}
         <span className="shrink-0">{phaseLabels[message.phase]}{message.phase === 'uploading' ? ` · ${totalProgress}%` : ''}</span>
         {message.error?.message && <span className="min-w-0 truncate">· {message.error.message}</span>}
         {message.phase === 'failed' && message.error?.retryable && <button type="button" onClick={() => retry(message.clientNonce)} className="ml-1 inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 font-medium text-white hover:bg-white/10" aria-label="Повторить отправку"><RotateCcw className="size-3.5" /> Повторить</button>}
         {message.phase !== 'awaiting_ack' && <button type="button" onClick={() => void cancel(message.clientNonce)} className="inline-grid size-8 shrink-0 place-items-center rounded-md hover:bg-white/10 hover:text-white" aria-label={message.phase === 'failed' ? 'Удалить сообщение' : 'Отменить отправку'}><X className="size-4" /></button>}
-      </div>
+      </div>}
     </div>
   </article>
 }

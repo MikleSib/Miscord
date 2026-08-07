@@ -21,7 +21,7 @@ export function ScreenShareOverlay({ isVisible, onClose, sharingUsers }: ScreenS
     }
   }, [sharingUsers, selectedUser]);
 
-  // РћР±СЂР°Р±РѕС‚С‡РёРє РЅР°Р¶Р°С‚РёСЏ Escape
+  // Обработчик нажатия Escape
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isVisible) {
@@ -42,7 +42,7 @@ export function ScreenShareOverlay({ isVisible, onClose, sharingUsers }: ScreenS
   };
 
   const handleBackgroundClick = (e: React.MouseEvent) => {
-    // Р—Р°РєСЂС‹РІР°РµРј С‚РѕР»СЊРєРѕ РµСЃР»Рё РєР»РёРє РїРѕ С„РѕРЅСѓ, Р° РЅРµ РїРѕ СЃРѕРґРµСЂР¶РёРјРѕРјСѓ
+    // Закрываем только если клик по фону, а не по содержимому
     if (e.target === e.currentTarget) {
       handleClose();
     }
@@ -64,7 +64,7 @@ export function ScreenShareOverlay({ isVisible, onClose, sharingUsers }: ScreenS
     const newMuted = !isMuted;
     setIsMuted(newMuted);
     
-    // Р—Р°РіР»СѓС€Р°РµРј/РІРєР»СЋС‡Р°РµРј РІСЃРµ РІРёРґРµРѕ СЌР»РµРјРµРЅС‚С‹
+    // Заглушаем/включаем все видео элементы
     sharingUsers.forEach(({ userId }) => {
       const videoElement = document.getElementById(`remote-video-${userId}`) as HTMLVideoElement;
       if (videoElement) {
@@ -92,7 +92,7 @@ export function ScreenShareOverlay({ isVisible, onClose, sharingUsers }: ScreenS
       className={`fixed inset-0 bg-black/90 z-50 flex flex-col ${isFullscreen ? 'p-0' : 'p-2 md:p-4'}`}
       onClick={handleBackgroundClick}
     >
-      {/* Р—Р°РіРѕР»РѕРІРѕРє */}
+      {/* Заголовок */}
       <div 
         className="flex items-center justify-between p-2 md:p-4 bg-gray-900/80 backdrop-blur-sm"
         onClick={(e) => e.stopPropagation()}
@@ -100,12 +100,12 @@ export function ScreenShareOverlay({ isVisible, onClose, sharingUsers }: ScreenS
         <div className="flex items-center gap-2 md:gap-3 min-w-0 flex-1">
           <Monitor className="w-4 h-4 md:w-5 md:h-5 text-green-400 flex-shrink-0" />
           <span className="text-white font-medium text-sm md:text-base truncate">
-            {currentUser ? `${currentUser.username} РґРµРјРѕРЅСЃС‚СЂРёСЂСѓРµС‚ СЌРєСЂР°РЅ` : 'Р”РµРјРѕРЅСЃС‚СЂР°С†РёСЏ СЌРєСЂР°РЅР°'}
+            {currentUser ? `${currentUser.username} демонстрирует экран` : 'Демонстрация экрана'}
           </span>
         </div>
         
         <div className="flex items-center gap-1 md:gap-2">
-          {/* РџРµСЂРµРєР»СЋС‡РµРЅРёРµ РјРµР¶РґСѓ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏРјРё */}
+          {/* Переключение между пользователями */}
           {sharingUsers.length > 1 && (
             <select 
               value={selectedUser || ''} 
@@ -118,7 +118,7 @@ export function ScreenShareOverlay({ isVisible, onClose, sharingUsers }: ScreenS
             </select>
           )}
           
-          {/* РљРЅРѕРїРєР° Р·РІСѓРєР° */}
+          {/* Кнопка звука */}
           <Button
             variant="ghost"
             size="sm"
@@ -128,7 +128,7 @@ export function ScreenShareOverlay({ isVisible, onClose, sharingUsers }: ScreenS
             {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
           </Button>
           
-          {/* РљРЅРѕРїРєР° РїРѕР»РЅРѕСЌРєСЂР°РЅРЅРѕРіРѕ СЂРµР¶РёРјР° - С‚РѕР»СЊРєРѕ РЅР° РґРµСЃРєС‚РѕРїРµ */}
+          {/* Кнопка полноэкранного режима - только на десктопе */}
           <Button
             variant="ghost"
             size="sm"
@@ -138,7 +138,7 @@ export function ScreenShareOverlay({ isVisible, onClose, sharingUsers }: ScreenS
             {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
           </Button>
           
-          {/* РљРЅРѕРїРєР° РЅР°С‡Р°С‚СЊ/РѕСЃС‚Р°РЅРѕРІРёС‚СЊ РґРµРјРѕРЅСЃС‚СЂР°С†РёСЋ */}
+          {/* Кнопка начать/остановить демонстрацию */}
           {isScreenSharing ? (
             <Button
               variant="destructive"
@@ -147,7 +147,7 @@ export function ScreenShareOverlay({ isVisible, onClose, sharingUsers }: ScreenS
               className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 py-1 md:px-3 md:py-2"
             >
               <MonitorOff className="w-3 h-3 md:w-4 md:h-4" />
-              <span className="hidden md:inline">РћСЃС‚Р°РЅРѕРІРёС‚СЊ</span>
+              <span className="hidden md:inline">Остановить</span>
             </Button>
           ) : (
             <Button
@@ -157,11 +157,11 @@ export function ScreenShareOverlay({ isVisible, onClose, sharingUsers }: ScreenS
               className="flex items-center gap-1 md:gap-2 bg-green-600 hover:bg-green-700 text-xs md:text-sm px-2 py-1 md:px-3 md:py-2"
             >
               <Monitor className="w-3 h-3 md:w-4 md:h-4" />
-              <span className="hidden md:inline">РџРѕРґРµР»РёС‚СЊСЃСЏ</span>
+              <span className="hidden md:inline">Поделиться</span>
             </Button>
           )}
           
-          {/* РљРЅРѕРїРєР° Р·Р°РєСЂС‹С‚РёСЏ */}
+          {/* Кнопка закрытия */}
           <Button
             variant="ghost"
             size="sm"
@@ -173,7 +173,7 @@ export function ScreenShareOverlay({ isVisible, onClose, sharingUsers }: ScreenS
         </div>
       </div>
 
-      {/* РћР±Р»Р°СЃС‚СЊ РґР»СЏ РІРёРґРµРѕ */}
+      {/* Область для видео */}
       <div 
         id="screen-share-container" 
         className="flex-1 flex items-center justify-center relative"
@@ -182,25 +182,25 @@ export function ScreenShareOverlay({ isVisible, onClose, sharingUsers }: ScreenS
         {sharingUsers.length === 0 ? (
           <div className="text-center text-gray-400">
             <Monitor className="w-16 h-16 mx-auto mb-4 opacity-50" />
-            <p className="text-lg mb-2">РќРёРєС‚Рѕ РЅРµ РґРµРјРѕРЅСЃС‚СЂРёСЂСѓРµС‚ СЌРєСЂР°РЅ</p>
-            <p className="text-sm">РќР°Р¶РјРёС‚Рµ "РџРѕРґРµР»РёС‚СЊСЃСЏ" С‡С‚РѕР±С‹ РЅР°С‡Р°С‚СЊ РґРµРјРѕРЅСЃС‚СЂР°С†РёСЋ</p>
+            <p className="text-lg mb-2">Никто не демонстрирует экран</p>
+            <p className="text-sm">Нажмите "Поделиться" чтобы начать демонстрацию</p>
           </div>
         ) : (
           <div className="w-full h-full flex items-center justify-center">
-            {/* Р’РёРґРµРѕ СЌР»РµРјРµРЅС‚С‹ Р±СѓРґСѓС‚ РґРѕР±Р°РІР»РµРЅС‹ СЃСЋРґР° С‡РµСЂРµР· VoiceService */}
+            {/* Видео элементы будут добавлены сюда через VoiceService */}
             <div className="text-center text-gray-400">
-              <p>Р—Р°РіСЂСѓР·РєР° РІРёРґРµРѕ РїРѕС‚РѕРєР°...</p>
+              <p>Загрузка видео потока...</p>
             </div>
           </div>
         )}
       </div>
 
-      {/* РРЅС„РѕСЂРјР°С†РёСЏ Рѕ РґРµРјРѕРЅСЃС‚СЂР°С†РёРё */}
+      {/* Информация о демонстрации */}
       {isScreenSharing && (
         <div className="absolute bottom-4 left-4 bg-red-600/90 px-3 py-2 rounded-lg backdrop-blur-sm">
           <div className="flex items-center gap-2 text-white text-sm">
             <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
-            Р’С‹ РґРµРјРѕРЅСЃС‚СЂРёСЂСѓРµС‚Рµ СЌРєСЂР°РЅ
+            Вы демонстрируете экран
           </div>
         </div>
       )}

@@ -68,27 +68,27 @@ export default function HomePage() {
     if (!isMounted) return
 
     const initializeApp = async () => {
-      // РџСЂРѕРІРµСЂСЏРµРј Р°СѓС‚РµРЅС‚РёС„РёРєР°С†РёСЋ
+      // Проверяем аутентификацию
       if (!isAuthenticated || !token) {
-        // РџРѕРїСЂРѕР±СѓРµРј РІРѕСЃСЃС‚Р°РЅРѕРІРёС‚СЊ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РёР· С‚РѕРєРµРЅР°
+        // Попробуем восстановить пользователя из токена
         try {
           if (typeof window !== 'undefined') {
             const savedToken = localStorage.getItem('access_token');
             if (savedToken) {
-              // РЈСЃС‚Р°РЅР°РІР»РёРІР°РµРј С‚РѕРєРµРЅ РІ store
+              // Устанавливаем токен в store
               useAuthStore.getState().setToken(savedToken);
               
-              // РџРѕР»СѓС‡Р°РµРј РґР°РЅРЅС‹Рµ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ
+              // Получаем данные пользователя
               const user = await authService.getCurrentUser();
               useAuthStore.getState().loginSuccess(user, savedToken);
               setStoreUser(user);
               
-              return; // РџСЂРѕРґРѕР»Р¶Р°РµРј РёРЅРёС†РёР°Р»РёР·Р°С†РёСЋ
+              return; // Продолжаем инициализацию
             }
           }
         } catch (error) {
-          console.error('[HomePage] РћС€РёР±РєР° РІРѕСЃСЃС‚Р°РЅРѕРІР»РµРЅРёСЏ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ:', error);
-          // РўРѕРєРµРЅ РЅРµРґРµР№СЃС‚РІРёС‚РµР»РµРЅ, РѕС‡РёС‰Р°РµРј РµРіРѕ
+          console.error('[HomePage] Ошибка восстановления пользователя:', error);
+          // Токен недействителен, очищаем его
           if (typeof window !== 'undefined') {
             localStorage.removeItem('access_token');
           }
@@ -99,13 +99,13 @@ export default function HomePage() {
         return
       }
 
-      // РРЅРёС†РёР°Р»РёР·РёСЂСѓРµРј WebSocket РґР»СЏ СѓРІРµРґРѕРјР»РµРЅРёР№
+      // Инициализируем WebSocket для уведомлений
       initializeWebSocket(token)
 
-      // Р—Р°РіСЂСѓР¶Р°РµРј СЃРµСЂРІРµСЂС‹ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ
+      // Загружаем серверы пользователя
       await loadServers()
 
-      // Р—Р°РїСЂР°С€РёРІР°РµРј СЂР°Р·СЂРµС€РµРЅРёРµ РЅР° СѓРІРµРґРѕРјР»РµРЅРёСЏ
+      // Запрашиваем разрешение на уведомления
       if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
         Notification.requestPermission()
       }
@@ -113,24 +113,24 @@ export default function HomePage() {
 
     initializeApp()
 
-    // РћС‡РёСЃС‚РєР° РїСЂРё СЂР°Р·РјРѕРЅС‚РёСЂРѕРІР°РЅРёРё
+    // Очистка при размонтировании
     return () => {
       disconnectWebSocket()
     }
   }, [isMounted, token, isAuthenticated, router, initializeWebSocket, loadServers, disconnectWebSocket])
 
   useEffect(() => {
-    // РџРѕРґРїРёСЃС‹РІР°РµРјСЃСЏ РЅР° РёР·РјРµРЅРµРЅРёСЏ РґРµРјРѕРЅСЃС‚СЂР°С†РёРё СЌРєСЂР°РЅР°
+    // Подписываемся на изменения демонстрации экрана
     const handleScreenShareChange = (userId: number, isSharing: boolean) => {
       setSharingUsers(prev => {
         if (isSharing) {
           if (!prev.find(u => u.userId === userId)) {
             const isSelf = authUser?.id === userId;
             const username = isSelf
-              ? (authUser.display_name?.trim() || authUser.username || 'Р’С‹')
+              ? (authUser.display_name?.trim() || authUser.username || 'Вы')
               : (prev.find((u) => u.userId === userId)?.username ?? '');
 
-            // Toast С‚РѕР»СЊРєРѕ С‡РµСЂРµР· handleScreenShareStartEvent (С‚Р°Рј РёРјСЏ СЃ СЃРµСЂРІРµСЂР° Рё РїСЂРѕРІРµСЂРєР° В«РЅРµ СЏВ»)
+            // Toast только через handleScreenShareStartEvent (там имя с сервера и проверка «не я»)
             return [...prev, { userId, username: username || `User ${userId}` }];
           }
           return prev;
@@ -141,7 +141,7 @@ export default function HomePage() {
 
     const handleOpenScreenShare = (event: any) => {
       const { userId, username } = event.detail;
-      // Р”РѕР±Р°РІР»СЏРµРј РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РІ СЃРїРёСЃРѕРє РµСЃР»Рё РµРіРѕ РЅРµС‚
+      // Добавляем пользователя в список если его нет
       setSharingUsers(prev => {
         if (!prev.find(u => u.userId === userId)) {
           return [...prev, { userId, username }];
@@ -150,7 +150,7 @@ export default function HomePage() {
       });
     };
 
-    // РћР±СЂР°Р±РѕС‚С‡РёРє СЃРѕР±С‹С‚РёР№ screen_share_start РёР· WebSocket
+    // Обработчик событий screen_share_start из WebSocket
     const handleScreenShareStartEvent = (event: any) => {
       const { user_id, username, display_name } = event.detail;
       const streamerId = Number(user_id);
@@ -182,7 +182,7 @@ export default function HomePage() {
       });
     };
 
-    // РџРѕРґРїРёСЃС‹РІР°РµРјСЃСЏ РЅР° РёР·РјРµРЅРµРЅРёСЏ СЃС‚Р°С‚СѓСЃР° РїРѕРґРєР»СЋС‡РµРЅРёСЏ WebSocket
+    // Подписываемся на изменения статуса подключения WebSocket
     const unsubscribeScreenShare = voiceService.onScreenShareChange(handleScreenShareChange);
     if (typeof window !== 'undefined') {
       window.addEventListener('open_screen_share', handleOpenScreenShare);
@@ -198,7 +198,7 @@ export default function HomePage() {
     };
   }, [authUser]);
 
-  // РЎРѕСЃС‚РѕСЏРЅРёРµ РґР»СЏ P2P Р·РІРѕРЅРєРѕРІ
+  // Состояние для P2P звонков
   const [isIncomingCall, setIsIncomingCall] = useState(false);
   const [isOutgoingCall, setIsOutgoingCall] = useState(false);
   const [currentCaller, setCurrentCaller] = useState<User | null>(null);
@@ -212,20 +212,20 @@ export default function HomePage() {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
 
-  // РћР±СЂР°Р±РѕС‚С‡РёРєРё P2P Р·РІРѕРЅРєРѕРІ - РґРѕР»Р¶РЅС‹ СЂР°Р±РѕС‚Р°С‚СЊ РЅР° РІСЃРµС… СЃС‚СЂР°РЅРёС†Р°С…
+  // Обработчики P2P звонков - должны работать на всех страницах
   useEffect(() => {
     if (!authUser || !currentServer) return;
 
     const handleIncomingCall = (incomingCaller: any) => {
       console.log('[HomePage] handleIncomingCall:', { incomingCaller, authUser });
-      // incomingCaller СЃРѕРґРµСЂР¶РёС‚ { type: 'p2p-incoming-call', caller: User }
-      // РќР°Рј РЅСѓР¶РµРЅ СЃР°Рј РѕР±СЉРµРєС‚ caller
+      // incomingCaller содержит { type: 'p2p-incoming-call', caller: User }
+      // Нам нужен сам объект caller
       const caller = incomingCaller.caller || incomingCaller;
       setCurrentCaller(caller);
       setCurrentCallee(authUser);
       setIsIncomingCall(true);
       soundService.playIncomingCallSound();
-      // РЎРѕС…СЂР°РЅСЏРµРј РёРЅС„РѕСЂРјР°С†РёСЋ Рѕ Р·РІРѕРЅСЏС‰РµРј РІ СЃРµСЂРІРёСЃРµ
+      // Сохраняем информацию о звонящем в сервисе
       p2pVoiceService.setCurrentCaller(caller);
     };
 
@@ -235,13 +235,13 @@ export default function HomePage() {
       setIsOutgoingCall(false);
       soundService.stopAllSounds();
       setInCall(true);
-      // РРЅРёС†РёР°С‚РѕСЂ Р·РІРѕРЅРєР° (caller) СЃРѕР·РґР°РµС‚ offer РїРѕСЃР»Рµ РїРѕРґС‚РІРµСЂР¶РґРµРЅРёСЏ
-      // Р•СЃР»Рё СЏ - РёРЅРёС†РёР°С‚РѕСЂ Р·РІРѕРЅРєР° (caller), С‚Рѕ СЏ СЃРѕР·РґР°СЋ offer РґР»СЏ РїРѕР»СѓС‡Р°С‚РµР»СЏ
+      // Инициатор звонка (caller) создает offer после подтверждения
+      // Если я - инициатор звонка (caller), то я создаю offer для получателя
       if (currentCallerRef.current?.id === authUser?.id) {
           p2pVoiceService.createOffer(data.recipient.id);
       }
-      // Р•СЃР»Рё СЏ - РїСЂРёРЅРёРјР°СЋС‰РёР№ (callee), С‚Рѕ СЏ СѓР¶Рµ СЃРѕР·РґР°Р» peer connection РІ acceptCall
-      // Рё Р¶РґСѓ offer РѕС‚ Р·РІРѕРЅСЏС‰РµРіРѕ
+      // Если я - принимающий (callee), то я уже создал peer connection в acceptCall
+      // и жду offer от звонящего
     };
 
     const handleCallDeclined = (data: any) => {
@@ -249,10 +249,10 @@ export default function HomePage() {
       soundService.stopAllSounds();
       setIsOutgoingCall(false);
       setIsIncomingCall(false);
-      // РџРѕРєР°Р·С‹РІР°РµРј СѓРІРµРґРѕРјР»РµРЅРёРµ Р·РІРѕРЅСЏС‰РµРјСѓ, С‡С‚Рѕ Р·РІРѕРЅРѕРє РѕС‚РєР»РѕРЅРµРЅ
+      // Показываем уведомление звонящему, что звонок отклонен
       if (currentCallerRef.current?.id === authUser?.id) {
-        console.log('Р—РІРѕРЅРѕРє РѕС‚РєР»РѕРЅРµРЅ РїРѕР»СѓС‡Р°С‚РµР»РµРј!');
-        // Р”Р»СЏ Р·РІРѕРЅСЏС‰РµРіРѕ - Р·Р°РІРµСЂС€Р°РµРј Р·РІРѕРЅРѕРє РїРѕР»РЅРѕСЃС‚СЊСЋ
+        console.log('Звонок отклонен получателем!');
+        // Для звонящего - завершаем звонок полностью
         handleCallEnded();
       }
     };
@@ -293,7 +293,7 @@ export default function HomePage() {
     };
   }, [authUser, currentServer]);
 
-  // useEffect РґР»СЏ РѕР±СЂР°Р±РѕС‚РєРё РёР·РјРµРЅРµРЅРёР№ remoteStream
+  // useEffect для обработки изменений remoteStream
   useEffect(() => {
     if (remoteStream && remoteAudioRef.current) {
       console.log('[HomePage] Setting remote stream to audio element');
@@ -354,7 +354,7 @@ export default function HomePage() {
     handleCallEnded();
   };
 
-  // Р¤СѓРЅРєС†РёРё РґР»СЏ СЂР°Р±РѕС‚С‹ СЃ Toast СѓРІРµРґРѕРјР»РµРЅРёСЏРјРё
+  // Функции для работы с Toast уведомлениями
   const handleViewScreenShare = (userId: number, username: string) => {
     openScreenShareView(userId, username);
     setToastNotifications(prev => prev.filter(toast => toast.userId !== userId));
@@ -365,7 +365,7 @@ export default function HomePage() {
   };
 
   const handleOpenSettings = () => {
-    // Р’ РіРѕР»РѕСЃРѕРІРѕРј РєР°РЅР°Р»Рµ СЃСЂР°Р·Сѓ РѕС‚РєСЂС‹РІР°РµРј В«Р“РѕР»РѕСЃ Рё РІРёРґРµРѕВ»
+    // Р’ голосовом канале сразу открываем «Голос и видео»
     setSettingsInitialTab(currentVoiceChannelId ? 'voice' : 'profile')
     setIsSettingsModalOpen(true)
   }
@@ -375,7 +375,7 @@ export default function HomePage() {
   }
 
   if (!isMounted) {
-    return null // РџСЂРµРґРѕС‚РІСЂР°С‰Р°РµРј РіРёРґСЂР°С‚Р°С†РёСЋ
+    return null // Предотвращаем гидратацию
   }
 
   if (!isAuthenticated || !authUser || !token) {
@@ -383,19 +383,19 @@ export default function HomePage() {
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
           <div className="skeleton mx-auto mb-4 h-8 w-8 rounded-lg"></div>
-          <p>РџСЂРѕРІРµСЂРєР° Р°СѓС‚РµРЅС‚РёС„РёРєР°С†РёРё...</p>
+          <p>Проверка аутентификации...</p>
         </div>
       </div>
     )
   }
 
-  // РџРѕРєР°Р·С‹РІР°РµРј Р»РѕР°РґРµСЂ С‚РѕР»СЊРєРѕ РїСЂРё РїРµСЂРІРѕР№ Р·Р°РіСЂСѓР·РєРµ, РёРЅР°С‡Рµ РјРѕРґР°Р»РєРё (РЅР°СЃС‚СЂРѕР№РєРё РєР°РЅР°Р»Р°) СЃР»РµС‚Р°СЋС‚
+  // Показываем лоадер только при первой загрузке, иначе модалки (настройки канала) слетают
   if (isLoading && servers.length === 0) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
           <div className="skeleton mx-auto mb-4 h-8 w-8 rounded-lg"></div>
-          <p>Р—Р°РіСЂСѓР·РєР° СЃРµСЂРІРµСЂРѕРІ...</p>
+          <p>Загрузка серверов...</p>
         </div>
       </div>
     )
@@ -464,25 +464,25 @@ export default function HomePage() {
             },
           ]}
           channelName={`${currentCaller.username} & ${currentCallee.username}`}
-          serverName="РџСЂРёРІР°С‚РЅС‹Р№ Р·РІРѕРЅРѕРє"
+          serverName="Приватный звонок"
         />
       )}
 
-      {/* РЎРєСЂС‹С‚С‹Р№ audio СЌР»РµРјРµРЅС‚ РґР»СЏ РІРѕСЃРїСЂРѕРёР·РІРµРґРµРЅРёСЏ РІС…РѕРґСЏС‰РµРіРѕ Р°СѓРґРёРѕ РёР· P2P Р·РІРѕРЅРєРѕРІ */}
+      {/* Скрытый audio элемент для воспроизведения входящего аудио из P2P звонков */}
       <audio
         ref={remoteAudioRef}
         autoPlay
         style={{ display: 'none' }}
       />
 
-      {/* Р•РґРёРЅС‹Р№ dock: РіРѕР»РѕСЃ + РїСЂРѕС„РёР»СЊ (РєР°Рє РІ Discord) */}
+      {/* Единый dock: голос + профиль (как в Discord) */}
       <div className="user-dock absolute bottom-2 left-2 z-50">
         <VoiceConnectionPanel />
         <UserProfileBar embedded onSettingsClick={handleOpenSettings} />
       </div>
 
-      {/* РРЅРґРёРєР°С‚РѕСЂ СЃРѕСЃС‚РѕСЏРЅРёСЏ РїРѕРґРєР»СЋС‡РµРЅРёСЏ */}
-      {/* Toast СѓРІРµРґРѕРјР»РµРЅРёСЏ */}
+      {/* Индикатор состояния подключения */}
+      {/* Toast уведомления */}
       <div className="fixed top-4 right-4 z-50 space-y-2">
         {toastNotifications.map((toast) => (
           <ScreenShareToast
@@ -495,7 +495,7 @@ export default function HomePage() {
         ))}
       </div>
 
-      {/* РњРѕРґР°Р» РЅР°СЃС‚СЂРѕРµРє */}
+      {/* Модал настроек */}
       <SettingsModal
         isOpen={isSettingsModalOpen}
         onClose={handleCloseSettings}

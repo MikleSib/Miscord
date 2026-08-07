@@ -144,8 +144,8 @@ export function HomePageContent() {
     soundService.stopAllSounds();
   };
   
-  // Р РµРіРёСЃС‚СЂР°С†РёСЏ WebSocket РѕР±СЂР°Р±РѕС‚С‡РёРєРѕРІ P2P РїСЂРѕРёСЃС…РѕРґРёС‚ РІ РєРѕРЅСЃС‚СЂСѓРєС‚РѕСЂРµ p2pVoiceService
-  // РќРµ РЅСѓР¶РЅРѕ СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°С‚СЊ РёС… СЃРЅРѕРІР° Р·РґРµСЃСЊ, С‡С‚РѕР±С‹ РёР·Р±РµР¶Р°С‚СЊ РґСѓР±Р»РёСЂРѕРІР°РЅРёСЏ
+  // Р егистрация WebSocket обработчиков P2P происходит в конструкторе p2pVoiceService
+  // Не нужно регистрировать их снова здесь, чтобы избежать дублирования
 
   useEffect(() => {
     const handleIncomingCall = (event: any) => {
@@ -156,49 +156,49 @@ export function HomePageContent() {
       setCallee(currentUser);
       setIsIncomingCall(true);
       soundService.playIncomingCallSound();
-      // РЎРѕС…СЂР°РЅСЏРµРј РёРЅС„РѕСЂРјР°С†РёСЋ Рѕ Р·РІРѕРЅСЏС‰РµРј РґР»СЏ РІРѕР·РјРѕР¶РЅРѕСЃС‚Рё РѕС‚РєР»РѕРЅРµРЅРёСЏ
+      // Сохраняем информацию о звонящем для возможности отклонения
       p2pVoiceService.setCurrentCaller(incomingCaller);
     };
 
     const handleCallAccepted = (event: any) => {
       const { recipient } = event.detail;
-      console.log('[HomePageContent] handleCallAccepted РІС‹Р·РІР°РЅ:', { recipient, caller, currentUser, isOutgoingCall });
+      console.log('[HomePageContent] handleCallAccepted вызван:', { recipient, caller, currentUser, isOutgoingCall });
       setIsIncomingCall(false);
       setIsOutgoingCall(false);
       soundService.stopAllSounds();
       setInCall(true);
-      // РРЅРёС†РёР°С‚РѕСЂ Р·РІРѕРЅРєР° СЃРѕР·РґР°РµС‚ offer РїРѕСЃР»Рµ РїРѕРґС‚РІРµСЂР¶РґРµРЅРёСЏ
+      // Инициатор звонка создает offer после подтверждения
       if (caller?.id === currentUser?.id) {
           p2pVoiceService.createOffer(recipient.id);
       }
-      // РџРѕРєР°Р·С‹РІР°РµРј СѓРІРµРґРѕРјР»РµРЅРёРµ Р·РІРѕРЅСЏС‰РµРјСѓ, С‡С‚Рѕ Р·РІРѕРЅРѕРє РїСЂРёРЅСЏС‚
+      // Показываем уведомление звонящему, что звонок принят
       if (caller?.id === currentUser?.id) {
-        console.log('Р—РІРѕРЅРѕРє РїСЂРёРЅСЏС‚ РїРѕР»СѓС‡Р°С‚РµР»РµРј!');
+        console.log('Звонок принят получателем!');
       }
     };
 
     const handleAcceptCall = (data: { to: number; from: any }) => {
-      console.log('[HomePageContent] handleAcceptCall РІС‹Р·РІР°РЅ:', { data, caller, currentUser, isOutgoingCall });
-      // Р­С‚Рѕ СЃРѕРѕР±С‰РµРЅРёРµ РїСЂРёС…РѕРґРёС‚ Р·РІРѕРЅСЏС‰РµРјСѓ (РёРЅРёС†РёР°С‚РѕСЂСѓ), РєРѕРіРґР° РїСЂРёРЅРёРјР°СЋС‰РёР№ РїРѕРґРЅРёРјР°РµС‚ С‚СЂСѓР±РєСѓ
+      console.log('[HomePageContent] handleAcceptCall вызван:', { data, caller, currentUser, isOutgoingCall });
+      // Это сообщение приходит звонящему (инициатору), когда принимающий поднимает трубку
       if (currentUser && data.to === currentUser.id) {
-        console.log('[HomePageContent] Р—РІРѕРЅСЏС‰РёР№ РїРѕР»СѓС‡РёР» РїРѕРґС‚РІРµСЂР¶РґРµРЅРёРµ РїСЂРёРЅСЏС‚РёСЏ Р·РІРѕРЅРєР°');
+        console.log('[HomePageContent] Звонящий получил подтверждение принятия звонка');
         setIsOutgoingCall(false);
         soundService.stopAllSounds();
         setInCall(true);
-        // РРЅРёС†РёР°С‚РѕСЂ СЃРѕР·РґР°РµС‚ offer РґР»СЏ WebRTC СЃРѕРµРґРёРЅРµРЅРёСЏ
+        // Инициатор создает offer для WebRTC соединения
         p2pVoiceService.createOffer(data.from.id);
       }
     };
 
     const handleCallDeclined = (event: any) => {
-      console.log('[HomePageContent] handleCallDeclined РІС‹Р·РІР°РЅ:', { caller, currentUser, isOutgoingCall });
+      console.log('[HomePageContent] handleCallDeclined вызван:', { caller, currentUser, isOutgoingCall });
       soundService.stopAllSounds();
       setIsOutgoingCall(false);
       setIsIncomingCall(false);
-      // РџРѕРєР°Р·С‹РІР°РµРј СѓРІРµРґРѕРјР»РµРЅРёРµ Р·РІРѕРЅСЏС‰РµРјСѓ, С‡С‚Рѕ Р·РІРѕРЅРѕРє РѕС‚РєР»РѕРЅРµРЅ
+      // Показываем уведомление звонящему, что звонок отклонен
       if (caller?.id === currentUser?.id) {
-        console.log('Р—РІРѕРЅРѕРє РѕС‚РєР»РѕРЅРµРЅ РїРѕР»СѓС‡Р°С‚РµР»РµРј!');
-        // Р”Р»СЏ Р·РІРѕРЅСЏС‰РµРіРѕ - Р·Р°РІРµСЂС€Р°РµРј Р·РІРѕРЅРѕРє РїРѕР»РЅРѕСЃС‚СЊСЋ
+        console.log('Звонок отклонен получателем!');
+        // Для звонящего - завершаем звонок полностью
         handleCallEnded();
       }
     };
@@ -217,7 +217,7 @@ export function HomePageContent() {
       }
     };
 
-    // РћР±СЂР°Р±РѕС‚С‡РёРєРё РґР»СЏ WebSocket СЃРѕР±С‹С‚РёР№ P2P Р·РІРѕРЅРєРѕРІ
+    // Обработчики для WebSocket событий P2P звонков
     const handleP2PIncomingCall = (data: any) => {
       const event = new CustomEvent('p2p-incoming-call', { detail: data.caller });
       window.dispatchEvent(event);
@@ -235,13 +235,13 @@ export function HomePageContent() {
 
     p2pVoiceService.on('remote_stream_received', handleRemoteStream);
 
-    // РџРѕРґРїРёСЃС‹РІР°РµРјСЃСЏ РЅР° WebSocket СЃРѕР±С‹С‚РёСЏ P2P Р·РІРѕРЅРєРѕРІ
+    // Подписываемся на WebSocket события P2P звонков
     websocketService.onP2PIncomingCall(handleP2PIncomingCall);
     websocketService.onP2PCallAccepted(handleP2PCallAccepted);
     websocketService.onP2PCallDeclined(handleP2PCallDeclined);
     websocketService.onP2PAcceptCall(handleAcceptCall);
 
-    // РЎР»СѓС€Р°РµРј РіР»РѕР±Р°Р»СЊРЅС‹Рµ СЃРѕР±С‹С‚РёСЏ РІРјРµСЃС‚Рѕ РїСЂСЏРјС‹С… WebSocket РѕР±СЂР°Р±РѕС‚С‡РёРєРѕРІ
+    // Слушаем глобальные события вместо прямых WebSocket обработчиков
     if (typeof window !== 'undefined') {
       window.addEventListener('p2p-incoming-call', handleIncomingCall);
       window.addEventListener('p2p-call-accepted', handleCallAccepted);
@@ -250,13 +250,13 @@ export function HomePageContent() {
     }
 
     return () => {
-      // РћС‚РїРёСЃС‹РІР°РµРјСЃСЏ РѕС‚ WebSocket СЃРѕР±С‹С‚РёР№
+      // Отписываемся от WebSocket событий
       websocketService.off('p2p-incoming-call', handleP2PIncomingCall);
       websocketService.off('p2p-call-accepted', handleP2PCallAccepted);
       websocketService.off('p2p-call-declined', handleP2PCallDeclined);
       websocketService.off('p2p-accept-call', handleAcceptCall);
       
-      // РћС‚РїРёСЃС‹РІР°РµРјСЃСЏ РѕС‚ window СЃРѕР±С‹С‚РёР№ РїСЂРё СЂР°Р·РјРѕРЅС‚РёСЂРѕРІР°РЅРёРё
+      // Отписываемся от window событий при размонтировании
       if (typeof window !== 'undefined') {
         window.removeEventListener('p2p-incoming-call', handleIncomingCall);
         window.removeEventListener('p2p-call-accepted', handleCallAccepted);
@@ -267,7 +267,7 @@ export function HomePageContent() {
     };
   }, [currentUser, friends, callee]);
   
-  // useEffect РґР»СЏ РѕР±СЂР°Р±РѕС‚РєРё РёР·РјРµРЅРµРЅРёР№ remoteStream
+  // useEffect для обработки изменений remoteStream
   useEffect(() => {
     if (remoteStream && remoteAudioRef.current) {
       console.log('[HomePageContent] Setting remote stream to audio element');
@@ -289,7 +289,7 @@ export function HomePageContent() {
         setPendingRequests(pendingRequestsData)
         setDmConversations(conversationsData)
       } catch (error) {
-        console.error('РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё РґР°РЅРЅС‹С… Рѕ РґСЂСѓР·СЊСЏС…:', error)
+        console.error('Ошибка загрузки данных о друзьях:', error)
       }
     }
     fetchData()
@@ -447,10 +447,10 @@ export function HomePageContent() {
       await friendService.sendFriendRequest(friendUsername)
       setFriendUsername('')
       setIsAddFriendModalOpen(false)
-      // TODO: РџРѕРєР°Р·Р°С‚СЊ РїРѕР»СЊР·РѕРІР°С‚РµР»СЋ СѓРІРµРґРѕРјР»РµРЅРёРµ РѕР± СѓСЃРїРµС…Рµ
+      // TODO: Показать пользователю уведомление об успехе
     } catch (error: any) {
-      console.error('РћС€РёР±РєР° РґРѕР±Р°РІР»РµРЅРёСЏ РІ РґСЂСѓР·СЊСЏ:', error)
-      setAddFriendError(error.response?.data?.detail || 'РќРµ СѓРґР°Р»РѕСЃСЊ РѕС‚РїСЂР°РІРёС‚СЊ Р·Р°РїСЂРѕСЃ')
+      console.error('Ошибка добавления в друзья:', error)
+      setAddFriendError(error.response?.data?.detail || 'Не удалось отправить запрос')
     }
   }
 
@@ -464,7 +464,7 @@ export function HomePageContent() {
       setFriends(prevFriends => [...prevFriends, requestToAccept as User]);
       setPendingRequests(prev => prev.filter(req => req.request_id !== requestId));
     } catch (error) {
-      console.error('РћС€РёР±РєР° РїСЂРёРЅСЏС‚РёСЏ Р·Р°РїСЂРѕСЃР°:', error);
+      console.error('Ошибка принятия запроса:', error);
     }
   };
 
@@ -473,14 +473,14 @@ export function HomePageContent() {
       await friendService.rejectFriendRequest(requestId);
       setPendingRequests(prev => prev.filter(req => req.request_id !== requestId));
     } catch (error) {
-      console.error('РћС€РёР±РєР° РѕС‚РєР»РѕРЅРµРЅРёСЏ Р·Р°РїСЂРѕСЃР°:', error);
+      console.error('Ошибка отклонения запроса:', error);
     }
   };
 
   const handleCallUser = (user: User) => {
     if (!currentUser) return;
-    setCallee(user); // РєРѕРіРѕ РІС‹Р·С‹РІР°РµРј
-    setCaller(currentUser); // РєС‚Рѕ РІС‹Р·С‹РІР°РµС‚
+    setCallee(user); // кого вызываем
+    setCaller(currentUser); // кто вызывает
     setIsOutgoingCall(true);
     soundService.playCallingSound();
     p2pVoiceService.initiateCall(user.id);
@@ -506,7 +506,7 @@ export function HomePageContent() {
         <div className="ml-3">
           <p className="text-white">{getDisplayName(contact)}</p>
           <p className={`text-xs ${contact.is_online ? 'text-green-400' : 'text-[#999aa1]'}`}>
-            {contact.is_online ? 'Р’ СЃРµС‚Рё' : contact.is_friend === false ? 'Р›РёС‡РЅС‹Рµ СЃРѕРѕР±С‰РµРЅРёСЏ' : 'РќРµ РІ СЃРµС‚Рё'}
+            {contact.is_online ? 'Р’ сети' : contact.is_friend === false ? 'Личные сообщения' : 'Не в сети'}
           </p>
         </div>
       </div>
@@ -539,13 +539,13 @@ export function HomePageContent() {
         return (
           <div>
             <h3 className="text-xs font-bold uppercase text-[#999aa1] mb-2">
-              Р’ СЃРµС‚Рё вЂ” {onlineContacts.length}
+              Р’ сети вЂ” {onlineContacts.length}
             </h3>
             {onlineContacts.length > 0 ? (
               onlineContacts.map(renderContactRow)
             ) : (
               <div className="text-center text-[#999aa1] mt-20">
-                <p>РќРёРєРѕРіРѕ РЅРµС‚ РІ СЃРµС‚Рё.</p>
+                <p>Никого нет в сети.</p>
               </div>
             )}
           </div>
@@ -554,13 +554,13 @@ export function HomePageContent() {
         return (
           <div>
             <h3 className="text-xs font-bold uppercase text-[#999aa1] mb-2">
-              Р›РёС‡РЅС‹Рµ СЃРѕРѕР±С‰РµРЅРёСЏ вЂ” {sidebarContacts.length}
+              Личные сообщения вЂ” {sidebarContacts.length}
             </h3>
             {sidebarContacts.length > 0 ? (
               sidebarContacts.map(renderContactRow)
             ) : (
               <div className="text-center text-[#999aa1] mt-20">
-                <p>Р—РґРµСЃСЊ РїРѕРєР° РЅРёРєРѕРіРѕ РЅРµС‚. РќР°РїРёС€РёС‚Рµ РєРѕРјСѓ-РЅРёР±СѓРґСЊ РёР»Рё РґРѕР±Р°РІСЊС‚Рµ РґСЂСѓР·РµР№.</p>
+                <p>Здесь пока никого нет. Напишите кому-нибудь или добавьте друзей.</p>
               </div>
             )}
           </div>
@@ -569,7 +569,7 @@ export function HomePageContent() {
         return (
           <div>
             <h3 className="text-xs font-bold uppercase text-[#999aa1] mb-2">
-              Р’С…РѕРґСЏС‰РёРµ вЂ” {pendingRequests.length}
+              Входящие вЂ” {pendingRequests.length}
             </h3>
             {pendingRequests.length > 0 ? (
                pendingRequests.filter(Boolean).map(request => (
@@ -578,7 +578,7 @@ export function HomePageContent() {
                     <UserAvatar user={request} />
                     <div className="ml-3">
                       <p className="text-white">{request.username}</p>
-                      <p className="text-xs text-[#999aa1]">Р’С…РѕРґСЏС‰РёР№ Р·Р°РїСЂРѕСЃ РІ РґСЂСѓР·СЊСЏ</p>
+                      <p className="text-xs text-[#999aa1]">Входящий запрос в друзья</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -592,12 +592,12 @@ export function HomePageContent() {
                 </div>
               ))
             ) : (
-              <p className="text-center text-[#999aa1] mt-20">РќРµС‚ РѕР¶РёРґР°СЋС‰РёС… Р·Р°РїСЂРѕСЃРѕРІ РІ РґСЂСѓР·СЊСЏ.</p>
+              <p className="text-center text-[#999aa1] mt-20">Нет ожидающих запросов в друзья.</p>
             )}
           </div>
         )
       default:
-        return <p className="text-center text-[#999aa1] mt-20">РљРѕРЅС‚РµРЅС‚ РґР»СЏ "{activeTab}" РµС‰Рµ РЅРµ СЂРµР°Р»РёР·РѕРІР°РЅ.</p>
+        return <p className="text-center text-[#999aa1] mt-20">Контент для "{activeTab}" еще не реализован.</p>
     }
   }
 
@@ -612,7 +612,7 @@ export function HomePageContent() {
               soundService.stopAllSounds();
               setIsIncomingCall(false);
               p2pVoiceService.acceptCall(caller.id, caller);
-              setInCall(true); // РЎСЂР°Р·Сѓ РїРµСЂРµС…РѕРґРёРј РІ СЃРѕСЃС‚РѕСЏРЅРёРµ Р·РІРѕРЅРєР°
+              setInCall(true); // Сразу переходим в состояние звонка
             }
           }}
           onDecline={() => {
@@ -623,7 +623,7 @@ export function HomePageContent() {
               setIsIncomingCall(false);
               p2pVoiceService.declineCall(caller.id);
             } else {
-              // Р•СЃР»Рё caller РЅРµ СѓСЃС‚Р°РЅРѕРІР»РµРЅ, РёСЃРїРѕР»СЊР·СѓРµРј СЃРѕС…СЂР°РЅРµРЅРЅСѓСЋ РёРЅС„РѕСЂРјР°С†РёСЋ
+              // Если caller не установлен, используем сохраненную информацию
               const savedCaller = p2pVoiceService.getCurrentCaller();
               console.log('[HomePageContent] Using saved caller:', savedCaller);
               if (savedCaller && savedCaller.id) {
@@ -661,7 +661,7 @@ export function HomePageContent() {
             username: caller.username,
             display_name: caller.username,
             avatar_url: caller.avatar_url,
-            is_muted: false, // Р’Р°Рј РЅСѓР¶РЅРѕ Р±СѓРґРµС‚ СѓРїСЂР°РІР»СЏС‚СЊ СЌС‚РёРј СЃРѕСЃС‚РѕСЏРЅРёРµРј
+            is_muted: false, // Вам нужно будет управлять этим состоянием
             is_deafened: false,
           },
           {
@@ -674,7 +674,7 @@ export function HomePageContent() {
           },
         ]}
         channelName={`${caller.username} & ${callee.username}`}
-        serverName="РџСЂРёРІР°С‚РЅС‹Р№ Р·РІРѕРЅРѕРє"
+        serverName="Приватный звонок"
       />
       )}
 
@@ -686,13 +686,13 @@ export function HomePageContent() {
         <div className="flex h-12 flex-shrink-0 items-center border-b border-border px-4 shadow-md">
           <div className="flex items-center">
             <Users className="w-6 h-6 text-[#999aa1] mr-2" />
-            <h2 className="text-white font-semibold">Р”СЂСѓР·СЊСЏ</h2>
+            <h2 className="text-white font-semibold">Друзья</h2>
           </div>
         </div>
         <nav className="flex items-center p-2 space-x-2">
-          <button onClick={() => setActiveTab('all')} className={`px-2 py-1 text-sm font-medium rounded ${activeTab === 'all' ? 'bg-[#414248] text-white' : 'text-[#999aa1] hover:bg-[#3e3f45] hover:text-white'}`}>Р’СЃРµ</button>
+          <button onClick={() => setActiveTab('all')} className={`px-2 py-1 text-sm font-medium rounded ${activeTab === 'all' ? 'bg-[#414248] text-white' : 'text-[#999aa1] hover:bg-[#3e3f45] hover:text-white'}`}>Все</button>
           <div className="relative">
-            <button onClick={() => setActiveTab('pending')} className={`px-2 py-1 text-sm font-medium rounded ${activeTab === 'pending' ? 'bg-[#414248] text-white' : 'text-[#999aa1] hover:bg-[#3e3f45] hover:text-white'}`}>РћР¶РёРґР°РЅРёРµ</button>
+            <button onClick={() => setActiveTab('pending')} className={`px-2 py-1 text-sm font-medium rounded ${activeTab === 'pending' ? 'bg-[#414248] text-white' : 'text-[#999aa1] hover:bg-[#3e3f45] hover:text-white'}`}>Ожидание</button>
             {pendingRequests.length > 0 && (
               <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center font-bold">
                 {pendingRequests.length}
@@ -700,7 +700,7 @@ export function HomePageContent() {
             )}
           </div>
          
-          <button onClick={() => setIsAddFriendModalOpen(true)} className="px-2 py-1 text-sm font-medium rounded bg-[#2d7d46] text-white hover:bg-green-600">Р”РѕР±Р°РІРёС‚СЊ</button>
+          <button onClick={() => setIsAddFriendModalOpen(true)} className="px-2 py-1 text-sm font-medium rounded bg-[#2d7d46] text-white hover:bg-green-600">Добавить</button>
         </nav>
         <div className="p-2 overflow-y-auto">
           {renderContent()}
@@ -717,8 +717,8 @@ export function HomePageContent() {
           />
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-center text-gray-400">
-             <h3 className="text-xl font-bold text-white mb-4">Р’С‹Р±РµСЂРёС‚Рµ РґСЂСѓРіР°</h3>
-             <p>Р’С‹Р±РµСЂРёС‚Рµ РґСЂСѓРіР° РёР· СЃРїРёСЃРєР° СЃР»РµРІР°, С‡С‚РѕР±С‹ РЅР°С‡Р°С‚СЊ РїРµСЂРµРїРёСЃРєСѓ.</p>
+             <h3 className="text-xl font-bold text-white mb-4">Выберите друга</h3>
+             <p>Выберите друга из списка слева, чтобы начать переписку.</p>
           </div>
         )}
       </div>
@@ -727,27 +727,27 @@ export function HomePageContent() {
       {isAddFriendModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-[#323339] p-6 rounded-lg w-96">
-            <h2 className="text-xl font-bold text-white mb-4">Р”РѕР±Р°РІРёС‚СЊ РІ РґСЂСѓР·СЊСЏ</h2>
+            <h2 className="text-xl font-bold text-white mb-4">Добавить в друзья</h2>
             <p className="text-[#999aa1] text-sm mb-4">
-              Р’РІРµРґРёС‚Рµ Р»РѕРіРёРЅ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ (@username), Р° РЅРµ РѕС‚РѕР±СЂР°Р¶Р°РµРјРѕРµ РёРјСЏ. Р РµРіРёСЃС‚СЂ Р±СѓРєРІ РЅРµ РІР°Р¶РµРЅ.
+              Введите логин пользователя (@username), а не отображаемое имя. Р егистр букв не важен.
             </p>
             <input
               type="text"
               value={friendUsername}
               onChange={(e) => setFriendUsername(e.target.value)}
-              placeholder="РќР°РїСЂРёРјРµСЂ: sava РёР»Рё @sava"
+              placeholder="Например: sava или @sava"
               className="w-full bg-[#1e1f22] text-white rounded px-3 py-2 mb-4 border border-[#393a41] focus:ring-2 focus:ring-[#5865f2]"
             />
             {addFriendError && <p className="text-red-500 text-sm mb-4">{addFriendError}</p>}
             <div className="flex justify-end">
-              <button onClick={() => setIsAddFriendModalOpen(false)} className="text-white mr-4">РћС‚РјРµРЅР°</button>
-              <button onClick={handleAddFriend} className="bg-[#5865f2] text-white px-4 py-2 rounded">РћС‚РїСЂР°РІРёС‚СЊ Р·Р°РїСЂРѕСЃ</button>
+              <button onClick={() => setIsAddFriendModalOpen(false)} className="text-white mr-4">Отмена</button>
+              <button onClick={handleAddFriend} className="bg-[#5865f2] text-white px-4 py-2 rounded">Отправить запрос</button>
             </div>
           </div>
         </div>
       )}
       
-      {/* РЎРєСЂС‹С‚С‹Р№ audio СЌР»РµРјРµРЅС‚ РґР»СЏ РІРѕСЃРїСЂРѕРёР·РІРµРґРµРЅРёСЏ РІС…РѕРґСЏС‰РµРіРѕ Р°СѓРґРёРѕ РёР· P2P Р·РІРѕРЅРєРѕРІ */}
+      {/* Скрытый audio элемент для воспроизведения входящего аудио из P2P звонков */}
       <audio
         ref={remoteAudioRef}
         autoPlay
