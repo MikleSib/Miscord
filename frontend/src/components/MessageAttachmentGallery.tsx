@@ -43,7 +43,7 @@ export function MessageAttachmentGallery({
             key={item.id}
             type="button"
             onClick={() => onOpen(url)}
-            className={`media-thumb min-h-0 min-w-0 overflow-hidden bg-[#1e1f22] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#5865f2] ${itemClass(images.length, index)}`}
+            className={`block w-full min-h-0 min-w-0 cursor-zoom-in overflow-hidden border-0 bg-[#1e1f22] p-0 align-top transition-[opacity,transform] duration-150 hover:opacity-90 active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#5865f2] ${itemClass(images.length, index)}`}
             aria-label={`Открыть ${item.filename || 'изображение'}`}
           >
             <img
