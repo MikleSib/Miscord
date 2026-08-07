@@ -38,7 +38,7 @@ logger.info("[UPLOAD] РџР°РїРєР° Р·Р°РіСЂСѓР·РѕРє: %s"
 @router.post("/upload")
 async def upload_chat_file(
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     fd, temp_path = tempfile.mkstemp(prefix="miscord-upload-", suffix=".quarantine")
@@ -91,7 +91,7 @@ async def upload_chat_file(
 @router.delete("/uploads/{upload_id}", status_code=204)
 async def delete_pending_upload(
     upload_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     pending = (await db.execute(select(PendingChatUpload).where(
