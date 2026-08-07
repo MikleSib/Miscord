@@ -290,6 +290,7 @@ async def _persist_message(
         db.add(message)
         await db.commit()
         await db.refresh(message)
+        await db.refresh(message, attribute_names=["attachments"])
         return message
     except Exception:
         await db.rollback()
