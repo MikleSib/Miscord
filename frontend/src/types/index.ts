@@ -246,6 +246,7 @@ export interface Message {
   content: string | null;
   author: User;
   timestamp: string;
+  client_nonce?: string | null;
   channelId?: number; // Для сообщений в каналах
   is_edited?: boolean;
   is_deleted?: boolean;
