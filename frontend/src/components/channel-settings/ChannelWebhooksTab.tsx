@@ -1,248 +1,459 @@
-'use client'
-
-import { useCallback, useEffect, useState } from 'react'
-import { Check, Copy, FlaskConical, Loader2, Plus, RefreshCw, Save, Trash2, Webhook as WebhookIcon } from 'lucide-react'
-
-import webhookService from '../../services/webhookService'
-import { IncomingWebhook } from '../../types/webhook'
-import { Channel } from '../../types'
-import { Button } from '../ui/button'
-
+import { ChangeEvent, useCallback, useEffect, useState } from 'react'
+import channelService from '../../services/channelService'
+import { webhookService } from '../../services/webhookService'
+import type { Channel } from '../../types'
+import type { IncomingWebhook, WebhookUpdatePayload } from '../../types/webhook'
 
 interface ChannelWebhooksTabProps {
   channel: Channel
 }
 
-
-function errorText(error: unknown): string {
-  const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
-  if (typeof detail === 'string') return detail
-  if ((error as { response?: { status?: number } })?.response?.status === 403) {
-    return 'У вас нет права управлять вебхуками этого канала.'
-  }
-  if ((error as { response?: { status?: number } })?.response?.status === 429) {
-    return 'Слишком много запросов. Подождите и повторите действие.'
-  }
-  return 'Не удалось выполнить действие. Проверьте соединение и повторите.'
+interface ChannelOption {
+  id: number
+  name: string
 }
 
+const primaryButton =
+  'inline-flex min-h-9 items-center justify-center rounded-md bg-[#5865f2] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#4752c4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#aab2ff] disabled:cursor-not-allowed disabled:opacity-50'
+const secondaryButton =
+  'inline-flex min-h-9 items-center justify-center rounded-md bg-[#3b3d44] px-3 text-sm font-medium text-[#f2f3f5] transition-colors hover:bg-[#4a4d55] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#aab2ff] disabled:cursor-not-allowed disabled:opacity-50'
+const dangerButton =
+  'inline-flex min-h-9 items-center justify-center rounded-md px-3 text-sm font-medium text-[#fa777c] transition-colors hover:bg-[#4d2f33] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#fa777c] disabled:cursor-not-allowed disabled:opacity-50'
+const inputClass =
+  'min-h-10 w-full rounded-md border border-transparent bg-[#1e1f22] px-3 text-sm text-[#f2f3f5] outline-none transition-colors placeholder:text-[#7d818b] focus:border-[#5865f2]'
 
-async function copySecret(value: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(value)
-    return
-  } catch {
-    const input = document.createElement('textarea')
-    input.value = value
-    input.setAttribute('readonly', '')
-    input.style.position = 'fixed'
-    input.style.opacity = '0'
-    document.body.appendChild(input)
-    input.select()
-    const copied = document.execCommand('copy')
-    input.value = ''
-    input.remove()
-    if (!copied) throw new Error('Clipboard is unavailable')
+function getErrorMessage(error: unknown): string {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'response' in error
+  ) {
+    const response = (error as {
+      response?: { data?: { detail?: string; message?: string } }
+    }).response
+    return response?.data?.detail || response?.data?.message || 'Не удалось выполнить действие.'
   }
+  return 'Не удалось выполнить действие.'
 }
 
+function formatCreatedAt(value: string): string {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? ''
+    : new Intl.DateTimeFormat('ru-RU', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      }).format(date)
+}
 
-export function ChannelWebhooksTab({ channel }: ChannelWebhooksTabProps) {
+export default function ChannelWebhooksTab({ channel }: ChannelWebhooksTabProps) {
   const [items, setItems] = useState<IncomingWebhook[]>([])
+  const [channels, setChannels] = useState<ChannelOption[]>([])
   const [loading, setLoading] = useState(true)
-  const [busyId, setBusyId] = useState<number | 'create' | null>(null)
+  const [busy, setBusy] = useState<number | 'create' | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [name, setName] = useState('')
   const [avatarUrl, setAvatarUrl] = useState('')
+  const [initialAvatarUrl, setInitialAvatarUrl] = useState('')
+  const [targetChannelId, setTargetChannelId] = useState(channel.id)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const [copiedId, setCopiedId] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      setItems(await webhookService.list(channel.id))
+      const [webhooks, server] = await Promise.all([
+        webhookService.list(channel.id),
+        channelService.getChannelDetails(channel.serverId),
+      ])
+      setItems(webhooks)
+      const options = (server.text_channels || []).map((item) => ({
+        id: item.id,
+        name: item.name,
+      }))
+      setChannels(
+        options.some((item) => item.id === channel.id)
+          ? options
+          : [{ id: channel.id, name: channel.name }, ...options],
+      )
     } catch (requestError) {
-      setError(errorText(requestError))
+      setError(getErrorMessage(requestError))
     } finally {
       setLoading(false)
     }
-  }, [channel.id])
+  }, [channel.id, channel.name, channel.serverId])
 
   useEffect(() => {
     void load()
   }, [load])
 
-  const beginEdit = (item: IncomingWebhook) => {
-    setEditingId(item.id)
-    setName(item.name)
-    setAvatarUrl(item.avatar_url || '')
+  const showNotice = (message: string) => {
+    setNotice(message)
+    window.setTimeout(() => setNotice(''), 3500)
+  }
+
+  const beginEdit = (webhook: IncomingWebhook) => {
+    setEditingId(webhook.id)
+    setName(webhook.name)
+    setAvatarUrl(webhook.avatar_url || '')
+    setInitialAvatarUrl(webhook.avatar_url || '')
+    setTargetChannelId(webhook.channel_id)
     setError('')
-    setNotice('')
   }
 
   const createWebhook = async () => {
-    setBusyId('create')
+    setBusy('create')
     setError('')
-    setNotice('')
     try {
-      const created = await webhookService.create(channel.id, { name: 'Новый вебхук' })
+      const created = await webhookService.create(channel.id)
       setItems((current) => [...current, created])
-      await copySecret(created.execution_url)
-      setCopiedId(created.id)
-      setNotice('Вебхук создан, URL скопирован. Сохраните его в интеграции как секрет.')
+      if (created.execution_url) {
+        await navigator.clipboard.writeText(created.execution_url)
+        showNotice('Вебхук создан. URL скопирован в буфер обмена.')
+      } else {
+        showNotice('Вебхук создан.')
+      }
       beginEdit(created)
     } catch (requestError) {
-      setError(errorText(requestError))
+      setError(getErrorMessage(requestError))
     } finally {
-      setBusyId(null)
+      setBusy(null)
     }
   }
 
-  const saveWebhook = async (item: IncomingWebhook) => {
-    const trimmed = name.trim()
-    if (!trimmed) {
-      setError('Введите имя вебхука.')
+  const saveWebhook = async (webhook: IncomingWebhook) => {
+    const cleanName = name.trim()
+    if (!cleanName) {
+      setError('Укажите имя вебхука.')
       return
     }
-    setBusyId(item.id)
+
+    setBusy(webhook.id)
     setError('')
     try {
-      const updated = await webhookService.update(item.id, { name: trimmed, avatar_url: avatarUrl.trim() || null })
-      setItems((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)))
-      setNotice('Изменения сохранены.')
+      const payload: WebhookUpdatePayload = {
+        name: cleanName,
+        channel_id: targetChannelId,
+      }
+      if (avatarUrl !== initialAvatarUrl) {
+        payload.avatar_url = avatarUrl.trim() || null
+      }
+      const updated = await webhookService.update(webhook.id, payload)
+      if (updated.channel_id !== channel.id) {
+        setItems((current) => current.filter((item) => item.id !== webhook.id))
+        showNotice('Вебхук перемещён в другой канал.')
+      } else {
+        setItems((current) =>
+          current.map((item) => (item.id === webhook.id ? updated : item)),
+        )
+        showNotice('Изменения сохранены.')
+      }
+      setEditingId(null)
     } catch (requestError) {
-      setError(errorText(requestError))
+      setError(getErrorMessage(requestError))
     } finally {
-      setBusyId(null)
+      setBusy(null)
     }
   }
 
-  const copyUrl = async (item: IncomingWebhook) => {
-    setBusyId(item.id)
+  const uploadAvatar = async (
+    webhook: IncomingWebhook,
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+
+    setBusy(webhook.id)
     setError('')
     try {
-      const url = await webhookService.executionUrl(item.id)
-      await copySecret(url)
-      setCopiedId(item.id)
-      setNotice('URL скопирован. Не публикуйте его: токен дает право отправлять сообщения.')
-      window.setTimeout(() => setCopiedId((current) => (current === item.id ? null : current)), 2500)
+      const updated = await webhookService.uploadAvatar(webhook.id, file)
+      setItems((current) =>
+        current.map((item) => (item.id === webhook.id ? updated : item)),
+      )
+      setAvatarUrl(updated.avatar_url || '')
+      setInitialAvatarUrl(updated.avatar_url || '')
+      showNotice('Аватар обновлён.')
     } catch (requestError) {
-      setError(errorText(requestError))
+      setError(getErrorMessage(requestError))
     } finally {
-      setBusyId(null)
+      setBusy(null)
     }
   }
 
-  const resetToken = async (item: IncomingWebhook) => {
-    if (!window.confirm('Старый URL сразу перестанет работать. Сбросить токен?')) return
-    setBusyId(item.id)
+  const copyUrl = async (webhookId: number) => {
+    setBusy(webhookId)
     setError('')
     try {
-      const url = await webhookService.resetToken(item.id)
-      await copySecret(url)
-      setCopiedId(item.id)
-      setNotice('Токен сброшен, новый URL скопирован.')
+      const result = await webhookService.executionUrl(webhookId)
+      await navigator.clipboard.writeText(result.execution_url)
+      showNotice('URL вебхука скопирован.')
     } catch (requestError) {
-      setError(errorText(requestError))
+      setError(getErrorMessage(requestError))
     } finally {
-      setBusyId(null)
+      setBusy(null)
     }
   }
 
-  const sendTest = async (item: IncomingWebhook) => {
-    setBusyId(item.id)
+  const resetToken = async (webhookId: number) => {
+    if (!window.confirm('Старый URL сразу перестанет работать. Сбросить токен?')) {
+      return
+    }
+    setBusy(webhookId)
     setError('')
     try {
-      await webhookService.test(item.id)
-      setNotice(`Тихое тестовое сообщение отправлено в #${channel.name}.`)
+      const result = await webhookService.resetToken(webhookId)
+      await navigator.clipboard.writeText(result.execution_url)
+      showNotice('Токен сброшен. Новый URL скопирован.')
     } catch (requestError) {
-      setError(errorText(requestError))
+      setError(getErrorMessage(requestError))
     } finally {
-      setBusyId(null)
+      setBusy(null)
     }
   }
 
-  const removeWebhook = async (item: IncomingWebhook) => {
-    if (!window.confirm(`Удалить вебхук «${item.name}»? Его URL перестанет работать.`)) return
-    setBusyId(item.id)
+  const sendTest = async (webhookId: number) => {
+    setBusy(webhookId)
     setError('')
     try {
-      await webhookService.remove(item.id)
-      setItems((current) => current.filter((entry) => entry.id !== item.id))
-      if (editingId === item.id) setEditingId(null)
-      setNotice('Вебхук удален. Ранее отправленные сообщения сохранены.')
+      await webhookService.test(webhookId)
+      showNotice('Тестовое сообщение отправлено без уведомлений.')
     } catch (requestError) {
-      setError(errorText(requestError))
+      setError(getErrorMessage(requestError))
     } finally {
-      setBusyId(null)
+      setBusy(null)
+    }
+  }
+
+  const removeWebhook = async (webhook: IncomingWebhook) => {
+    if (!window.confirm('Удалить вебхук «' + webhook.name + '»? Его URL перестанет работать.')) {
+      return
+    }
+    setBusy(webhook.id)
+    setError('')
+    try {
+      await webhookService.remove(webhook.id)
+      setItems((current) => current.filter((item) => item.id !== webhook.id))
+      if (editingId === webhook.id) setEditingId(null)
+      showNotice('Вебхук удалён.')
+    } catch (requestError) {
+      setError(getErrorMessage(requestError))
+    } finally {
+      setBusy(null)
     }
   }
 
   return (
-    <div className="h-full overflow-y-auto px-5 pb-16 pt-16 sm:px-10">
-      <div className="mx-auto w-full max-w-[720px]">
-        <div className="mb-8 border-b border-[#3f4147] pb-6 pr-14 sm:pr-20">
-          <div className="max-w-[60ch]">
-            <h1 className="text-2xl font-semibold tracking-[-0.02em] text-white">Вебхуки</h1>
-            <p className="mt-2 text-[15px] leading-6 text-[#b5bac1]">
-              Отправляйте уведомления из CI, мониторинга и внешних сервисов прямо в #{channel.name}.
-            </p>
-          </div>
-          <Button onClick={() => void createWebhook()} disabled={busyId !== null} className="mt-5 shrink-0">
-            {busyId === 'create' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-            Создать
-          </Button>
-        </div>
+    <div className="h-full overflow-y-auto bg-[#313338] px-5 pb-16 pt-16 text-[#f2f3f5] sm:px-10 lg:px-14">
+      <div className="mx-auto w-full max-w-[760px]">
+        <header className="border-b border-[#3f4147] pb-7 pr-12 sm:pr-16">
+          <h1 className="text-xl font-bold tracking-[-0.02em]">
+            Интеграция <span className="font-normal text-[#949ba4]">›</span> Вебхуки
+          </h1>
+          <p className="mt-3 max-w-[68ch] text-sm leading-5 text-[#b5bac1]">
+            Вебхуки публикуют сообщения из внешних сервисов прямо в этот канал.
+            Создайте вебхук, настройте имя и аватар, затем скопируйте секретный URL.
+          </p>
+          <button
+            type="button"
+            className={primaryButton + ' mt-5'}
+            disabled={busy !== null}
+            onClick={() => void createWebhook()}
+          >
+            {busy === 'create' ? 'Создание…' : 'Новый вебхук'}
+          </button>
+        </header>
 
-        <div aria-live="polite" className="mb-4 min-h-6">
-          {error && <div className="rounded-lg bg-[#f23f4220] px-3 py-2 text-sm text-[#ffb4b7]">{error}</div>}
-          {!error && notice && <div className="rounded-lg bg-[#23a55920] px-3 py-2 text-sm text-[#9ee8bd]">{notice}</div>}
+        <div aria-live="polite" className="min-h-12 py-3">
+          {error && (
+            <div className="rounded-md bg-[#4d2f33] px-3 py-2 text-sm text-[#ffb9bd]">
+              {error}
+            </div>
+          )}
+          {!error && notice && (
+            <div className="rounded-md bg-[#29463a] px-3 py-2 text-sm text-[#b8f2d2]">
+              {notice}
+            </div>
+          )}
         </div>
 
         {loading ? (
-          <div className="flex items-center gap-3 py-12 text-[#b5bac1]"><Loader2 className="h-5 w-5 animate-spin" />Загружаем вебхуки…</div>
+          <div className="py-10 text-sm text-[#b5bac1]">Загрузка вебхуков…</div>
         ) : items.length === 0 ? (
-          <div className="border-y border-[#3f4147] py-14 text-center">
-            <WebhookIcon className="mx-auto h-9 w-9 text-[#80848e]" />
-            <h2 className="mt-4 text-lg font-medium text-white">В этом канале пока нет вебхуков</h2>
-            <p className="mx-auto mt-2 max-w-[48ch] text-sm leading-6 text-[#b5bac1]">Создайте первый URL и подключите к нему сборку, алерты или собственный сервис.</p>
+          <div className="border-b border-[#3f4147] py-10">
+            <h2 className="text-base font-semibold">В этом канале пока нет вебхуков</h2>
+            <p className="mt-2 max-w-[60ch] text-sm leading-5 text-[#949ba4]">
+              После создания URL можно передать системе мониторинга, CI/CD или любому
+              сервису, который умеет отправлять HTTP POST.
+            </p>
           </div>
         ) : (
           <div className="divide-y divide-[#3f4147] border-y border-[#3f4147]">
-            {items.map((item) => {
-              const editing = editingId === item.id
-              const busy = busyId === item.id
+            {items.map((webhook) => {
+              const isEditing = editingId === webhook.id
+              const isBusy = busy === webhook.id
               return (
-                <section key={item.id} className="py-5">
+                <section key={webhook.id} className="py-5">
                   <div className="flex min-w-0 items-center gap-3">
-                    <div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-full bg-[#5865f2] text-white">
-                      {item.avatar_url ? <img src={item.avatar_url} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" /> : <WebhookIcon className="h-5 w-5" />}
-                    </div>
-                    <button type="button" onClick={() => beginEdit(item)} className="min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5865f2]">
-                      <span className="block truncate font-medium text-white">{item.name}</span>
-                      <span className="mt-0.5 block truncate text-xs text-[#949ba4]">Создал: {item.creator?.display_name || item.creator?.username || 'Удаленный аккаунт'}</span>
+                    {webhook.avatar_url ? (
+                      <img
+                        src={webhook.avatar_url}
+                        alt=""
+                        width={44}
+                        height={44}
+                        decoding="async"
+                        referrerPolicy="no-referrer"
+                        className="h-11 w-11 shrink-0 rounded-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#5865f2] text-base font-bold text-white">
+                        {webhook.name.slice(0, 1).toUpperCase()}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#aab2ff]"
+                      onClick={() => (isEditing ? setEditingId(null) : beginEdit(webhook))}
+                    >
+                      <span className="block truncate text-base font-semibold">
+                        {webhook.name}
+                      </span>
+                      <span className="mt-0.5 block truncate text-xs text-[#949ba4]">
+                        Создан {webhook.creator?.display_name || webhook.creator?.username || 'пользователем'}
+                        {formatCreatedAt(webhook.created_at) && ' · ' + formatCreatedAt(webhook.created_at)}
+                      </span>
                     </button>
-                    <Button variant="ghost" size="sm" onClick={() => beginEdit(item)}>Настроить</Button>
+                    <button
+                      type="button"
+                      className={secondaryButton}
+                      onClick={() => (isEditing ? setEditingId(null) : beginEdit(webhook))}
+                    >
+                      {isEditing ? 'Свернуть' : 'Настроить'}
+                    </button>
                   </div>
 
-                  {editing && (
-                    <div className="mt-5 grid gap-4 pl-0 sm:pl-14">
-                      <label className="grid gap-1.5 text-sm font-medium text-[#dbdee1]">
-                        Имя
-                        <input value={name} onChange={(event) => setName(event.target.value)} maxLength={80} disabled={busy} className="h-10 rounded-md border border-[#1e1f22] bg-[#1e1f22] px-3 text-base text-white outline-none transition focus:border-[#5865f2] disabled:opacity-60" />
-                      </label>
-                      <label className="grid gap-1.5 text-sm font-medium text-[#dbdee1]">
-                        HTTPS URL аватара
-                        <input value={avatarUrl} onChange={(event) => setAvatarUrl(event.target.value)} type="url" inputMode="url" placeholder="https://…" disabled={busy} className="h-10 rounded-md border border-[#1e1f22] bg-[#1e1f22] px-3 text-base text-white outline-none transition placeholder:text-[#6d6f78] focus:border-[#5865f2] disabled:opacity-60" />
-                      </label>
-                      <div className="flex flex-wrap gap-2">
-                        <Button size="sm" disabled={busy} onClick={() => void saveWebhook(item)}><Save className="mr-2 h-4 w-4" />Сохранить</Button>
-                        <Button variant="secondary" size="sm" disabled={busy} onClick={() => void copyUrl(item)}>{copiedId === item.id ? <Check className="mr-2 h-4 w-4" /> : <Copy className="mr-2 h-4 w-4" />}Копировать URL</Button>
-                        <Button variant="secondary" size="sm" disabled={busy} onClick={() => void sendTest(item)}><FlaskConical className="mr-2 h-4 w-4" />Тест</Button>
-                        <Button variant="ghost" size="sm" disabled={busy} onClick={() => void resetToken(item)}><RefreshCw className="mr-2 h-4 w-4" />Сбросить токен</Button>
-                        <Button variant="ghost" size="sm" disabled={busy} onClick={() => void removeWebhook(item)} className="text-[#f23f42] hover:text-[#ff6b6e]"><Trash2 className="mr-2 h-4 w-4" />Удалить</Button>
+                  {isEditing && (
+                    <div className="mt-5 border-t border-[#3f4147] pt-5">
+                      <div className="grid gap-5 md:grid-cols-[132px_minmax(0,1fr)]">
+                        <div>
+                          <div className="mx-auto flex h-24 w-24 items-center justify-center overflow-hidden rounded-2xl bg-[#2b2d31]">
+                            {avatarUrl ? (
+                              <img
+                                src={avatarUrl}
+                                alt=""
+                                width={96}
+                                height={96}
+                                decoding="async"
+                                referrerPolicy="no-referrer"
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <span className="text-3xl font-bold text-[#b5bac1]">
+                                {name.slice(0, 1).toUpperCase() || 'W'}
+                              </span>
+                            )}
+                          </div>
+                          <label className={secondaryButton + ' mt-3 w-full cursor-pointer'}>
+                            Загрузить
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg,image/gif,image/webp"
+                              className="sr-only"
+                              disabled={isBusy}
+                              onChange={(event) => void uploadAvatar(webhook, event)}
+                            />
+                          </label>
+                          <p className="mt-2 text-center text-xs leading-4 text-[#949ba4]">
+                            PNG, JPG, GIF или WebP
+                          </p>
+                        </div>
+
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <label className="block">
+                            <span className="mb-2 block text-xs font-bold uppercase tracking-[0.02em] text-[#b5bac1]">
+                              Имя
+                            </span>
+                            <input
+                              className={inputClass}
+                              value={name}
+                              maxLength={80}
+                              onChange={(event) => setName(event.target.value)}
+                            />
+                          </label>
+                          <label className="block">
+                            <span className="mb-2 block text-xs font-bold uppercase tracking-[0.02em] text-[#b5bac1]">
+                              Канал
+                            </span>
+                            <select
+                              className={inputClass}
+                              value={targetChannelId}
+                              onChange={(event) => setTargetChannelId(Number(event.target.value))}
+                            >
+                              {channels.map((option) => (
+                                <option key={option.id} value={option.id}>
+                                  # {option.name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="block sm:col-span-2">
+                            <span className="mb-2 block text-xs font-bold uppercase tracking-[0.02em] text-[#b5bac1]">
+                              URL аватара
+                            </span>
+                            <input
+                              type="url"
+                              className={inputClass}
+                              value={avatarUrl}
+                              placeholder="https://example.com/avatar.png"
+                              onChange={(event) => setAvatarUrl(event.target.value)}
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="mt-5 flex flex-wrap gap-2 border-t border-[#3f4147] pt-4">
+                        <button
+                          type="button"
+                          className={primaryButton}
+                          disabled={isBusy}
+                          onClick={() => void saveWebhook(webhook)}
+                        >
+                          Сохранить
+                        </button>
+                        <button
+                          type="button"
+                          className={secondaryButton}
+                          disabled={isBusy}
+                          onClick={() => void copyUrl(webhook.id)}
+                        >
+                          Копировать URL
+                        </button>
+                        <button
+                          type="button"
+                          className={secondaryButton}
+                          disabled={isBusy}
+                          onClick={() => void sendTest(webhook.id)}
+                        >
+                          Отправить тест
+                        </button>
+                        <button
+                          type="button"
+                          className={secondaryButton}
+                          disabled={isBusy}
+                          onClick={() => void resetToken(webhook.id)}
+                        >
+                          Сбросить токен
+                        </button>
+                        <button
+                          type="button"
+                          className={dangerButton}
+                          disabled={isBusy}
+                          onClick={() => void removeWebhook(webhook)}
+                        >
+                          Удалить
+                        </button>
                       </div>
                     </div>
                   )}
@@ -252,11 +463,16 @@ export function ChannelWebhooksTab({ channel }: ChannelWebhooksTabProps) {
           </div>
         )}
 
-        <div className="mt-8">
-          <h2 className="text-base font-semibold text-white">Быстрый старт</h2>
-          <p className="mt-1 text-sm leading-6 text-[#b5bac1]">Передайте скопированный URL как секрет окружения и отправьте JSON:</p>
-          <pre className="mt-3 overflow-x-auto rounded-lg bg-[#1e1f22] p-4 text-xs leading-5 text-[#dbdee1]"><code>{`curl -H "Content-Type: application/json" \\\n+  -d '{"content":"Сборка завершена"}' \\\n+  "$MISCORD_WEBHOOK_URL?wait=true"`}</code></pre>
-        </div>
+        <section className="mt-8 pb-8">
+          <h2 className="text-sm font-semibold">Быстрая проверка</h2>
+          <p className="mt-2 text-sm leading-5 text-[#949ba4]">
+            Скопированный URL является секретом. Не публикуйте его в логах и открытых
+            репозиториях.
+          </p>
+          <pre className="mt-3 overflow-x-auto rounded-md bg-[#1e1f22] p-4 text-xs leading-5 text-[#dbdee1]">
+            <code>{'curl -H \"Content-Type: application/json\" \\\\\n  -d \\'{\"content\":\"Hello from Miscord\"}\\' WEBHOOK_URL'}</code>
+          </pre>
+        </section>
       </div>
     </div>
   )

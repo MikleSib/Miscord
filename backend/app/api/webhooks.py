@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import JSONResponse, Response
 from pydantic import ValidationError
 from sqlalchemy import delete, func, select
@@ -15,6 +15,7 @@ from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from app.core.config import settings
 from app.core.dependencies import get_current_active_user
+from app.core.media import to_public_media_path
 from app.core.permissions import Permission, get_member_permissions, has_permission
 from app.db.database import get_db
 from app.models import Attachment, Message, TextChannel, User, Webhook
@@ -22,7 +23,10 @@ from app.schemas.webhook import WebhookCreate, WebhookExecute, WebhookTokenUpdat
 from app.services.attachment_storage import finalize_staged_file, remove_storage_key, stage_upload
 from app.services.audit_service import AuditAction, log_audit
 from app.services.clamav import ClamAVUnavailable, MalwareDetected, scan_file
+from app.services.channel_permissions import get_effective_channel_permissions
+from app.services.image_upload import read_and_validate_image, save_image_bytes
 from app.services.message_serializer import serialize_channel_message
+from app.services.rate_limit import rate_limit_user
 from app.services.webhook_rate_limit import Bucket, consume, rate_headers
 from app.services.webhook_security import (
     decrypt_webhook_token,
@@ -38,6 +42,8 @@ from app.websocket.connection_manager import manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+WEBHOOK_AVATARS_DIR = Path.cwd() / "static" / "uploads" / "webhook-avatars"
+WEBHOOK_AVATARS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _ensure_enabled() -> None:
@@ -61,7 +67,13 @@ async def _text_channel(db: AsyncSession, channel_id: int) -> TextChannel:
 
 async def _require_manage(db: AsyncSession, user_id: int, channel_id: int) -> TextChannel:
     channel = await _text_channel(db, channel_id)
-    permissions = await get_member_permissions(db, channel.channel_id, user_id)
+    permissions = await get_effective_channel_permissions(
+        db,
+        channel.channel_id,
+        user_id,
+        "text",
+        channel.id,
+    )
     if not has_permission(permissions, Permission.MANAGE_WEBHOOKS):
         raise HTTPException(status_code=403, detail="Missing MANAGE_WEBHOOKS permission")
     return channel
@@ -114,16 +126,46 @@ def _management_payload(webhook: Webhook, *, token: str | None = None) -> dict[s
     return payload
 
 
-def _public_webhook_payload(webhook: Webhook) -> dict[str, Any]:
+def _public_webhook_payload(webhook: Webhook, token: str) -> dict[str, Any]:
     return {
-        "id": str(webhook.id),
-        "type": 1,
-        "guild_id": str(webhook.server_id),
-        "channel_id": str(webhook.text_channel_id),
-        "name": webhook.name,
-        "avatar": webhook.avatar_url,
         "application_id": None,
+        "avatar": webhook.avatar_url,
+        "channel_id": str(webhook.text_channel_id),
+        "guild_id": str(webhook.server_id),
+        "id": str(webhook.id),
+        "name": webhook.name,
+        "token": token,
+        "type": 1,
+        "url": webhook_execution_url(webhook.id, token),
     }
+
+
+def _audit_reason(value: str | None) -> str | None:
+    if value is None:
+        return None
+    value = value.strip()
+    if len(value) > 512:
+        raise HTTPException(status_code=400, detail="X-Audit-Log-Reason cannot exceed 512 characters")
+    return value or None
+
+
+def _webhook_avatar_path(avatar_url: str | None) -> Path | None:
+    if not avatar_url:
+        return None
+    marker = "/static/uploads/webhook-avatars/"
+    clean_url = avatar_url.split("?", 1)[0]
+    if marker not in clean_url:
+        return None
+    filename = Path(clean_url.rsplit(marker, 1)[1]).name
+    return WEBHOOK_AVATARS_DIR / filename if filename else None
+
+
+async def _broadcast_webhooks_updated(*channel_ids: int) -> None:
+    for channel_id in set(channel_ids):
+        await manager.send_to_channel(
+            channel_id,
+            {"type": "webhooks_updated", "data": {"channel_id": channel_id}},
+        )
 
 
 def _external_message_payload(message: Message) -> dict[str, Any]:
@@ -159,7 +201,11 @@ def _limited(result) -> JSONResponse:
     )
 
 
-async def _parse_execute_request(request: Request) -> tuple[WebhookExecute, list[StarletteUploadFile]]:
+async def _parse_execute_request(
+    request: Request,
+    *,
+    require_message: bool = True,
+) -> tuple[WebhookExecute, list[StarletteUploadFile]]:
     content_type = request.headers.get("content-type", "").lower()
     files: list[StarletteUploadFile] = []
     try:
@@ -188,7 +234,7 @@ async def _parse_execute_request(request: Request) -> tuple[WebhookExecute, list
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if len(files) > 10:
         raise HTTPException(status_code=413, detail="A maximum of 10 files is allowed")
-    if not payload.content and not payload.embeds and not files:
+    if require_message and not payload.content and not payload.embeds and not files:
         raise HTTPException(status_code=400, detail="Provide content, embeds, or files")
     return payload, files
 
@@ -261,7 +307,13 @@ async def _broadcast(message: Message) -> dict[str, Any]:
 
 
 @router.post("/channels/text/{channel_id}/webhooks", status_code=201)
-async def create_webhook(payload: WebhookCreate, channel_id: int, current_user: User = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
+async def create_webhook(
+    payload: WebhookCreate,
+    channel_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+    audit_reason: str | None = Header(default=None, alias="X-Audit-Log-Reason"),
+):
     _ensure_enabled()
     channel = await _require_manage(db, current_user.id, channel_id)
     channel_count = await db.scalar(select(func.count(Webhook.id)).where(Webhook.text_channel_id == channel_id))
@@ -288,10 +340,12 @@ async def create_webhook(payload: WebhookCreate, channel_id: int, current_user: 
         target_type="webhook",
         target_id=webhook.id,
         changes={"name": webhook.name, "channel_id": webhook.text_channel_id},
+        reason=_audit_reason(audit_reason),
     )
     await db.commit()
     await db.refresh(webhook)
     webhook.creator = current_user
+    await _broadcast_webhooks_updated(webhook.text_channel_id)
     return _management_payload(webhook, token=token)
 
 
@@ -310,8 +364,15 @@ async def get_managed_webhook(webhook_id: int, current_user: User = Depends(get_
 
 
 @router.patch("/webhooks/{webhook_id}")
-async def update_managed_webhook(payload: WebhookUpdate, webhook_id: int, current_user: User = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
+async def update_managed_webhook(
+    payload: WebhookUpdate,
+    webhook_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+    audit_reason: str | None = Header(default=None, alias="X-Audit-Log-Reason"),
+):
     webhook = await _managed_webhook(db, webhook_id, current_user.id)
+    source_channel_id = webhook.text_channel_id
     if payload.channel_id is not None and payload.channel_id != webhook.text_channel_id:
         target = await _require_manage(db, current_user.id, payload.channel_id)
         if target.channel_id != webhook.server_id:
@@ -329,15 +390,24 @@ async def update_managed_webhook(payload: WebhookUpdate, webhook_id: int, curren
         target_type="webhook",
         target_id=webhook.id,
         changes={"name": webhook.name, "channel_id": webhook.text_channel_id, "avatar_changed": "avatar_url" in payload.model_fields_set},
+        reason=_audit_reason(audit_reason),
     )
     await db.commit()
     await db.refresh(webhook)
+    await _broadcast_webhooks_updated(source_channel_id, webhook.text_channel_id)
     return _management_payload(webhook)
 
 
 @router.delete("/webhooks/{webhook_id}", status_code=204)
-async def delete_managed_webhook(webhook_id: int, current_user: User = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
+async def delete_managed_webhook(
+    webhook_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+    audit_reason: str | None = Header(default=None, alias="X-Audit-Log-Reason"),
+):
     webhook = await _managed_webhook(db, webhook_id, current_user.id)
+    channel_id = webhook.text_channel_id
+    avatar_path = _webhook_avatar_path(webhook.avatar_url)
     await log_audit(
         db,
         server_id=webhook.server_id,
@@ -346,10 +416,39 @@ async def delete_managed_webhook(webhook_id: int, current_user: User = Depends(g
         target_type="webhook",
         target_id=webhook.id,
         changes={"name": webhook.name, "channel_id": webhook.text_channel_id},
+        reason=_audit_reason(audit_reason),
     )
     await db.delete(webhook)
     await db.commit()
+    if avatar_path:
+        avatar_path.unlink(missing_ok=True)
+    await _broadcast_webhooks_updated(channel_id)
     return Response(status_code=204)
+
+
+@router.post("/webhooks/{webhook_id}/avatar")
+async def upload_webhook_avatar(
+    request: Request,
+    webhook_id: int,
+    avatar: UploadFile = File(...),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    webhook = await _managed_webhook(db, webhook_id, current_user.id)
+    rate_limit_user(current_user.id, "webhook-avatar", limit=10, window=60, request=request)
+    old_path = _webhook_avatar_path(webhook.avatar_url)
+    try:
+        data, extension, _content_type = await read_and_validate_image(avatar)
+        filename = save_image_bytes(data, WEBHOOK_AVATARS_DIR, extension)
+    finally:
+        await avatar.close()
+    webhook.avatar_url = to_public_media_path(f"/static/uploads/webhook-avatars/{filename}")
+    await db.commit()
+    await db.refresh(webhook)
+    if old_path and old_path != WEBHOOK_AVATARS_DIR / filename:
+        old_path.unlink(missing_ok=True)
+    await _broadcast_webhooks_updated(webhook.text_channel_id)
+    return _management_payload(webhook)
 
 
 @router.get("/webhooks/{webhook_id}/execution-url")
@@ -360,7 +459,12 @@ async def get_execution_url(webhook_id: int, current_user: User = Depends(get_cu
 
 
 @router.post("/webhooks/{webhook_id}/reset-token")
-async def reset_webhook_token(webhook_id: int, current_user: User = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
+async def reset_webhook_token(
+    webhook_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+    audit_reason: str | None = Header(default=None, alias="X-Audit-Log-Reason"),
+):
     webhook = await _managed_webhook(db, webhook_id, current_user.id)
     token = generate_webhook_token()
     webhook.token_hash = hash_webhook_token(token)
@@ -373,8 +477,10 @@ async def reset_webhook_token(webhook_id: int, current_user: User = Depends(get_
         target_type="webhook",
         target_id=webhook.id,
         changes={"token_reset": True},
+        reason=_audit_reason(audit_reason),
     )
     await db.commit()
+    await _broadcast_webhooks_updated(webhook.text_channel_id)
     return {"execution_url": webhook_execution_url(webhook.id, token)}
 
 
@@ -387,7 +493,7 @@ async def test_webhook(webhook_id: int, current_user: User = Depends(get_current
 
 @router.get("/webhooks/{webhook_id}/{token}")
 async def get_webhook_with_token(webhook_id: int, token: str, db: AsyncSession = Depends(get_db)):
-    return _public_webhook_payload(await _token_webhook(db, webhook_id, token))
+    return _public_webhook_payload(await _token_webhook(db, webhook_id, token), token)
 
 
 @router.patch("/webhooks/{webhook_id}/{token}")
@@ -399,14 +505,20 @@ async def update_webhook_with_token(payload: WebhookTokenUpdate, webhook_id: int
         webhook.avatar_url = payload.avatar_url
     await db.commit()
     await db.refresh(webhook)
-    return _public_webhook_payload(webhook)
+    await _broadcast_webhooks_updated(webhook.text_channel_id)
+    return _public_webhook_payload(webhook, token)
 
 
 @router.delete("/webhooks/{webhook_id}/{token}", status_code=204)
 async def delete_webhook_with_token(webhook_id: int, token: str, db: AsyncSession = Depends(get_db)):
     webhook = await _token_webhook(db, webhook_id, token)
+    channel_id = webhook.text_channel_id
+    avatar_path = _webhook_avatar_path(webhook.avatar_url)
     await db.delete(webhook)
     await db.commit()
+    if avatar_path:
+        avatar_path.unlink(missing_ok=True)
+    await _broadcast_webhooks_updated(channel_id)
     return Response(status_code=204)
 
 
@@ -431,7 +543,7 @@ async def execute_webhook(request: Request, webhook_id: int, token: str, wait: b
     result = await consume(buckets)
     if not result.allowed:
         return _limited(result)
-    payload, files = await _parse_execute_request(request)
+    payload, files = await _parse_execute_request(request, require_message=False)
     message = await _persist_message(db, webhook, payload, files)
     internal = await _broadcast(message)
     if not payload.flags & 4096:
@@ -471,9 +583,15 @@ async def edit_webhook_message(request: Request, webhook_id: int, token: str, me
         message.embeds = [item.model_dump(mode="json", exclude_none=True) for item in payload.embeds]
     if "flags" in payload.model_fields_set:
         message.flags = payload.flags
+    attachments_supplied = "attachments" in payload.model_fields_set
     retained_ids = {item.id for item in payload.attachments}
-    removed_keys = [item.storage_key for item in message.attachments if item.id not in retained_ids]
-    message.attachments[:] = [item for item in message.attachments if item.id in retained_ids]
+    removed_keys = (
+        [item.storage_key for item in message.attachments if item.id not in retained_ids]
+        if attachments_supplied
+        else []
+    )
+    if attachments_supplied:
+        message.attachments[:] = [item for item in message.attachments if item.id in retained_ids]
     new_storage_keys: list[str] = []
     if files:
         consumed = 0

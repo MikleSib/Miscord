@@ -225,7 +225,7 @@ export function ChannelSettingsModal({
                 onClick={() => setActiveTab('webhooks')}
                 className={navItemClass('webhooks')}
               >
-                Вебхуки
+                Интеграция
               </button>
             )}
             <button
@@ -234,13 +234,6 @@ export function ChannelSettingsModal({
               className="w-full cursor-not-allowed rounded px-2.5 py-1.5 text-left text-[15px] text-[#4e5058]"
             >
               Приглашения
-            </button>
-            <button
-              type="button"
-              disabled
-              className="w-full cursor-not-allowed rounded px-2.5 py-1.5 text-left text-[15px] text-[#4e5058]"
-            >
-              Интеграция
             </button>
           </nav>
 
