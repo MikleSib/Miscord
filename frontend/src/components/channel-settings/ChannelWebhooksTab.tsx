@@ -470,7 +470,8 @@ export default function ChannelWebhooksTab({ channel }: ChannelWebhooksTabProps)
             репозиториях.
           </p>
           <pre className="mt-3 overflow-x-auto rounded-md bg-[#1e1f22] p-4 text-xs leading-5 text-[#dbdee1]">
-            <code>{'curl -H \"Content-Type: application/json\" \\\\\n  -d \\'{\"content\":\"Hello from Miscord\"}\\' WEBHOOK_URL'}</code>
+            <code>{`curl -H "Content-Type: application/json" \\
+  -d '{"content":"Hello from Miscord"}' WEBHOOK_URL`}</code>
           </pre>
         </section>
       </div>
