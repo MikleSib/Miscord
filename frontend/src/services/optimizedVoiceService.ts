@@ -5,8 +5,18 @@
 
 import unifiedWebSocketService from './unifiedWebSocketService';
 import { audioProcessingService } from './audioProcessingService';
+import {
+  captureAudioStream,
+  getVoiceSettingsSnapshot,
+  sensitivityToDbfs,
+  calculateAutoThreshold,
+  normalizePTTDelay,
+  shouldTransmit,
+  type VoiceSettingsSnapshot,
+} from './voiceSettings';
 import soundService from './soundService';
 import { advancedNoiseGate } from './advancedNoiseGate';
+import { useAudioDeviceStore } from '../store/audioDeviceStore';
 
 interface PeerConnection {
   pc: RTCPeerConnection;
@@ -26,6 +36,7 @@ interface VoiceParticipant {
 
 class OptimizedVoiceService {
   private localStream: MediaStream | null = null;
+  private rawInputStream: MediaStream | null = null;
   private screenStream: MediaStream | null = null;
   private peerConnections: Map<number, PeerConnection> = new Map();
   private pendingIceCandidates: Map<number, RTCIceCandidateInit[]> = new Map();
@@ -35,7 +46,7 @@ class OptimizedVoiceService {
   // Callbacks
   private onParticipantJoinedCallback: ((participant: VoiceParticipant) => void) | null = null;
   private onParticipantLeftCallback: ((userId: number) => void) | null = null;
-  private onSpeakingChangedCallback: ((userId: number, isSpeaking: boolean) => void) | null = null;
+  private onSpeakingChangedCallback: ((userId: number | null, isSpeaking: boolean) => void) | null = null;
   private onParticipantsReceivedCallback: ((participants: VoiceParticipant[]) => void) | null = null;
   private onParticipantStatusChangedCallback: ((userId: number, status: Partial<{ is_muted: boolean; is_deafened: boolean }>) => void) | null = null;
   private onScreenShareChangedCallback: ((userId: number, isSharing: boolean) => void) | null = null;
@@ -48,6 +59,7 @@ class OptimizedVoiceService {
   private isSpeaking: boolean = false;
   private speakingUsers: Set<number> = new Set();
   private participantDirectory: Map<number, VoiceParticipant> = new Map();
+  private remoteAudioElements: Map<number, HTMLAudioElement> = new Map();
   
   // VAD
   private audioContext: AudioContext | null = null;
@@ -57,6 +69,17 @@ class OptimizedVoiceService {
   private inputMode: 'voice-activity' | 'push-to-talk' = 'voice-activity';
   private pttKey: string = 'Space';
   private isPTTActive: boolean = false;
+  private pttDelay = 0;
+  private pttReleaseTimer: number | null = null;
+  private autoDetectSensitivity = true;
+  private vadActive = false;
+  private vadAttackFrames = 0;
+  private vadReleaseFrames = 0;
+  private vadCalibrationSamples: number[] = [];
+  private autoVadThresholdDbfs = -45;
+  private lastInputLevel = 0;
+  private transmitGateOpen = false;
+  private outputDeviceWarning: string | null = null;
   private pttKeyHandler: ((e: KeyboardEvent) => void) | null = null;
   private adaptiveQualityEnabled: boolean = true;
 
@@ -180,20 +203,32 @@ class OptimizedVoiceService {
    * Присоединение к голосовому каналу
    */
   public async joinVoiceChannel(channelId: number): Promise<void> {
+    const settings = getVoiceSettingsSnapshot();
+    this.applyRuntimeSettings(settings);
     console.log('[OptimizedVoice] 🎤 Присоединение к каналу:', channelId);
 
     try {
       // Получаем локальный поток
-      this.localStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          sampleRate: 48000,
-          channelCount: 1
+      this.rawInputStream = await captureAudioStream(
+        settings.processing,
+        settings.inputDeviceId,
+      );
+      const processedStream = await audioProcessingService.initialize(
+        this.rawInputStream,
+        {
+          noiseSuppression: settings.processing.noiseSuppression,
+          echoCancellation: settings.processing.echoCancellation,
+          autoGainControl: settings.processing.autoGainControl,
+          voiceConditioning: settings.processing.voiceConditioning,
+          useAdvancedNoiseSuppression:
+            settings.processing.noiseSuppression &&
+            settings.processing.noiseSuppressionEngine !== 'browser',
+          noiseSuppressionEngine:
+            settings.processing.noiseSuppressionEngine,
         },
-        video: false
-      });
+      );
+      this.localStream = processedStream;
+      audioProcessingService.setInputVolume(settings.inputVolume);
 
       console.log('[OptimizedVoice] ✅ Локальный поток получен');
 
@@ -284,6 +319,7 @@ class OptimizedVoiceService {
       if (this.onRemoteStreamCallback) {
         this.onRemoteStreamCallback(userId, stream);
       }
+      void this.attachRemoteAudio(userId, stream);
     };
 
     pc.onconnectionstatechange = () => {
@@ -405,27 +441,33 @@ class OptimizedVoiceService {
       this.peerConnections.delete(userId);
     }
     this.pendingIceCandidates.delete(userId);
+    this.removeRemoteAudio(userId);
   }
 
   /**
    * Инициализация аудио обработки и VAD
    */
   private async initializeAudioProcessing(): Promise<void> {
-    if (!this.localStream) return;
+    const analysisStream = this.rawInputStream ?? this.localStream;
+    if (!analysisStream) return;
 
     try {
+      if (this.audioContext && this.audioContext.state !== 'closed') {
+        await this.audioContext.close();
+      }
       this.audioContext = new AudioContext();
-      const source = this.audioContext.createMediaStreamSource(this.localStream);
+      const source = this.audioContext.createMediaStreamSource(analysisStream);
       
       this.analyser = this.audioContext.createAnalyser();
-      this.analyser.fftSize = 2048;
-      
+      this.analyser.fftSize = 1024;
+      this.analyser.smoothingTimeConstant = 0.12;
+
+
       source.connect(this.analyser);
 
       // Запускаем VAD если включен
-      if (this.inputMode === 'voice-activity') {
-        this.startVAD();
-      }
+      this.startVAD();
+      this.applyTransmitGate();
 
       console.log('[OptimizedVoice] ✅ Аудио обработка инициализирована');
     } catch (error) {
@@ -441,28 +483,68 @@ class OptimizedVoiceService {
       clearInterval(this.vadInterval);
     }
 
+    const samples = new Float32Array(this.analyser?.fftSize ?? 1024);
     this.vadInterval = setInterval(() => {
-      if (!this.analyser || this.isMuted) return;
+      if (!this.analyser) return;
 
-      const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
-      this.analyser.getByteFrequencyData(dataArray);
-
-      const sum = dataArray.reduce((a, b) => a + b, 0);
-      const average = sum / dataArray.length;
-
-      const speaking = average > this.vadThreshold;
-
-      if (speaking !== this.isSpeaking) {
-        this.isSpeaking = speaking;
-        
-        if (this.currentVoiceChannelId) {
-          unifiedWebSocketService.updateSpeakingStatus(
-            this.currentVoiceChannelId,
-            speaking
-          );
-        }
+      this.analyser.getFloatTimeDomainData(samples);
+      let sumSquares = 0;
+      for (let index = 0; index < samples.length; index += 1) {
+        const sample = samples[index];
+        sumSquares += sample * sample;
       }
-    }, 100);
+      const rms = Math.sqrt(sumSquares / samples.length);
+      const dbfs = 20 * Math.log10(Math.max(rms, 1e-8));
+      this.lastInputLevel = Math.max(0, Math.min(1, rms * 5));
+
+      if (this.autoDetectSensitivity && !this.vadActive) {
+        this.vadCalibrationSamples.push(dbfs);
+        if (this.vadCalibrationSamples.length > 100) {
+          this.vadCalibrationSamples.shift();
+        }
+        this.autoVadThresholdDbfs = calculateAutoThreshold(
+          this.vadCalibrationSamples,
+        );
+      }
+
+      const threshold = this.autoDetectSensitivity
+        ? this.autoVadThresholdDbfs
+        : sensitivityToDbfs(this.vadThreshold);
+      const aboveThreshold = dbfs >= threshold;
+
+      if (aboveThreshold) {
+        this.vadAttackFrames += 1;
+        this.vadReleaseFrames = 0;
+        if (this.vadAttackFrames >= 3) this.vadActive = true;
+      } else {
+        this.vadAttackFrames = 0;
+        this.vadReleaseFrames += 1;
+        if (this.vadReleaseFrames >= 10) this.vadActive = false;
+      }
+
+      this.applyTransmitGate();
+    }, 20);
+  }
+
+  private applyTransmitGate(): void {
+    const open = shouldTransmit(
+      this.isMuted,
+      this.inputMode,
+      this.vadActive,
+      this.isPTTActive,
+    );
+    audioProcessingService.setMuted(!open);
+
+    if (open === this.transmitGateOpen) return;
+    this.transmitGateOpen = open;
+    this.isSpeaking = open;
+    this.onSpeakingChangedCallback?.(null, open);
+    if (this.currentVoiceChannelId) {
+      unifiedWebSocketService.updateSpeakingStatus(
+        this.currentVoiceChannelId,
+        open,
+      );
+    }
   }
 
   /**
@@ -473,15 +555,27 @@ class OptimizedVoiceService {
       clearInterval(this.vadInterval);
       this.vadInterval = null;
     }
+    this.vadActive = false;
+    this.vadAttackFrames = 0;
+    this.vadReleaseFrames = 0;
+    this.applyTransmitGate();
   }
 
   /**
    * Остановка локального потока
    */
   private stopLocalStream(): void {
+    this.clearPTTReleaseTimer();
+    this.removePTTHandlers();
     if (this.localStream) {
       this.localStream.getTracks().forEach(track => track.stop());
       this.localStream = null;
+    }
+    void audioProcessingService.destroy();
+
+    if (this.rawInputStream) {
+      this.rawInputStream.getTracks().forEach(track => track.stop());
+      this.rawInputStream = null;
     }
 
     this.stopVAD();
@@ -494,89 +588,229 @@ class OptimizedVoiceService {
 
   // ==================== PUBLIC API ====================
 
+  public setInputVolume(volume: number): void {
+    const nextVolume = Math.min(100, Math.max(0, volume));
+    useAudioDeviceStore.getState().setInputVolume(nextVolume);
+    audioProcessingService.setInputVolume(nextVolume);
+  }
+
+  public setOutputVolume(volume: number): void {
+    const nextVolume = Math.min(100, Math.max(0, volume));
+    useAudioDeviceStore.getState().setOutputVolume(nextVolume);
+    this.remoteAudioElements.forEach((audio) => {
+      audio.volume = nextVolume / 100;
+    });
+  }
+
+  public async setOutputDevice(deviceId: string): Promise<void> {
+    const nextDeviceId = deviceId || 'default';
+    if (
+      nextDeviceId !== 'default' &&
+      !('setSinkId' in HTMLMediaElement.prototype)
+    ) {
+      this.outputDeviceWarning =
+        'Этот браузер не поддерживает выбор устройства вывода (setSinkId).';
+      throw new Error(this.outputDeviceWarning);
+    }
+    const sinkId = nextDeviceId === 'default' ? '' : nextDeviceId;
+    await Promise.all(Array.from(this.remoteAudioElements.values()).map(async (audio) => {
+      const sinkAudio = audio as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
+      if (!sinkAudio.setSinkId) return;
+      await sinkAudio.setSinkId(sinkId);
+    }));
+    useAudioDeviceStore.getState().setOutputDeviceId(nextDeviceId);
+    this.outputDeviceWarning = null;
+  }
+
+  public async switchInputDevice(deviceId: string): Promise<void> {
+    const nextDeviceId = deviceId || 'default';
+    if (!this.currentVoiceChannelId) {
+      useAudioDeviceStore.getState().setInputDeviceId(nextDeviceId);
+      return;
+    }
+
+    const settings = getVoiceSettingsSnapshot();
+    const nextRawStream = await captureAudioStream(
+      settings.processing,
+      nextDeviceId,
+    );
+
+    const previousLocalStream = this.localStream;
+    const previousRawStream = this.rawInputStream;
+    this.stopVAD();
+    if (this.audioContext) await this.audioContext.close();
+    this.audioContext = null;
+    this.analyser = null;
+    this.analyser = null;
+    this.rawInputStream = nextRawStream;
+    const processedStream = await audioProcessingService.initialize(
+      nextRawStream,
+      {
+        noiseSuppression: settings.processing.noiseSuppression,
+        echoCancellation: settings.processing.echoCancellation,
+        autoGainControl: settings.processing.autoGainControl,
+        voiceConditioning: settings.processing.voiceConditioning,
+        useAdvancedNoiseSuppression:
+          settings.processing.noiseSuppression &&
+          settings.processing.noiseSuppressionEngine !== 'browser',
+        noiseSuppressionEngine:
+          settings.processing.noiseSuppressionEngine,
+      },
+    );
+    this.localStream = processedStream;
+    audioProcessingService.setInputVolume(useAudioDeviceStore.getState().inputVolume ?? 100);
+    await this.initializeAudioProcessing();
+
+    const nextTrack = this.localStream?.getAudioTracks()[0] ?? null;
+    await Promise.all(Array.from(this.peerConnections.values()).map(async ({ pc }) => {
+      const sender = pc.getSenders().find((candidate) => candidate.track?.kind === 'audio');
+      if (sender) await sender.replaceTrack(nextTrack);
+    }));
+
+    previousLocalStream?.getTracks().forEach((track) => track.stop());
+    if (previousRawStream !== previousLocalStream) {
+      previousRawStream?.getTracks().forEach((track) => track.stop());
+    }
+
+    const actualDeviceId = nextRawStream.getAudioTracks()[0]?.getSettings().deviceId;
+    const selectedDeviceId =
+      nextDeviceId === 'default' || actualDeviceId === nextDeviceId
+        ? nextDeviceId
+        : 'default';
+    useAudioDeviceStore
+      .getState()
+      .setInputDeviceId(selectedDeviceId);
+  }
+
+  private async attachRemoteAudio(userId: number, stream: MediaStream): Promise<void> {
+    let audio = this.remoteAudioElements.get(userId);
+    if (!audio) {
+      audio = new Audio();
+      audio.autoplay = true;
+      audio.id = `optimized-remote-audio-${userId}`;
+      this.remoteAudioElements.set(userId, audio);
+    }
+
+    const audioState = useAudioDeviceStore.getState();
+    audio.srcObject = stream;
+    audio.volume = audioState.outputVolume / 100;
+    audio.muted = this.isDeafened;
+
+    const sinkAudio = audio as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
+    if (sinkAudio.setSinkId) {
+      const sinkId = audioState.outputDeviceId === 'default' ? '' : audioState.outputDeviceId;
+      await sinkAudio.setSinkId(sinkId).catch(() => undefined);
+    }
+    await audio.play().catch(() => undefined);
+  }
+
+  private removeRemoteAudio(userId: number): void {
+    const audio = this.remoteAudioElements.get(userId);
+    if (!audio) return;
+    audio.pause();
+    audio.srcObject = null;
+    this.remoteAudioElements.delete(userId);
+  }
+
   public toggleMute(): boolean {
-    this.isMuted = !this.isMuted;
+    return this.setMuted(!this.isMuted);
+  }
 
-    if (this.localStream) {
-      this.localStream.getAudioTracks().forEach(track => {
-        track.enabled = !this.isMuted;
-      });
+  public setMuted(muted: boolean): boolean {
+    this.isMuted = muted;
+    if (muted) {
+      this.clearPTTReleaseTimer();
+      this.isPTTActive = false;
     }
-
+    this.applyTransmitGate();
     if (this.currentVoiceChannelId) {
-      unifiedWebSocketService.updateMuteStatus(this.currentVoiceChannelId, this.isMuted);
+      unifiedWebSocketService.updateMuteStatus(
+        this.currentVoiceChannelId,
+        this.isMuted,
+      );
     }
-
-    console.log('[OptimizedVoice] 🔇 Mute:', this.isMuted);
     return this.isMuted;
   }
 
   public toggleDeafen(): boolean {
-    this.isDeafened = !this.isDeafened;
+    return this.setDeafened(!this.isDeafened);
+  }
 
+  public setDeafened(deafened: boolean): boolean {
+    this.isDeafened = deafened;
+    this.remoteAudioElements.forEach((audio) => {
+      audio.muted = this.isDeafened;
+    });
     if (this.currentVoiceChannelId) {
-      unifiedWebSocketService.updateDeafenStatus(this.currentVoiceChannelId, this.isDeafened);
+      unifiedWebSocketService.updateDeafenStatus(
+        this.currentVoiceChannelId,
+        this.isDeafened,
+      );
     }
-
-    console.log('[OptimizedVoice] 🔇 Deafen:', this.isDeafened);
     return this.isDeafened;
   }
 
   public updateVADThresholds(sensitivity: number): void {
-    this.vadThreshold = sensitivity;
-    console.log('[OptimizedVoice] 🎙️ VAD threshold updated:', sensitivity);
+    this.setVADSensitivity(sensitivity);
+  }
+
+  public setVADSensitivity(sensitivity: number): void {
+    this.vadThreshold = Math.max(0, Math.min(100, sensitivity));
+  }
+
+  public setAutoDetectSensitivity(enabled: boolean): void {
+    this.autoDetectSensitivity = enabled;
+    this.vadCalibrationSamples = [];
+    this.autoVadThresholdDbfs = -45;
   }
 
   public setInputMode(mode: 'voice-activity' | 'push-to-talk'): void {
     this.inputMode = mode;
-    
     if (mode === 'voice-activity') {
       this.removePTTHandlers();
-      this.startVAD();
+      this.isPTTActive = false;
     } else {
-      this.stopVAD();
+      this.vadActive = false;
       this.setupPTTHandlers();
     }
+    this.startVAD();
+    this.applyTransmitGate();
   }
 
   public setPTTKey(key: string): void {
     this.pttKey = key;
-    this.removePTTHandlers();
     if (this.inputMode === 'push-to-talk') {
       this.setupPTTHandlers();
     }
   }
 
+  public setPTTDelay(delay: number): void {
+    this.pttDelay = normalizePTTDelay(delay);
+  }
   private setupPTTHandlers(): void {
-    this.pttKeyHandler = (e: KeyboardEvent) => {
-      if (e.code === this.pttKey) {
-        if (e.type === 'keydown' && !this.isPTTActive) {
+    this.removePTTHandlers();
+    this.pttKeyHandler = (event: KeyboardEvent) => {
+      if (event.code !== this.pttKey) return;
+      event.preventDefault();
+
+      if (event.type === 'keydown') {
+        this.clearPTTReleaseTimer();
+        if (!this.isPTTActive) {
           this.isPTTActive = true;
-          this.isSpeaking = true;
-          
-          if (this.localStream) {
-            this.localStream.getAudioTracks().forEach(track => {
-              track.enabled = true;
-            });
-          }
-
-          if (this.currentVoiceChannelId) {
-            unifiedWebSocketService.updateSpeakingStatus(this.currentVoiceChannelId, true);
-          }
-        } else if (e.type === 'keyup' && this.isPTTActive) {
-          this.isPTTActive = false;
-          this.isSpeaking = false;
-
-          if (this.localStream) {
-            this.localStream.getAudioTracks().forEach(track => {
-              track.enabled = false;
-            });
-          }
-
-          if (this.currentVoiceChannelId) {
-            unifiedWebSocketService.updateSpeakingStatus(this.currentVoiceChannelId, false);
-          }
+          this.applyTransmitGate();
         }
+        return;
+      }
+
+      this.clearPTTReleaseTimer();
+      const release = () => {
+        this.isPTTActive = false;
+        this.applyTransmitGate();
+      };
+      if (this.pttDelay === 0) {
+        release();
+      } else {
+        this.pttReleaseTimer = window.setTimeout(release, this.pttDelay);
       }
     };
 
@@ -585,6 +819,7 @@ class OptimizedVoiceService {
   }
 
   private removePTTHandlers(): void {
+    this.clearPTTReleaseTimer();
     if (this.pttKeyHandler) {
       window.removeEventListener('keydown', this.pttKeyHandler);
       window.removeEventListener('keyup', this.pttKeyHandler);
@@ -592,6 +827,67 @@ class OptimizedVoiceService {
     }
   }
 
+  private clearPTTReleaseTimer(): void {
+    if (this.pttReleaseTimer !== null) {
+      window.clearTimeout(this.pttReleaseTimer);
+      this.pttReleaseTimer = null;
+    }
+  }
+
+  private applyRuntimeSettings(settings: VoiceSettingsSnapshot): void {
+    this.vadThreshold = settings.vadSensitivity;
+    this.autoDetectSensitivity = settings.autoDetectSensitivity;
+    this.pttKey = settings.pttKey;
+    this.pttDelay = settings.pttDelay;
+    this.inputMode = settings.inputMode;
+
+    if (this.inputMode === 'push-to-talk') {
+      this.setupPTTHandlers();
+    } else {
+      this.removePTTHandlers();
+    }
+  }
+
+  public async applySettings(settings: VoiceSettingsSnapshot): Promise<void> {
+    this.applyRuntimeSettings(settings);
+    audioProcessingService.setInputVolume(settings.inputVolume);
+    audioProcessingService.updateConfig({
+      echoCancellation: settings.processing.echoCancellation,
+      autoGainControl: settings.processing.autoGainControl,
+      voiceConditioning: settings.processing.voiceConditioning,
+    });
+    await audioProcessingService.setNoiseSuppression(
+      settings.processing.noiseSuppression,
+      settings.processing.noiseSuppressionEngine,
+    );
+    this.setOutputVolume(settings.outputVolume);
+    try {
+      await this.setOutputDevice(settings.outputDeviceId);
+    } catch (error) {
+      console.warn('[OptimizedVoice] Output device setting was not applied:', error);
+    }
+    this.startVAD();
+    this.applyTransmitGate();
+  }
+
+  public getCurrentVolume(): number {
+    return this.lastInputLevel;
+  }
+
+  public getDiagnostics() {
+    const diagnostics = audioProcessingService.getDiagnostics();
+    return {
+      ...diagnostics,
+      unsupportedConstraints: this.outputDeviceWarning
+        ? [...diagnostics.unsupportedConstraints, 'setSinkId']
+        : diagnostics.unsupportedConstraints,
+      outputDeviceWarning: this.outputDeviceWarning,
+      vadThresholdDbfs: this.autoDetectSensitivity
+        ? this.autoVadThresholdDbfs
+        : sensitivityToDbfs(this.vadThreshold),
+      transmitGateOpen: this.transmitGateOpen,
+    };
+  }
   // ==================== CALLBACKS ====================
 
   public onParticipantJoined(callback: (participant: VoiceParticipant) => void): void {
@@ -602,7 +898,7 @@ class OptimizedVoiceService {
     this.onParticipantLeftCallback = callback;
   }
 
-  public onSpeakingChanged(callback: (userId: number, isSpeaking: boolean) => void): void {
+  public onSpeakingChanged(callback: (userId: number | null, isSpeaking: boolean) => void): void {
     this.onSpeakingChangedCallback = callback;
   }
 
