@@ -1,7 +1,9 @@
-"""Безопасная загрузка изображений: magic bytes + whitelist расширений."""
+"""Безопасная потоковая загрузка файлов чата с проверкой magic bytes."""
 from __future__ import annotations
 
+import mimetypes
 import os
+import re
 from pathlib import Path
 from typing import BinaryIO, Tuple
 from uuid import uuid4
@@ -11,6 +13,58 @@ from fastapi import HTTPException, UploadFile, status
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 MAX_CHAT_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_CHAT_VIDEO_BYTES = 20 * 1024 * 1024
+MAX_CHAT_FILE_BYTES = 20 * 1024 * 1024
+
+_SAFE_EXTENSION = re.compile(r"\.[a-z0-9][a-z0-9._+-]{0,14}$", re.IGNORECASE)
+_TEXT_CONTENT_TYPES = {
+    ".txt": "text/plain; charset=utf-8",
+    ".md": "text/markdown; charset=utf-8",
+    ".markdown": "text/markdown; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".jsx": "text/javascript; charset=utf-8",
+    ".ts": "text/plain; charset=utf-8",
+    ".tsx": "text/plain; charset=utf-8",
+    ".py": "text/x-python; charset=utf-8",
+    ".java": "text/plain; charset=utf-8",
+    ".c": "text/plain; charset=utf-8",
+    ".cc": "text/plain; charset=utf-8",
+    ".cpp": "text/plain; charset=utf-8",
+    ".h": "text/plain; charset=utf-8",
+    ".hpp": "text/plain; charset=utf-8",
+    ".cs": "text/plain; charset=utf-8",
+    ".go": "text/plain; charset=utf-8",
+    ".rs": "text/plain; charset=utf-8",
+    ".php": "text/plain; charset=utf-8",
+    ".rb": "text/plain; charset=utf-8",
+    ".sh": "text/x-shellscript; charset=utf-8",
+    ".bash": "text/x-shellscript; charset=utf-8",
+    ".ps1": "text/plain; charset=utf-8",
+    ".bat": "text/plain; charset=utf-8",
+    ".cmd": "text/plain; charset=utf-8",
+    ".sql": "application/sql",
+    ".json": "application/json",
+    ".jsonl": "application/x-ndjson",
+    ".yaml": "application/yaml",
+    ".yml": "application/yaml",
+    ".toml": "application/toml",
+    ".xml": "application/xml",
+    ".html": "text/html; charset=utf-8",
+    ".htm": "text/html; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".scss": "text/plain; charset=utf-8",
+    ".less": "text/plain; charset=utf-8",
+    ".vue": "text/plain; charset=utf-8",
+    ".svelte": "text/plain; charset=utf-8",
+    ".env": "text/plain; charset=utf-8",
+}
+_EXECUTABLE_SIGNATURES = (
+    b"MZ",
+    b"\x7fELF",
+    b"\xfe\xed\xfa\xce",
+    b"\xce\xfa\xed\xfe",
+    b"\xfe\xed\xfa\xcf",
+    b"\xcf\xfa\xed\xfe",
+)
 
 # signature -> (ext, content_type)
 _SIGNATURES: Tuple[Tuple[bytes, str, str], ...] = (
@@ -43,8 +97,33 @@ def _detect_video(header: bytes) -> Tuple[str, str] | None:
     return None
 
 
-async def stream_and_validate_chat_media(upload: UploadFile, destination: str) -> Tuple[str, str, int]:
-    """Stream chat media to disk while enforcing limits and detecting MIME by magic bytes."""
+def _detect_audio(header: bytes) -> Tuple[str, str] | None:
+    if header.startswith(b"ID3") or (len(header) >= 2 and header[0] == 0xFF and header[1] & 0xE0 == 0xE0):
+        return ".mp3", "audio/mpeg"
+    if header.startswith(b"OggS"):
+        return ".ogg", "audio/ogg"
+    if header.startswith(b"fLaC"):
+        return ".flac", "audio/flac"
+    if len(header) >= 12 and header.startswith(b"RIFF") and header[8:12] == b"WAVE":
+        return ".wav", "audio/wav"
+    if len(header) >= 12 and header[4:8] == b"ftyp" and header[8:12] in {b"M4A ", b"M4B ", b"M4P "}:
+        return ".m4a", "audio/mp4"
+    return None
+
+
+def _client_extension(filename: str | None) -> str:
+    suffix = Path(filename or "").suffix.lower()
+    return suffix if _SAFE_EXTENSION.fullmatch(suffix) else ".bin"
+
+
+def _download_content_type(filename: str | None, extension: str) -> str:
+    if extension in _TEXT_CONTENT_TYPES:
+        return _TEXT_CONTENT_TYPES[extension]
+    return mimetypes.guess_type(filename or "")[0] or "application/octet-stream"
+
+
+async def stream_and_validate_chat_media(upload: UploadFile, destination: str) -> Tuple[str, str, int, bool]:
+    """Stream a chat attachment and return extension, MIME, size and inline safety."""
     total = 0
     header = bytearray()
     with open(destination, "wb") as output:
@@ -53,22 +132,35 @@ async def stream_and_validate_chat_media(upload: UploadFile, destination: str) -
             if not chunk:
                 break
             total += len(chunk)
-            if total > MAX_CHAT_VIDEO_BYTES:
+            if total > MAX_CHAT_FILE_BYTES:
                 raise HTTPException(status_code=413, detail="Файл превышает лимит 20 МиБ")
             if len(header) < 4096:
                 header.extend(chunk[: 4096 - len(header)])
             output.write(chunk)
 
-    detected = _detect_image(bytes(header))
-    is_image = detected is not None
-    if detected is None:
-        detected = _detect_video(bytes(header))
-    if detected is None:
-        raise HTTPException(status_code=415, detail="Поддерживаются только изображения и видео")
-    if is_image and total > MAX_CHAT_IMAGE_BYTES:
-        raise HTTPException(status_code=413, detail="Изображение превышает лимит 10 МиБ")
-    extension, content_type = detected
-    return extension, content_type, total
+    if total == 0:
+        raise HTTPException(status_code=400, detail="Пустые файлы не поддерживаются")
+
+    raw_header = bytes(header)
+    detected = _detect_image(raw_header)
+    if detected:
+        if total > MAX_CHAT_IMAGE_BYTES:
+            raise HTTPException(status_code=413, detail="Изображение превышает лимит 10 МиБ")
+        return detected[0], detected[1], total, True
+
+    detected = _detect_audio(raw_header)
+    if detected:
+        return detected[0], detected[1], total, True
+
+    detected = _detect_video(raw_header)
+    if detected:
+        return detected[0], detected[1], total, True
+
+    if any(raw_header.startswith(signature) for signature in _EXECUTABLE_SIGNATURES):
+        raise HTTPException(status_code=415, detail="Исполняемые бинарные файлы запрещены")
+
+    extension = _client_extension(upload.filename)
+    return extension, _download_content_type(upload.filename, extension), total, False
 
 
 async def read_and_validate_chat_media(upload: UploadFile) -> Tuple[bytes, str, str]:

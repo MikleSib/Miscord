@@ -692,7 +692,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
           <div className="text-center">
             <PlusCircle className="mx-auto mb-3 h-10 w-10 text-[#7c86ff]" />
             <p className="text-base font-semibold text-white">Добавить файлы в сообщение</p>
-            <p className="mt-1 text-sm text-[#b5bac1]">Изображения до 10 МиБ, видео до 20 МиБ</p>
+            <p className="mt-1 text-sm text-[#b5bac1]">Изображения до 10 МиБ, остальные файлы до 20 МиБ</p>
           </div>
         </div>
       )}
@@ -853,7 +853,6 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
                 type="file"
                 ref={fileInputRef}
                 multiple
-                accept="image/png,image/jpeg,image/gif,image/webp,video/mp4,video/webm,video/quicktime"
                 onChange={handleFileChange}
                 className="hidden"
               />
@@ -864,7 +863,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
                 onClick={() => fileInputRef.current?.click()}
                 className="mr-2"
                 disabled={files.length >= MAX_CHAT_ATTACHMENTS || isLoading || isSlowModeActive}
-                title="Прикрепить изображения или видео"
+                title="Прикрепить файлы"
               >
                 <PlusCircle className="w-5 h-5" />
               </Button>

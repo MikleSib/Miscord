@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Video, X } from 'lucide-react'
-import { chatMediaKind } from '../lib/chatAttachments'
+import { File, Music, Video, X } from 'lucide-react'
+import { chatAttachmentKind } from '../lib/chatAttachments'
 
 function sizeLabel(size: number): string {
   return size < 1024 * 1024
@@ -12,7 +12,7 @@ function sizeLabel(size: number): string {
 
 export function PendingAttachmentPreview({ file, onRemove }: { file: File; onRemove: () => void }) {
   const [url, setUrl] = useState('')
-  const isVideo = chatMediaKind(file) === 'video'
+  const kind = chatAttachmentKind(file)
 
   useEffect(() => {
     const objectUrl = URL.createObjectURL(file)
@@ -23,12 +23,16 @@ export function PendingAttachmentPreview({ file, onRemove }: { file: File; onRem
   return (
     <div className="group relative w-24 shrink-0 overflow-hidden rounded-lg border border-[#4b4d55] bg-[#2b2d31]">
       <div className="relative h-20 bg-[#1e1f22]">
-        {url && (isVideo ? (
+        {url && kind === 'video' ? (
           <video src={url} muted preload="metadata" className="h-full w-full object-cover" />
-        ) : (
+        ) : url && kind === 'image' ? (
           <img src={url} alt={file.name} className="h-full w-full object-cover" />
-        ))}
-        {isVideo && (
+        ) : (
+          <span className="grid h-full w-full place-items-center text-[#b5bac1]">
+            {kind === 'audio' ? <Music className="h-8 w-8" /> : <File className="h-8 w-8" />}
+          </span>
+        )}
+        {kind === 'video' && (
           <span className="absolute bottom-1 left-1 grid h-6 w-6 place-items-center rounded bg-black/70 text-white">
             <Video className="h-3.5 w-3.5" />
           </span>

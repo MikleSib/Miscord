@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
 from app.models import PendingChatUpload
+from app.services.clamav import ClamAVUnavailable, MalwareDetected, scan_file
 from app.services.image_upload import stream_and_validate_chat_media
 from app.services.object_storage import delete_object, new_public_object_key, public_media_url, put_file
 import logging
@@ -32,7 +33,7 @@ UPLOADS_DIR = Path.cwd() / "static" / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 os.chmod(UPLOADS_DIR.parent, 0o755)
 os.chmod(UPLOADS_DIR, 0o755)
-logger.info("[UPLOAD] РџР°РїРєР° Р·Р°РіСЂСѓР·РѕРє: %s", UPLOADS_DIR.absolute())
+logger.info("[UPLOAD] Каталог загрузок: %s", UPLOADS_DIR.absolute())
 
 
 @router.post("/upload")
@@ -45,7 +46,13 @@ async def upload_chat_file(
     os.close(fd)
     storage_key = None
     try:
-        extension, content_type, size_bytes = await stream_and_validate_chat_media(file, temp_path)
+        extension, content_type, size_bytes, inline_safe = await stream_and_validate_chat_media(file, temp_path)
+        try:
+            await scan_file(Path(temp_path))
+        except MalwareDetected as exc:
+            raise HTTPException(status_code=400, detail="Файл отклонен проверкой безопасности") from exc
+        except ClamAVUnavailable as exc:
+            raise HTTPException(status_code=503, detail="Проверка файлов временно недоступна") from exc
         original_filename = Path(file.filename or f"upload{extension}").name[:255]
         storage_key = new_public_object_key("uploads", extension)
         await put_file(
@@ -53,7 +60,7 @@ async def upload_chat_file(
             Path(temp_path),
             content_type=content_type,
             filename=original_filename,
-            inline=True,
+            inline=inline_safe,
         )
         upload_id = str(uuid.uuid4())
         file_url = public_media_url(storage_key)

@@ -4,8 +4,10 @@ import { useState, useEffect, useRef } from 'react'
 import { DirectMessage, User } from '../types'
 import directMessageService from '../services/directMessageService'
 import websocketService from '../services/websocketService'
-import { appendChatFiles, isVideoAttachment, MAX_CHAT_ATTACHMENTS } from '../lib/chatAttachments'
+import { appendChatFiles, MAX_CHAT_ATTACHMENTS } from '../lib/chatAttachments'
 import { PendingAttachmentPreview } from './PendingAttachmentPreview'
+import { ManagedMessageAttachments } from './ManagedMessageAttachments'
+import { MessageAttachmentGallery } from './MessageAttachmentGallery'
 import { OutgoingMessageCard } from './OutgoingMessageCard'
 import { useOutgoingMessageStore } from '../store/outgoingMessageStore'
 import api from '../services/api'
@@ -445,7 +447,7 @@ export function DirectMessageArea({
           <div className="text-center">
             <PlusCircle className="mx-auto mb-3 h-10 w-10 text-[#7c86ff]" />
             <p className="text-base font-semibold text-white">Добавить файлы в сообщение</p>
-            <p className="mt-1 text-sm text-[#b5bac1]">Изображения до 10 МиБ, видео до 20 МиБ</p>
+            <p className="mt-1 text-sm text-[#b5bac1]">Изображения до 10 МиБ, остальные файлы до 20 МиБ</p>
           </div>
         </div>
       )}
@@ -503,32 +505,9 @@ export function DirectMessageArea({
                 <div className="flex flex-col gap-2 max-w-lg">
                   {/* Attachments */}
                   {msg.attachments && msg.attachments.length > 0 && (
-                    <div className="flex flex-col items-start gap-2">
-                      {msg.attachments.map(att => isVideoAttachment(
-                        (att as typeof att & { content_type?: string | null }).content_type,
-                        att.file_url,
-                      ) ? (
-                        <video
-                          key={att.id}
-                          controls
-                          preload="metadata"
-                          src={att.file_url}
-                          className={`max-h-80 max-w-lg rounded-md bg-black ${isPending ? 'opacity-70' : ''}`}
-                        />
-                      ) : (
-                        <button
-                          key={att.id}
-                          type="button"
-                          onClick={() => handleImageClick(msg, att.file_url)}
-                          className="media-thumb"
-                        >
-                          <img
-                            src={att.file_url}
-                            alt="Вложение"
-                            className={`max-h-80 max-w-xs rounded-md object-cover ${isPending ? 'opacity-70' : ''}`}
-                          />
-                        </button>
-                      ))}
+                    <div className={isPending ? 'opacity-70' : undefined}>
+                      <MessageAttachmentGallery attachments={msg.attachments} onOpen={(url) => handleImageClick(msg, url)} />
+                      <ManagedMessageAttachments attachments={msg.attachments} />
                     </div>
                   )}
                   
@@ -685,7 +664,6 @@ export function DirectMessageArea({
               type="file"
               ref={fileInputRef}
               multiple
-              accept="image/png,image/jpeg,image/gif,image/webp,video/mp4,video/webm,video/quicktime"
               onChange={handleFileChange}
               className="hidden"
             />
@@ -694,7 +672,7 @@ export function DirectMessageArea({
               onClick={() => fileInputRef.current?.click()}
               className="text-gray-400 hover:text-white mr-2"
               disabled={files.length >= MAX_CHAT_ATTACHMENTS || isSending || isRateLimited}
-              title="Прикрепить изображения или видео"
+              title="Прикрепить файлы"
             >
               <PlusCircle className="w-5 h-5" />
             </button>

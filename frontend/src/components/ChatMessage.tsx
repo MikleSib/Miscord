@@ -14,7 +14,7 @@ import { MessageContent } from './MessageContent'
 import { MessageLinkEmbeds } from './MessageLinkEmbeds'
 import { RichMessageEmbeds } from './RichMessageEmbeds'
 import { ManagedMessageAttachments } from './ManagedMessageAttachments'
-import { isVideoAttachment } from '../lib/chatAttachments'
+import { MessageAttachmentGallery } from './MessageAttachmentGallery'
 import { RichWebhookEmbed } from '../types/webhook'
 import { contentMentionsUser } from '../lib/mentions'
 import { useMentionNotificationStore } from '../store/mentionNotificationStore'
@@ -318,49 +318,17 @@ export function ChatMessage({
             ) : message.content ? (
               <MessageLinkEmbeds content={message.content} />
             ) : null}
+            <MessageAttachmentGallery
+              attachments={message.attachments || []}
+              onOpen={(url) => setLightboxItem({
+                url,
+                alt: 'Вложение',
+                author: message.author,
+                timestamp: message.timestamp,
+              })}
+            />
             <ManagedMessageAttachments attachments={message.attachments || []} />
           </>
-        )}
-
-        {/* Attachments */}
-        {message.attachments && message.attachments.length > 0 && (
-          <div className="mt-2 flex flex-col items-start gap-2">
-            {message.attachments.filter((att) => {
-              const contentType = (att as typeof att & { content_type?: string | null }).content_type
-              return !contentType || contentType.startsWith('image/')
-            }).map(att => isVideoAttachment(
-              (att as typeof att & { content_type?: string | null }).content_type,
-              att.file_url,
-            ) ? (
-              <video
-                key={att.id}
-                controls
-                preload="metadata"
-                src={att.file_url}
-                className="max-h-[360px] max-w-lg rounded-lg bg-black"
-              />
-            ) : (
-              <button
-                key={att.id}
-                type="button"
-                className="media-thumb"
-                onClick={() =>
-                  setLightboxItem({
-                    url: att.file_url,
-                    alt: 'Вложение',
-                    author: message.author,
-                    timestamp: message.timestamp,
-                  })
-                }
-              >
-                <img
-                  src={att.file_url}
-                  alt="Вложение"
-                  className="max-w-xs max-h-80 rounded-md object-cover"
-                />
-              </button>
-            ))}
-          </div>
         )}
 
         {/* Reactions */}
