@@ -266,7 +266,6 @@ export interface DirectMessage {
   recipient_id: number;
   author?: User; // Данные автора (могут прийти с сервера)
   attachments?: Attachment[];
-  client_nonce?: string | null;
   reactions?: Reaction[];
   isPending?: boolean; // Статус отправки
   tempId?: string; // Временный ID для отслеживания pending сообщений
