@@ -59,6 +59,9 @@ export function ChannelWebhooksTab({ channel }: ChannelWebhooksTabProps) {
   const [targetChannelId, setTargetChannelId] = useState(channel.id)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [secretUrl, setSecretUrl] = useState<string | null>(null)
+  const [secretTitle, setSecretTitle] = useState('')
+  const [secretCopied, setSecretCopied] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -94,6 +97,28 @@ export function ChannelWebhooksTab({ channel }: ChannelWebhooksTabProps) {
     window.setTimeout(() => setNotice(''), 3500)
   }
 
+  const showOneTimeSecret = (title: string, url: string) => {
+    setSecretTitle(title)
+    setSecretUrl(url)
+    setSecretCopied(false)
+  }
+
+  const closeOneTimeSecret = () => {
+    setSecretUrl(null)
+    setSecretTitle('')
+    setSecretCopied(false)
+  }
+
+  const copyOneTimeSecret = async () => {
+    if (!secretUrl) return
+    try {
+      await navigator.clipboard.writeText(secretUrl)
+      setSecretCopied(true)
+    } catch {
+      setError('Не удалось скопировать URL. Выделите его вручную.')
+    }
+  }
+
   const beginEdit = (webhook: IncomingWebhook) => {
     setEditingId(webhook.id)
     setName(webhook.name)
@@ -108,12 +133,13 @@ export function ChannelWebhooksTab({ channel }: ChannelWebhooksTabProps) {
     setError('')
     try {
       const created = await webhookService.create(channel.id)
+      const oneTimeUrl = created.execution_url
+      delete created.execution_url
       setItems((current) => [...current, created])
-      if (created.execution_url) {
-        await navigator.clipboard.writeText(created.execution_url)
-        showNotice('Вебхук создан. URL скопирован в буфер обмена.')
+      if (oneTimeUrl) {
+        showOneTimeSecret('Вебхук создан', oneTimeUrl)
       } else {
-        showNotice('Вебхук создан.')
+        setError('Вебхук создан, но одноразовый URL не был получен. Сбросьте токен.')
       }
       beginEdit(created)
     } catch (requestError) {
@@ -183,20 +209,6 @@ export function ChannelWebhooksTab({ channel }: ChannelWebhooksTabProps) {
     }
   }
 
-  const copyUrl = async (webhookId: number) => {
-    setBusy(webhookId)
-    setError('')
-    try {
-      const result = await webhookService.executionUrl(webhookId)
-      await navigator.clipboard.writeText(result.execution_url)
-      showNotice('URL вебхука скопирован.')
-    } catch (requestError) {
-      setError(getErrorMessage(requestError))
-    } finally {
-      setBusy(null)
-    }
-  }
-
   const resetToken = async (webhookId: number) => {
     if (!window.confirm('Старый URL сразу перестанет работать. Сбросить токен?')) {
       return
@@ -205,8 +217,7 @@ export function ChannelWebhooksTab({ channel }: ChannelWebhooksTabProps) {
     setError('')
     try {
       const result = await webhookService.resetToken(webhookId)
-      await navigator.clipboard.writeText(result.execution_url)
-      showNotice('Токен сброшен. Новый URL скопирован.')
+      showOneTimeSecret('Токен сброшен', result.execution_url)
     } catch (requestError) {
       setError(getErrorMessage(requestError))
     } finally {
@@ -426,14 +437,6 @@ export function ChannelWebhooksTab({ channel }: ChannelWebhooksTabProps) {
                           type="button"
                           className={secondaryButton}
                           disabled={isBusy}
-                          onClick={() => void copyUrl(webhook.id)}
-                        >
-                          Копировать URL
-                        </button>
-                        <button
-                          type="button"
-                          className={secondaryButton}
-                          disabled={isBusy}
                           onClick={() => void sendTest(webhook.id)}
                         >
                           Отправить тест
@@ -475,6 +478,53 @@ export function ChannelWebhooksTab({ channel }: ChannelWebhooksTabProps) {
           </pre>
         </section>
       </div>
+
+      {secretUrl && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 px-4 py-8"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="webhook-secret-title"
+        >
+          <div className="w-full max-w-[560px] rounded-xl bg-[#2b2d31] p-5 shadow-[0_18px_60px_rgba(0,0,0,0.55)] sm:p-6">
+            <h2 id="webhook-secret-title" className="text-lg font-bold text-[#f2f3f5]">
+              {secretTitle}
+            </h2>
+            <p className="mt-2 text-sm leading-5 text-[#b5bac1]">
+              Сохраните этот URL сейчас. После закрытия окна Miscord больше не сможет
+              показать его. Для получения нового URL потребуется сбросить токен.
+            </p>
+            <label className="mt-5 block">
+              <span className="mb-2 block text-xs font-bold uppercase tracking-[0.02em] text-[#b5bac1]">
+                Одноразовый URL вебхука
+              </span>
+              <input
+                readOnly
+                value={secretUrl}
+                onFocus={(event) => event.currentTarget.select()}
+                className={inputClass + ' font-mono text-xs'}
+                aria-label="Одноразовый URL вебхука"
+              />
+            </label>
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                className={secondaryButton}
+                onClick={closeOneTimeSecret}
+              >
+                Я сохранил URL
+              </button>
+              <button
+                type="button"
+                className={primaryButton}
+                onClick={() => void copyOneTimeSecret()}
+              >
+                {secretCopied ? 'Скопировано' : 'Скопировать URL'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -15,7 +15,6 @@ export interface IncomingWebhook {
   creator: WebhookCreator | null
   created_at: string
   updated_at: string
-  token?: string
   execution_url?: string
 }
 

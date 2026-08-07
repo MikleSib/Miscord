@@ -29,8 +29,6 @@ from app.services.message_serializer import serialize_channel_message
 from app.services.rate_limit import rate_limit_user
 from app.services.webhook_rate_limit import Bucket, consume, rate_headers
 from app.services.webhook_security import (
-    decrypt_webhook_token,
-    encrypt_webhook_token,
     generate_webhook_token,
     hash_webhook_token,
     verify_webhook_token,
@@ -108,8 +106,8 @@ def _creator_payload(webhook: Webhook) -> dict[str, Any] | None:
     }
 
 
-def _management_payload(webhook: Webhook, *, token: str | None = None) -> dict[str, Any]:
-    payload = {
+def _management_payload(webhook: Webhook) -> dict[str, Any]:
+    return {
         "id": webhook.id,
         "type": 1,
         "server_id": webhook.server_id,
@@ -120,13 +118,9 @@ def _management_payload(webhook: Webhook, *, token: str | None = None) -> dict[s
         "created_at": webhook.created_at.isoformat(),
         "updated_at": webhook.updated_at.isoformat(),
     }
-    if token:
-        payload["token"] = token
-        payload["execution_url"] = webhook_execution_url(webhook.id, token)
-    return payload
 
 
-def _public_webhook_payload(webhook: Webhook, token: str) -> dict[str, Any]:
+def _public_webhook_payload(webhook: Webhook) -> dict[str, Any]:
     return {
         "application_id": None,
         "avatar": webhook.avatar_url,
@@ -134,10 +128,20 @@ def _public_webhook_payload(webhook: Webhook, token: str) -> dict[str, Any]:
         "guild_id": str(webhook.server_id),
         "id": str(webhook.id),
         "name": webhook.name,
-        "token": token,
         "type": 1,
-        "url": webhook_execution_url(webhook.id, token),
     }
+
+
+_NO_STORE_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, private",
+    "Pragma": "no-cache",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+}
+
+
+def _one_time_secret_response(payload: dict[str, Any]) -> JSONResponse:
+    return JSONResponse(content=payload, headers=_NO_STORE_HEADERS)
 
 
 def _audit_reason(value: str | None) -> str | None:
@@ -328,7 +332,7 @@ async def create_webhook(
         name=_validate_name(payload.name),
         avatar_url=payload.avatar_url,
         token_hash=hash_webhook_token(token),
-        token_ciphertext=encrypt_webhook_token(token),
+        token_ciphertext="",
         created_by_id=current_user.id,
     )
     db.add(webhook)
@@ -347,7 +351,9 @@ async def create_webhook(
     await db.refresh(webhook)
     webhook.creator = current_user
     await _broadcast_webhooks_updated(webhook.text_channel_id)
-    return _management_payload(webhook, token=token)
+    response = _management_payload(webhook)
+    response["execution_url"] = webhook_execution_url(webhook.id, token)
+    return _one_time_secret_response(response)
 
 
 @router.get("/channels/text/{channel_id}/webhooks")
@@ -452,13 +458,6 @@ async def upload_webhook_avatar(
     return _management_payload(webhook)
 
 
-@router.get("/webhooks/{webhook_id}/execution-url")
-async def get_execution_url(webhook_id: int, current_user: User = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
-    webhook = await _managed_webhook(db, webhook_id, current_user.id)
-    token = decrypt_webhook_token(webhook.token_ciphertext)
-    return {"execution_url": webhook_execution_url(webhook.id, token)}
-
-
 @router.post("/webhooks/{webhook_id}/reset-token")
 async def reset_webhook_token(
     webhook_id: int,
@@ -469,7 +468,7 @@ async def reset_webhook_token(
     webhook = await _managed_webhook(db, webhook_id, current_user.id)
     token = generate_webhook_token()
     webhook.token_hash = hash_webhook_token(token)
-    webhook.token_ciphertext = encrypt_webhook_token(token)
+    webhook.token_ciphertext = ""
     await log_audit(
         db,
         server_id=webhook.server_id,
@@ -482,7 +481,7 @@ async def reset_webhook_token(
     )
     await db.commit()
     await _broadcast_webhooks_updated(webhook.text_channel_id)
-    return {"execution_url": webhook_execution_url(webhook.id, token)}
+    return _one_time_secret_response({"execution_url": webhook_execution_url(webhook.id, token)})
 
 
 @router.post("/webhooks/{webhook_id}/test")
@@ -494,7 +493,8 @@ async def test_webhook(webhook_id: int, current_user: User = Depends(get_current
 
 @router.get("/webhooks/{webhook_id}/{token}")
 async def get_webhook_with_token(webhook_id: int, token: str, db: AsyncSession = Depends(get_db)):
-    return _public_webhook_payload(await _token_webhook(db, webhook_id, token), token)
+    webhook = await _token_webhook(db, webhook_id, token)
+    return JSONResponse(content=_public_webhook_payload(webhook), headers=_NO_STORE_HEADERS)
 
 
 @router.patch("/webhooks/{webhook_id}/{token}")
@@ -507,7 +507,7 @@ async def update_webhook_with_token(payload: WebhookTokenUpdate, webhook_id: int
     await db.commit()
     await db.refresh(webhook)
     await _broadcast_webhooks_updated(webhook.text_channel_id)
-    return _public_webhook_payload(webhook, token)
+    return JSONResponse(content=_public_webhook_payload(webhook), headers=_NO_STORE_HEADERS)
 
 
 @router.delete("/webhooks/{webhook_id}/{token}", status_code=204)

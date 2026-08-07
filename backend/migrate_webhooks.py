@@ -43,6 +43,7 @@ STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS ix_messages_webhook_id_id ON messages(webhook_id, id)",
     "CREATE INDEX IF NOT EXISTS ix_messages_channel_history ON messages(text_channel_id, timestamp DESC, id DESC)",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_attachments_storage_key ON attachments(storage_key) WHERE storage_key IS NOT NULL",
+    "UPDATE webhooks SET token_ciphertext = '' WHERE token_ciphertext <> ''",
     """
     DO $$
     BEGIN
@@ -70,4 +71,3 @@ async def migrate() -> None:
 
 if __name__ == "__main__":
     asyncio.run(migrate())
-

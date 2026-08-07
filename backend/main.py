@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 import asyncio
 import logging
 import re
-from sqlalchemy import delete
+from sqlalchemy import delete, text
 
 from app.core.config import settings
 from app.db.database import engine, Base
@@ -56,6 +56,9 @@ def configure_sensitive_log_redaction() -> None:
         logger = logging.getLogger(logger_name)
         if not any(isinstance(item, SensitiveQueryLogFilter) for item in logger.filters):
             logger.addFilter(SensitiveQueryLogFilter())
+    # Nginx remains the request log source. Uvicorn access records are disabled
+    # defensively so secret path parameters can never be emitted by a formatter.
+    logging.getLogger("uvicorn.access").disabled = True
 
 
 configure_sensitive_log_redaction()
@@ -66,6 +69,9 @@ async def lifespan(app: FastAPI):
     # Startup
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Execution URLs are intentionally one-time. Existing encrypted copies
+        # are irreversibly scrubbed; only high-entropy token hashes remain.
+        await conn.execute(text("UPDATE webhooks SET token_ciphertext = '' WHERE token_ciphertext <> ''"))
     # Voice presence is runtime state; it must not survive a backend restart.
     async with AsyncSessionLocal() as db:
         await db.execute(delete(VoiceChannelUser))

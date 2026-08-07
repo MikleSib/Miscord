@@ -46,13 +46,6 @@ class WebhookService {
     await api.delete('/api/webhooks/' + webhookId)
   }
 
-  async executionUrl(webhookId: number): Promise<WebhookExecutionUrl> {
-    const response = await api.get<WebhookExecutionUrl>(
-      '/api/webhooks/' + webhookId + '/execution-url',
-    )
-    return response.data
-  }
-
   async resetToken(webhookId: number): Promise<WebhookExecutionUrl> {
     const response = await api.post<WebhookExecutionUrl>(
       '/api/webhooks/' + webhookId + '/reset-token',
