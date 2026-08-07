@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgres:16
+    restart: unless-stopped
     environment:
       POSTGRES_DB: miscord
       POSTGRES_USER: miscord_user
@@ -9,6 +10,12 @@ services:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - miscord_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-miscord_user} -d $${POSTGRES_DB:-miscord}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 
   redis:
     image: redis:7-alpine
@@ -19,6 +26,7 @@ services:
 
   backend:
     build: ./backend
+    restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://miscord_user:miscord_password@postgres:5432/miscord
       REDIS_URL: redis://redis:6379
@@ -47,8 +55,10 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
     volumes:
       - ./backend:/app
       - media_data:/app/static/uploads
