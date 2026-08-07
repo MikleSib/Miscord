@@ -26,6 +26,7 @@ from app.services.clamav import ClamAVUnavailable, MalwareDetected, scan_file
 from app.services.channel_permissions import get_effective_channel_permissions
 from app.services.image_upload import read_and_validate_image, save_image_bytes
 from app.services.message_serializer import serialize_channel_message
+from app.services.object_storage import ObjectStorageError, delete_object, delete_public_media, store_public_image
 from app.services.rate_limit import rate_limit_user
 from app.services.webhook_rate_limit import Bucket, consume, rate_headers
 from app.services.webhook_security import (
@@ -277,7 +278,7 @@ async def _persist_message(
         )
         metadata = {item.id: item for item in payload.attachments}
         for index, item in enumerate(staged):
-            storage_key, _destination = finalize_staged_file(item)
+            storage_key, _destination = await finalize_staged_file(item)
             finalized.append(storage_key)
             request_meta = metadata.get(index)
             message.attachments.append(
@@ -301,7 +302,7 @@ async def _persist_message(
         for item in staged:
             item.path.unlink(missing_ok=True)
         for storage_key in finalized:
-            remove_storage_key(storage_key)
+            await remove_storage_key(storage_key)
         raise
 
 
@@ -414,7 +415,7 @@ async def delete_managed_webhook(
 ):
     webhook = await _managed_webhook(db, webhook_id, current_user.id)
     channel_id = webhook.text_channel_id
-    avatar_path = _webhook_avatar_path(webhook.avatar_url)
+    avatar_url = webhook.avatar_url
     await log_audit(
         db,
         server_id=webhook.server_id,
@@ -427,8 +428,7 @@ async def delete_managed_webhook(
     )
     await db.delete(webhook)
     await db.commit()
-    if avatar_path:
-        avatar_path.unlink(missing_ok=True)
+    await delete_public_media(avatar_url)
     await _broadcast_webhooks_updated(channel_id)
     return Response(status_code=204)
 
@@ -443,17 +443,26 @@ async def upload_webhook_avatar(
 ):
     webhook = await _managed_webhook(db, webhook_id, current_user.id)
     rate_limit_user(current_user.id, "webhook-avatar", limit=10, window=60, request=request)
-    old_path = _webhook_avatar_path(webhook.avatar_url)
+    old_avatar_url = webhook.avatar_url
+    new_key = None
     try:
-        data, extension, _content_type = await read_and_validate_image(avatar)
-        filename = save_image_bytes(data, WEBHOOK_AVATARS_DIR, extension)
+        data, extension, content_type = await read_and_validate_image(avatar)
+        avatar_url, new_key = await store_public_image("webhook-avatars", data, extension, content_type)
+    except ObjectStorageError as exc:
+        raise HTTPException(status_code=503, detail="Media storage is unavailable") from exc
     finally:
         await avatar.close()
-    webhook.avatar_url = to_public_media_path(f"/static/uploads/webhook-avatars/{filename}")
-    await db.commit()
+    webhook.avatar_url = avatar_url
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        if new_key and not new_key.startswith("/"):
+            await delete_object(new_key)
+        raise
     await db.refresh(webhook)
-    if old_path and old_path != WEBHOOK_AVATARS_DIR / filename:
-        old_path.unlink(missing_ok=True)
+    if old_avatar_url != avatar_url:
+        await delete_public_media(old_avatar_url)
     await _broadcast_webhooks_updated(webhook.text_channel_id)
     return _management_payload(webhook)
 
@@ -514,11 +523,10 @@ async def update_webhook_with_token(payload: WebhookTokenUpdate, webhook_id: int
 async def delete_webhook_with_token(webhook_id: int, token: str, db: AsyncSession = Depends(get_db)):
     webhook = await _token_webhook(db, webhook_id, token)
     channel_id = webhook.text_channel_id
-    avatar_path = _webhook_avatar_path(webhook.avatar_url)
+    avatar_url = webhook.avatar_url
     await db.delete(webhook)
     await db.commit()
-    if avatar_path:
-        avatar_path.unlink(missing_ok=True)
+    await delete_public_media(avatar_url)
     await _broadcast_webhooks_updated(channel_id)
     return Response(status_code=204)
 
@@ -609,7 +617,7 @@ async def edit_webhook_message(request: Request, webhook_id: int, token: str, me
                 except ClamAVUnavailable as exc:
                     staged.path.unlink(missing_ok=True)
                     raise HTTPException(status_code=503, detail="Malware scanner is unavailable") from exc
-                storage_key, _destination = finalize_staged_file(staged)
+                storage_key, _destination = await finalize_staged_file(staged)
                 new_storage_keys.append(storage_key)
                 request_meta = metadata.get(index)
                 message.attachments.append(
@@ -625,7 +633,7 @@ async def edit_webhook_message(request: Request, webhook_id: int, token: str, me
                 )
         except Exception:
             for storage_key in new_storage_keys:
-                remove_storage_key(storage_key)
+                await remove_storage_key(storage_key)
             raise
     message.is_edited = True
     if not message.content and not message.embeds and not message.attachments:
@@ -635,10 +643,10 @@ async def edit_webhook_message(request: Request, webhook_id: int, token: str, me
     except Exception:
         await db.rollback()
         for storage_key in new_storage_keys:
-            remove_storage_key(storage_key)
+            await remove_storage_key(storage_key)
         raise
     for storage_key in removed_keys:
-        remove_storage_key(storage_key)
+        await remove_storage_key(storage_key)
     payload_out = serialize_channel_message(message)
     await manager.send_to_channel(message.text_channel_id, {"type": "message_updated", "data": payload_out})
     return _external_message_payload(message)
@@ -655,6 +663,6 @@ async def delete_webhook_message(webhook_id: int, token: str, message_id: int, d
     message.is_deleted = True
     await db.commit()
     for storage_key in storage_keys:
-        remove_storage_key(storage_key)
+        await remove_storage_key(storage_key)
     await manager.send_to_channel(message.text_channel_id, {"type": "message_deleted", "data": {"id": message.id, "text_channel_id": message.text_channel_id}})
     return Response(status_code=204)

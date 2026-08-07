@@ -16,6 +16,7 @@ from app.db.database import get_db
 from app.models.user import User
 from app.schemas.user import Token, User as UserSchema, UserCreate, UserUpdate
 from app.services.image_upload import read_and_validate_image, save_image_bytes
+from app.services.object_storage import ObjectStorageError, delete_object, delete_public_media, store_public_image
 from app.services.rate_limit import rate_limit_auth, rate_limit_user
 from app.websocket.connection_manager import manager
 
@@ -166,11 +167,14 @@ async def upload_avatar(
 ):
     """Загрузка аватара пользователя."""
     rate_limit_user(current_user.id, "avatar", limit=10, window=60, request=request)
+    new_key = None
     try:
-        data, extension, _ctype = await read_and_validate_image(avatar)
-        unique_filename = save_image_bytes(data, AVATARS_DIR, extension)
+        data, extension, content_type = await read_and_validate_image(avatar)
+        avatar_url, new_key = await store_public_image("avatars", data, extension, content_type)
     except HTTPException:
         raise
+    except ObjectStorageError as exc:
+        raise HTTPException(status_code=503, detail="Media storage is unavailable") from exc
     except Exception as exc:
         logger.error("[AVATAR] Ошибка сохранения: %s", exc)
         raise HTTPException(
@@ -180,18 +184,18 @@ async def upload_avatar(
     finally:
         await avatar.close()
 
-    file_path = AVATARS_DIR / unique_filename
-    old_path = _local_path_from_avatar_url(current_user.avatar_url)
-    if old_path and old_path.exists() and old_path != file_path:
-        try:
-            old_path.unlink()
-        except OSError:
-            pass
-
-    avatar_url = to_public_media_path(f"/static/uploads/avatars/{unique_filename}")
+    old_avatar_url = current_user.avatar_url
     current_user.avatar_url = avatar_url
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        if new_key and not new_key.startswith("/"):
+            await delete_object(new_key)
+        raise
     await db.refresh(current_user)
+    if old_avatar_url != avatar_url:
+        await delete_public_media(old_avatar_url)
     await _broadcast_profile_update(current_user)
 
     return {"avatar_url": avatar_url}
@@ -203,16 +207,11 @@ async def delete_avatar(
     db: AsyncSession = Depends(get_db),
 ):
     """Удаление аватара пользователя."""
-    old_path = _local_path_from_avatar_url(current_user.avatar_url)
-    if old_path and old_path.exists():
-        try:
-            old_path.unlink()
-        except OSError:
-            pass
-
+    old_avatar_url = current_user.avatar_url
     current_user.avatar_url = None
     await db.commit()
     await db.refresh(current_user)
+    await delete_public_media(old_avatar_url)
     await _broadcast_profile_update(current_user)
 
     return {"message": "Avatar deleted"}

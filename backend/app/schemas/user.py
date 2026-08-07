@@ -22,7 +22,11 @@ class UserUpdate(BaseModel):
         if value is None or value == "":
             return None
         # Только свои загруженные файлы — не произвольный URL
-        if value.startswith("/static/uploads/") or "/static/uploads/" in value:
+        if (
+            value.startswith("/static/uploads/")
+            or "/static/uploads/" in value
+            or value.startswith("/api/media/")
+        ):
             return value
         raise ValueError("avatar_url должен указывать на /static/uploads/")
 

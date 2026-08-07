@@ -30,6 +30,16 @@ class Settings(BaseSettings):
     ATTACHMENT_X_ACCEL_ENABLED: bool = False
     ATTACHMENT_URL_TTL_SECONDS: int = 86400
     ATTACHMENT_DISK_RESERVE_BYTES: int = 1073741824
+    S3_ENABLED: bool = False
+    S3_ENDPOINT_URL: str = "https://s3.twcstorage.ru"
+    S3_REGION: str = "ru-1"
+    S3_BUCKET: str = ""
+    S3_ACCESS_KEY_ID: str = ""
+    S3_SECRET_ACCESS_KEY: str = ""
+    S3_KEY_PREFIX: str = "miscord"
+    S3_CDN_BASE_URL: str = ""
+    S3_CDN_SECURE_TOKEN: str = ""
+    S3_DELIVERY_URL_TTL_SECONDS: int = 86400
     CLAMAV_HOST: str = "clamav"
     CLAMAV_PORT: int = 3310
     CLAMAV_SCAN_CONCURRENCY: int = 2
@@ -74,6 +84,17 @@ class Settings(BaseSettings):
             logger.warning(msg)
         if self.WEBHOOKS_ENABLED and env in {"production", "prod"} and not self.WEBHOOK_TOKEN_ENCRYPTION_KEY:
             raise RuntimeError("WEBHOOK_TOKEN_ENCRYPTION_KEY is required when webhooks are enabled in production.")
+        if self.S3_ENABLED:
+            required = {
+                "S3_BUCKET": self.S3_BUCKET,
+                "S3_ACCESS_KEY_ID": self.S3_ACCESS_KEY_ID,
+                "S3_SECRET_ACCESS_KEY": self.S3_SECRET_ACCESS_KEY,
+            }
+            missing = [name for name, value in required.items() if not value]
+            if missing:
+                raise RuntimeError(f"Missing required S3 settings: {', '.join(missing)}")
+            if env in {"production", "prod"} and self.S3_CDN_BASE_URL and not self.S3_CDN_SECURE_TOKEN:
+                logger.warning("S3 CDN is configured without Secure token; object URLs will be public.")
     
     # WebRTC. TURN обязателен для абонентов за разными или строгими NAT.
     # Production передаёт полный список через JSON-переменную ICE_SERVERS.

@@ -8,6 +8,7 @@ from app.core.dependencies import get_current_active_user
 from app.core.media import to_public_media_path
 from app.models.user import User
 from app.services.image_upload import read_and_validate_image, save_image_bytes
+from app.services.object_storage import ObjectStorageError, store_public_image
 from app.services.rate_limit import rate_limit_user
 
 logger = logging.getLogger(__name__)
@@ -30,17 +31,18 @@ async def upload_file(
     """Загрузка изображения: только реальные PNG/JPEG/GIF/WEBP."""
     rate_limit_user(current_user.id, "upload", limit=30, window=60, request=request)
     try:
-        data, extension, _ctype = await read_and_validate_image(file)
-        unique_filename = save_image_bytes(data, UPLOADS_DIR, extension)
-        file_url = to_public_media_path(f"/static/uploads/{unique_filename}")
+        data, extension, content_type = await read_and_validate_image(file)
+        file_url, storage_key = await store_public_image("uploads", data, extension, content_type)
         logger.info(
-            "[UPLOAD] user=%s file=%s",
+            "[UPLOAD] user=%s object=%s",
             current_user.id,
-            unique_filename,
+            storage_key.rsplit("/", 1)[-1],
         )
         return {"file_url": file_url}
     except HTTPException:
         raise
+    except ObjectStorageError as exc:
+        raise HTTPException(status_code=503, detail="Media storage is unavailable") from exc
     except Exception as exc:
         logger.error("[UPLOAD] Ошибка: %s", exc)
         raise HTTPException(

@@ -16,6 +16,12 @@ import aiofiles
 from fastapi import HTTPException, UploadFile, status
 
 from app.core.config import settings
+from app.services.object_storage import (
+    attachment_object_key,
+    delete_object,
+    object_storage_enabled,
+    put_file,
+)
 
 
 MAX_FILE_BYTES = 10 * 1024 * 1024
@@ -95,10 +101,20 @@ async def stage_upload(upload: UploadFile, consumed_bytes: int) -> StagedFile:
         await upload.close()
 
 
-def finalize_staged_file(staged: StagedFile) -> tuple[str, Path]:
+async def finalize_staged_file(staged: StagedFile) -> tuple[str, Path | None]:
     now = datetime.utcnow()
     suffix = Path(staged.filename).suffix.lower()[:16]
     storage_key = f"{now:%Y/%m}/{uuid4().hex}{suffix}"
+    if object_storage_enabled():
+        await put_file(
+            attachment_object_key(storage_key),
+            staged.path,
+            content_type=staged.content_type,
+            filename=staged.filename,
+            inline=staged.inline_safe,
+        )
+        staged.path.unlink(missing_ok=True)
+        return storage_key, None
     destination = Path(settings.ATTACHMENT_STORAGE_DIR) / storage_key
     destination.parent.mkdir(parents=True, exist_ok=True)
     os.replace(staged.path, destination)
@@ -106,8 +122,11 @@ def finalize_staged_file(staged: StagedFile) -> tuple[str, Path]:
     return storage_key, destination
 
 
-def remove_storage_key(storage_key: str | None) -> None:
+async def remove_storage_key(storage_key: str | None) -> None:
     if not storage_key:
+        return
+    if object_storage_enabled():
+        await delete_object(attachment_object_key(storage_key))
         return
     root = Path(settings.ATTACHMENT_STORAGE_DIR).resolve()
     target = (root / storage_key).resolve()
@@ -134,4 +153,3 @@ def verify_attachment_signature(attachment_id: int, expires: int, signature: str
     payload = f"{attachment_id}:{expires}:{safe_filename(filename)}".encode("utf-8")
     expected = hmac.new(_signing_key(), payload, hashlib.sha256).hexdigest()
     return hmac.compare_digest(signature, expected)
-
