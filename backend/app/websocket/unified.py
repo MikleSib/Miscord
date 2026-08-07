@@ -531,7 +531,9 @@ async def handle_chat_message(
             {
                 "id": att.id,
                 "file_url": att.file_url,
-                "filename": getattr(att, "filename", None),
+                "filename": att.original_filename or "attachment",
+                "content_type": att.content_type or "application/octet-stream",
+                "size_bytes": att.size_bytes or 0,
             } for att in full_message.attachments
         ],
         "reactions": [],
@@ -554,6 +556,10 @@ async def handle_chat_message(
     await manager.send_to_channel(text_channel_id, {
         "type": "new_message",
         "data": message_dict,
+    })
+    await manager.send_to_user(user.id, {
+        "type": "message_ack",
+        "data": {"id": full_message.id, "client_nonce": full_message.client_nonce},
     })
 
     await notify_message_mentions(

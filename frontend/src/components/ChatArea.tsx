@@ -77,8 +77,12 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   const initializeOutgoingQueue = useOutgoingMessageStore((state) => state.initialize)
   const enqueueOutgoing = useOutgoingMessageStore((state) => state.enqueue)
   const outgoingMessages = useMemo(
-    () => outgoingQueue.filter((message) => message.conversation.type === 'channel' && message.conversation.id === currentChannel?.id),
-    [outgoingQueue, currentChannel?.id],
+    () => outgoingQueue.filter((message) =>
+      message.conversation.type === 'channel' &&
+      message.conversation.id === currentChannel?.id &&
+      !messages.some((saved) => saved.client_nonce === message.clientNonce)
+    ),
+    [outgoingQueue, currentChannel?.id, messages],
   )
 
   useEffect(() => {
@@ -883,8 +887,8 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
                 }}
                 placeholder={
                   replyingTo 
-                    ? `РћС‚РІРµС‚ РїРѕР»СЊР·РѕРІР°С‚РµР»СЋ ${replyingTo.author.username}...`
-                    : `РќР°РїРёСЃР°С‚СЊ РІ #${currentChannel.name} В· @ вЂ” СѓРїРѕРјСЏРЅСѓС‚СЊ`
+                    ? `Ответ пользователю ${replyingTo.author.username}...`
+                    : `Написать в #${currentChannel.name} · @ — упомянуть`
                 }
                 className="flex-1 bg-transparent outline-none text-sm"
                 disabled={isLoading || isSlowModeActive}

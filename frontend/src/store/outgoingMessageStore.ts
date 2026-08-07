@@ -43,6 +43,7 @@ interface OutgoingState {
 }
 
 const controllers = new Map<string, AbortController>()
+const progressUpdates = new Map<string, number>()
 const activeConversations = new Set<string>()
 const ackTimers = new Map<string, number>()
 const uploadWaiters: Array<() => void> = []
@@ -144,6 +145,10 @@ async function uploadAttachment(message: OutgoingMessage, attachment: OutgoingAt
       signal: controller.signal,
       onProgress: (loaded, total) => {
         const progress = total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 0
+        const now = performance.now()
+        const lastUpdate = progressUpdates.get(controllerKey) || 0
+        if (progress < 100 && now - lastUpdate < 100) return
+        progressUpdates.set(controllerKey, now)
         updateMessage(message.clientNonce, (item) => ({
           ...item,
           phase: progress >= 100 ? 'processing' : 'uploading',
@@ -161,6 +166,7 @@ async function uploadAttachment(message: OutgoingMessage, attachment: OutgoingAt
     }))
   } finally {
     controllers.delete(controllerKey)
+    progressUpdates.delete(controllerKey)
   }
 }
 

@@ -22,7 +22,16 @@ async def get_messages(db: AsyncSession, user1_id: int, user2_id: int, skip: int
     # РЎРѕСЂС‚РёСЂСѓРµРј СЃРѕРѕР±С‰РµРЅРёСЏ РїРѕ РІСЂРµРјРµРЅРё РІ РІРѕР·СЂР°СЃС‚Р°СЋС‰РµРј РїРѕСЂСЏРґРєРµ РґР»СЏ РїСЂР°РІРёР»СЊРЅРѕРіРѕ РѕС‚РѕР±СЂР°Р¶РµРЅРёСЏ
     return sorted(messages, key=lambda x: x.timestamp)
 
-async def create_message(db: AsyncSession, sender_id: int, recipient_id: int, content: str = None, attachments: list = None, reply_to_id: int = None):
+async def create_message(
+    db: AsyncSession,
+    sender_id: int,
+    recipient_id: int,
+    content: str = None,
+    attachments: list = None,
+    reply_to_id: int = None,
+    client_nonce: str = None,
+    pending_uploads: list[PendingChatUpload] = None,
+):
     db_message = DirectMessage(
         client_nonce=client_nonce,
         sender_id=sender_id,
@@ -37,10 +46,8 @@ async def create_message(db: AsyncSession, sender_id: int, recipient_id: int, co
             attachment = Attachment(file_url=url)
             db_message.attachments.append(attachment)
     
-    db.add(db_message)
     for pending in pending_uploads or []:
-        db.add(Attachment(
-            direct_message_id=db_message.id,
+        db_message.attachments.append(Attachment(
             file_url=pending.file_url,
             original_filename=pending.original_filename,
             content_type=pending.content_type,
@@ -49,6 +56,7 @@ async def create_message(db: AsyncSession, sender_id: int, recipient_id: int, co
         ))
         await db.delete(pending)
 
+    db.add(db_message)
     await db.commit()
     await db.refresh(db_message)
     

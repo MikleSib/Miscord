@@ -46,11 +46,17 @@ async def upload_chat_file(
     storage_key = None
     try:
         extension, content_type, size_bytes = await stream_and_validate_chat_media(file, temp_path)
+        original_filename = Path(file.filename or f"upload{extension}").name[:255]
         storage_key = new_public_object_key("uploads", extension)
-        await asyncio.to_thread(put_file, storage_key, temp_path, content_type)
+        await put_file(
+            storage_key,
+            Path(temp_path),
+            content_type=content_type,
+            filename=original_filename,
+            inline=True,
+        )
         upload_id = str(uuid.uuid4())
         file_url = public_media_url(storage_key)
-        original_filename = Path(file.filename or f"upload{extension}").name[:255]
         pending = PendingChatUpload(
             id=upload_id,
             owner_id=current_user.id,
@@ -71,13 +77,14 @@ async def upload_chat_file(
         }
     except HTTPException:
         if storage_key:
-            await asyncio.to_thread(delete_object, storage_key)
+            await delete_object(storage_key)
         raise
     except Exception:
+        logger.exception("Chat media upload failed", extra={"user_id": current_user.id})
         await db.rollback()
         if storage_key:
             try:
-                await asyncio.to_thread(delete_object, storage_key)
+                await delete_object(storage_key)
             except Exception:
                 pass
         raise HTTPException(status_code=503, detail="Хранилище файлов временно недоступно")
@@ -101,7 +108,7 @@ async def delete_pending_upload(
     if pending is None:
         raise HTTPException(status_code=404, detail="Загрузка не найдена")
     try:
-        await asyncio.to_thread(delete_object, pending.storage_key)
+        await delete_object(pending.storage_key)
     except Exception:
         raise HTTPException(status_code=503, detail="Не удалось удалить файл из хранилища")
     await db.delete(pending)

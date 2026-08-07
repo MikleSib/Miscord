@@ -49,7 +49,10 @@ export function DirectMessageArea({
   const enqueueOutgoing = useOutgoingMessageStore((state) => state.enqueue)
   const acknowledgeOutgoing = useOutgoingMessageStore((state) => state.acknowledge)
   const outgoingMessages = outgoingQueue.filter(
-    (message) => message.conversation.type === 'dm' && message.conversation.id === friend.id,
+    (message) =>
+      message.conversation.type === 'dm' &&
+      message.conversation.id === friend.id &&
+      !messages.some((saved) => saved.client_nonce === message.clientNonce),
   )
   const [lightboxItem, setLightboxItem] = useState<MediaLightboxItem | null>(null)
   const [replyingTo, setReplyingTo] = useState<DirectMessage | null>(null)
@@ -633,7 +636,7 @@ export function DirectMessageArea({
       <div className="px-4 pb-4 border-t border-[#2c2d32] flex-shrink-0">
         {isRateLimited && (
           <div className="mb-2 rounded-md border border-[#5865f2]/30 bg-[#5865f2]/10 px-3 py-2 text-sm text-[#dbdee1]">
-            {rateLimitHint || `РЎР»РёС€РєРѕРј Р±С‹СЃС‚СЂРѕ. РџРѕРґРѕР¶РґРёС‚Рµ ${rateLimitRemainingSeconds} СЃРµРє.`}
+            {rateLimitHint || `Слишком быстро. Подождите ${rateLimitRemainingSeconds} сек.`}
           </div>
         )}
         <form onSubmit={handleSendMessage} className="bg-[#393a41] rounded-lg flex flex-col">
@@ -700,7 +703,7 @@ export function DirectMessageArea({
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               onPaste={handlePaste}
-              placeholder={replyingTo ? 'РќР°РїРёС€РёС‚Рµ РѕС‚РІРµС‚...' : `РќР°РїРёСЃР°С‚СЊ @${friend.username}`}
+              placeholder={replyingTo ? 'Напишите ответ...' : `Написать @${friend.username}`}
               className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none py-3"
               disabled={isSending || isRateLimited}
             />
