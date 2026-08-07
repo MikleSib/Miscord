@@ -668,8 +668,8 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     return (
       <div className="app-shell flex min-w-0 flex-1 items-center justify-center">
         <div className="text-muted-foreground text-center">
-          <p className="text-2xl mb-2">Р”РѕР±СЂРѕ РїРѕР¶Р°Р»РѕРІР°С‚СЊ!</p>
-          <p>Р’С‹Р±РµСЂРёС‚Рµ РєР°РЅР°Р» РґР»СЏ РЅР°С‡Р°Р»Р° РѕР±С‰РµРЅРёСЏ</p>
+          <p className="text-2xl mb-2">Добро пожаловать!</p>
+          <p>Выберите канал для начала общения</p>
         </div>
       </div>
     )
@@ -687,8 +687,8 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
         <div className="pointer-events-none absolute inset-3 z-50 grid place-items-center rounded-2xl border-2 border-dashed border-[#5865f2] bg-[#1e1f22]/90 backdrop-blur-sm">
           <div className="text-center">
             <PlusCircle className="mx-auto mb-3 h-10 w-10 text-[#7c86ff]" />
-            <p className="text-base font-semibold text-white">Р”РѕР±Р°РІРёС‚СЊ С„Р°Р№Р»С‹ РІ СЃРѕРѕР±С‰РµРЅРёРµ</p>
-            <p className="mt-1 text-sm text-[#b5bac1]">РР·РѕР±СЂР°Р¶РµРЅРёСЏ РґРѕ 10 РњРёР‘, РІРёРґРµРѕ РґРѕ 20 РњРёР‘</p>
+            <p className="text-base font-semibold text-white">Добавить файлы в сообщение</p>
+            <p className="mt-1 text-sm text-[#b5bac1]">Изображения до 10 МиБ, видео до 20 МиБ</p>
           </div>
         </div>
       )}
@@ -728,13 +728,13 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
           <div ref={messagesContentRef} className="space-y-1">
             {chatLoading && messages.length === 0 && (
               <div className="text-center text-muted-foreground py-4">
-                Р—Р°РіСЂСѓР·РєР° РёСЃС‚РѕСЂРёРё СЃРѕРѕР±С‰РµРЅРёР№...
+                Загрузка истории сообщений...
               </div>
             )}
 
             {isLoadingOlder && (
               <div className="py-2 text-center text-xs text-muted-foreground">
-                Р—Р°РіСЂСѓР·РєР° СЃС‚Р°СЂС‹С… СЃРѕРѕР±С‰РµРЅРёР№...
+                Загрузка старых сообщений...
               </div>
             )}
 
@@ -906,8 +906,8 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
 
       {currentChannel.type === 'voice' && (
         <div className="p-4 text-center text-muted-foreground">
-          <p>Р“РѕР»РѕСЃРѕРІРѕР№ РєР°РЅР°Р»: {currentChannel.name}</p>
-          <p className="text-sm">РќР°Р¶РјРёС‚Рµ РЅР° РєР°РЅР°Р» РґР»СЏ РїРѕРґРєР»СЋС‡РµРЅРёСЏ Рє РіРѕР»РѕСЃРѕРІРѕРјСѓ С‡Р°С‚Сѓ</p>
+          <p>Голосовой канал: {currentChannel.name}</p>
+          <p className="text-sm">Нажмите на канал для подключения к голосовому чату</p>
         </div>
       )}
 

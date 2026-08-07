@@ -441,8 +441,8 @@ export function DirectMessageArea({
         <div className="pointer-events-none absolute inset-3 z-50 grid place-items-center rounded-2xl border-2 border-dashed border-[#5865f2] bg-[#1e1f22]/90 backdrop-blur-sm">
           <div className="text-center">
             <PlusCircle className="mx-auto mb-3 h-10 w-10 text-[#7c86ff]" />
-            <p className="text-base font-semibold text-white">Р”РѕР±Р°РІРёС‚СЊ С„Р°Р№Р»С‹ РІ СЃРѕРѕР±С‰РµРЅРёРµ</p>
-            <p className="mt-1 text-sm text-[#b5bac1]">РР·РѕР±СЂР°Р¶РµРЅРёСЏ РґРѕ 10 РњРёР‘, РІРёРґРµРѕ РґРѕ 20 РњРёР‘</p>
+            <p className="text-base font-semibold text-white">Добавить файлы в сообщение</p>
+            <p className="mt-1 text-sm text-[#b5bac1]">Изображения до 10 МиБ, видео до 20 МиБ</p>
           </div>
         </div>
       )}
@@ -492,7 +492,7 @@ export function DirectMessageArea({
                     {isPending && (
                       <div className="flex items-center gap-1 text-xs text-gray-400">
                         <Clock className="w-3 h-3" />
-                        <span>РћС‚РїСЂР°РІР»СЏРµС‚СЃСЏ...</span>
+                        <span>Отправляется...</span>
                       </div>
                     )}
                   </div>
