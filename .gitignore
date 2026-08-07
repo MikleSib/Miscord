@@ -73,6 +73,14 @@ node_modules/
 
 /frontend/build
 
+# Cursor / Claude / Codex agent dirs & local backups
+.cursor/
+.claude/
+.codex/
+.skales-backup/
+.tmp-dfn3/
+skills-lock.json
+
 # Agent skills (keep project skills, ignore duplicate harness dirs)
 .aider-desk/
 .autohand/

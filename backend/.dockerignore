@@ -1,0 +1,28 @@
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+venv
+.venv
+*.egg-info
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Uploads / local data
+static/uploads
+*.log
+
+# Agents / IDE
+.cursor
+.claude
+.codex
+.idea
+.vscode
+.DS_Store
+Thumbs.db

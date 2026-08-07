@@ -1,0 +1,30 @@
+# Dependencies & build
+node_modules
+.next
+.next-dev
+.turbo
+.cache
+out
+dist
+MiscordApp
+win-unpacked
+*.log
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Agents / IDE
+.cursor
+.claude
+.codex
+.idea
+.vscode
+
+# Tests / junk
+coverage
+*.md
+!public/audio/README.md
+.DS_Store
+Thumbs.db

@@ -1,0 +1,41 @@
+# Git / IDE / agents
+.git
+.github
+.cursor
+.claude
+.codex
+.skales-backup
+.tmp-dfn3
+.idea
+.vscode
+*.md
+!README.md
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies & build artifacts
+**/node_modules
+**/.next
+**/dist
+**/out
+**/__pycache__
+**/*.pyc
+**/venv
+**/.venv
+**/.pytest_cache
+**/.mypy_cache
+
+# Local junk
+tmp
+temp
+*.log
+*.pid
+Thumbs.db
+.DS_Store
+skills-lock.json
+agent
+skills
+data
