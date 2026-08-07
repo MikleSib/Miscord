@@ -181,16 +181,16 @@ export function ChannelWebhooksTab({ channel }: ChannelWebhooksTabProps) {
   }
 
   return (
-    <div className="h-full overflow-y-auto px-5 pb-16 pt-12 sm:px-10">
-      <div className="mx-auto w-full max-w-[760px]">
-        <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0 max-w-[60ch]">
+    <div className="h-full overflow-y-auto px-5 pb-16 pt-16 sm:px-10">
+      <div className="mx-auto w-full max-w-[720px]">
+        <div className="mb-8 border-b border-[#3f4147] pb-6 pr-14 sm:pr-20">
+          <div className="max-w-[60ch]">
             <h1 className="text-2xl font-semibold tracking-[-0.02em] text-white">Вебхуки</h1>
             <p className="mt-2 text-[15px] leading-6 text-[#b5bac1]">
               Отправляйте уведомления из CI, мониторинга и внешних сервисов прямо в #{channel.name}.
             </p>
           </div>
-          <Button onClick={() => void createWebhook()} disabled={busyId !== null} className="shrink-0">
+          <Button onClick={() => void createWebhook()} disabled={busyId !== null} className="mt-5 shrink-0">
             {busyId === 'create' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
             Создать
           </Button>

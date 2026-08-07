@@ -283,7 +283,7 @@ async def create_webhook(payload: WebhookCreate, channel_id: int, current_user: 
     await log_audit(
         db,
         server_id=channel.channel_id,
-        actor_id=current_user.id,
+        actor=current_user,
         action=AuditAction.WEBHOOK_CREATE,
         target_type="webhook",
         target_id=webhook.id,
@@ -324,7 +324,7 @@ async def update_managed_webhook(payload: WebhookUpdate, webhook_id: int, curren
     await log_audit(
         db,
         server_id=webhook.server_id,
-        actor_id=current_user.id,
+        actor=current_user,
         action=AuditAction.WEBHOOK_UPDATE,
         target_type="webhook",
         target_id=webhook.id,
@@ -341,7 +341,7 @@ async def delete_managed_webhook(webhook_id: int, current_user: User = Depends(g
     await log_audit(
         db,
         server_id=webhook.server_id,
-        actor_id=current_user.id,
+        actor=current_user,
         action=AuditAction.WEBHOOK_DELETE,
         target_type="webhook",
         target_id=webhook.id,
@@ -368,7 +368,7 @@ async def reset_webhook_token(webhook_id: int, current_user: User = Depends(get_
     await log_audit(
         db,
         server_id=webhook.server_id,
-        actor_id=current_user.id,
+        actor=current_user,
         action=AuditAction.WEBHOOK_TOKEN_RESET,
         target_type="webhook",
         target_id=webhook.id,
