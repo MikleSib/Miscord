@@ -18,6 +18,7 @@ import { Message, Role, ServerMember } from '../types'
 import { formatDateDivider } from '../lib/utils'
 import chatService from '../services/chatService'
 import { appendChatFiles, MAX_CHAT_ATTACHMENTS } from '../lib/chatAttachments'
+import { resetChatComposer, resizeChatComposer } from '../lib/chatComposer'
 import { PendingAttachmentPreview } from './PendingAttachmentPreview'
 import { OutgoingMessageCard } from './OutgoingMessageCard'
 import { useOutgoingMessageStore } from '../store/outgoingMessageStore'
@@ -577,7 +578,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     const replyToId = replyingTo?.id
     setMessageInput('')
     requestAnimationFrame(() => {
-      if (messageInputRef.current) messageInputRef.current.style.height = 'auto'
+      resetChatComposer(messageInputRef.current)
     })
     setFiles([])
     setReplyingTo(null)
@@ -890,15 +891,12 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
               <textarea
                 ref={messageInputRef}
                 rows={1}
-                style={{ resize: 'none' }}
+                style={{ resize: 'none', overflowY: 'hidden' }}
                 value={messageInput}
                 onChange={handleInputChange}
                 onPaste={handlePaste}
                 onKeyDown={handleInputKeyDown}
-                onInput={(e) => {
-                  e.currentTarget.style.height = 'auto'
-                  e.currentTarget.style.height = `${Math.min(e.currentTarget.scrollHeight, 128)}px`
-                }}
+                onInput={(e) => resizeChatComposer(e.currentTarget)}
                 onClick={(e) => {
                   const target = e.currentTarget
                   updateMentionState(target.value, target.selectionStart ?? target.value.length)

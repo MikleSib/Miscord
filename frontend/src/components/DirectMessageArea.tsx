@@ -5,6 +5,7 @@ import { DirectMessage, User } from '../types'
 import directMessageService from '../services/directMessageService'
 import websocketService from '../services/websocketService'
 import { appendChatFiles, MAX_CHAT_ATTACHMENTS } from '../lib/chatAttachments'
+import { resetChatComposer, resizeChatComposer } from '../lib/chatComposer'
 import { PendingAttachmentPreview } from './PendingAttachmentPreview'
 import { ManagedMessageAttachments } from './ManagedMessageAttachments'
 import { MessageAttachmentGallery } from './MessageAttachmentGallery'
@@ -324,7 +325,7 @@ export function DirectMessageArea({
     const queuedFiles = [...files]
     setNewMessage('')
     requestAnimationFrame(() => {
-      if (messageInputRef.current) messageInputRef.current.style.height = 'auto'
+      resetChatComposer(messageInputRef.current)
     })
     setFiles([])
     setReplyingTo(null)
@@ -683,7 +684,7 @@ export function DirectMessageArea({
             <textarea
               ref={messageInputRef}
               rows={1}
-              style={{ resize: 'none' }}
+              style={{ resize: 'none', overflowY: 'hidden' }}
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               onPaste={handlePaste}
@@ -693,10 +694,7 @@ export function DirectMessageArea({
                   e.currentTarget.form?.requestSubmit()
                 }
               }}
-              onInput={(e) => {
-                e.currentTarget.style.height = 'auto'
-                e.currentTarget.style.height = `${Math.min(e.currentTarget.scrollHeight, 128)}px`
-              }}
+              onInput={(e) => resizeChatComposer(e.currentTarget)}
               placeholder={replyingTo ? 'Напишите ответ...' : `Написать @${friend.username}`}
               className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none py-3"
               disabled={isSending || isRateLimited}
