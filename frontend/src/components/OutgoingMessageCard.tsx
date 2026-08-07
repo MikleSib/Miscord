@@ -21,7 +21,7 @@ export function OutgoingMessageCard({ message, author, compact = false }: { mess
   const isActive = ['uploading', 'processing', 'sending', 'awaiting_ack'].includes(message.phase)
 
   return <article className={`group flex gap-3 px-4 py-2 ${compact ? 'justify-end' : ''} ${message.phase === 'failed' ? 'bg-red-500/5' : 'bg-white/[0.015]'}`} aria-live="polite" data-client-nonce={message.clientNonce}>
-    {!compact && <UserAvatar user={author} size="md" className="mt-0.5 shrink-0" />}
+    {!compact && <UserAvatar user={author} size={40} className="mt-0.5 shrink-0" />}
     <div className={`min-w-0 ${compact ? 'max-w-[86%]' : 'flex-1'}`}>
       {!compact && <div className="mb-1 flex items-center gap-2"><span className="truncate text-sm font-semibold text-white">{author.display_name || author.username}</span><span className="text-xs text-[#949ba4]">сейчас</span></div>}
       <div className={compact ? 'rounded-2xl rounded-br-md bg-[#5865f2] px-3.5 py-2 text-white' : ''}>
