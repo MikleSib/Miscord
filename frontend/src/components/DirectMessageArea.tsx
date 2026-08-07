@@ -41,6 +41,7 @@ export function DirectMessageArea({
   const messagesEndRef = useRef<null | HTMLDivElement>(null)
   const messagesContainerRef = useRef<null | HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const messageInputRef = useRef<HTMLTextAreaElement | null>(null)
   const dragDepthRef = useRef(0)
   const [skip, setSkip] = useState(0)
   const [hasMore, setHasMore] = useState(true)
@@ -274,7 +275,7 @@ export function DirectMessageArea({
     e.target.value = ''
   }
 
-  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const pastedFiles = Array.from(e.clipboardData.items)
       .filter((item) => item.kind === 'file')
       .map((item) => item.getAsFile())
@@ -322,6 +323,9 @@ export function DirectMessageArea({
 
     const queuedFiles = [...files]
     setNewMessage('')
+    requestAnimationFrame(() => {
+      if (messageInputRef.current) messageInputRef.current.style.height = 'auto'
+    })
     setFiles([])
     setReplyingTo(null)
     setAttachmentError(null)
@@ -676,11 +680,23 @@ export function DirectMessageArea({
             >
               <PlusCircle className="w-5 h-5" />
             </button>
-            <input
-              type="text"
+            <textarea
+              ref={messageInputRef}
+              rows={1}
+              style={{ resize: 'none' }}
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               onPaste={handlePaste}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault()
+                  e.currentTarget.form?.requestSubmit()
+                }
+              }}
+              onInput={(e) => {
+                e.currentTarget.style.height = 'auto'
+                e.currentTarget.style.height = `${Math.min(e.currentTarget.scrollHeight, 128)}px`
+              }}
               placeholder={replyingTo ? 'Напишите ответ...' : `Написать @${friend.username}`}
               className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none py-3"
               disabled={isSending || isRateLimited}

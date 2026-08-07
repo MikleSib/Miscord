@@ -102,7 +102,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dragDepthRef = useRef(0)
-  const messageInputRef = useRef<HTMLInputElement>(null)
+  const messageInputRef = useRef<HTMLTextAreaElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const messagesContentRef = useRef<HTMLDivElement>(null)
@@ -499,7 +499,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     e.target.value = ''
   }
 
-  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const pastedFiles = Array.from(e.clipboardData.items)
       .filter((item) => item.kind === 'file')
       .map((item) => item.getAsFile())
@@ -576,6 +576,9 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     const queuedFiles = [...files]
     const replyToId = replyingTo?.id
     setMessageInput('')
+    requestAnimationFrame(() => {
+      if (messageInputRef.current) messageInputRef.current.style.height = 'auto'
+    })
     setFiles([])
     setReplyingTo(null)
     setAttachmentError(null)
@@ -589,7 +592,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
       replyToId,
     })
   }
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value
     const caret = e.target.selectionStart ?? value.length
     setMessageInput(value)
@@ -599,8 +602,14 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     }
   }
 
-  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!mentionQuery || filteredMentions.length === 0) return
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!mentionQuery || filteredMentions.length === 0) {
+      if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+        e.preventDefault()
+        e.currentTarget.form?.requestSubmit()
+      }
+      return
+    }
 
     if (e.key === 'ArrowDown') {
       e.preventDefault()
@@ -617,7 +626,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
       setMentionQuery(null)
       return
     }
-    if (e.key === 'Tab' || e.key === 'Enter') {
+    if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing)) {
       e.preventDefault()
       applyMention(filteredMentions[mentionIndex] || filteredMentions[0])
     }
@@ -878,13 +887,18 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
               >
                 <PlusCircle className="w-5 h-5" />
               </Button>
-              <input
+              <textarea
                 ref={messageInputRef}
-                type="text"
+                rows={1}
+                style={{ resize: 'none' }}
                 value={messageInput}
                 onChange={handleInputChange}
                 onPaste={handlePaste}
                 onKeyDown={handleInputKeyDown}
+                onInput={(e) => {
+                  e.currentTarget.style.height = 'auto'
+                  e.currentTarget.style.height = `${Math.min(e.currentTarget.scrollHeight, 128)}px`
+                }}
                 onClick={(e) => {
                   const target = e.currentTarget
                   updateMentionState(target.value, target.selectionStart ?? target.value.length)
