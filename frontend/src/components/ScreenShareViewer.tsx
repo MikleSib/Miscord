@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+﻿import React, { useEffect } from 'react';
 import { X, Maximize2 } from 'lucide-react';
 import {
   mountStreamVideoToViewer,
@@ -63,7 +63,7 @@ export function ScreenShareViewer({
 
   return (
     <div
-      className="fixed bottom-0 top-0 z-[45] bg-black"
+      className="screen-share-viewer fixed bottom-0 top-0 z-[45] bg-black"
       style={{
         left: 'var(--left-dock-width)',
         right: showMemberSidebar ? 'var(--member-sidebar-width)' : 0,
@@ -75,14 +75,14 @@ export function ScreenShareViewer({
             <div className="flex min-w-0 items-center gap-2">
               <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-[#da373c]" />
               <span className="truncate font-medium text-white">
-                Экран {selectedUser.username}
+                Р­РєСЂР°РЅ {selectedUser.username}
               </span>
             </div>
             <span className="hidden text-sm text-[#b5bac1] sm:inline">
               {qualityLabel}
             </span>
             <span className="rounded bg-[#da373c] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-              В эфире
+              Р’ СЌС„РёСЂРµ
             </span>
           </div>
 
@@ -90,16 +90,16 @@ export function ScreenShareViewer({
             <button
               type="button"
               onClick={handleFullscreen}
-              className="rounded p-2 text-[#b5bac1] transition-colors hover:bg-[#2b2d31] hover:text-white"
-              title="Полноэкранный режим"
+              className="min-h-11 min-w-11 rounded p-2 text-[#b5bac1] transition-colors hover:bg-[#2b2d31] hover:text-white"
+              title="РџРѕР»РЅРѕСЌРєСЂР°РЅРЅС‹Р№ СЂРµР¶РёРј"
             >
               <Maximize2 className="h-4 w-4" />
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="rounded p-2 text-[#b5bac1] transition-colors hover:bg-[#2b2d31] hover:text-white"
-              title="Закрыть"
+              className="min-h-11 min-w-11 rounded p-2 text-[#b5bac1] transition-colors hover:bg-[#2b2d31] hover:text-white"
+              title="Р—Р°РєСЂС‹С‚СЊ"
             >
               <X className="h-4 w-4" />
             </button>
@@ -113,7 +113,7 @@ export function ScreenShareViewer({
           className="relative flex h-full w-full items-center justify-center bg-black"
         >
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-[#949ba4]">
-            <p>Загрузка видео от {selectedUser.username}...</p>
+            <p>Р—Р°РіСЂСѓР·РєР° РІРёРґРµРѕ РѕС‚ {selectedUser.username}...</p>
           </div>
         </div>
       </div>

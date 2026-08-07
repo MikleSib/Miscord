@@ -1,5 +1,6 @@
-import type { Metadata, Viewport } from 'next'
+﻿import type { Metadata, Viewport } from 'next'
 import './globals.css'
+import './mobile.css'
 import ElectronTitleBar from '@/components/ElectronTitleBar'
 
 export const metadata: Metadata = {
@@ -7,7 +8,7 @@ export const metadata: Metadata = {
     default: 'Miscord',
     template: '%s | Miscord',
   },
-  description: 'Общайтесь в текстовых и голосовых каналах, созванивайтесь и делитесь экраном.',
+  description: 'РћР±С‰Р°Р№С‚РµСЃСЊ РІ С‚РµРєСЃС‚РѕРІС‹С… Рё РіРѕР»РѕСЃРѕРІС‹С… РєР°РЅР°Р»Р°С…, СЃРѕР·РІР°РЅРёРІР°Р№С‚РµСЃСЊ Рё РґРµР»РёС‚РµСЃСЊ СЌРєСЂР°РЅРѕРј.',
   applicationName: 'Miscord',
 }
 

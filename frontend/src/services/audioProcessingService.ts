@@ -1,11 +1,9 @@
 import { MicVAD } from '@ricky0123/vad-web';
 import {
   MiscordNoiseSuppressor,
-  miscordNoiseSuppressor,
 } from './miscordNoiseSuppressor';
 import {
   DeepFilterNet3NoiseSuppressor,
-  deepFilterNet3NoiseSuppressor,
 } from './deepFilterNet3NoiseSuppressor';
 import {
   NoiseSuppressionEngine,
@@ -13,6 +11,7 @@ import {
   useNoiseSuppressionStore,
 } from '../store/noiseSuppressionStore';
 import { useAudioDeviceStore } from '../store/audioDeviceStore';
+import { linearGain } from './voiceSettingsLogic';
 
 export type { NoiseSuppressionEngine } from '../store/noiseSuppressionStore';
 
@@ -21,6 +20,7 @@ export interface AudioProcessingConfig {
   noiseSuppression: boolean;
   echoCancellation: boolean;
   autoGainControl: boolean;
+  voiceConditioning: boolean;
   speechProbabilityThreshold: number;
   useAdvancedNoiseSuppression: boolean;
   noiseSuppressionEngine: NoiseSuppressionEngine;
@@ -32,6 +32,24 @@ interface SupportedNoiseSuppressionEngine {
   name: string;
 }
 
+export interface AudioProcessingDiagnostics {
+  status: NoiseSuppressionRuntimeStatus;
+  message: string | null;
+  configuredEngine: NoiseSuppressionEngine | null;
+  activeEngine: NoiseSuppressionEngine | null;
+  captureSettings: MediaTrackSettings | null;
+  unsupportedConstraints: string[];
+}
+
+export interface AudioProcessingServiceOptions {
+  publishRuntimeStatus?: boolean;
+  onRuntimeStatus?: (
+    status: NoiseSuppressionRuntimeStatus,
+    message: string | null,
+    engine: NoiseSuppressionEngine | null,
+  ) => void;
+}
+
 /**
  * Low-latency microphone pipeline used by WebRTC.
  *
@@ -41,6 +59,19 @@ interface SupportedNoiseSuppressionEngine {
  * MediaStreamTrack that is already attached to peer connections.
  */
 export class AudioProcessingService {
+  private readonly miscordNoiseSuppressor = new MiscordNoiseSuppressor();
+  private readonly deepFilterNet3NoiseSuppressor =
+    new DeepFilterNet3NoiseSuppressor();
+  private readonly publishRuntimeStatus: boolean;
+  private readonly onRuntimeStatus?: AudioProcessingServiceOptions['onRuntimeStatus'];
+  private diagnostics: AudioProcessingDiagnostics = {
+    status: 'idle',
+    message: null,
+    configuredEngine: null,
+    activeEngine: null,
+    captureSettings: null,
+    unsupportedConstraints: [],
+  };
   private micVAD: MicVAD | null = null;
   private audioContext: AudioContext | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
@@ -77,6 +108,7 @@ export class AudioProcessingService {
     noiseSuppression: true,
     echoCancellation: true,
     autoGainControl: true,
+    voiceConditioning: true,
     speechProbabilityThreshold: 0.35,
     useAdvancedNoiseSuppression: true,
     noiseSuppressionEngine: 'miscord-ai',
@@ -85,6 +117,11 @@ export class AudioProcessingService {
   private onSpeechStart?: () => void;
   private onSpeechEnd?: () => void;
   private onVolumeChange?: (volume: number) => void;
+
+  constructor(options: AudioProcessingServiceOptions = {}) {
+    this.publishRuntimeStatus = options.publishRuntimeStatus ?? true;
+    this.onRuntimeStatus = options.onRuntimeStatus;
+  }
 
   getSupportedEngines(): SupportedNoiseSuppressionEngine[] {
     return [
@@ -106,14 +143,23 @@ export class AudioProcessingService {
     ];
   }
 
-  async initialize(stream: MediaStream): Promise<MediaStream> {
+  async initialize(
+    stream: MediaStream,
+    config: Partial<AudioProcessingConfig> = {},
+  ): Promise<MediaStream> {
     await this.destroy();
     const generation = ++this.pipelineGeneration;
     const token = ++this.transitionGeneration;
     const storedSettings = useNoiseSuppressionStore.getState();
 
-    this.config.noiseSuppression = storedSettings.enabled;
-    this.config.noiseSuppressionEngine = storedSettings.engine;
+    this.config = {
+      ...this.config,
+      ...config,
+      noiseSuppression:
+        config.noiseSuppression ?? storedSettings.enabled,
+      noiseSuppressionEngine:
+        config.noiseSuppressionEngine ?? storedSettings.engine,
+    };
 
     try {
       this.audioContext = new AudioContext({
@@ -192,23 +238,44 @@ export class AudioProcessingService {
     }
 
     // Remove desk rumble and microphone handling noise before neural inference.
+    this.applyVoiceConditioning();
+
+    // Мягкий компрессор — не «приглушает» речь так сильно, как раньше.
+
+    this.dryGainNode.gain.value = 1;
+    this.wetGainNode.gain.value = 0;
+    // Компенсация потерь после шумодава/компрессора — речь слышнее изначально.
+    this.muteGainNode.gain.value = this.muted ? 0 : 1;
+    this.applyInputVolumeGain();
+  }
+
+  private applyVoiceConditioning(): void {
+    if (!this.highPassNode || !this.compressorNode || !this.makeupGainNode) {
+      return;
+    }
+
+    if (!this.config.voiceConditioning) {
+      this.highPassNode.type = 'allpass';
+      this.highPassNode.frequency.value = 10;
+      this.highPassNode.Q.value = 0.0001;
+      this.compressorNode.threshold.value = 0;
+      this.compressorNode.knee.value = 0;
+      this.compressorNode.ratio.value = 1;
+      this.compressorNode.attack.value = 0;
+      this.compressorNode.release.value = 0;
+      this.makeupGainNode.gain.value = 1;
+      return;
+    }
+
     this.highPassNode.type = 'highpass';
     this.highPassNode.frequency.value = 72;
     this.highPassNode.Q.value = 0.72;
-
-    // Мягкий компрессор — не «приглушает» речь так сильно, как раньше.
     this.compressorNode.threshold.value = -26;
     this.compressorNode.knee.value = 18;
     this.compressorNode.ratio.value = 1.8;
     this.compressorNode.attack.value = 0.003;
     this.compressorNode.release.value = 0.18;
-
-    this.dryGainNode.gain.value = 1;
-    this.wetGainNode.gain.value = 0;
-    // Компенсация потерь после шумодава/компрессора — речь слышнее изначально.
     this.makeupGainNode.gain.value = 1.55;
-    this.muteGainNode.gain.value = this.muted ? 0 : 1;
-    this.applyInputVolumeGain();
   }
 
   private connectBaseGraph(): void {
@@ -276,7 +343,7 @@ export class AudioProcessingService {
 
   private applyInputVolumeGain(): void {
     if (!this.inputGainNode) return;
-    const normalized = Math.min(100, Math.max(0, this.inputVolumePercent)) / 100;
+    const normalized = linearGain(this.inputVolumePercent);
     // 100% = полная громкость микрофона (без дополнительного затухания)
     this.inputGainNode.gain.value = normalized;
   }
@@ -297,7 +364,7 @@ export class AudioProcessingService {
   }
 
   private async activateMiscordAI(generation = this.pipelineGeneration, token = this.transitionGeneration): Promise<void> {
-    deepFilterNet3NoiseSuppressor.destroy();
+    this.deepFilterNet3NoiseSuppressor.destroy();
     this.deepFilterNet3Node = null;
     if (!this.audioContext || !this.highPassNode || !this.wetGainNode) return;
 
@@ -307,9 +374,9 @@ export class AudioProcessingService {
 
     try {
       if (!this.aiNode) {
-        this.aiNode = await miscordNoiseSuppressor.createNode(this.audioContext);
+        this.aiNode = await this.miscordNoiseSuppressor.createNode(this.audioContext);
         if (!this.isTransitionCurrent(token, 'miscord-ai') || generation !== this.pipelineGeneration) {
-          miscordNoiseSuppressor.destroy();
+          this.miscordNoiseSuppressor.destroy();
           this.aiNode = null;
           return;
         }
@@ -321,9 +388,9 @@ export class AudioProcessingService {
 
         // RNNoise initializes its WASM instance inside the audio render thread.
         // Keep the dry path audible until the first neural frames are ready.
-        await miscordNoiseSuppressor.warmUp();
+        await this.miscordNoiseSuppressor.warmUp();
         if (!this.isTransitionCurrent(token, 'miscord-ai') || generation !== this.pipelineGeneration) {
-          miscordNoiseSuppressor.destroy();
+          this.miscordNoiseSuppressor.destroy();
           this.aiNode = null;
           return;
         }
@@ -349,12 +416,12 @@ export class AudioProcessingService {
     if (!this.isTransitionCurrent(token, 'deepfilternet3') || generation !== this.pipelineGeneration) return;
 
     try {
-      miscordNoiseSuppressor.destroy();
+      this.miscordNoiseSuppressor.destroy();
       this.aiNode = null;
       if (!this.deepFilterNet3Node) {
-        this.deepFilterNet3Node = await deepFilterNet3NoiseSuppressor.createNode(this.audioContext);
+        this.deepFilterNet3Node = await this.deepFilterNet3NoiseSuppressor.createNode(this.audioContext);
         if (!this.isTransitionCurrent(token, 'deepfilternet3') || generation !== this.pipelineGeneration) {
-          deepFilterNet3NoiseSuppressor.destroy();
+          this.deepFilterNet3NoiseSuppressor.destroy();
           this.deepFilterNet3Node = null;
           return;
         }
@@ -363,9 +430,9 @@ export class AudioProcessingService {
         });
         this.highPassNode.connect(this.deepFilterNet3Node);
         this.deepFilterNet3Node.connect(this.wetGainNode);
-        await deepFilterNet3NoiseSuppressor.warmUp();
+        await this.deepFilterNet3NoiseSuppressor.warmUp();
         if (!this.isTransitionCurrent(token, 'deepfilternet3') || generation !== this.pipelineGeneration) {
-          deepFilterNet3NoiseSuppressor.destroy();
+          this.deepFilterNet3NoiseSuppressor.destroy();
           this.deepFilterNet3Node = null;
           return;
         }
@@ -378,7 +445,7 @@ export class AudioProcessingService {
       this.startCpuWatchdog();
     } catch (error) {
       console.error('[DeepFilterNet3] Initialization failed:', error);
-      deepFilterNet3NoiseSuppressor.destroy();
+      this.deepFilterNet3NoiseSuppressor.destroy();
       this.deepFilterNet3Node = null;
       await this.handleAIFailure('DeepFilterNet3 недоступен. Включено стандартное шумоподавление.');
     }
@@ -389,8 +456,8 @@ export class AudioProcessingService {
     message = 'Используется встроенная обработка WebRTC.'
   ): Promise<void> {
     this.stopCpuWatchdog();
-    miscordNoiseSuppressor.destroy();
-    deepFilterNet3NoiseSuppressor.destroy();
+    this.miscordNoiseSuppressor.destroy();
+    this.deepFilterNet3NoiseSuppressor.destroy();
     this.aiNode = null;
     this.deepFilterNet3Node = null;
     await this.applyCaptureConstraints(true, 'browser');
@@ -446,15 +513,32 @@ export class AudioProcessingService {
     if (!track) return;
 
     const usesBrowserDenoiser = enabled && engine === 'browser';
+    const supported = navigator.mediaDevices.getSupportedConstraints();
+    const unsupported = [
+      !supported.echoCancellation ? 'echoCancellation' : null,
+      !supported.noiseSuppression ? 'noiseSuppression' : null,
+      !supported.autoGainControl ? 'autoGainControl' : null,
+    ].filter((value): value is string => value !== null);
 
     try {
       await track.applyConstraints({
-        echoCancellation: this.config.echoCancellation,
-        noiseSuppression: usesBrowserDenoiser,
+        echoCancellation: supported.echoCancellation
+          ? this.config.echoCancellation
+          : undefined,
+        noiseSuppression: supported.noiseSuppression
+          ? usesBrowserDenoiser
+          : undefined,
         // AGC всегда включён — иначе голос уходит слишком тихо
-        autoGainControl: true,
-        channelCount: 1,
+        autoGainControl: supported.autoGainControl
+          ? this.config.autoGainControl
+          : undefined,
+        channelCount: supported.channelCount ? 1 : undefined,
       });
+      this.diagnostics = {
+        ...this.diagnostics,
+        captureSettings: track.getSettings(),
+        unsupportedConstraints: unsupported,
+      };
     } catch (error) {
       console.warn('[Audio] Browser rejected updated capture constraints:', error);
     }
@@ -531,7 +615,29 @@ export class AudioProcessingService {
     message: string | null,
     engine: NoiseSuppressionEngine | null
   ): void {
-    useNoiseSuppressionStore.getState().setRuntimeStatus(status, message, engine);
+    this.diagnostics = {
+      ...this.diagnostics,
+      status,
+      message,
+      configuredEngine: this.config.noiseSuppression
+        ? this.config.noiseSuppressionEngine
+        : null,
+      activeEngine: engine,
+    };
+    if (this.publishRuntimeStatus) {
+      useNoiseSuppressionStore.getState().setRuntimeStatus(status, message, engine);
+    }
+    this.onRuntimeStatus?.(status, message, engine);
+  }
+
+  getDiagnostics(): AudioProcessingDiagnostics {
+    return {
+      ...this.diagnostics,
+      captureSettings: this.diagnostics.captureSettings
+        ? { ...this.diagnostics.captureSettings }
+        : null,
+      unsupportedConstraints: [...this.diagnostics.unsupportedConstraints],
+    };
   }
 
   updateVADThresholds(sensitivity: number): void {
@@ -687,6 +793,9 @@ export class AudioProcessingService {
 
   updateConfig(config: Partial<AudioProcessingConfig>): void {
     this.config = { ...this.config, ...config };
+    if (config.voiceConditioning !== undefined) {
+      this.applyVoiceConditioning();
+    }
 
     if (
       config.noiseSuppression !== undefined ||
@@ -726,8 +835,8 @@ export class AudioProcessingService {
       this.micVAD = null;
     }
 
-    miscordNoiseSuppressor.destroy();
-    deepFilterNet3NoiseSuppressor.destroy();
+    this.miscordNoiseSuppressor.destroy();
+    this.deepFilterNet3NoiseSuppressor.destroy();
 
     const nodes: Array<AudioNode | null> = [
       this.analyserSource,

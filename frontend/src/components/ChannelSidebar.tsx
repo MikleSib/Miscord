@@ -11,7 +11,7 @@ import { Button } from './ui/button'
 import { Tooltip } from './ui/tooltip'
 import voiceService from '../services/voiceService'
 import { useScreenSharePickerStore } from '../store/screenSharePickerStore'
-import { Channel } from '../types'
+import { Channel, Role, ServerMember } from '../types'
 import {
   Box,
   Avatar,
@@ -35,6 +35,8 @@ import { ServerNotificationSettingsModal } from './ServerNotificationSettingsMod
 
 // Компонент для аватарки с анимацией при разговоре
 import { SpeakingAvatar } from './SpeakingAvatar'
+import { MemberProfilePopover } from './MemberProfilePopover'
+import serverService from '../services/serverService'
 import { openScreenShareView } from '../lib/screenShareNavigation'
 import { StreamHoverPreview } from './StreamHoverPreview'
 import {
@@ -102,6 +104,65 @@ export function ChannelSidebar() {
   const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false)
   const [selectedChannelForSettings, setSelectedChannelForSettings] = useState<Channel | null>(null)
   const [hoveredChannel, setHoveredChannel] = useState<number | null>(null)
+  const [voiceMemberProfile, setVoiceMemberProfile] = useState<{
+    member: ServerMember;
+    roles: Role[];
+    anchorRect: DOMRect;
+  } | null>(null)
+  const voiceMemberProfileRequestRef = useRef(0)
+
+  useEffect(() => {
+    voiceMemberProfileRequestRef.current += 1
+    setVoiceMemberProfile(null)
+  }, [currentServer?.id])
+
+  const openVoiceMemberProfile = async (participant: any, anchorRect: DOMRect) => {
+    const serverId = currentServer?.id
+    if (!serverId) return
+
+    const requestId = ++voiceMemberProfileRequestRef.current
+
+    try {
+      const [membersResponse, roles] = await Promise.all([
+        serverService.getMembers(serverId),
+        serverService.getRoles(serverId),
+      ])
+      if (requestId !== voiceMemberProfileRequestRef.current) return
+
+      const member = membersResponse.members.find(
+        (candidate) => candidate.user_id === participant.user_id
+      )
+      if (!member) return
+
+      setVoiceMemberProfile({ member, roles, anchorRect })
+    } catch (error) {
+      console.error('Failed to open voice member profile:', error)
+    }
+  }
+
+  const handleVoiceProfileMemberUpdated = (updatedMember: ServerMember) => {
+    setVoiceMemberProfile((current) =>
+      current?.member.user_id === updatedMember.user_id
+        ? { ...current, member: updatedMember }
+        : current
+    )
+    setVoiceChannelMembers((current) => {
+      const next: Record<number, any[]> = {}
+      for (const [channelId, members] of Object.entries(current)) {
+        next[Number(channelId)] = members.map((member) =>
+          (member.id ?? member.user_id) === updatedMember.user_id
+            ? {
+                ...member,
+                username: updatedMember.username,
+                display_name: updatedMember.display_name,
+                avatar_url: updatedMember.avatar_url,
+              }
+            : member
+        )
+      }
+      return next
+    })
+  }
 
   // Ref для отслеживания загружаемых каналов (предотвращаем дублирующиеся запросы)
   const loadingChannelsRef = useRef<Set<number>>(new Set());
@@ -907,10 +968,31 @@ export function ChannelSidebar() {
                         {channelParticipants.map((participant) => {
                           const isScreenSharing = screenSharingUsers.has(participant.user_id);
                           return (
-                            <div
-                              key={participant.user_id}
-                              className="interactive-row flex cursor-pointer items-center gap-2 overflow-visible px-2 py-1.5"
-                              onContextMenu={(e) => handleParticipantContextMenu(e, participant)}
+                             <div
+                               key={participant.user_id}
+                               className={cn(
+                                 "interactive-row flex cursor-pointer items-center gap-2 overflow-visible px-2 py-1.5",
+                                 voiceMemberProfile?.member.user_id === participant.user_id && "bg-[#393a3f]"
+                               )}
+                               role="button"
+                               tabIndex={0}
+                               aria-haspopup="dialog"
+                               aria-expanded={voiceMemberProfile?.member.user_id === participant.user_id}
+                               onClick={(event) => {
+                                 void openVoiceMemberProfile(
+                                   participant,
+                                   event.currentTarget.getBoundingClientRect()
+                                 )
+                               }}
+                               onKeyDown={(event) => {
+                                 if (event.key !== 'Enter' && event.key !== ' ') return
+                                 event.preventDefault()
+                                 void openVoiceMemberProfile(
+                                   participant,
+                                   event.currentTarget.getBoundingClientRect()
+                                 )
+                               }}
+                               onContextMenu={(e) => handleParticipantContextMenu(e, participant)}
                               onMouseEnter={(e) => {
                                 if (!isScreenSharing) return;
                                 scheduleStreamHoverPreview(
@@ -1242,6 +1324,17 @@ export function ChannelSidebar() {
         onClose={() => setIsNotificationSettingsOpen(false)}
         server={currentServer}
       />
+
+      {voiceMemberProfile && currentServer && (
+        <MemberProfilePopover
+          member={voiceMemberProfile.member}
+          serverId={currentServer.id}
+          roles={voiceMemberProfile.roles}
+          anchorRect={voiceMemberProfile.anchorRect}
+          onClose={() => setVoiceMemberProfile(null)}
+          onMemberUpdated={handleVoiceProfileMemberUpdated}
+        />
+      )}
 
       <ServerSettingsModal
         isOpen={isSettingsModalOpen}

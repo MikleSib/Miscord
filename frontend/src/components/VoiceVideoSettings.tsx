@@ -1,805 +1,721 @@
-'use client'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, Headphones, Mic } from 'lucide-react';
+import { Slider } from './ui/slider';
+import { Switch } from './ui/switch';
+import { useAudioDeviceStore } from '../store/audioDeviceStore';
+import {
+  useNoiseSuppressionStore,
+  type NoiseSuppressionEngine,
+} from '../store/noiseSuppressionStore';
+import { useVADSettingsStore } from '../store/vadSettingsStore';
+import { useVoiceProcessingSettingsStore } from '../store/voiceProcessingSettingsStore';
+import { useVoiceStore } from '../store/slices/voiceSlice';
+import {
+  getEffectiveProcessingSettings,
+  type VoiceProcessingProfile,
+  type VoiceProcessingSettings,
+} from '../services/voiceSettings';
+import voiceSettingsController from '../services/voiceSettingsController';
+import optimizedVoiceService from '../services/optimizedVoiceService';
+import { audioProcessingService } from '../services/audioProcessingService';
+import type { NoiseSuppressionRuntimeStatus } from '../store/noiseSuppressionStore';
+import { MicTestSession } from '../services/micTestService';
+import { cn } from '../lib/utils';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { ChevronDown, Headphones, Mic, Video } from 'lucide-react'
-import { Slider } from './ui/slider'
-import { Switch } from './ui/switch'
-import { useAudioDeviceStore } from '../store/audioDeviceStore'
-import { useNoiseSuppressionStore } from '../store/noiseSuppressionStore'
-import { useVADSettingsStore } from '../store/vadSettingsStore'
-import { audioProcessingService } from '../services/audioProcessingService'
-import { MicTestSession, micTestNoiseModeFromStore } from '../services/micTestService'
-import voiceService from '../services/voiceService'
-import { cn } from '../lib/utils'
-import type { NoiseSuppressionEngine } from '../store/noiseSuppressionStore'
-
-type NoiseEngineChoice = 'miscord-ai' | 'deepfilternet3' | 'browser' | 'off'
-
-type VoiceProfile = 'isolation' | 'studio' | 'custom'
-
-function profileFromNoiseStore(): VoiceProfile {
-  const { enabled, engine } = useNoiseSuppressionStore.getState()
-  if (!enabled) return 'studio'
-  if (engine === 'miscord-ai') return 'isolation'
-  return 'custom'
+interface VoiceVideoSettingsProps {
+  isOpen?: boolean;
 }
 
-interface MediaDeviceInfoLite {
-  deviceId: string
-  label: string
-  kind: MediaDeviceKind
+interface SavedCallState {
+  muted: boolean;
+  deafened: boolean;
 }
 
-const selectClass =
-  'w-full appearance-none rounded-md border-0 bg-[#1e1f22] px-3 py-2.5 pr-9 text-sm text-[#dbdee1] outline-none focus:ring-2 focus:ring-[#5865f2]'
+const PROFILE_COPY: Record<
+  VoiceProcessingProfile,
+  { title: string; description: string }
+> = {
+  isolation: {
+    title: 'Изоляция голоса',
+    description: 'Miscord AI, эхоподавление, AGC и обработка голоса.',
+  },
+  studio: {
+    title: 'Студия',
+    description: 'Чистый микрофон без слышимой обработки.',
+  },
+  custom: {
+    title: 'Пользовательский',
+    description: 'Ручное управление каждым этапом обработки.',
+  },
+};
 
-export function VoiceVideoSettings() {
-  const [inputDevices, setInputDevices] = useState<MediaDeviceInfoLite[]>([])
-  const [outputDevices, setOutputDevices] = useState<MediaDeviceInfoLite[]>([])
-  const [selectedInputDevice, setSelectedInputDevice] = useState('')
-  const [selectedOutputDevice, setSelectedOutputDevice] = useState('')
-  const [voiceProfile, setVoiceProfile] = useState<VoiceProfile>(profileFromNoiseStore)
-  const [echoCancellation, setEchoCancellation] = useState(true)
-  const [showAdvanced, setShowAdvanced] = useState(false)
-  const [isTestingMicrophone, setIsTestingMicrophone] = useState(false)
-  const [currentMicLevel, setCurrentMicLevel] = useState(0)
-  const [liveMicLevel, setLiveMicLevel] = useState(0)
-  const [isRecordingPttKey, setIsRecordingPttKey] = useState(false)
+const ENGINE_LABELS: Record<NoiseSuppressionEngine, string> = {
+  'miscord-ai': 'Miscord AI',
+  deepfilternet3: 'DeepFilterNet3 (экспериментально)',
+  browser: 'Браузерный',
+};
 
-  const testingRef = useRef(false)
-  const micTestRef = useRef(new MicTestSession())
-  const selectedInputRef = useRef('')
-  const selectedOutputRef = useRef('')
-  const startMicrophoneTestRef = useRef<(() => Promise<void>) | null>(null)
+function statusLabel(status: NoiseSuppressionRuntimeStatus): string {
+  if (status === 'loading') return 'Загрузка';
+  if (status === 'active') return 'Активен';
+  if (status === 'fallback') return 'Fallback';
+  if (status === 'error') return 'Ошибка';
+  return 'Выключен';
+}
 
-  const inputVolume = useAudioDeviceStore((s) => s.inputVolume)
-  const outputVolume = useAudioDeviceStore((s) => s.outputVolume)
-  const setInputVolumeStore = useAudioDeviceStore((s) => s.setInputVolume)
-  const setOutputVolumeStore = useAudioDeviceStore((s) => s.setOutputVolume)
-
-  const noiseEnabled = useNoiseSuppressionStore((s) => s.enabled)
-  const noiseEngine = useNoiseSuppressionStore((s) => s.engine)
-  const setNoiseEnabled = useNoiseSuppressionStore((s) => s.setEnabled)
-  const setNoiseEngine = useNoiseSuppressionStore((s) => s.setEngine)
-
-  const restartMicTestIfActive = useCallback(async () => {
-    if (!testingRef.current) return
-    await startMicrophoneTestRef.current?.()
-  }, [])
-
-  const applyNoiseSettings = useCallback(
-    async (enabled: boolean, engine: NoiseSuppressionEngine) => {
-      setNoiseEnabled(enabled)
-      if (enabled) {
-        setNoiseEngine(engine)
-      }
-      await audioProcessingService.setNoiseSuppression(
-        enabled,
-        enabled ? engine : useNoiseSuppressionStore.getState().engine
-      )
-      await restartMicTestIfActive()
-    },
-    [restartMicTestIfActive, setNoiseEnabled, setNoiseEngine]
-  )
-
-  const applyProfileSettings = useCallback(
-    async (profile: VoiceProfile) => {
-      if (profile === 'isolation') {
-        await applyNoiseSettings(true, 'miscord-ai')
-      } else if (profile === 'studio') {
-        await applyNoiseSettings(false, useNoiseSuppressionStore.getState().engine)
-      }
-    },
-    [applyNoiseSettings]
-  )
-
-  const {
-    inputMode,
-    vadSensitivity,
-    autoDetectSensitivity,
-    pttKey,
-    pttDelay,
-    setInputMode,
-    setVADSensitivity,
-    setAutoDetectSensitivity,
-    setPTTKey,
-    setPTTDelay,
-  } = useVADSettingsStore()
-
-  const getPttKeyLabel = (key: string): string => {
-    const keyMap: Record<string, string> = {
-      Space: 'Пробел',
-      ControlLeft: 'Левый Ctrl',
-      ControlRight: 'Правый Ctrl',
-      ShiftLeft: 'Левый Shift',
-      ShiftRight: 'Правый Shift',
-      AltLeft: 'Левый Alt',
-      AltRight: 'Правый Alt',
-      MetaLeft: 'Win',
-      MetaRight: 'Win',
-    }
-    if (keyMap[key]) return keyMap[key]
-    if (key.startsWith('Key')) return key.slice(3)
-    if (key.startsWith('Digit')) return key.slice(5)
-    return key
-  }
-
-  useEffect(() => {
-    if (!isRecordingPttKey) return
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      event.preventDefault()
-      event.stopPropagation()
-      if (event.code === 'Escape') {
-        setIsRecordingPttKey(false)
-        return
-      }
-      setPTTKey(event.code)
-      voiceService.setPTTKey(event.code)
-      setIsRecordingPttKey(false)
-    }
-
-    window.addEventListener('keydown', handleKeyDown, true)
-    return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [isRecordingPttKey, setPTTKey])
-
+const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
+  isOpen = true,
+}) => {
+  const [inputDevices, setInputDevices] = useState<MediaDeviceInfo[]>([]);
+  const [outputDevices, setOutputDevices] = useState<MediaDeviceInfo[]>([]);
+  const selectedInputDeviceId = useAudioDeviceStore(
+    (state) => state.inputDeviceId,
+  );
+  const selectedOutputDeviceId = useAudioDeviceStore(
+    (state) => state.outputDeviceId,
+  );
+  const inputVolume = useAudioDeviceStore((state) => state.inputVolume);
+  const outputVolume = useAudioDeviceStore((state) => state.outputVolume);
   const loadDevices = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    setInputDevices(
+      devices.filter((device) => device.kind === 'audioinput'),
+    );
+    setOutputDevices(
+      devices.filter((device) => device.kind === 'audiooutput'),
+    );
+  }, []);
+
+  const profile = useVoiceProcessingSettingsStore((state) => state.profile);
+  const customSettings = useVoiceProcessingSettingsStore(
+    (state) => state.customSettings,
+  );
+  const inputMode = useVADSettingsStore((state) => state.inputMode);
+  const vadSensitivity = useVADSettingsStore(
+    (state) => state.vadSensitivity,
+  );
+  const autoDetectSensitivity = useVADSettingsStore(
+    (state) => state.autoDetectSensitivity,
+  );
+  const pttKey = useVADSettingsStore((state) => state.pttKey);
+  const pttDelay = useVADSettingsStore((state) => state.pttDelay);
+  const runtimeStatus = useNoiseSuppressionStore(
+    (state) => state.runtimeStatus,
+  );
+  const runtimeMessage = useNoiseSuppressionStore(
+    (state) => state.runtimeMessage,
+  );
+  const activeRuntimeEngine = useNoiseSuppressionStore(
+    (state) => state.engine,
+  );
+
+  const [isTesting, setIsTesting] = useState(false);
+  const [testLevel, setTestLevel] = useState(0);
+  const [callLevel, setCallLevel] = useState(0);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [testRuntime, setTestRuntime] = useState<{
+    status: NoiseSuppressionRuntimeStatus;
+    message: string | null;
+    engine: string | null;
+  } | null>(null);
+  const [isRecordingPTT, setIsRecordingPTT] = useState(false);
+  const micTestRef = useRef(new MicTestSession());
+  const callStateBeforeTestRef = useRef<SavedCallState | null>(null);
+
+  const effectiveProcessing = useMemo(
+    () => getEffectiveProcessingSettings(profile, customSettings),
+    [profile, customSettings],
+  );
+  const supportedEngines = useMemo(
+    () =>
+      new Set(
+        audioProcessingService
+          .getSupportedEngines()
+          .filter((item) => item.supported)
+          .map((item) => item.engine),
+      ),
+    [],
+  );
+
+  const suspendCallForTest = useCallback(() => {
+    if (callStateBeforeTestRef.current) return;
+    const voice = useVoiceStore.getState();
+    if (!voice.isConnected) return;
+
+    callStateBeforeTestRef.current = {
+      muted: voice.isMuted,
+      deafened: voice.isDeafened,
+    };
+    if (!voice.isMuted) voice.toggleMute();
+    if (!voice.isDeafened) voice.toggleDeafen();
+  }, []);
+
+  const restoreCallAfterTest = useCallback(() => {
+    const saved = callStateBeforeTestRef.current;
+    callStateBeforeTestRef.current = null;
+    if (!saved) return;
+
+    const voice = useVoiceStore.getState();
+    if (!voice.isConnected) return;
+    if (voice.isMuted !== saved.muted) voice.toggleMute();
+    if (voice.isDeafened !== saved.deafened) voice.toggleDeafen();
+  }, []);
+
+  const runMicTest = useCallback(async () => {
+    const snapshot = voiceSettingsController.getSnapshot();
+    setTestError(null);
+    setTestRuntime({ status: 'loading', message: null, engine: null });
+
+    await micTestRef.current.start({
+      inputDeviceId: snapshot.inputDeviceId,
+      outputDeviceId: snapshot.outputDeviceId,
+      inputVolume: snapshot.inputVolume,
+      outputVolume: snapshot.outputVolume,
+      processing: snapshot.processing,
+      onLevel: setTestLevel,
+      onRuntimeStatus: (status, message, engine) =>
+        setTestRuntime({ status, message, engine }),
+    });
+  }, []);
+
+  const startMicTest = useCallback(async () => {
+    suspendCallForTest();
+    setIsTesting(true);
     try {
-      const devices = await navigator.mediaDevices.enumerateDevices()
-      const inputs = devices.filter((d) => d.kind === 'audioinput')
-      const outputs = devices.filter((d) => d.kind === 'audiooutput')
-      setInputDevices(inputs)
-      setOutputDevices(outputs)
-
-      const storedInput = useAudioDeviceStore.getState().inputDeviceId
-      const storedOutput = useAudioDeviceStore.getState().outputDeviceId
-      const prevInput = selectedInputRef.current
-
-      let nextInput = prevInput
-      if (!nextInput || !inputs.some((d) => d.deviceId === nextInput)) {
-        if (storedInput && storedInput !== 'default' && inputs.some((d) => d.deviceId === storedInput)) {
-          nextInput = storedInput
-        } else {
-          nextInput = inputs[0]?.deviceId || ''
-        }
-      }
-
-      let nextOutput = selectedOutputRef.current
-      if (!nextOutput || !outputs.some((d) => d.deviceId === nextOutput)) {
-        if (
-          storedOutput &&
-          storedOutput !== 'default' &&
-          outputs.some((d) => d.deviceId === storedOutput)
-        ) {
-          nextOutput = storedOutput
-        } else {
-          nextOutput = outputs[0]?.deviceId || ''
-        }
-      }
-
-      selectedInputRef.current = nextInput
-      selectedOutputRef.current = nextOutput
-      setSelectedInputDevice(nextInput)
-      setSelectedOutputDevice(nextOutput)
-
-      // USB отвалился: в голосовом канале восстанавливает voiceService,
-      // здесь обновляем UI и перезапускаем проверку микрофона.
-      if (prevInput && nextInput && prevInput !== nextInput) {
-        useAudioDeviceStore.getState().setInputDeviceId(nextInput)
-        if (testingRef.current) {
-          window.setTimeout(() => {
-            if (testingRef.current) void startMicrophoneTestRef.current?.()
-          }, 350)
-        }
-      }
+      await runMicTest();
     } catch (error) {
-      console.error('Ошибка получения устройств:', error)
+      setIsTesting(false);
+      setTestLevel(0);
+      setTestError(
+        error instanceof Error
+          ? error.message
+          : 'Не удалось запустить проверку микрофона',
+      );
+      restoreCallAfterTest();
     }
-  }, [])
+  }, [restoreCallAfterTest, runMicTest, suspendCallForTest]);
 
-  useEffect(() => {
-    void loadDevices()
-    const onChange = () => void loadDevices()
-    navigator.mediaDevices.addEventListener('devicechange', onChange)
-    return () => {
-      navigator.mediaDevices.removeEventListener('devicechange', onChange)
-      testingRef.current = false
-      micTestRef.current.stop()
+  const stopMicTest = useCallback(() => {
+    micTestRef.current.stop();
+    setIsTesting(false);
+    setTestLevel(0);
+    setTestRuntime(null);
+    restoreCallAfterTest();
+  }, [restoreCallAfterTest]);
+
+  const restartMicTest = useCallback(async () => {
+    if (!isTesting) return;
+    try {
+      await runMicTest();
+    } catch (error) {
+      setTestError(
+        error instanceof Error
+          ? error.message
+          : 'Не удалось применить настройки к проверке',
+      );
+      stopMicTest();
     }
-  }, [loadDevices])
+  }, [isTesting, runMicTest, stopMicTest]);
 
   useEffect(() => {
-    selectedInputRef.current = selectedInputDevice
-  }, [selectedInputDevice])
+    if (!isOpen) return;
+    void loadDevices();
+    const onDeviceChange = () => void loadDevices();
+    navigator.mediaDevices?.addEventListener?.('devicechange', onDeviceChange);
+    return () =>
+      navigator.mediaDevices?.removeEventListener?.(
+        'devicechange',
+        onDeviceChange,
+      );
+  }, [isOpen, loadDevices]);
 
   useEffect(() => {
-    selectedOutputRef.current = selectedOutputDevice
-  }, [selectedOutputDevice])
+    if (!isOpen) stopMicTest();
+  }, [isOpen, stopMicTest]);
 
-  // Живой уровень для полоски чувствительности (если в голосовом канале)
+  useEffect(
+    () => () => {
+      micTestRef.current.stop();
+      restoreCallAfterTest();
+    },
+    [restoreCallAfterTest],
+  );
+
   useEffect(() => {
+    if (!isOpen || isTesting) return;
     const timer = window.setInterval(() => {
-      if (typeof voiceService.getCurrentVolume === 'function') {
-        setLiveMicLevel(voiceService.getCurrentVolume() || 0)
-      }
-    }, 80)
-    return () => window.clearInterval(timer)
-  }, [])
+      setCallLevel(optimizedVoiceService.getCurrentVolume());
+    }, 80);
+    return () => window.clearInterval(timer);
+  }, [isOpen, isTesting]);
 
-  // Громкость самопрослушивания следует за слайдером динамика
   useEffect(() => {
-    micTestRef.current.setOutputVolume(outputVolume)
-  }, [outputVolume])
+    if (!isRecordingPTT) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      voiceSettingsController.setPTTKey(event.code);
+      setIsRecordingPTT(false);
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [isRecordingPTT]);
 
-  // Профиль → шумодав (только по клику пользователя, не при открытии окна)
-  const handleVoiceProfileSelect = (profile: VoiceProfile) => {
-    setVoiceProfile(profile)
-    if (profile !== 'custom') {
-      void applyProfileSettings(profile)
-    }
-  }
+  if (!isOpen) return null;
 
-  const handleInputVolumeChange = (values: number[]) => {
-    const next = values[0] ?? 100
-    setInputVolumeStore(next)
-    voiceService.setInputVolume(next)
-  }
+  const updateProfile = async (nextProfile: VoiceProcessingProfile) => {
+    await voiceSettingsController.setProfile(nextProfile);
+    await restartMicTest();
+  };
 
-  const handleOutputVolumeChange = (values: number[]) => {
-    const next = values[0] ?? 100
-    setOutputVolumeStore(next)
-    voiceService.setOutputVolume(next)
-  }
+  const updateProcessing = async (
+    settings: Partial<VoiceProcessingSettings>,
+  ) => {
+    await voiceSettingsController.updateProcessing(settings);
+    await restartMicTest();
+  };
 
-  const stopMicrophoneTest = () => {
-    testingRef.current = false
-    setIsTestingMicrophone(false)
-    setCurrentMicLevel(0)
-    micTestRef.current.stop()
-  }
-
-  const startMicrophoneTest = useCallback(async () => {
-    testingRef.current = true
-    setIsTestingMicrophone(true)
-    setCurrentMicLevel(0)
-
-    const noiseState = useNoiseSuppressionStore.getState()
-
+  const changeInputDevice = async (deviceId: string) => {
     try {
-      await micTestRef.current.start({
-        inputDeviceId: selectedInputDevice || undefined,
-        outputDeviceId: selectedOutputDevice || undefined,
-        noiseMode: micTestNoiseModeFromStore(noiseState.enabled, noiseState.engine),
-        inputVolume,
-        outputVolume,
-        onLevel: (level) => {
-          if (!testingRef.current) return
-          setCurrentMicLevel(level)
-        },
-        onInputEnded: () => {
-          void loadDevices().then(() => {
-            if (testingRef.current) {
-              void startMicrophoneTestRef.current?.()
-            }
-          })
-        },
-      })
+      await voiceSettingsController.setInputDevice(deviceId);
+      await restartMicTest();
+      setTestError(null);
     } catch (error) {
-      console.error('Ошибка проверки микрофона:', error)
-      if (testingRef.current) {
-        stopMicrophoneTest()
-        alert('Не удалось получить доступ к микрофону')
-      }
+      setTestError(
+        error instanceof Error ? error.message : 'Микрофон недоступен',
+      );
     }
-  }, [selectedInputDevice, selectedOutputDevice, inputVolume, outputVolume, loadDevices])
+  };
 
-  startMicrophoneTestRef.current = startMicrophoneTest
-
-  const handleMicrophoneTest = async () => {
-    if (testingRef.current) {
-      stopMicrophoneTest()
-      return
-    }
-    await startMicrophoneTest()
-  }
-
-  // Перезапуск при смене устройств/громкости микрофона во время проверки
-  useEffect(() => {
-    if (!testingRef.current) return
-    void restartMicTestIfActive()
-  }, [selectedInputDevice, selectedOutputDevice, inputVolume, restartMicTestIfActive])
-
-  const applyNoiseEngine = async (engine: NoiseEngineChoice) => {
-    if (engine === 'off') {
-      await applyNoiseSettings(false, noiseEngine)
-      return
-    }
-    await applyNoiseSettings(true, engine)
-  }
-
-  const handleInputDeviceChange = async (deviceId: string) => {
-    setSelectedInputDevice(deviceId)
-    useAudioDeviceStore.getState().setInputDeviceId(deviceId || 'default')
+  const changeOutputDevice = async (deviceId: string) => {
     try {
-      await voiceService.switchInputDevice(deviceId)
+      await voiceSettingsController.setOutputDevice(deviceId);
+      await restartMicTest();
+      setTestError(null);
     } catch (error) {
-      console.warn('Не удалось сменить микрофон в голосовом канале:', error)
+      setTestError(
+        error instanceof Error ? error.message : 'Устройство вывода недоступно',
+      );
     }
-  }
+  };
 
-  const handleOutputDeviceChange = async (deviceId: string) => {
-    setSelectedOutputDevice(deviceId)
-    useAudioDeviceStore.getState().setOutputDeviceId(deviceId || 'default')
-    try {
-      await voiceService.setOutputDevice(deviceId)
-    } catch (error) {
-      console.warn('Не удалось сменить динамик:', error)
-    }
-  }
-
-  const deviceLabel = (device: MediaDeviceInfoLite, kind: 'mic' | 'speaker') =>
-    device.label ||
-    `${kind === 'mic' ? 'Микрофон' : 'Динамик'} ${device.deviceId.slice(0, 8)}…`
-
-  const meterLevel = isTestingMicrophone ? currentMicLevel : liveMicLevel
-  const barCount = 32
-  const activeBars = Math.round((meterLevel / 100) * barCount)
-
-  const noiseSelectValue = !noiseEnabled
-    ? 'off'
-    : noiseEngine === 'deepfilternet3'
-      ? 'deepfilternet3'
-      : noiseEngine === 'browser'
-        ? 'browser'
-        : 'miscord-ai'
+  const shownRuntime = isTesting && testRuntime
+    ? testRuntime
+    : {
+        status: runtimeStatus,
+        message: runtimeMessage,
+        engine:
+          audioProcessingService.getDiagnostics().activeEngine ??
+          activeRuntimeEngine,
+      };
+  const displayedLevel = isTesting ? testLevel : callLevel;
+  const diagnostics = optimizedVoiceService.getDiagnostics();
 
   return (
-    <div className="mx-auto max-w-[720px] space-y-8 pb-8">
-      {/* —— Голос —— */}
-      <section>
-        <h3 className="mb-4 text-xl font-semibold text-[#f2f3f5]">Голос</h3>
+    <div className="mx-auto max-w-[760px] pb-16 text-[#dbdee1]">
+      <h2 className="mb-7 text-2xl font-semibold text-white">Голос и видео</h2>
 
-        {/* Устройства: микрофон | динамик */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-[#b5bac1]">
-              Микрофон
-            </label>
-            <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#b5bac1]">
-                <Mic className="h-4 w-4" />
-              </span>
-              <select
-                value={selectedInputDevice}
-                onChange={(e) => void handleInputDeviceChange(e.target.value)}
-                className={cn(selectClass, 'pl-9')}
-              >
-                {inputDevices.length === 0 ? (
-                  <option value="">Нет устройств</option>
-                ) : (
-                  inputDevices.map((d) => (
-                    <option key={d.deviceId} value={d.deviceId}>
-                      {deviceLabel(d, 'mic')}
-                    </option>
-                  ))
-                )}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#b5bac1]" />
-            </div>
-          </div>
-
-          <div>
-            <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-[#b5bac1]">
-              Динамик
-            </label>
-            <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#b5bac1]">
-                <Headphones className="h-4 w-4" />
-              </span>
-              <select
-                value={selectedOutputDevice}
-                onChange={(e) => void handleOutputDeviceChange(e.target.value)}
-                className={cn(selectClass, 'pl-9')}
-              >
-                {outputDevices.length === 0 ? (
-                  <option value="">Нет устройств</option>
-                ) : (
-                  outputDevices.map((d) => (
-                    <option key={d.deviceId} value={d.deviceId}>
-                      {deviceLabel(d, 'speaker')}
-                    </option>
-                  ))
-                )}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#b5bac1]" />
-            </div>
-          </div>
+      <section className="space-y-5">
+        <h3 className="text-xl font-semibold text-white">Голос</h3>
+        <div className="grid grid-cols-2 gap-4">
+          <DeviceSelect
+            icon={<Mic size={16} />}
+            label="Микрофон"
+            value={selectedInputDeviceId}
+            devices={inputDevices}
+            onChange={(value) => void changeInputDevice(value)}
+          />
+          <DeviceSelect
+            icon={<Headphones size={16} />}
+            label="Динамик"
+            value={selectedOutputDeviceId}
+            devices={outputDevices}
+            onChange={(value) => void changeOutputDevice(value)}
+          />
         </div>
 
-        {/* Громкости рядом */}
-        <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
-          <div>
-            <label className="mb-3 block text-xs font-bold uppercase tracking-wide text-[#b5bac1]">
-              Громкость микрофона
-            </label>
-            <Slider
-              value={[inputVolume]}
-              onValueChange={handleInputVolumeChange}
-              min={0}
-              max={100}
-              step={1}
-            />
-          </div>
-          <div>
-            <label className="mb-3 block text-xs font-bold uppercase tracking-wide text-[#b5bac1]">
-              Громкость динамика
-            </label>
-            <Slider
-              value={[outputVolume]}
-              onValueChange={handleOutputVolumeChange}
-              min={0}
-              max={100}
-              step={1}
-            />
-          </div>
+        <div className="grid grid-cols-2 gap-4">
+          <LabeledSlider
+            label="Громкость микрофона"
+            value={inputVolume}
+            onChange={(value) => {
+              voiceSettingsController.setInputVolume(value);
+              void restartMicTest();
+            }}
+          />
+          <LabeledSlider
+            label="Громкость динамика"
+            value={outputVolume}
+            onChange={(value) => {
+              voiceSettingsController.setOutputVolume(value);
+              void restartMicTest();
+            }}
+          />
         </div>
 
-        {/* Проверка микрофона + полоски */}
-        <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => void handleMicrophoneTest()}
+            onClick={() => void (isTesting ? stopMicTest() : startMicTest())}
             className={cn(
-              'shrink-0 rounded-md px-4 py-2.5 text-sm font-semibold text-white transition-colors',
-              isTestingMicrophone
-                ? 'bg-[#da373c] hover:bg-[#a12828]'
-                : 'bg-[#5865f2] hover:bg-[#4752c4]'
+              'min-w-[176px] rounded-md px-4 py-2.5 text-sm font-semibold text-white transition-colors',
+              isTesting
+                ? 'bg-[#da373c] hover:bg-[#a1282c]'
+                : 'bg-[#5865f2] hover:bg-[#4752c4]',
             )}
           >
-            {isTestingMicrophone ? 'Остановить проверку' : 'Проверка микрофона'}
+            {isTesting ? 'Остановить проверку' : 'Проверить микрофон'}
           </button>
-          <div
-            className="flex h-8 flex-1 items-end gap-[3px] rounded-md bg-[#1e1f22]/80 px-2 py-1.5"
-            aria-hidden="true"
-          >
-            {Array.from({ length: barCount }).map((_, i) => (
+          <div className="flex h-9 flex-1 items-center gap-1 rounded-md bg-[#1e1f22] px-2">
+            {Array.from({ length: 30 }, (_, index) => (
               <span
-                key={i}
+                key={index}
                 className={cn(
-                  'w-[3px] flex-1 rounded-sm transition-colors duration-75',
-                  i < activeBars
-                    ? i < barCount * 0.7
-                      ? 'bg-[#23a559]'
-                      : i < barCount * 0.9
-                        ? 'bg-[#f0b232]'
-                        : 'bg-[#f23f43]'
-                    : 'bg-[#4e5058]'
+                  'h-3 flex-1 rounded-full transition-colors',
+                  index / 30 < displayedLevel
+                    ? 'bg-[#23a55a]'
+                    : 'bg-[#4e5058]',
                 )}
-                style={{ height: `${35 + (i % 5) * 12}%` }}
               />
             ))}
           </div>
         </div>
-
-        <p className="mt-3 text-sm text-[#949ba4]">
-          Нужна помощь? Загляните в руководство по устранению неполадок.
+        {testError && <p className="text-sm text-[#f23f42]">{testError}</p>}
+        <p className="text-sm text-[#949ba4]">
+          Во время проверки активный звонок временно заглушается, затем прежние
+          состояния микрофона и наушников восстанавливаются.
         </p>
       </section>
 
-      <hr className="border-[#3f4147]" />
+      <Divider />
 
-      {/* —— Профиль ввода —— */}
-      <section>
-        <h3 className="mb-4 text-xl font-semibold text-[#f2f3f5]">Профиль ввода</h3>
-        <div className="space-y-4">
-          {(
-            [
-              {
-                id: 'isolation' as const,
-                title: 'Изоляция голоса',
-                desc: 'Только ваш прекрасный голос: Miscord AI уберёт ненужный шум',
-              },
-              {
-                id: 'studio' as const,
-                title: 'Студия',
-                desc: 'Чистый звук: открытый микрофон без обработки',
-              },
-              {
-                id: 'custom' as const,
-                title: 'Пользовательский',
-                desc: 'Продвинутый режим: мне нужны все кнопки и переключатели!',
-              },
-            ] as const
-          ).map((item) => {
-            const selected = voiceProfile === item.id
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => handleVoiceProfileSelect(item.id)}
-                className="flex w-full items-start gap-3 text-left"
-              >
-                <span
-                  className={cn(
-                    'mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border-2',
-                    selected ? 'border-[#5865f2]' : 'border-[#80848e]'
-                  )}
-                  aria-hidden="true"
-                >
-                  {selected && <span className="h-2.5 w-2.5 rounded-full bg-[#5865f2]" />}
-                </span>
-                <span>
-                  <span className="block text-[15px] font-medium text-[#f2f3f5]">{item.title}</span>
-                  <span className="mt-0.5 block text-sm leading-snug text-[#949ba4]">{item.desc}</span>
-                </span>
-              </button>
-            )
-          })}
-        </div>
-      </section>
-
-      {/* Чувствительность */}
-      <section className="space-y-3">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-[15px] font-medium text-[#f2f3f5]">
-              Автоматически определять чувствительность ввода
-            </p>
-            <p className="mt-1 text-sm text-[#949ba4]">
-              Контролирует чувствительность к звукам вашего микрофона в Miscord.
-            </p>
-          </div>
-          <Switch
-            variant="brand"
-            checked={autoDetectSensitivity}
-            onCheckedChange={setAutoDetectSensitivity}
-            aria-label="Автоматическая чувствительность"
-          />
-        </div>
-
-        {!autoDetectSensitivity && (
-          <div className="pt-1">
-            <div className="relative h-2.5 overflow-hidden rounded-full bg-[#1e1f22]">
-              <div
-                className="absolute inset-y-0 left-0 rounded-full"
-                style={{
-                  width: '100%',
-                  background:
-                    'linear-gradient(90deg, #f0b232 0%, #f0b232 35%, #23a559 55%, #23a559 100%)',
-                }}
-              />
-              {/* индикатор текущего уровня */}
-              <div
-                className="absolute inset-y-0 left-0 bg-black/35"
-                style={{ width: `${100 - meterLevel}%`, marginLeft: `${meterLevel}%` }}
-              />
-            </div>
-            <Slider
-              value={[vadSensitivity]}
-              onValueChange={(v) => {
-                const next = v[0] ?? 50
-                setVADSensitivity(next)
-                voiceService.updateVADThresholds(next)
-              }}
-              min={0}
-              max={100}
-              step={1}
-              className="mt-3"
-            />
-          </div>
-        )}
-      </section>
-
-      <hr className="border-[#3f4147]" />
-
-      {/* Строки как на втором референсе */}
-      <section className="space-y-5">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <p className="text-[15px] font-medium text-[#f2f3f5]">Шумоподавление</p>
-            <p className="mt-1 text-sm text-[#949ba4]">
-              Уменьшает фоновый шум микрофона. Предоставляется Miscord AI.
-            </p>
-          </div>
-          <div className="relative w-[11.5rem] shrink-0">
-            <select
-              value={noiseSelectValue}
-              onChange={(e) => {
-                const value = e.target.value as NoiseEngineChoice
-                void applyNoiseEngine(value)
-                if (value !== 'miscord-ai') setVoiceProfile('custom')
-                if (value === 'miscord-ai') setVoiceProfile('isolation')
-                if (value === 'off') setVoiceProfile('studio')
-              }}
-              className={selectClass}
+      <section className="space-y-4">
+        <h3 className="text-xl font-semibold text-white">Профиль ввода</h3>
+        {(Object.keys(PROFILE_COPY) as VoiceProcessingProfile[]).map(
+          (profileId) => (
+            <label
+              key={profileId}
+              className="flex cursor-pointer items-start gap-3"
             >
-              <option value="miscord-ai">Miscord AI</option>
-              <option value="deepfilternet3">DeepFilterNet3</option>
-              <option value="browser">Стандартное</option>
-              <option value="off">Выключено</option>
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#b5bac1]" />
-          </div>
-        </div>
+              <input
+                type="radio"
+                name="voice-profile"
+                checked={profile === profileId}
+                onChange={() => void updateProfile(profileId)}
+                className="mt-1 h-5 w-5 accent-[#5865f2]"
+              />
+              <span>
+                <span className="block font-semibold text-[#dbdee1]">
+                  {PROFILE_COPY[profileId].title}
+                </span>
+                <span className="text-sm text-[#949ba4]">
+                  {PROFILE_COPY[profileId].description}
+                </span>
+              </span>
+            </label>
+          ),
+        )}
 
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-[15px] font-medium text-[#f2f3f5]">Эхоподавление</p>
-            <p className="mt-1 text-sm text-[#949ba4]">
-              Убирает эхо от динамиков, чтобы вас не было слышно дважды.
-            </p>
-          </div>
-          <Switch
-            variant="brand"
-            checked={echoCancellation}
-            onCheckedChange={(checked) => {
-              setEchoCancellation(checked)
-              void voiceService.updateAudioSettings({ echoCancellation: checked })
-            }}
-            aria-label="Эхоподавление"
-          />
-        </div>
-
-        <div className="space-y-4">
+        <div className="rounded-lg border border-[#3f4147] bg-[#2b2d31] p-4">
           <div className="flex items-center justify-between gap-4">
-            <p className="text-[15px] font-medium text-[#f2f3f5]">Режим рации</p>
-            <Switch
-              variant="brand"
-              checked={inputMode === 'push-to-talk'}
-              onCheckedChange={(checked) => {
-                setInputMode(checked ? 'push-to-talk' : 'voice-activity')
-                voiceService.setInputMode(checked ? 'push-to-talk' : 'voice-activity')
-                if (!checked) setIsRecordingPttKey(false)
-              }}
-              aria-label="Режим рации"
-            />
+            <div>
+              <p className="font-semibold text-white">Фактическая обработка</p>
+              <p className="text-sm text-[#b5bac1]">
+                {statusLabel(shownRuntime.status)}
+                {shownRuntime.engine
+                  ? ` · ${ENGINE_LABELS[shownRuntime.engine as NoiseSuppressionEngine] ?? shownRuntime.engine}`
+                  : ''}
+              </p>
+            </div>
+            <span
+              className={cn(
+                'rounded-full px-2.5 py-1 text-xs font-semibold',
+                shownRuntime.status === 'active'
+                  ? 'bg-[#1f6f46] text-[#b5f5d0]'
+                  : shownRuntime.status === 'error'
+                    ? 'bg-[#7d292d] text-[#ffd4d6]'
+                    : 'bg-[#404249] text-[#dbdee1]',
+              )}
+            >
+              {statusLabel(shownRuntime.status)}
+            </span>
           </div>
-
-          {inputMode === 'push-to-talk' && (
-            <>
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0 flex-1 pr-3">
-                  <p className="text-[15px] font-medium text-[#f2f3f5]">
-                    Горячая клавиша для режима рации
-                  </p>
-                  <p className="mt-1 text-sm leading-snug text-[#949ba4]">
-                    Вы можете добавить несколько комбинаций для режима рации в настройках горячих
-                    клавиш.
-                  </p>
-                </div>
-                <div className="flex h-10 w-[15.5rem] shrink-0 items-stretch overflow-hidden rounded-md bg-[#1e1f22]">
-                  <div className="flex min-w-0 flex-1 items-center px-3 text-sm text-[#949ba4]">
-                    <span className="truncate">
-                      {isRecordingPttKey
-                        ? 'Нажмите клавишу…'
-                        : pttKey
-                          ? getPttKeyLabel(pttKey)
-                          : 'Горячие клавиши не назначены'}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setIsRecordingPttKey(true)}
-                    className={cn(
-                      'shrink-0 border-l border-[#2b2d31] px-3 text-sm font-medium transition-colors',
-                      isRecordingPttKey
-                        ? 'bg-[#5865f2] text-white'
-                        : 'text-[#dbdee1] hover:bg-[#2b2d31]'
-                    )}
-                  >
-                    {isRecordingPttKey ? 'Ожидание…' : 'Установить'}
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <p className="mb-3 text-[15px] font-medium text-[#f2f3f5]">
-                  Задержка отключения в режиме рации
-                </p>
-                <Slider
-                  value={[pttDelay]}
-                  onValueChange={(values) => {
-                    const next = values[0] ?? 20
-                    setPTTDelay(next)
-                    voiceService.setPTTDelay(next)
-                  }}
-                  min={0}
-                  max={2000}
-                  step={20}
-                />
-                <p className="mt-2 text-xs text-[#949ba4]">
-                  {pttDelay === 0
-                    ? 'Без задержки'
-                    : `${(pttDelay / 1000).toFixed(pttDelay % 1000 === 0 ? 0 : 2)} сек.`}
-                </p>
-              </div>
-            </>
+          {shownRuntime.message && (
+            <p className="mt-2 text-sm text-[#f0b232]">
+              {shownRuntime.message}
+            </p>
+          )}
+          {diagnostics.unsupportedConstraints.length > 0 && (
+            <p className="mt-2 text-sm text-[#949ba4]">
+              Браузер не поддерживает: {diagnostics.unsupportedConstraints.join(', ')}
+            </p>
           )}
         </div>
+      </section>
 
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-[15px] font-medium text-[#f2f3f5]">
-              Показать расширенные настройки голоса
-            </p>
-            <p className="mt-1 text-sm text-[#949ba4]">
-              Автоматическая регулировка усиления и тонкая настройка активации по голосу.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowAdvanced((v) => !v)}
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-[#1e1f22] text-[#dbdee1] hover:bg-[#2b2d31]"
-            aria-expanded={showAdvanced}
-            aria-label="Расширенные настройки"
-          >
-            <ChevronDown
-              className={cn('h-5 w-5 transition-transform', showAdvanced && 'rotate-180')}
+      {profile === 'custom' && (
+        <>
+          <Divider />
+          <section className="space-y-5">
+            <h3 className="text-xl font-semibold text-white">
+              Ручная обработка
+            </h3>
+            <SettingSwitch
+              title="Шумоподавление"
+              description="AI и браузерный шумодав не включаются одновременно."
+              checked={customSettings.noiseSuppression}
+              onChange={(checked) =>
+                void updateProcessing({ noiseSuppression: checked })
+              }
             />
-          </button>
-        </div>
+            <label className="block">
+              <span className="mb-2 block text-xs font-bold uppercase text-[#b5bac1]">
+                Движок шумоподавления
+              </span>
+              <select
+                value={customSettings.noiseSuppressionEngine}
+                disabled={!customSettings.noiseSuppression}
+                onChange={(event) =>
+                  void updateProcessing({
+                    noiseSuppressionEngine: event.target
+                      .value as NoiseSuppressionEngine,
+                  })
+                }
+                className="h-10 w-full rounded-md bg-[#1e1f22] px-3 text-sm text-[#dbdee1] outline-none disabled:opacity-50"
+              >
+                {(Object.keys(ENGINE_LABELS) as NoiseSuppressionEngine[]).map(
+                  (engine) => (
+                    <option
+                      key={engine}
+                      value={engine}
+                      disabled={
+                        engine !== 'browser' && !supportedEngines.has(engine)
+                      }
+                    >
+                      {ENGINE_LABELS[engine]}
+                    </option>
+                  ),
+                )}
+              </select>
+            </label>
+            <SettingSwitch
+              title="Эхоподавление"
+              description="Убирает звук динамиков из микрофона, если браузер поддерживает constraint."
+              checked={customSettings.echoCancellation}
+              onChange={(checked) =>
+                void updateProcessing({ echoCancellation: checked })
+              }
+            />
+            <SettingSwitch
+              title="Автоматическая регулировка усиления"
+              description="Выравнивает громкость входящего сигнала."
+              checked={customSettings.autoGainControl}
+              onChange={(checked) =>
+                void updateProcessing({ autoGainControl: checked })
+              }
+            />
+            <SettingSwitch
+              title="Обработка голоса"
+              description="High-pass, компрессор и компенсация громкости."
+              checked={customSettings.voiceConditioning}
+              onChange={(checked) =>
+                void updateProcessing({ voiceConditioning: checked })
+              }
+            />
+          </section>
+        </>
+      )}
 
-        {showAdvanced && (
-          <div className="rounded-md border border-[#3f4147] bg-[#1e1f22]/50 p-4 space-y-4">
-            <p className="text-xs font-bold uppercase tracking-wide text-[#b5bac1]">
-              Расширенные настройки
-            </p>
-            <div>
-              <label className="mb-2 block text-sm text-[#dbdee1]">
-                Чувствительность активации по голосу: {vadSensitivity}%
-              </label>
-              <Slider
-                value={[vadSensitivity]}
-                onValueChange={(v) => {
-                  const next = v[0] ?? 50
-                  setVADSensitivity(next)
-                  setAutoDetectSensitivity(false)
-                  voiceService.updateVADThresholds(next)
-                }}
-                min={0}
-                max={100}
-                step={1}
+      <Divider />
+
+      <section className="space-y-5">
+        <h3 className="text-xl font-semibold text-white">Режим ввода</h3>
+        <label className="flex cursor-pointer items-start gap-3">
+          <input
+            type="radio"
+            checked={inputMode === 'voice-activity'}
+            onChange={() =>
+              voiceSettingsController.setInputMode('voice-activity')
+            }
+            className="mt-1 h-5 w-5 accent-[#5865f2]"
+          />
+          <span>
+            <span className="block font-semibold">Активация по голосу</span>
+            <span className="text-sm text-[#949ba4]">
+              Передача открывается только после превышения порога.
+            </span>
+          </span>
+        </label>
+        <label className="flex cursor-pointer items-start gap-3">
+          <input
+            type="radio"
+            checked={inputMode === 'push-to-talk'}
+            onChange={() =>
+              voiceSettingsController.setInputMode('push-to-talk')
+            }
+            className="mt-1 h-5 w-5 accent-[#5865f2]"
+          />
+          <span>
+            <span className="block font-semibold">Режим рации</span>
+            <span className="text-sm text-[#949ba4]">
+              В браузере PTT работает только пока вкладка активна.
+            </span>
+          </span>
+        </label>
+
+        {inputMode === 'voice-activity' ? (
+          <div className="space-y-4 rounded-lg bg-[#2b2d31] p-4">
+            <SettingSwitch
+              title="Автоматически определять чувствительность"
+              description="Порог строится по шумовому фону микрофона."
+              checked={autoDetectSensitivity}
+              onChange={(checked) =>
+                voiceSettingsController.setAutoDetectSensitivity(checked)
+              }
+            />
+            {!autoDetectSensitivity && (
+              <LabeledSlider
+                label={`Чувствительность · ${vadSensitivity - 100} dBFS`}
+                value={vadSensitivity}
+                onChange={(value) =>
+                  voiceSettingsController.setVADSensitivity(value)
+                }
               />
+            )}
+          </div>
+        ) : (
+          <div className="space-y-4 rounded-lg bg-[#2b2d31] p-4">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="font-semibold text-white">Клавиша PTT</p>
+                <p className="text-sm text-[#949ba4]">
+                  Нажмите кнопку и затем нужную клавишу.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsRecordingPTT(true)}
+                className={cn(
+                  'min-w-[132px] rounded-md px-3 py-2 text-sm font-semibold',
+                  isRecordingPTT
+                    ? 'bg-[#f0b232] text-[#1e1f22]'
+                    : 'bg-[#4e5058] text-white hover:bg-[#5d6069]',
+                )}
+              >
+                {isRecordingPTT ? 'Нажмите клавишу' : pttKey}
+              </button>
             </div>
-            <p className="text-xs text-[#949ba4]">
-              Miscord AI обрабатывает звук локально на вашем устройстве.
-            </p>
+            <LabeledSlider
+              label={`Задержка отпускания · ${pttDelay} мс`}
+              value={pttDelay}
+              min={0}
+              max={2000}
+              onChange={(value) => voiceSettingsController.setPTTDelay(value)}
+            />
           </div>
         )}
       </section>
-
-      <hr className="border-[#3f4147]" />
-
-      {/* —— Камера —— */}
-      <section>
-        <h3 className="mb-4 text-xl font-semibold text-[#f2f3f5]">Камера</h3>
-        <div className="flex aspect-video w-full items-center justify-center rounded-lg bg-[#1e1f22]">
-          <button
-            type="button"
-            disabled
-            className="inline-flex items-center gap-2 rounded-md bg-[#5865f2] px-4 py-2.5 text-sm font-semibold text-white opacity-70"
-            title="Скоро"
-          >
-            <Video className="h-4 w-4" />
-            Проверить видео
-          </button>
-        </div>
-        <div className="mt-4 flex items-start justify-between gap-4">
-          <div>
-            <p className="text-[15px] font-medium text-[#f2f3f5]">Предпросмотр видео (всегда)</p>
-            <p className="mt-1 text-sm text-[#949ba4]">
-              Использовать предпросмотр каждый раз, как вы включаете видео
-            </p>
-          </div>
-          <Switch
-            variant="brand"
-            checked={false}
-            disabled
-            onCheckedChange={() => {}}
-            aria-label="Предпросмотр видео"
-          />
-        </div>
-      </section>
     </div>
-  )
+  );
+};
+
+interface DeviceSelectProps {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  devices: MediaDeviceInfo[];
+  onChange: (value: string) => void;
 }
+
+const DeviceSelect: React.FC<DeviceSelectProps> = ({
+  icon,
+  label,
+  value,
+  devices,
+  onChange,
+}) => (
+  <label className="block">
+    <span className="mb-2 block text-xs font-bold uppercase text-[#b5bac1]">
+      {label}
+    </span>
+    <span className="relative flex h-10 items-center rounded-md bg-[#1e1f22]">
+      <span className="pointer-events-none absolute left-3 text-[#b5bac1]">
+        {icon}
+      </span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-full w-full appearance-none bg-transparent pl-9 pr-9 text-sm text-[#dbdee1] outline-none"
+      >
+        <option value="default">По умолчанию</option>
+        {devices
+          .filter((device) => device.deviceId !== 'default')
+          .map((device, index) => (
+            <option key={device.deviceId} value={device.deviceId}>
+              {device.label || `Устройство ${index + 1}`}
+            </option>
+          ))}
+      </select>
+      <ChevronDown
+        size={16}
+        className="pointer-events-none absolute right-3 text-[#b5bac1]"
+      />
+    </span>
+  </label>
+);
+
+interface LabeledSliderProps {
+  label: string;
+  value: number;
+  min?: number;
+  max?: number;
+  onChange: (value: number) => void;
+}
+
+const LabeledSlider: React.FC<LabeledSliderProps> = ({
+  label,
+  value,
+  min = 0,
+  max = 100,
+  onChange,
+}) => (
+  <label className="block">
+    <span className="mb-2 block text-xs font-bold uppercase text-[#b5bac1]">
+      {label}
+    </span>
+    <Slider
+      min={min}
+      max={max}
+      value={[value]}
+      onValueChange={(values) => onChange(values[0] ?? value)}
+    />
+  </label>
+);
+
+interface SettingSwitchProps {
+  title: string;
+  description: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}
+
+const SettingSwitch: React.FC<SettingSwitchProps> = ({
+  title,
+  description,
+  checked,
+  onChange,
+}) => (
+  <div className="flex items-center justify-between gap-6">
+    <div>
+      <p className="font-semibold text-[#dbdee1]">{title}</p>
+      <p className="text-sm text-[#949ba4]">{description}</p>
+    </div>
+    <Switch checked={checked} onCheckedChange={onChange} />
+  </div>
+);
+
+const Divider = () => <div className="my-9 h-px bg-[#3f4147]" />;
+
+export default VoiceVideoSettings;
+export { VoiceVideoSettings };

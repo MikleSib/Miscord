@@ -14,8 +14,9 @@ import soundService from '../../services/soundService';
 type CallType = 'channel' | 'p2p' | null;
 type P2PCallStatus = 'idle' | 'outgoing' | 'incoming' | 'active';
 
-interface VoiceState {
+export interface VoiceState {
   isConnected: boolean;
+  isConnecting: boolean;
   currentVoiceChannelId: number | null;
   participants: VoiceUser[];
   localStream: MediaStream | null;
@@ -24,7 +25,7 @@ interface VoiceState {
   isDeafened: boolean;
   wasMutedBeforeDeafen: boolean;
   error: string | null;
-  speakingUsers: Set<number>;
+  speakingUsers: Record<number, boolean>;
   
   // P2P Call State
   callType: CallType;
@@ -53,6 +54,7 @@ interface VoiceState {
 
 export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
   isConnected: false,
+  isConnecting: false,
   currentVoiceChannelId: null,
   participants: [],
   localStream: null,
@@ -61,7 +63,7 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
   isDeafened: false,
   wasMutedBeforeDeafen: false,
   error: null,
-  speakingUsers: new Set(),
+  speakingUsers: {},
 
   // P2P Call State
   callType: null,
@@ -74,13 +76,21 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
       
       // Если уже подключены к каналу, сначала отключаемся
       const currentState = get();
+      if (currentState.isConnecting) {
+        return;
+      }
       if (currentState.isConnected || currentState.currentVoiceChannelId) {
         console.log('[OptimizedVoiceSlice] Отключаемся от предыдущего канала');
         get().disconnectFromVoiceChannel();
         await new Promise(resolve => setTimeout(resolve, 100));
       }
       
-      set({ error: null });
+      set({
+        error: null,
+        isConnecting: true,
+        isConnected: false,
+        currentVoiceChannelId: channelId,
+      });
       
       const token = useAuthStore.getState().token;
       if (!token) {
@@ -116,7 +126,9 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
       // Обработчик изменения голосовой активности
       optimizedVoiceService.onSpeakingChanged((userId, isSpeaking) => {
         console.log('[OptimizedVoiceSlice] 🗣️ Speaking changed:', userId, isSpeaking);
-        get().setSpeaking(userId, isSpeaking);
+        const resolvedUserId = userId ?? useAuthStore.getState().user?.id;
+        if (resolvedUserId == null) return;
+        get().setSpeaking(resolvedUserId, isSpeaking);
       });
       
       // Обработчик получения списка участников
@@ -170,12 +182,7 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
       // Обработчик удаленных потоков
       optimizedVoiceService.onRemoteStream((userId, stream) => {
         console.log('[OptimizedVoiceSlice] 🎵 Получен удаленный поток от:', userId);
-        // Проигрываем удаленный поток
-        const audio = new Audio();
-        audio.srcObject = stream;
-        audio.autoplay = true;
-        audio.volume = 1.0;
-        audio.play().catch(e => console.error('[OptimizedVoiceSlice] Ошибка воспроизведения:', e));
+        get().setRemoteStream(stream);
       });
       
       // Подключаемся к голосовому каналу
@@ -203,6 +210,7 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
       set({
         currentVoiceChannelId: channelId,
         isConnected: true,
+        isConnecting: false,
         error: null,
       });
 
@@ -211,6 +219,7 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
       set({ 
         error: error.message || 'Ошибка подключения к голосовому каналу',
         isConnected: false,
+        isConnecting: false,
         currentVoiceChannelId: null,
       });
     }
@@ -226,13 +235,14 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
     
     set({
       isConnected: false,
+      isConnecting: false,
       currentVoiceChannelId: null,
       participants: [],
       localStream: null,
       isMuted: false,
       isDeafened: false,
       wasMutedBeforeDeafen: false,
-      speakingUsers: new Set(),
+      speakingUsers: {},
     });
   },
   
@@ -253,9 +263,14 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
     };
   }),
   
-  removeParticipant: (userId) => set((state) => ({
-    participants: state.participants.filter(p => p.user_id !== userId),
-  })),
+  removeParticipant: (userId) => set((state) => {
+    const speakingUsers = { ...state.speakingUsers };
+    delete speakingUsers[userId];
+    return {
+      participants: state.participants.filter(p => p.user_id !== userId),
+      speakingUsers,
+    };
+  }),
   
   updateParticipant: (participant) => set((state) => {
     const index = state.participants.findIndex(p => p.user_id === participant.user_id);
@@ -399,13 +414,13 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
   
   setSpeaking: (userId, isSpeaking) => {
     set((state) => {
-      const newSpeakingUsers = new Set(state.speakingUsers);
+      const speakingUsers = { ...state.speakingUsers };
       if (isSpeaking) {
-        newSpeakingUsers.add(userId);
+        speakingUsers[userId] = true;
       } else {
-        newSpeakingUsers.delete(userId);
+        delete speakingUsers[userId];
       }
-      return { speakingUsers: newSpeakingUsers };
+      return { speakingUsers };
     });
   },
 }));

@@ -82,12 +82,29 @@ class ConnectionManager:
         
         if user_id not in self.active_connections:
             self.active_connections[user_id] = []
-        self.active_connections[user_id].append(websocket)
+        if websocket not in self.active_connections[user_id]:
+            self.active_connections[user_id].append(websocket)
         
         if channel_id:
             if channel_id not in self.channel_connections:
                 self.channel_connections[channel_id] = {}
             self.channel_connections[channel_id][user_id] = websocket
+
+    async def register_channel(self, websocket: WebSocket, user_id: int, channel_id: int):
+        """Привязывает уже принятый WebSocket к каналу, не трогая общую сессию."""
+        if channel_id not in self.channel_connections:
+            self.channel_connections[channel_id] = {}
+        self.channel_connections[channel_id][user_id] = websocket
+
+    async def unregister_channel(self, websocket: WebSocket, user_id: int, channel_id: int):
+        """Снимает привязку к каналу, не удаляя WebSocket из active_connections."""
+        channel_users = self.channel_connections.get(channel_id)
+        if not channel_users:
+            return
+        if channel_users.get(user_id) is websocket:
+            del channel_users[user_id]
+        if not channel_users:
+            del self.channel_connections[channel_id]
 
     async def disconnect(self, websocket: WebSocket, user_id: int, channel_id: int = None):
         """Отключение WebSocket."""

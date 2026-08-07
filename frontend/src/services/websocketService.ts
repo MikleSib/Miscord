@@ -7,8 +7,11 @@ type Handler = (data: any) => void;
 class WebSocketService {
   private ws: WebSocket | null = null;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 60;
+  private maxReconnectAttempts = 8;
   private reconnectDelay = 1000;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private shouldReconnect = false;
+  private token: string | null = null;
   private listeners: { [key: string]: Handler[] } = {};
   private isReconnecting = false;
   private lastError: string | null = null;
@@ -198,21 +201,51 @@ class WebSocketService {
   }
 
   connect(token: string) {
-    if (typeof window === 'undefined' || this.ws?.readyState === WebSocket.OPEN) {
+    if (typeof window === 'undefined') {
       return;
     }
+
+    const currentToken = localStorage.getItem('access_token') || token;
+    if (!currentToken) {
+      this.shouldReconnect = false;
+      this.isReconnecting = false;
+      this.lastError = 'Сессия истекла';
+      this.notifyConnectionStatus();
+      return;
+    }
+
+    if (
+      this.ws?.readyState === WebSocket.OPEN ||
+      this.ws?.readyState === WebSocket.CONNECTING
+    ) {
+      return;
+    }
+
+    this.token = currentToken;
+    this.shouldReconnect = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
     this.isReconnecting = true;
     this.lastError = null;
     this.notifyConnectionStatus();
     try {
-      this.ws = new WebSocket(`${WS_URL}/ws/notifications?token=${token}`);
-      this.ws.onopen = () => {
+      const socket = new WebSocket(
+        `${WS_URL}/ws/notifications?token=${encodeURIComponent(currentToken)}`
+      );
+      this.ws = socket;
+
+      socket.onopen = () => {
+        if (this.ws !== socket) return;
         this.reconnectAttempts = 0;
         this.isReconnecting = false;
         this.lastError = null;
         this.notifyConnectionStatus();
       };
-      this.ws.onmessage = (event) => {
+      socket.onmessage = (event) => {
+        if (this.ws !== socket) return;
         try {
           const data = JSON.parse(event.data);
           
@@ -229,13 +262,23 @@ class WebSocketService {
           this.notifyConnectionStatus();
         }
       };
-      this.ws.onclose = (event) => {
+      socket.onclose = (event) => {
+        if (this.ws !== socket) return;
+        this.ws = null;
         this.isReconnecting = false;
         this.lastError = event.reason || 'Соединение закрыто';
         this.notifyConnectionStatus();
-        this.handleReconnect(token);
+        if (
+          this.shouldReconnect &&
+          event.code !== 1000 &&
+          event.code !== 4001 &&
+          event.code !== 1008
+        ) {
+          this.handleReconnect();
+        }
       };
-      this.ws.onerror = (error) => {
+      socket.onerror = (error) => {
+        if (this.ws !== socket) return;
         console.error('🔔 Ошибка WebSocket уведомлений:', error);
         this.lastError = 'Ошибка соединения';
         this.isReconnecting = false;
@@ -246,17 +289,44 @@ class WebSocketService {
       this.lastError = 'Не удалось подключиться';
       this.isReconnecting = false;
       this.notifyConnectionStatus();
+      if (this.shouldReconnect) {
+        this.handleReconnect();
+      }
     }
   }
 
-  private handleReconnect(token: string) {
+  private handleReconnect() {
+    if (!this.shouldReconnect || this.reconnectTimer) return;
+
+    const currentToken =
+      (typeof window !== 'undefined' && localStorage.getItem('access_token')) ||
+      this.token;
+    if (!currentToken) {
+      this.shouldReconnect = false;
+      this.isReconnecting = false;
+      this.lastError = 'Сессия истекла';
+      this.notifyConnectionStatus();
+      return;
+    }
+
+    this.token = currentToken;
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
       this.isReconnecting = true;
       this.lastError = `Попытка ${this.reconnectAttempts}/${this.maxReconnectAttempts}`;
       this.notifyConnectionStatus();
-      setTimeout(() => this.connect(token), this.reconnectDelay * this.reconnectAttempts);
+      const delay = Math.min(
+        this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1),
+        30000
+      );
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = null;
+        if (this.shouldReconnect && this.token) {
+          this.connect(this.token);
+        }
+      }, delay);
     } else {
+      this.shouldReconnect = false;
       this.isReconnecting = false;
       this.lastError = 'Превышено максимальное количество попыток переподключения';
       this.notifyConnectionStatus();
@@ -297,9 +367,21 @@ class WebSocketService {
   }
 
   disconnect() {
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
+    this.shouldReconnect = false;
+    this.token = null;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    const socket = this.ws;
+    this.ws = null;
+    if (socket) {
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onerror = null;
+      socket.onclose = null;
+      socket.close(1000, 'Client disconnect');
     }
     // НЕ очищаем listeners и connectionStatusHandlers!
     // Они нужны при переподключении
@@ -308,6 +390,7 @@ class WebSocketService {
     this.reconnectAttempts = 0;
     this.isReconnecting = false;
     this.lastError = null;
+    this.notifyConnectionStatus();
   }
 
   // Новый метод для полного отключения (при выходе из приложения)
