@@ -1,3 +1,4 @@
+﻿from app.models import PendingChatUpload
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, func, case
 from sqlalchemy.orm import selectinload
@@ -14,32 +15,44 @@ async def get_messages(db: AsyncSession, user1_id: int, user2_id: int, skip: int
             )
         ).options(
             selectinload(DirectMessage.attachments)
-            # reactions приходят через WebSocket
+            # reactions РїСЂРёС…РѕРґСЏС‚ С‡РµСЂРµР· WebSocket
         ).order_by(DirectMessage.timestamp.desc()).offset(skip).limit(limit)
     )
     messages = result.scalars().all()
-    # Сортируем сообщения по времени в возрастающем порядке для правильного отображения
+    # РЎРѕСЂС‚РёСЂСѓРµРј СЃРѕРѕР±С‰РµРЅРёСЏ РїРѕ РІСЂРµРјРµРЅРё РІ РІРѕР·СЂР°СЃС‚Р°СЋС‰РµРј РїРѕСЂСЏРґРєРµ РґР»СЏ РїСЂР°РІРёР»СЊРЅРѕРіРѕ РѕС‚РѕР±СЂР°Р¶РµРЅРёСЏ
     return sorted(messages, key=lambda x: x.timestamp)
 
 async def create_message(db: AsyncSession, sender_id: int, recipient_id: int, content: str = None, attachments: list = None, reply_to_id: int = None):
     db_message = DirectMessage(
+        client_nonce=client_nonce,
         sender_id=sender_id,
         recipient_id=recipient_id,
         content=content,
         reply_to_id=reply_to_id
     )
     
-    # Добавляем вложения если они есть
+    # Р”РѕР±Р°РІР»СЏРµРј РІР»РѕР¶РµРЅРёСЏ РµСЃР»Рё РѕРЅРё РµСЃС‚СЊ
     if attachments:
         for url in attachments:
             attachment = Attachment(file_url=url)
             db_message.attachments.append(attachment)
     
     db.add(db_message)
+    for pending in pending_uploads or []:
+        db.add(Attachment(
+            direct_message_id=db_message.id,
+            file_url=pending.file_url,
+            original_filename=pending.original_filename,
+            content_type=pending.content_type,
+            size_bytes=pending.size_bytes,
+            storage_key=pending.storage_key,
+        ))
+        await db.delete(pending)
+
     await db.commit()
     await db.refresh(db_message)
     
-    # Загружаем с attachments, reactions, и reply_to
+    # Р—Р°РіСЂСѓР¶Р°РµРј СЃ attachments, reactions, Рё reply_to
     result = await db.execute(
         select(DirectMessage)
         .where(DirectMessage.id == db_message.id)
@@ -53,7 +66,7 @@ async def create_message(db: AsyncSession, sender_id: int, recipient_id: int, co
 
 
 async def get_conversations(db: AsyncSession, user_id: int):
-    """Уникальные собеседники с временем последнего сообщения."""
+    """РЈРЅРёРєР°Р»СЊРЅС‹Рµ СЃРѕР±РµСЃРµРґРЅРёРєРё СЃ РІСЂРµРјРµРЅРµРј РїРѕСЃР»РµРґРЅРµРіРѕ СЃРѕРѕР±С‰РµРЅРёСЏ."""
     peer_id_expr = case(
         (DirectMessage.sender_id == user_id, DirectMessage.recipient_id),
         else_=DirectMessage.sender_id,
@@ -98,3 +111,4 @@ async def get_conversations(db: AsyncSession, user_id: int):
         )
 
     return conversations
+

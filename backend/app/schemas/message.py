@@ -8,6 +8,7 @@ class MessageBase(BaseModel):
     content: Optional[constr(max_length=5000)] = None
 
 class MessageCreate(MessageBase):
+    client_nonce: Optional[str] = None
     text_channel_id: int
     attachments: Optional[List[str]] = []
     reply_to_id: Optional[int] = None
@@ -16,6 +17,7 @@ class MessageUpdate(BaseModel):
     content: constr(max_length=5000)
 
 class Message(BaseModel):
+    client_nonce: Optional[str] = None
     id: int
     content: Optional[str]
     timestamp: datetime
@@ -39,6 +41,7 @@ class Message(BaseModel):
         from_attributes = True
 
 class DirectMessageSchema(BaseModel):
+    client_nonce: Optional[str] = None
     id: int
     content: Optional[str] = None  # Nullable для поддержки только фото
     timestamp: datetime

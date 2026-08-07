@@ -56,6 +56,7 @@ def serialize_channel_message(message, *, include_reply: bool = True) -> dict[st
                     container[field_name] = attachment_urls.get(value.removeprefix("attachment://"), value)
     return {
         "id": message.id,
+        "client_nonce": getattr(message, "client_nonce", None),
         "author_id": message.author_id,
         "webhook_id": message.webhook_id,
         "text_channel_id": message.text_channel_id,

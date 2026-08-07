@@ -20,6 +20,7 @@ from app.db.database import AsyncSessionLocal
 from app.models import VoiceChannelUser
 from app.services.clamav import clamav_health
 from app.services.webhook_notifications import dispatcher as webhook_notification_dispatcher
+from app.services.pending_upload_cleanup import run_pending_upload_cleanup_loop
 
 
 _SENSITIVE_QUERY_VALUE = re.compile(
@@ -69,6 +70,10 @@ async def lifespan(app: FastAPI):
     # Startup
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS client_nonce VARCHAR(36)"))
+        await conn.execute(text("ALTER TABLE direct_messages ADD COLUMN IF NOT EXISTS client_nonce VARCHAR(36)"))
+        await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_messages_author_client_nonce ON messages(author_id, client_nonce) WHERE client_nonce IS NOT NULL"))
+        await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_direct_messages_sender_client_nonce ON direct_messages(sender_id, client_nonce) WHERE client_nonce IS NOT NULL"))
         # Execution URLs are intentionally one-time. Existing encrypted copies
         # are irreversibly scrubbed; only high-entropy token hashes remain.
         await conn.execute(text("UPDATE webhooks SET token_ciphertext = '' WHERE token_ciphertext <> ''"))
@@ -83,9 +88,15 @@ async def lifespan(app: FastAPI):
     # Запуск сервиса активности пользователей
     await user_activity_service.start_cleanup_task(AsyncSessionLocal)
     await webhook_notification_dispatcher.start()
+    pending_upload_cleanup_task = asyncio.create_task(run_pending_upload_cleanup_loop())
     
     yield
     # Shutdown
+    pending_upload_cleanup_task.cancel()
+    try:
+        await pending_upload_cleanup_task
+    except asyncio.CancelledError:
+        pass
     await user_activity_service.stop_cleanup_task()
     await webhook_notification_dispatcher.stop()
     if manager.redis_client:

@@ -12,6 +12,7 @@ from .audit_log import AuditLog
 from .channel_permission import ChannelPermissionOverwrite, ChannelKind, OverwriteTargetType
 from .notification_settings import ChannelNotificationOverride, ServerNotificationSettings
 from .webhook import Webhook
+from .pending_chat_upload import PendingChatUpload
 
 __all__ = [
     "User",
@@ -37,4 +38,5 @@ __all__ = [
     "ServerNotificationSettings",
     "ChannelNotificationOverride",
     "Webhook",
+    "PendingChatUpload",
 ]

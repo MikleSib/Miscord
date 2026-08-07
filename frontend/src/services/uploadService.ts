@@ -1,6 +1,7 @@
 import api from './api';
 
 export interface UploadedChatFile {
+  upload_id: string
   file_url: string
   filename: string
   content_type: string
@@ -8,7 +9,7 @@ export interface UploadedChatFile {
 }
 
 class UploadService {
-  async uploadFile(file: File): Promise<UploadedChatFile> {
+  async uploadFile(file: File, options: { signal?: AbortSignal; onProgress?: (loaded: number, total: number) => void } = {}): Promise<UploadedChatFile> {
     console.log('[uploadService] uploadFile', file);
     const formData = new FormData();
     formData.append('file', file);
@@ -17,9 +18,15 @@ class UploadService {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
+      signal: options.signal,
+      onUploadProgress: (event) => options.onProgress?.(event.loaded, event.total || file.size),
     });
 
     return response.data;
+  }
+
+  async deleteUpload(uploadId: string): Promise<void> {
+    await api.delete(`/api/uploads/${uploadId}`)
   }
 
   async uploadFiles(files: File[], concurrency = 3): Promise<UploadedChatFile[]> {

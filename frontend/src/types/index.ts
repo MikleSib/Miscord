@@ -214,6 +214,9 @@ export interface Attachment {
   id: number;
   file_url: string;
   message_id: number;
+  filename?: string;
+  content_type?: string;
+  size_bytes?: number;
 }
 
 export interface Reaction {
@@ -258,10 +261,12 @@ export interface DirectMessage {
   id: number | string; // Может быть временным ID (строка) для pending сообщений
   content: string;
   timestamp: string;
+  client_nonce?: string | null;
   sender_id: number;
   recipient_id: number;
   author?: User; // Данные автора (могут прийти с сервера)
   attachments?: Attachment[];
+  client_nonce?: string | null;
   reactions?: Reaction[];
   isPending?: boolean; // Статус отправки
   tempId?: string; // Временный ID для отслеживания pending сообщений

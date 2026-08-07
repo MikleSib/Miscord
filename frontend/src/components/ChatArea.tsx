@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import React from 'react'
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
@@ -17,9 +17,10 @@ import { MemberProfilePopover } from './MemberProfilePopover'
 import { Message, Role, ServerMember } from '../types'
 import { formatDateDivider } from '../lib/utils'
 import chatService from '../services/chatService'
-import uploadService from '../services/uploadService'
 import { appendChatFiles, MAX_CHAT_ATTACHMENTS } from '../lib/chatAttachments'
 import { PendingAttachmentPreview } from './PendingAttachmentPreview'
+import { OutgoingMessageCard } from './OutgoingMessageCard'
+import { useOutgoingMessageStore } from '../store/outgoingMessageStore'
 import reactionService from '../services/reactionService'
 import serverService from '../services/serverService'
 import { formatSlowModeLabel } from '../lib/slowMode'
@@ -63,7 +64,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     editMessage
   } = useChatStore()
   
-  // Логируем изменения currentChannel
+  // Р›РѕРіРёСЂСѓРµРј РёР·РјРµРЅРµРЅРёСЏ currentChannel
   useEffect(() => {
   }, [currentChannel]);
   
@@ -72,6 +73,17 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [isDraggingFiles, setIsDraggingFiles] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const outgoingQueue = useOutgoingMessageStore((state) => state.messages)
+  const initializeOutgoingQueue = useOutgoingMessageStore((state) => state.initialize)
+  const enqueueOutgoing = useOutgoingMessageStore((state) => state.enqueue)
+  const outgoingMessages = useMemo(
+    () => outgoingQueue.filter((message) => message.conversation.type === 'channel' && message.conversation.id === currentChannel?.id),
+    [outgoingQueue, currentChannel?.id],
+  )
+
+  useEffect(() => {
+    if (user && token) void initializeOutgoingQueue(user.id, token)
+  }, [user?.id, token, initializeOutgoingQueue])
   const [typingUsers, setTypingUsers] = useState<string[]>([])
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const [slowModeUntil, setSlowModeUntil] = useState<number | null>(null)
@@ -91,11 +103,11 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const messagesContentRef = useRef<HTMLDivElement>(null)
   const suppressAutoScrollRef = useRef(false)
-  /** Держим низ чата, пока пользователь сам не ушёл вверх читать историю */
+  /** Р”РµСЂР¶РёРј РЅРёР· С‡Р°С‚Р°, РїРѕРєР° РїРѕР»СЊР·РѕРІР°С‚РµР»СЊ СЃР°Рј РЅРµ СѓС€С‘Р» РІРІРµСЂС… С‡РёС‚Р°С‚СЊ РёСЃС‚РѕСЂРёСЋ */
   const stickToBottomRef = useRef(true)
-  /** Игнорим onScroll пока сами прыгаем вниз (иначе stick сбрасывается) */
+  /** РРіРЅРѕСЂРёРј onScroll РїРѕРєР° СЃР°РјРё РїСЂС‹РіР°РµРј РІРЅРёР· (РёРЅР°С‡Рµ stick СЃР±СЂР°СЃС‹РІР°РµС‚СЃСЏ) */
   const programmaticScrollRef = useRef(false)
-  /** Чтобы скролл вверх не запросил одну пачку несколько раз подряд */
+  /** Р§С‚РѕР±С‹ СЃРєСЂРѕР»Р» РІРІРµСЂС… РЅРµ Р·Р°РїСЂРѕСЃРёР» РѕРґРЅСѓ РїР°С‡РєСѓ РЅРµСЃРєРѕР»СЊРєРѕ СЂР°Р· РїРѕРґСЂСЏРґ */
   const loadingOlderLockRef = useRef(false)
 
   const channelIdForMentions =
@@ -135,7 +147,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     [mentionNameById]
   )
 
-  // Список участников и ролей — для @упоминаний и карточки профиля
+  // РЎРїРёСЃРѕРє СѓС‡Р°СЃС‚РЅРёРєРѕРІ Рё СЂРѕР»РµР№ вЂ” РґР»СЏ @СѓРїРѕРјРёРЅР°РЅРёР№ Рё РєР°СЂС‚РѕС‡РєРё РїСЂРѕС„РёР»СЏ
   useEffect(() => {
     if (!currentServer?.id || currentChannel?.type !== 'text') {
       setMentionMembers([])
@@ -155,7 +167,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
         setServerRoles(rolesResponse)
       })
       .catch((error) => {
-        console.error('Не удалось загрузить участников для упоминаний:', error)
+        console.error('РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ СѓС‡Р°СЃС‚РЅРёРєРѕРІ РґР»СЏ СѓРїРѕРјРёРЅР°РЅРёР№:', error)
       })
 
     return () => {
@@ -172,7 +184,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     [mentionMembers]
   )
 
-  /** Цвет ника участника по роли (как в списке справа) */
+  /** Р¦РІРµС‚ РЅРёРєР° СѓС‡Р°СЃС‚РЅРёРєР° РїРѕ СЂРѕР»Рё (РєР°Рє РІ СЃРїРёСЃРєРµ СЃРїСЂР°РІР°) */
   const getMemberColor = useCallback(
     (userId: number | undefined | null): string | null => {
       if (!userId) return null
@@ -200,7 +212,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     setSendLimitHint(null)
   }, [currentChannel?.id, currentChannel?.type])
 
-  // Зашли в канал — всегда начинаем с последних сообщений (низ)
+  // Р—Р°С€Р»Рё РІ РєР°РЅР°Р» вЂ” РІСЃРµРіРґР° РЅР°С‡РёРЅР°РµРј СЃ РїРѕСЃР»РµРґРЅРёС… СЃРѕРѕР±С‰РµРЅРёР№ (РЅРёР·)
   useEffect(() => {
     if (currentChannel?.type !== 'text') return
     stickToBottomRef.current = true
@@ -230,12 +242,12 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     if (behavior === 'smooth') {
       container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
     } else {
-      // Мгновенно — иначе при куче сообщений smooth «ломается» и остаёшься наверху
+      // РњРіРЅРѕРІРµРЅРЅРѕ вЂ” РёРЅР°С‡Рµ РїСЂРё РєСѓС‡Рµ СЃРѕРѕР±С‰РµРЅРёР№ smooth В«Р»РѕРјР°РµС‚СЃСЏВ» Рё РѕСЃС‚Р°С‘С€СЊСЃСЏ РЅР°РІРµСЂС…Сѓ
       container.scrollTop = container.scrollHeight
     }
-    // На всякий случай якорь в конце списка
+    // РќР° РІСЃСЏРєРёР№ СЃР»СѓС‡Р°Р№ СЏРєРѕСЂСЊ РІ РєРѕРЅС†Рµ СЃРїРёСЃРєР°
     messagesEndRef.current?.scrollIntoView({ block: 'end', behavior: 'auto' })
-    // Даём браузеру применить scrollTop, потом снова слушаем onScroll
+    // Р”Р°С‘Рј Р±СЂР°СѓР·РµСЂСѓ РїСЂРёРјРµРЅРёС‚СЊ scrollTop, РїРѕС‚РѕРј СЃРЅРѕРІР° СЃР»СѓС€Р°РµРј onScroll
     window.requestAnimationFrame(() => {
       programmaticScrollRef.current = false
     })
@@ -250,7 +262,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
       container.scrollHeight - container.scrollTop - container.clientHeight
     stickToBottomRef.current = distanceFromBottom < 140
 
-    // Как в Discord: доскроллил вверх → подгрузить ещё пачку старых
+    // РљР°Рє РІ Discord: РґРѕСЃРєСЂРѕР»Р»РёР» РІРІРµСЂС… в†’ РїРѕРґРіСЂСѓР·РёС‚СЊ РµС‰С‘ РїР°С‡РєСѓ СЃС‚Р°СЂС‹С…
     if (
       container.scrollTop < 80 &&
       hasMoreOlder &&
@@ -267,7 +279,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
       void loadOlderMessages()
         .then((added) => {
           if (!added) return
-          // Сохраняем позицию глаз: после prepend не прыгаем
+          // РЎРѕС…СЂР°РЅСЏРµРј РїРѕР·РёС†РёСЋ РіР»Р°Р·: РїРѕСЃР»Рµ prepend РЅРµ РїСЂС‹РіР°РµРј
           window.requestAnimationFrame(() => {
             const el = messagesContainerRef.current
             if (!el) return
@@ -284,7 +296,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     }
   }, [hasMoreOlder, isLoadingOlder, chatLoading, loadOlderMessages])
 
-  // Пока «прилипли» к низу — любой рост высоты (превью, картинки) снова кидает вниз
+  // РџРѕРєР° В«РїСЂРёР»РёРїР»РёВ» Рє РЅРёР·Сѓ вЂ” Р»СЋР±РѕР№ СЂРѕСЃС‚ РІС‹СЃРѕС‚С‹ (РїСЂРµРІСЊСЋ, РєР°СЂС‚РёРЅРєРё) СЃРЅРѕРІР° РєРёРґР°РµС‚ РІРЅРёР·
   useEffect(() => {
     const content = messagesContentRef.current
     if (!content || typeof ResizeObserver === 'undefined') return
@@ -298,28 +310,28 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     return () => observer.disconnect()
   }, [scrollMessagesToBottom, currentChannel?.id, messages.length])
 
-  // Загрузка истории сообщений при смене канала
+  // Р—Р°РіСЂСѓР·РєР° РёСЃС‚РѕСЂРёРё СЃРѕРѕР±С‰РµРЅРёР№ РїСЂРё СЃРјРµРЅРµ РєР°РЅР°Р»Р°
   useEffect(() => {
     if (currentChannel?.type === 'text') {
       stickToBottomRef.current = true
       loadMessageHistory(currentChannel.id);
       
-      // Подключаемся к WebSocket чата только если еще не подключены
+      // РџРѕРґРєР»СЋС‡Р°РµРјСЃСЏ Рє WebSocket С‡Р°С‚Р° С‚РѕР»СЊРєРѕ РµСЃР»Рё РµС‰Рµ РЅРµ РїРѕРґРєР»СЋС‡РµРЅС‹
       const accessToken = token || localStorage.getItem('access_token');
       
       if (accessToken) {
         
-        // Обработчик новых сообщений
+        // РћР±СЂР°Р±РѕС‚С‡РёРє РЅРѕРІС‹С… СЃРѕРѕР±С‰РµРЅРёР№
         chatService.onMessage((msg) => {
-          // Адаптируем Message к ChatMessage
+          // РђРґР°РїС‚РёСЂСѓРµРј Message Рє ChatMessage
           const chatMessage = {
             ...msg,
-            content: msg.content || '', // Гарантируем что content не null
+            content: msg.content || '', // Р“Р°СЂР°РЅС‚РёСЂСѓРµРј С‡С‚Рѕ content РЅРµ null
           };
           addMessage(chatMessage);
 
-          // Если в сообщении пинг текущего пользователя — кладём в непрочитанные
-          // (дедуп со звуком уже внутри store; событие mention тоже может прийти)
+          // Р•СЃР»Рё РІ СЃРѕРѕР±С‰РµРЅРёРё РїРёРЅРі С‚РµРєСѓС‰РµРіРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ вЂ” РєР»Р°РґС‘Рј РІ РЅРµРїСЂРѕС‡РёС‚Р°РЅРЅС‹Рµ
+          // (РґРµРґСѓРї СЃРѕ Р·РІСѓРєРѕРј СѓР¶Рµ РІРЅСѓС‚СЂРё store; СЃРѕР±С‹С‚РёРµ mention С‚РѕР¶Рµ РјРѕР¶РµС‚ РїСЂРёР№С‚Рё)
           if (
             currentServer?.id &&
             user?.id &&
@@ -340,7 +352,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
           }
         });
         
-        // Обработчик печати
+        // РћР±СЂР°Р±РѕС‚С‡РёРє РїРµС‡Р°С‚Рё
         chatService.onTyping((data) => {
           if (data.user && data.user.username) {
             setTypingUsers(prev => {
@@ -356,17 +368,17 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
           }
         });
 
-        // Обработчик удаления сообщений
+        // РћР±СЂР°Р±РѕС‚С‡РёРє СѓРґР°Р»РµРЅРёСЏ СЃРѕРѕР±С‰РµРЅРёР№
         chatService.onMessageDeleted((data) => {
           deleteMessage(data.message_id);
         });
 
-        // Обработчик редактирования сообщений
+        // РћР±СЂР°Р±РѕС‚С‡РёРє СЂРµРґР°РєС‚РёСЂРѕРІР°РЅРёСЏ СЃРѕРѕР±С‰РµРЅРёР№
         chatService.onMessageEdited((msg) => {
           editMessage(msg.id, msg.content || '');
         });
 
-        // Обработчик обновления реакций
+        // РћР±СЂР°Р±РѕС‚С‡РёРє РѕР±РЅРѕРІР»РµРЅРёСЏ СЂРµР°РєС†РёР№
         chatService.onReactionUpdated((data) => {
           updateSingleReaction(data.message_id, data.emoji, data.reaction);
         });
@@ -375,7 +387,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
           if (data.text_channel_id !== currentChannel.id) return;
           setSlowModeUntil(Date.now() + data.retry_after_seconds * 1000);
           setSendLimitHint(
-            `Подождите ${data.retry_after_seconds} сек. — в этом канале включён медленный режим.`
+            `РџРѕРґРѕР¶РґРёС‚Рµ ${data.retry_after_seconds} СЃРµРє. вЂ” РІ СЌС‚РѕРј РєР°РЅР°Р»Рµ РІРєР»СЋС‡С‘РЅ РјРµРґР»РµРЅРЅС‹Р№ СЂРµР¶РёРј.`
           );
         });
 
@@ -385,8 +397,8 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
           setSlowModeUntil(Date.now() + seconds * 1000);
           setSendLimitHint(
             data.message
-              ? `${data.message} (${seconds} сек.)`
-              : `Слишком быстро. Подождите ${seconds} сек.`
+              ? `${data.message} (${seconds} СЃРµРє.)`
+              : `РЎР»РёС€РєРѕРј Р±С‹СЃС‚СЂРѕ. РџРѕРґРѕР¶РґРёС‚Рµ ${seconds} СЃРµРє.`
           );
         });
       }
@@ -412,7 +424,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     addMentionNotification,
   ]);
 
-  // После загрузки/новых сообщений — прыгаем вниз (и при F5 / смене канала)
+  // РџРѕСЃР»Рµ Р·Р°РіСЂСѓР·РєРё/РЅРѕРІС‹С… СЃРѕРѕР±С‰РµРЅРёР№ вЂ” РїСЂС‹РіР°РµРј РІРЅРёР· (Рё РїСЂРё F5 / СЃРјРµРЅРµ РєР°РЅР°Р»Р°)
   useEffect(() => {
     if (suppressAutoScrollRef.current) {
       suppressAutoScrollRef.current = false
@@ -429,7 +441,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
       scrollMessagesToBottom('auto')
     }
 
-    // Несколько попыток: после paint, после layout и после превью/картинок
+    // РќРµСЃРєРѕР»СЊРєРѕ РїРѕРїС‹С‚РѕРє: РїРѕСЃР»Рµ paint, РїРѕСЃР»Рµ layout Рё РїРѕСЃР»Рµ РїСЂРµРІСЊСЋ/РєР°СЂС‚РёРЅРѕРє
     const frame1 = window.requestAnimationFrame(() => {
       window.requestAnimationFrame(jump)
     })
@@ -460,16 +472,16 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     return true
   }, [])
 
-  /** Как в Telegram: каждый клик — к следующему непрочитанному пингу. */
+  /** РљР°Рє РІ Telegram: РєР°Р¶РґС‹Р№ РєР»РёРє вЂ” Рє СЃР»РµРґСѓСЋС‰РµРјСѓ РЅРµРїСЂРѕС‡РёС‚Р°РЅРЅРѕРјСѓ РїРёРЅРіСѓ. */
   const handleJumpToMention = useCallback(() => {
     const target = channelMentions[0]
     if (!target) return
 
     if (!scrollToMention(target.messageId)) {
-      // Сообщения нет в загруженной истории — снимаем, чтобы не застревать
+      // РЎРѕРѕР±С‰РµРЅРёСЏ РЅРµС‚ РІ Р·Р°РіСЂСѓР¶РµРЅРЅРѕР№ РёСЃС‚РѕСЂРёРё вЂ” СЃРЅРёРјР°РµРј, С‡С‚РѕР±С‹ РЅРµ Р·Р°СЃС‚СЂРµРІР°С‚СЊ
       markMentionRead(target.messageId)
     }
-    // Прочитанным станет само сообщение, когда оно окажется на экране (и фон плавно погаснет)
+    // РџСЂРѕС‡РёС‚Р°РЅРЅС‹Рј СЃС‚Р°РЅРµС‚ СЃР°РјРѕ СЃРѕРѕР±С‰РµРЅРёРµ, РєРѕРіРґР° РѕРЅРѕ РѕРєР°Р¶РµС‚СЃСЏ РЅР° СЌРєСЂР°РЅРµ (Рё С„РѕРЅ РїР»Р°РІРЅРѕ РїРѕРіР°СЃРЅРµС‚)
   }, [channelMentions, markMentionRead, scrollToMention])
 
   const addFiles = useCallback((incoming: File[]) => {
@@ -552,56 +564,27 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     })
   }
 
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault()
-    // Закрываем подсказки @ — кнопка «Отправить» всегда шлёт сообщение
-    setMentionQuery(null)
+  const handleSendMessage = async (event: React.FormEvent) => {
+    event.preventDefault()
+    const content = messageInput.trim()
+    if ((!content && files.length === 0) || !user || !currentChannel) return
 
-    console.log('[ChatArea] handleSendMessage вызван', { messageInput, files, currentChannel });
-    
-    if (!messageInput.trim() && files.length === 0) {
-      console.log('[ChatArea] Пустое сообщение, отмена отправки');
-      return;
-    }
-    if (!currentChannel || currentChannel.type !== 'text') {
-      console.log('[ChatArea] Нет канала или канал не текстовый', { currentChannel });
-      return;
-    }
+    const queuedFiles = [...files]
+    const replyToId = replyingTo?.id
+    setMessageInput('')
+    setFiles([])
+    setReplyingTo(null)
+    setAttachmentError(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
 
-    console.log('[ChatArea] Начинаем отправку сообщения');
-    setIsLoading(true)
-    try {
-      const uploadedFiles = await uploadService.uploadFiles(files)
-      const attachmentUrls = uploadedFiles.map((item) => item.file_url)
-
-      const contentToSend = serializeLooseMentions(messageInput, mentionCandidates)
-      
-      console.log('[ChatArea] Отправляем сообщение через chatService', { 
-        content: contentToSend, 
-        attachments: attachmentUrls,
-        channelId: currentChannel.id,
-        replyTo: replyingTo?.id 
-      });
-      
-      chatService.sendMessage(contentToSend, attachmentUrls, replyingTo?.id);
-      
-      console.log('[ChatArea] Сообщение отправлено, очищаем форму');
-      setMessageInput('')
-      setMentionQuery(null)
-      setFiles([])
-      setAttachmentError(null)
-      setReplyingTo(null)
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-    } catch (error) {
-      console.error('[ChatArea] Ошибка отправки сообщения:', error);
-    } finally {
-      setIsLoading(false)
-      console.log('[ChatArea] Отправка завершена');
-    }
+    enqueueOutgoing({
+      userId: user.id,
+      conversation: { type: 'channel', id: currentChannel.id },
+      content,
+      files: queuedFiles,
+      replyToId,
+    })
   }
-
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value
     const caret = e.target.selectionStart ?? value.length
@@ -646,22 +629,22 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
 
   const handleReaction = async (messageId: number, emoji: string) => {
     try {
-      // toggleReaction возвращает обновленную реакцию
+      // toggleReaction РІРѕР·РІСЂР°С‰Р°РµС‚ РѕР±РЅРѕРІР»РµРЅРЅСѓСЋ СЂРµР°РєС†РёСЋ
       const updatedReaction = await reactionService.toggleReaction(messageId, emoji);
       
-      // Не обновляем локальное состояние здесь - оно будет обновлено через WebSocket
-      // WebSocket получит событие reaction_updated и обновит состояние автоматически
+      // РќРµ РѕР±РЅРѕРІР»СЏРµРј Р»РѕРєР°Р»СЊРЅРѕРµ СЃРѕСЃС‚РѕСЏРЅРёРµ Р·РґРµСЃСЊ - РѕРЅРѕ Р±СѓРґРµС‚ РѕР±РЅРѕРІР»РµРЅРѕ С‡РµСЂРµР· WebSocket
+      // WebSocket РїРѕР»СѓС‡РёС‚ СЃРѕР±С‹С‚РёРµ reaction_updated Рё РѕР±РЅРѕРІРёС‚ СЃРѕСЃС‚РѕСЏРЅРёРµ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё
       
-      console.log('Реакция обновлена:', emoji, 'на сообщение:', messageId, updatedReaction);
+      console.log('Р РµР°РєС†РёСЏ РѕР±РЅРѕРІР»РµРЅР°:', emoji, 'РЅР° СЃРѕРѕР±С‰РµРЅРёРµ:', messageId, updatedReaction);
     } catch (error) {
-      console.error('Ошибка при изменении реакции:', error);
+      console.error('РћС€РёР±РєР° РїСЂРё РёР·РјРµРЅРµРЅРёРё СЂРµР°РєС†РёРё:', error);
       
-      // Если произошла ошибка, можем попробовать обновить локально
+      // Р•СЃР»Рё РїСЂРѕРёР·РѕС€Р»Р° РѕС€РёР±РєР°, РјРѕР¶РµРј РїРѕРїСЂРѕР±РѕРІР°С‚СЊ РѕР±РЅРѕРІРёС‚СЊ Р»РѕРєР°Р»СЊРЅРѕ
       try {
         const allReactions = await reactionService.getMessageReactions(messageId);
         updateMessageReactions(messageId, allReactions);
       } catch (fallbackError) {
-        console.error('Ошибка при получении реакций:', fallbackError);
+        console.error('РћС€РёР±РєР° РїСЂРё РїРѕР»СѓС‡РµРЅРёРё СЂРµР°РєС†РёР№:', fallbackError);
       }
     }
   }
@@ -671,11 +654,11 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     
     let text = '';
     if (typingUsers.length === 1) {
-      text = `${typingUsers[0]} печатает...`;
+      text = `${typingUsers[0]} РїРµС‡Р°С‚Р°РµС‚...`;
     } else if (typingUsers.length > 1 && typingUsers.length < 4) {
-      text = `${typingUsers.join(', ')} печатают...`;
+      text = `${typingUsers.join(', ')} РїРµС‡Р°С‚Р°СЋС‚...`;
     } else {
-      text = 'Несколько человек печатают...';
+      text = 'РќРµСЃРєРѕР»СЊРєРѕ С‡РµР»РѕРІРµРє РїРµС‡Р°С‚Р°СЋС‚...';
     }
 
     return <div className="px-4 text-xs text-muted-foreground h-4 mb-1">{text}</div>;
@@ -685,8 +668,8 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     return (
       <div className="app-shell flex min-w-0 flex-1 items-center justify-center">
         <div className="text-muted-foreground text-center">
-          <p className="text-2xl mb-2">Добро пожаловать!</p>
-          <p>Выберите канал для начала общения</p>
+          <p className="text-2xl mb-2">Р”РѕР±СЂРѕ РїРѕР¶Р°Р»РѕРІР°С‚СЊ!</p>
+          <p>Р’С‹Р±РµСЂРёС‚Рµ РєР°РЅР°Р» РґР»СЏ РЅР°С‡Р°Р»Р° РѕР±С‰РµРЅРёСЏ</p>
         </div>
       </div>
     )
@@ -704,8 +687,8 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
         <div className="pointer-events-none absolute inset-3 z-50 grid place-items-center rounded-2xl border-2 border-dashed border-[#5865f2] bg-[#1e1f22]/90 backdrop-blur-sm">
           <div className="text-center">
             <PlusCircle className="mx-auto mb-3 h-10 w-10 text-[#7c86ff]" />
-            <p className="text-base font-semibold text-white">Добавить файлы в сообщение</p>
-            <p className="mt-1 text-sm text-[#b5bac1]">Изображения до 10 МиБ, видео до 20 МиБ</p>
+            <p className="text-base font-semibold text-white">Р”РѕР±Р°РІРёС‚СЊ С„Р°Р№Р»С‹ РІ СЃРѕРѕР±С‰РµРЅРёРµ</p>
+            <p className="mt-1 text-sm text-[#b5bac1]">РР·РѕР±СЂР°Р¶РµРЅРёСЏ РґРѕ 10 РњРёР‘, РІРёРґРµРѕ РґРѕ 20 РњРёР‘</p>
           </div>
         </div>
       )}
@@ -716,16 +699,16 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
           <span className="font-semibold">{currentChannel.name}</span>
           {currentChannel.type === 'text' && (currentChannel.slow_mode_seconds ?? 0) > 0 && (
             <span className="ml-3 rounded bg-[#5865f2]/15 px-2 py-0.5 text-xs text-[#949cf7]">
-              Медленный режим: {formatSlowModeLabel(currentChannel.slow_mode_seconds ?? 0)}
+              РњРµРґР»РµРЅРЅС‹Р№ СЂРµР¶РёРј: {formatSlowModeLabel(currentChannel.slow_mode_seconds ?? 0)}
             </span>
           )}
         </div>
         <div className="flex items-center space-x-2">
-          <Tooltip content={showUserSidebar ? 'Скрыть список участников' : 'Показать список участников'}>
+          <Tooltip content={showUserSidebar ? 'РЎРєСЂС‹С‚СЊ СЃРїРёСЃРѕРє СѓС‡Р°СЃС‚РЅРёРєРѕРІ' : 'РџРѕРєР°Р·Р°С‚СЊ СЃРїРёСЃРѕРє СѓС‡Р°СЃС‚РЅРёРєРѕРІ'}>
             <button
               className="interactive-row flex items-center p-2 text-muted-foreground hover:text-foreground"
               onClick={() => setShowUserSidebar(!showUserSidebar)}
-              aria-label={showUserSidebar ? 'Скрыть список участников' : 'Показать список участников'}
+              aria-label={showUserSidebar ? 'РЎРєСЂС‹С‚СЊ СЃРїРёСЃРѕРє СѓС‡Р°СЃС‚РЅРёРєРѕРІ' : 'РџРѕРєР°Р·Р°С‚СЊ СЃРїРёСЃРѕРє СѓС‡Р°СЃС‚РЅРёРєРѕРІ'}
             >
               <Users className="w-6 h-6 text-muted-foreground" />
             </button>
@@ -745,19 +728,19 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
           <div ref={messagesContentRef} className="space-y-1">
             {chatLoading && messages.length === 0 && (
               <div className="text-center text-muted-foreground py-4">
-                Загрузка истории сообщений...
+                Р—Р°РіСЂСѓР·РєР° РёСЃС‚РѕСЂРёРё СЃРѕРѕР±С‰РµРЅРёР№...
               </div>
             )}
 
             {isLoadingOlder && (
               <div className="py-2 text-center text-xs text-muted-foreground">
-                Загрузка старых сообщений...
+                Р—Р°РіСЂСѓР·РєР° СЃС‚Р°СЂС‹С… СЃРѕРѕР±С‰РµРЅРёР№...
               </div>
             )}
 
             {!hasMoreOlder && messages.length > 0 && !chatLoading && (
               <div className="py-3 text-center text-xs text-muted-foreground/70">
-                Это начало канала
+                Р­С‚Рѕ РЅР°С‡Р°Р»Рѕ РєР°РЅР°Р»Р°
               </div>
             )}
             
@@ -797,17 +780,20 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
                 </React.Fragment>
               )
             })}
-            <div ref={messagesEndRef} />
+            {user && outgoingMessages.map((message) => (
+            <OutgoingMessageCard key={message.clientNonce} message={message} author={user} />
+          ))}
+          <div ref={messagesEndRef} />
           </div>
         </div>
 
         {currentChannel.type === 'text' && channelMentions.length > 0 && (
-          <Tooltip content="Перейти к упоминанию">
+          <Tooltip content="РџРµСЂРµР№С‚Рё Рє СѓРїРѕРјРёРЅР°РЅРёСЋ">
             <button
               type="button"
               onClick={handleJumpToMention}
               className="absolute bottom-4 right-4 z-20 flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-full bg-[#5865f2] px-3 text-sm font-bold text-white shadow-lg transition hover:bg-[#4752c4] active:scale-95"
-              aria-label="Перейти к упоминанию"
+              aria-label="РџРµСЂРµР№С‚Рё Рє СѓРїРѕРјРёРЅР°РЅРёСЋ"
             >
               <AtSign className="h-4 w-4" />
               <span>{formatMentionBadge(channelMentions.length)}</span>
@@ -827,7 +813,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
           {isSlowModeActive && (
             <div className="mb-2 rounded-md border border-[#5865f2]/30 bg-[#5865f2]/10 px-3 py-2 text-sm text-[#dbdee1]">
               {sendLimitHint ||
-                `Подождите ${slowModeRemainingSeconds} сек. — в этом канале включён медленный режим.`}
+                `РџРѕРґРѕР¶РґРёС‚Рµ ${slowModeRemainingSeconds} СЃРµРє. вЂ” РІ СЌС‚РѕРј РєР°РЅР°Р»Рµ РІРєР»СЋС‡С‘РЅ РјРµРґР»РµРЅРЅС‹Р№ СЂРµР¶РёРј.`}
             </div>
           )}
           <form onSubmit={handleSendMessage} className="relative flex flex-col rounded-xl border border-[#3e3f45] bg-[#393a41] p-2">
@@ -874,7 +860,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
                 onClick={() => fileInputRef.current?.click()}
                 className="mr-2"
                 disabled={files.length >= MAX_CHAT_ATTACHMENTS || isLoading || isSlowModeActive}
-                title="Прикрепить изображения или видео"
+                title="РџСЂРёРєСЂРµРїРёС‚СЊ РёР·РѕР±СЂР°Р¶РµРЅРёСЏ РёР»Рё РІРёРґРµРѕ"
               >
                 <PlusCircle className="w-5 h-5" />
               </Button>
@@ -897,8 +883,8 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
                 }}
                 placeholder={
                   replyingTo 
-                    ? `Ответ пользователю ${replyingTo.author.username}...`
-                    : `Написать в #${currentChannel.name} · @ — упомянуть`
+                    ? `РћС‚РІРµС‚ РїРѕР»СЊР·РѕРІР°С‚РµР»СЋ ${replyingTo.author.username}...`
+                    : `РќР°РїРёСЃР°С‚СЊ РІ #${currentChannel.name} В· @ вЂ” СѓРїРѕРјСЏРЅСѓС‚СЊ`
                 }
                 className="flex-1 bg-transparent outline-none text-sm"
                 disabled={isLoading || isSlowModeActive}
@@ -920,8 +906,8 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
 
       {currentChannel.type === 'voice' && (
         <div className="p-4 text-center text-muted-foreground">
-          <p>Голосовой канал: {currentChannel.name}</p>
-          <p className="text-sm">Нажмите на канал для подключения к голосовому чату</p>
+          <p>Р“РѕР»РѕСЃРѕРІРѕР№ РєР°РЅР°Р»: {currentChannel.name}</p>
+          <p className="text-sm">РќР°Р¶РјРёС‚Рµ РЅР° РєР°РЅР°Р» РґР»СЏ РїРѕРґРєР»СЋС‡РµРЅРёСЏ Рє РіРѕР»РѕСЃРѕРІРѕРјСѓ С‡Р°С‚Сѓ</p>
         </div>
       )}
 
@@ -938,3 +924,4 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     </div>
   )
 }
+

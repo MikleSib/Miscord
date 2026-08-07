@@ -1,12 +1,13 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect, useRef } from 'react'
 import { DirectMessage, User } from '../types'
 import directMessageService from '../services/directMessageService'
 import websocketService from '../services/websocketService'
-import uploadService from '../services/uploadService'
 import { appendChatFiles, isVideoAttachment, MAX_CHAT_ATTACHMENTS } from '../lib/chatAttachments'
 import { PendingAttachmentPreview } from './PendingAttachmentPreview'
+import { OutgoingMessageCard } from './OutgoingMessageCard'
+import { useOutgoingMessageStore } from '../store/outgoingMessageStore'
 import api from '../services/api'
 import { useAuthStore } from '../store/store'
 import p2pVoiceService from '../services/p2pVoiceService'
@@ -43,6 +44,13 @@ export function DirectMessageArea({
   const [hasMore, setHasMore] = useState(true)
   const [isLoading, setIsLoading] = useState(false)
   const [isSending, setIsSending] = useState(false)
+  const outgoingQueue = useOutgoingMessageStore((state) => state.messages)
+  const initializeOutgoingQueue = useOutgoingMessageStore((state) => state.initialize)
+  const enqueueOutgoing = useOutgoingMessageStore((state) => state.enqueue)
+  const acknowledgeOutgoing = useOutgoingMessageStore((state) => state.acknowledge)
+  const outgoingMessages = outgoingQueue.filter(
+    (message) => message.conversation.type === 'dm' && message.conversation.id === friend.id,
+  )
   const [lightboxItem, setLightboxItem] = useState<MediaLightboxItem | null>(null)
   const [replyingTo, setReplyingTo] = useState<DirectMessage | null>(null)
   const [hoveredMessageId, setHoveredMessageId] = useState<number | string | null>(null)
@@ -51,38 +59,43 @@ export function DirectMessageArea({
   const [rateLimitHint, setRateLimitHint] = useState<string | null>(null)
   const initialMessageSentRef = useRef(false)
 
-  // Загрузка сообщений с пагинацией
+  useEffect(() => {
+    const token = useAuthStore.getState().token
+    if (user && token) void initializeOutgoingQueue(user.id, token)
+  }, [user?.id, initializeOutgoingQueue])
+
+  // Р—Р°РіСЂСѓР·РєР° СЃРѕРѕР±С‰РµРЅРёР№ СЃ РїР°РіРёРЅР°С†РёРµР№
   const fetchMessages = async (loadSkip: number = 0, loadLimit: number = 30) => {
     if (isLoading) return
     setIsLoading(true)
     try {
       const messageHistory = await directMessageService.getMessages(friend.id, loadSkip, loadLimit)
-      // Гарантируем, что reactions всегда массив
+      // Р“Р°СЂР°РЅС‚РёСЂСѓРµРј, С‡С‚Рѕ reactions РІСЃРµРіРґР° РјР°СЃСЃРёРІ
       const messagesWithReactions = messageHistory.map(msg => ({
         ...msg,
         reactions: msg.reactions || []
       }));
       
       if (loadSkip === 0) {
-        // Первоначальная загрузка
+        // РџРµСЂРІРѕРЅР°С‡Р°Р»СЊРЅР°СЏ Р·Р°РіСЂСѓР·РєР°
         setMessages(messagesWithReactions)
         setSkip(messagesWithReactions.length)
         setHasMore(messagesWithReactions.length === loadLimit)
       } else {
-        // Подгрузка старых сообщений
+        // РџРѕРґРіСЂСѓР·РєР° СЃС‚Р°СЂС‹С… СЃРѕРѕР±С‰РµРЅРёР№
         setMessages((prev) => [...messagesWithReactions, ...prev])
         setSkip(loadSkip + messagesWithReactions.length)
         setHasMore(messagesWithReactions.length === loadLimit)
       }
     } catch (error) {
-      console.error('Ошибка загрузки личных сообщений:', error)
+      console.error('РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё Р»РёС‡РЅС‹С… СЃРѕРѕР±С‰РµРЅРёР№:', error)
     } finally {
       setIsLoading(false)
     }
   }
 
   useEffect(() => {
-    // Сброс состояния при смене пользователя
+    // РЎР±СЂРѕСЃ СЃРѕСЃС‚РѕСЏРЅРёСЏ РїСЂРё СЃРјРµРЅРµ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ
     setMessages([])
     setSkip(0)
     setHasMore(true)
@@ -109,55 +122,17 @@ export function DirectMessageArea({
       : 0
   const isRateLimited = rateLimitRemainingSeconds > 0
 
-  const sendMessageContent = async (messageContent: string, attachmentUrls: string[] = []) => {
-    if (!messageContent.trim() && attachmentUrls.length === 0) return
-    if (!user) return
-    if (isSending) return
-    if (isRateLimited) return
-
-    const tempId = `temp-${Date.now()}-${Math.random()}`
-
-    setIsSending(true)
-
-    try {
-      const optimisticMessage: DirectMessage = {
-        id: tempId,
-        tempId,
-        content: messageContent,
-        timestamp: new Date().toISOString(),
-        sender_id: user.id,
-        recipient_id: friend.id,
-        isPending: true,
-        author: user,
-        attachments: attachmentUrls.map((url, index) => ({
-          id: index,
-          file_url: url,
-          message_id: 0,
-        })),
-        reactions: [],
-      }
-
-      setMessages((prev) => [...prev, optimisticMessage])
-      setNewMessage('')
-      setFiles([])
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
-
-      websocketService.send({
-        type: 'dm_message',
-        recipient_id: friend.id,
-        content: messageContent,
-        attachments: attachmentUrls,
-      })
-    } catch (error) {
-      console.error('[DirectMessageArea] Ошибка отправки:', error)
-      alert('Не удалось отправить сообщение')
-    } finally {
-      setIsSending(false)
-    }
+  const sendMessageContent = async (messageContent: string, messageFiles: File[] = []) => {
+    const content = messageContent.trim()
+    if ((!content && messageFiles.length === 0) || !user || isRateLimited) return
+    enqueueOutgoing({
+      userId: user.id,
+      conversation: { type: 'dm', id: friend.id },
+      content,
+      files: messageFiles,
+      replyToId: typeof replyingTo?.id === 'number' ? replyingTo.id : undefined,
+    })
   }
-
   useEffect(() => {
     if (!initialMessage?.trim() || initialMessageSentRef.current || !user) return
 
@@ -169,75 +144,53 @@ export function DirectMessageArea({
 
   useEffect(() => {
     const handleNewMessage = (payload: any) => {
-      // WebSocket отправляет { type: 'dm', data: {...message} }
+      // WebSocket РѕС‚РїСЂР°РІР»СЏРµС‚ { type: 'dm', data: {...message} }
       const message: DirectMessage = payload.data || payload;
+      acknowledgeOutgoing(message.client_nonce)
       
-      console.log('[DirectMessageArea] Получено DM сообщение:', { payload, message, currentUser: user?.id, friend: friend.id });
+      console.log('[DirectMessageArea] РџРѕР»СѓС‡РµРЅРѕ DM СЃРѕРѕР±С‰РµРЅРёРµ:', { payload, message, currentUser: user?.id, friend: friend.id });
       
       if (
         (message.sender_id === user?.id && message.recipient_id === friend.id) ||
         (message.sender_id === friend.id && message.recipient_id === user?.id)
       ) {
         setMessages((prev) => {
-          // Проверяем, есть ли pending сообщение с тем же содержимым
-          const pendingIndex = prev.findIndex(
-            m => m.isPending && 
-            m.sender_id === message.sender_id && 
-            m.content === message.content
-          );
-          
-          console.log('[DirectMessageArea] Поиск pending сообщения:', { 
-            pendingIndex, 
-            pendingMessages: prev.filter(m => m.isPending),
-            incomingContent: message.content,
-            incomingSender: message.sender_id
-          });
-          
-          if (pendingIndex !== -1) {
-            // Заменяем pending сообщение на подтвержденное
-            console.log('[DirectMessageArea] Заменяем pending сообщение на подтвержденное');
-            const updated = [...prev];
-            updated[pendingIndex] = { ...message, isPending: false };
-            return updated;
-          }
-          
-          // Добавляем новое сообщение (от другого пользователя)
-          console.log('[DirectMessageArea] Добавляем новое сообщение');
-          return [...prev, message];
-        });
+          if (prev.some((item) => item.id === message.id)) return prev
+          return [...prev, { ...message, isPending: false }]
+        })
       }
     };
 
     const handleDMDeleted = (payload: any) => {
       const data = payload.data || payload;
-      console.log('[DirectMessageArea] Сообщение удалено:', data);
+      console.log('[DirectMessageArea] РЎРѕРѕР±С‰РµРЅРёРµ СѓРґР°Р»РµРЅРѕ:', data);
       setMessages((prev) => prev.filter(m => m.id !== data.message_id));
     };
 
     const handleDMReactionUpdated = (payload: any) => {
       const data = payload.data || payload;
-      console.log('[DirectMessageArea] Реакция обновлена:', data);
+      console.log('[DirectMessageArea] Р РµР°РєС†РёСЏ РѕР±РЅРѕРІР»РµРЅР°:', data);
       
       setMessages((prev) => prev.map(msg => {
         if (msg.id !== data.message_id) return msg;
         
-        // Обновляем реакции для сообщения
+        // РћР±РЅРѕРІР»СЏРµРј СЂРµР°РєС†РёРё РґР»СЏ СЃРѕРѕР±С‰РµРЅРёСЏ
         const updatedReactions = msg.reactions || [];
         const reactionIndex = updatedReactions.findIndex(r => r.emoji === data.emoji);
         
         if (data.reaction.count === 0) {
-          // Удаляем реакцию если count = 0
+          // РЈРґР°Р»СЏРµРј СЂРµР°РєС†РёСЋ РµСЃР»Рё count = 0
           return {
             ...msg,
             reactions: updatedReactions.filter(r => r.emoji !== data.emoji)
           };
         } else if (reactionIndex !== -1) {
-          // Обновляем существующую реакцию
+          // РћР±РЅРѕРІР»СЏРµРј СЃСѓС‰РµСЃС‚РІСѓСЋС‰СѓСЋ СЂРµР°РєС†РёСЋ
           const newReactions = [...updatedReactions];
           newReactions[reactionIndex] = data.reaction;
           return { ...msg, reactions: newReactions };
         } else {
-          // Добавляем новую реакцию
+          // Р”РѕР±Р°РІР»СЏРµРј РЅРѕРІСѓСЋ СЂРµР°РєС†РёСЋ
           return {
             ...msg,
             reactions: [...updatedReactions, data.reaction]
@@ -259,11 +212,11 @@ export function DirectMessageArea({
       setRateLimitUntil(Date.now() + seconds * 1000)
       setRateLimitHint(
         data.message
-          ? `${data.message} (${seconds} сек.)`
-          : `Слишком быстро. Подождите ${seconds} сек.`
+          ? `${data.message} (${seconds} СЃРµРє.)`
+          : `РЎР»РёС€РєРѕРј Р±С‹СЃС‚СЂРѕ. РџРѕРґРѕР¶РґРёС‚Рµ ${seconds} СЃРµРє.`
       )
 
-      // Убираем «фантомные» pending-сообщения, которые сервер отклонил
+      // РЈР±РёСЂР°РµРј В«С„Р°РЅС‚РѕРјРЅС‹РµВ» pending-СЃРѕРѕР±С‰РµРЅРёСЏ, РєРѕС‚РѕСЂС‹Рµ СЃРµСЂРІРµСЂ РѕС‚РєР»РѕРЅРёР»
       setMessages((prev) => {
         const pending = prev.filter((m) => m.isPending && m.sender_id === user?.id)
         if (pending.length === 0) return prev
@@ -290,7 +243,7 @@ export function DirectMessageArea({
     };
   }, [friend.id, user?.id]);
 
-  // Обработчик прокрутки для подгрузки сообщений
+  // РћР±СЂР°Р±РѕС‚С‡РёРє РїСЂРѕРєСЂСѓС‚РєРё РґР»СЏ РїРѕРґРіСЂСѓР·РєРё СЃРѕРѕР±С‰РµРЅРёР№
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
@@ -357,31 +310,19 @@ export function DirectMessageArea({
     setAttachmentError(null)
   }
 
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!newMessage.trim() && files.length === 0) return
-    if (!user) return
-    if (isSending) return
-    if (isRateLimited) return
+  const handleSendMessage = async (event: React.FormEvent) => {
+    event.preventDefault()
+    const content = newMessage.trim()
+    if ((!content && files.length === 0) || !user || isRateLimited) return
 
-    const messageContent = newMessage
-
-    setIsSending(true)
-
-    try {
-      const uploadedFiles = await uploadService.uploadFiles(files)
-      const attachmentUrls = uploadedFiles.map((item) => item.file_url)
-
-      await sendMessageContent(messageContent, attachmentUrls)
-      setAttachmentError(null)
-    } catch (error) {
-      console.error('[DirectMessageArea] Ошибка отправки:', error)
-      alert('Не удалось отправить сообщение')
-    } finally {
-      setIsSending(false)
-    }
+    const queuedFiles = [...files]
+    setNewMessage('')
+    setFiles([])
+    setReplyingTo(null)
+    setAttachmentError(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    await sendMessageContent(content, queuedFiles)
   }
-
   const handleDeletePendingMessage = (tempId: string) => {
     setMessages((prev) => prev.filter(m => m.tempId !== tempId));
   }
@@ -397,7 +338,7 @@ export function DirectMessageArea({
 
     setLightboxItem({
       url: imageUrl,
-      alt: 'Вложение',
+      alt: 'Р’Р»РѕР¶РµРЅРёРµ',
       author,
       timestamp: msg.timestamp,
     })
@@ -412,24 +353,24 @@ export function DirectMessageArea({
   }
 
   const handleDeleteMessage = async (messageId: number | string) => {
-    // Для pending сообщений
+    // Р”Р»СЏ pending СЃРѕРѕР±С‰РµРЅРёР№
     if (typeof messageId === 'string') {
       handleDeletePendingMessage(messageId);
       return;
     }
     
-    // Для отправленных сообщений
+    // Р”Р»СЏ РѕС‚РїСЂР°РІР»РµРЅРЅС‹С… СЃРѕРѕР±С‰РµРЅРёР№
     try {
-      console.log('Удаление отправленного сообщения:', messageId);
+      console.log('РЈРґР°Р»РµРЅРёРµ РѕС‚РїСЂР°РІР»РµРЅРЅРѕРіРѕ СЃРѕРѕР±С‰РµРЅРёСЏ:', messageId);
       await api.delete(`/api/dms/${messageId}`);
-      // Удаляем из UI сразу (оптимистично)
+      // РЈРґР°Р»СЏРµРј РёР· UI СЃСЂР°Р·Сѓ (РѕРїС‚РёРјРёСЃС‚РёС‡РЅРѕ)
       setMessages((prev) => prev.filter(m => m.id !== messageId));
     } catch (error: any) {
-      console.error('Ошибка удаления сообщения:', error);
+      console.error('РћС€РёР±РєР° СѓРґР°Р»РµРЅРёСЏ СЃРѕРѕР±С‰РµРЅРёСЏ:', error);
       if (error.response?.status === 403) {
-        alert('Сообщение можно удалить только в течение 5 минут после отправки');
+        alert('РЎРѕРѕР±С‰РµРЅРёРµ РјРѕР¶РЅРѕ СѓРґР°Р»РёС‚СЊ С‚РѕР»СЊРєРѕ РІ С‚РµС‡РµРЅРёРµ 5 РјРёРЅСѓС‚ РїРѕСЃР»Рµ РѕС‚РїСЂР°РІРєРё');
       } else {
-        alert('Не удалось удалить сообщение');
+        alert('РќРµ СѓРґР°Р»РѕСЃСЊ СѓРґР°Р»РёС‚СЊ СЃРѕРѕР±С‰РµРЅРёРµ');
       }
     }
   }
@@ -438,7 +379,7 @@ export function DirectMessageArea({
     if (msg.isPending) return true;
     if (msg.sender_id !== user?.id) return false;
     
-    // Можно удалить если прошло менее 5 минут
+    // РњРѕР¶РЅРѕ СѓРґР°Р»РёС‚СЊ РµСЃР»Рё РїСЂРѕС€Р»Рѕ РјРµРЅРµРµ 5 РјРёРЅСѓС‚
     const messageTime = new Date(msg.timestamp).getTime();
     const now = new Date().getTime();
     const diffMinutes = (now - messageTime) / (1000 * 60);
@@ -446,17 +387,17 @@ export function DirectMessageArea({
   }
 
   const handleAddReaction = async (messageId: number | string, emoji: string) => {
-    // Не обрабатываем pending сообщения
+    // РќРµ РѕР±СЂР°Р±Р°С‚С‹РІР°РµРј pending СЃРѕРѕР±С‰РµРЅРёСЏ
     if (typeof messageId === 'string') {
       return;
     }
     
     try {
-      console.log('Добавление реакции:', emoji, 'к сообщению', messageId);
+      console.log('Р”РѕР±Р°РІР»РµРЅРёРµ СЂРµР°РєС†РёРё:', emoji, 'Рє СЃРѕРѕР±С‰РµРЅРёСЋ', messageId);
       await api.post(`/api/dms/${messageId}/reactions`, { emoji });
       setShowEmojiPicker(null);
     } catch (error) {
-      console.error('Ошибка добавления реакции:', error);
+      console.error('РћС€РёР±РєР° РґРѕР±Р°РІР»РµРЅРёСЏ СЂРµР°РєС†РёРё:', error);
     }
   }
 
@@ -464,7 +405,7 @@ export function DirectMessageArea({
     setShowEmojiPicker(showEmojiPicker === messageId ? null : messageId);
   }
 
-  const quickEmojis = ['❤️', '👍', '😂', '😮', '😢', '🙏', '👏', '🔥'];
+  const quickEmojis = ['вќ¤пёЏ', 'рџ‘Ќ', 'рџ‚', 'рџ®', 'рџў', 'рџ™Џ', 'рџ‘Џ', 'рџ”Ґ'];
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "auto" })
@@ -478,12 +419,12 @@ export function DirectMessageArea({
     scrollToBottom()
   }, [messages]);
 
-  // Функция для определения, является ли сообщение от текущего пользователя
+  // Р¤СѓРЅРєС†РёСЏ РґР»СЏ РѕРїСЂРµРґРµР»РµРЅРёСЏ, СЏРІР»СЏРµС‚СЃСЏ Р»Рё СЃРѕРѕР±С‰РµРЅРёРµ РѕС‚ С‚РµРєСѓС‰РµРіРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ
   const isCurrentUserMessage = (message: DirectMessage) => {
     return message.sender_id === user?.id;
   };
 
-  // Функция для получения пользователя для отображения
+  // Р¤СѓРЅРєС†РёСЏ РґР»СЏ РїРѕР»СѓС‡РµРЅРёСЏ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РґР»СЏ РѕС‚РѕР±СЂР°Р¶РµРЅРёСЏ
   const getUserForMessage = (message: DirectMessage) => {
     return isCurrentUserMessage(message) ? user : friend;
   };
@@ -500,8 +441,8 @@ export function DirectMessageArea({
         <div className="pointer-events-none absolute inset-3 z-50 grid place-items-center rounded-2xl border-2 border-dashed border-[#5865f2] bg-[#1e1f22]/90 backdrop-blur-sm">
           <div className="text-center">
             <PlusCircle className="mx-auto mb-3 h-10 w-10 text-[#7c86ff]" />
-            <p className="text-base font-semibold text-white">Добавить файлы в сообщение</p>
-            <p className="mt-1 text-sm text-[#b5bac1]">Изображения до 10 МиБ, видео до 20 МиБ</p>
+            <p className="text-base font-semibold text-white">Р”РѕР±Р°РІРёС‚СЊ С„Р°Р№Р»С‹ РІ СЃРѕРѕР±С‰РµРЅРёРµ</p>
+            <p className="mt-1 text-sm text-[#b5bac1]">РР·РѕР±СЂР°Р¶РµРЅРёСЏ РґРѕ 10 РњРёР‘, РІРёРґРµРѕ РґРѕ 20 РњРёР‘</p>
           </div>
         </div>
       )}
@@ -527,7 +468,7 @@ export function DirectMessageArea({
           const prevMsg = messages[index - 1];
           const isCurrentUser = isCurrentUserMessage(msg);
           const messageUser = getUserForMessage(msg);
-          // Показываем автора если это первое сообщение или предыдущее от другого пользователя
+          // РџРѕРєР°Р·С‹РІР°РµРј Р°РІС‚РѕСЂР° РµСЃР»Рё СЌС‚Рѕ РїРµСЂРІРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ РёР»Рё РїСЂРµРґС‹РґСѓС‰РµРµ РѕС‚ РґСЂСѓРіРѕРіРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ
           const showAuthor = !prevMsg || prevMsg.sender_id !== msg.sender_id;
           const isPending = msg.isPending || false;
           
@@ -551,7 +492,7 @@ export function DirectMessageArea({
                     {isPending && (
                       <div className="flex items-center gap-1 text-xs text-gray-400">
                         <Clock className="w-3 h-3" />
-                        <span>Отправляется...</span>
+                        <span>РћС‚РїСЂР°РІР»СЏРµС‚СЃСЏ...</span>
                       </div>
                     )}
                   </div>
@@ -580,7 +521,7 @@ export function DirectMessageArea({
                         >
                           <img
                             src={att.file_url}
-                            alt="Вложение"
+                            alt="Р’Р»РѕР¶РµРЅРёРµ"
                             className={`max-h-80 max-w-xs rounded-md object-cover ${isPending ? 'opacity-70' : ''}`}
                           />
                         </button>
@@ -588,7 +529,7 @@ export function DirectMessageArea({
                     </div>
                   )}
                   
-                  {/* Message content + превью ссылок */}
+                  {/* Message content + РїСЂРµРІСЊСЋ СЃСЃС‹Р»РѕРє */}
                   {msg.content && (
                     <div className={`${isPending ? 'text-gray-400 opacity-70' : 'text-white'} ${isCurrentUser ? 'bg-blue-600' : 'bg-gray-700'} rounded-lg px-3 py-2 ${isPending ? 'bg-opacity-70' : ''}`}>
                       <MessageContent
@@ -630,20 +571,20 @@ export function DirectMessageArea({
                 </div>
               </div>
 
-              {/* Action Buttons - показываются при наведении */}
+              {/* Action Buttons - РїРѕРєР°Р·С‹РІР°СЋС‚СЃСЏ РїСЂРё РЅР°РІРµРґРµРЅРёРё */}
               {hoveredMessageId === msg.id && !isPending && (
                 <div className="absolute top-0 right-12 flex items-center gap-1 bg-[#1e1f22] border border-[#3e3f45] rounded-lg shadow-lg p-1">
                   <button
                     onClick={() => toggleEmojiPicker(msg.id)}
                     className="p-1.5 hover:bg-[#2c2d32] rounded text-gray-400 hover:text-white transition-colors"
-                    title="Добавить реакцию"
+                    title="Р”РѕР±Р°РІРёС‚СЊ СЂРµР°РєС†РёСЋ"
                   >
                     <Smile className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => handleReply(msg)}
                     className="p-1.5 hover:bg-[#2c2d32] rounded text-gray-400 hover:text-white transition-colors"
-                    title="Ответить"
+                    title="РћС‚РІРµС‚РёС‚СЊ"
                   >
                     <Reply className="w-4 h-4" />
                   </button>
@@ -651,7 +592,7 @@ export function DirectMessageArea({
                     <button
                       onClick={() => handleDeleteMessage(msg.id)}
                       className="p-1.5 hover:bg-[#2c2d32] rounded text-red-400 hover:text-red-300 transition-colors"
-                      title="Удалить"
+                      title="РЈРґР°Р»РёС‚СЊ"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -682,6 +623,9 @@ export function DirectMessageArea({
             </div>
           );
         })}
+        {user && outgoingMessages.map((message) => (
+          <OutgoingMessageCard key={message.clientNonce} message={message} author={user} compact />
+        ))}
         <div ref={messagesEndRef} />
       </div>
 
@@ -689,7 +633,7 @@ export function DirectMessageArea({
       <div className="px-4 pb-4 border-t border-[#2c2d32] flex-shrink-0">
         {isRateLimited && (
           <div className="mb-2 rounded-md border border-[#5865f2]/30 bg-[#5865f2]/10 px-3 py-2 text-sm text-[#dbdee1]">
-            {rateLimitHint || `Слишком быстро. Подождите ${rateLimitRemainingSeconds} сек.`}
+            {rateLimitHint || `РЎР»РёС€РєРѕРј Р±С‹СЃС‚СЂРѕ. РџРѕРґРѕР¶РґРёС‚Рµ ${rateLimitRemainingSeconds} СЃРµРє.`}
           </div>
         )}
         <form onSubmit={handleSendMessage} className="bg-[#393a41] rounded-lg flex flex-col">
@@ -705,8 +649,8 @@ export function DirectMessageArea({
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <Reply className="w-4 h-4 text-gray-400 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs text-gray-400">Ответ для {replyingTo.author?.username || friend.username}</p>
-                  <p className="text-sm text-white truncate">{replyingTo.content || 'Изображение'}</p>
+                  <p className="text-xs text-gray-400">РћС‚РІРµС‚ РґР»СЏ {replyingTo.author?.username || friend.username}</p>
+                  <p className="text-sm text-white truncate">{replyingTo.content || 'РР·РѕР±СЂР°Р¶РµРЅРёРµ'}</p>
                 </div>
               </div>
               <button
@@ -747,7 +691,7 @@ export function DirectMessageArea({
               onClick={() => fileInputRef.current?.click()}
               className="text-gray-400 hover:text-white mr-2"
               disabled={files.length >= MAX_CHAT_ATTACHMENTS || isSending || isRateLimited}
-              title="Прикрепить изображения или видео"
+              title="РџСЂРёРєСЂРµРїРёС‚СЊ РёР·РѕР±СЂР°Р¶РµРЅРёСЏ РёР»Рё РІРёРґРµРѕ"
             >
               <PlusCircle className="w-5 h-5" />
             </button>
@@ -756,7 +700,7 @@ export function DirectMessageArea({
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               onPaste={handlePaste}
-              placeholder={replyingTo ? 'Напишите ответ...' : `Написать @${friend.username}`}
+              placeholder={replyingTo ? 'РќР°РїРёС€РёС‚Рµ РѕС‚РІРµС‚...' : `РќР°РїРёСЃР°С‚СЊ @${friend.username}`}
               className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none py-3"
               disabled={isSending || isRateLimited}
             />
@@ -775,3 +719,5 @@ export function DirectMessageArea({
     </div>
   )
 }
+
+

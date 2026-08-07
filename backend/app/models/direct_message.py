@@ -13,6 +13,8 @@ if TYPE_CHECKING:
 class DirectMessage(Base):
     __tablename__ = "direct_messages"
 
+    client_nonce = Column(String(36), nullable=True)
+
     id: Mapped[int] = Column(Integer, primary_key=True, index=True)
     content: Mapped[Optional[str]] = Column(String, nullable=True)  # Nullable для поддержки отправки только фото
     timestamp: Mapped[datetime] = Column(DateTime, default=datetime.utcnow)

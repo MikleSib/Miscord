@@ -16,6 +16,8 @@ if TYPE_CHECKING:
 class Message(Base):
     __tablename__ = "messages"
 
+    client_nonce = Column(String(36), nullable=True)
+
     id: Mapped[int] = Column(Integer, primary_key=True, index=True)
     content: Mapped[Optional[str]] = Column(String(5000))
     timestamp: Mapped[datetime] = Column(DateTime, default=datetime.utcnow)

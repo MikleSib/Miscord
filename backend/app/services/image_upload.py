@@ -43,6 +43,34 @@ def _detect_video(header: bytes) -> Tuple[str, str] | None:
     return None
 
 
+async def stream_and_validate_chat_media(upload: UploadFile, destination: str) -> Tuple[str, str, int]:
+    """Stream chat media to disk while enforcing limits and detecting MIME by magic bytes."""
+    total = 0
+    header = bytearray()
+    with open(destination, "wb") as output:
+        while True:
+            chunk = await upload.read(64 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > MAX_CHAT_VIDEO_BYTES:
+                raise HTTPException(status_code=413, detail="Файл превышает лимит 20 МиБ")
+            if len(header) < 4096:
+                header.extend(chunk[: 4096 - len(header)])
+            output.write(chunk)
+
+    detected = _detect_image(bytes(header))
+    is_image = detected is not None
+    if detected is None:
+        detected = _detect_video(bytes(header))
+    if detected is None:
+        raise HTTPException(status_code=415, detail="Поддерживаются только изображения и видео")
+    if is_image and total > MAX_CHAT_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="Изображение превышает лимит 10 МиБ")
+    extension, content_type = detected
+    return extension, content_type, total
+
+
 async def read_and_validate_chat_media(upload: UploadFile) -> Tuple[bytes, str, str]:
     """Read one chat image/video with bounded memory and magic-byte validation."""
     chunks: list[bytes] = []

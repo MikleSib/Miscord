@@ -36,6 +36,29 @@ from app.services.voice_session import (
     participant_payload,
 )
 from app.core.config import settings
+from app.models import DirectMessage, PendingChatUpload
+
+
+async def _send_message_failure(
+    user_id: int,
+    client_nonce: Optional[str],
+    code: str,
+    message: str,
+    retryable: bool = False,
+    retry_after_seconds: Optional[float] = None,
+) -> None:
+    if not client_nonce:
+        return
+    await manager.send_to_user(user_id, {
+        "type": "message_send_failed",
+        "data": {
+            "client_nonce": client_nonce,
+            "code": code,
+            "message": message,
+            "retryable": retryable,
+            "retry_after_seconds": retry_after_seconds,
+        },
+    })
 
 
 voice_connections: Dict[int, Dict[int, dict]] = {}
@@ -363,18 +386,26 @@ async def handle_chat_message(
 ):
     content = message_data.get("content", "").strip()
     text_channel_id = message_data.get("text_channel_id")
-    attachments = message_data.get("attachments", [])
+    attachments = list(message_data.get("attachments", []) or [])
+    attachment_upload_ids = list(dict.fromkeys(str(item) for item in (message_data.get("attachment_upload_ids") or [])))
+    client_nonce = message_data.get("client_nonce")
     reply_to_id = message_data.get("reply_to_id")
 
+    if client_nonce is not None and (not isinstance(client_nonce, str) or len(client_nonce) > 64):
+        return
+
     if not text_channel_id:
+        await _send_message_failure(user.id, client_nonce, "invalid_channel", "Канал не указан")
         return
 
     text_channel = await get_visible_text_channel(db, text_channel_id)
     if not text_channel:
+        await _send_message_failure(user.id, client_nonce, "access_denied", "Канал не найден или недоступен")
         return
 
     from app.services.channel_access import user_can_access_text_channel
     if not await user_can_access_text_channel(db, user, text_channel, need_send=True):
+        await _send_message_failure(user.id, client_nonce, "access_denied", "Нет права отправлять сообщения в этот канал")
         await manager.send_to_user(user.id, {
             "type": "error",
             "message": "No access to channel",
@@ -382,9 +413,37 @@ async def handle_chat_message(
         })
         return
 
+    if client_nonce:
+        existing = (await db.execute(select(Message).where(
+            Message.author_id == user.id,
+            Message.client_nonce == client_nonce,
+        ))).scalar_one_or_none()
+        if existing is not None:
+            if existing.text_channel_id != text_channel_id or (existing.content or "") != content:
+                await _send_message_failure(user.id, client_nonce, "nonce_conflict", "client_nonce уже использован для другого сообщения")
+                return
+            await manager.send_to_user(user.id, {
+                "type": "message_ack",
+                "data": {"id": existing.id, "client_nonce": existing.client_nonce},
+            })
+            return
+
+    pending_uploads = []
+    if attachment_upload_ids:
+        pending_uploads = (await db.execute(select(PendingChatUpload).where(
+            PendingChatUpload.id.in_(attachment_upload_ids),
+            PendingChatUpload.owner_id == user.id,
+        ))).scalars().all()
+        if len(pending_uploads) != len(attachment_upload_ids):
+            await _send_message_failure(user.id, client_nonce, "upload_expired", "Загрузка файла не найдена или истекла", True)
+            return
+        attachments.extend(item.file_url for item in pending_uploads)
+
     if not content and not attachments:
+        await _send_message_failure(user.id, client_nonce, "empty_message", "Сообщение не содержит текста или файлов")
         return
     if len(content) > 5000 or len(attachments) > 10:
+        await _send_message_failure(user.id, client_nonce, "validation_error", "Превышен лимит текста или вложений")
         return
 
     allowed, retry_after, limit_message = enforce_message_antispam(
@@ -393,6 +452,7 @@ async def handle_chat_message(
         content=content,
     )
     if not allowed:
+        await _send_message_failure(user.id, client_nonce, "rate_limited", limit_message, True, retry_after)
         await manager.send_to_user(
             user.id,
             rate_limit_payload(
@@ -406,6 +466,7 @@ async def handle_chat_message(
 
     allowed, retry_after = await check_slow_mode(db, text_channel, user)
     if not allowed:
+        await _send_message_failure(user.id, client_nonce, "slow_mode", "В канале включен медленный режим", True, retry_after)
         await manager.send_to_user(user.id, {
             "type": "slow_mode",
             "text_channel_id": text_channel_id,
@@ -414,17 +475,28 @@ async def handle_chat_message(
         return
 
     db_message = Message(
+        client_nonce=client_nonce,
         content=content if content else None,
         author_id=user.id,
         text_channel_id=text_channel_id,
         reply_to_id=reply_to_id if reply_to_id else None,
     )
 
+    pending_by_url = {item.file_url: item for item in pending_uploads}
     for url in attachments:
-        attachment = Attachment(file_url=url)
+        pending = pending_by_url.get(url)
+        attachment = Attachment(
+            file_url=url,
+            original_filename=pending.original_filename if pending else None,
+            content_type=pending.content_type if pending else None,
+            size_bytes=pending.size_bytes if pending else None,
+            storage_key=pending.storage_key if pending else None,
+        )
         db_message.attachments.append(attachment)
 
     db.add(db_message)
+    for pending in pending_uploads:
+        await db.delete(pending)
     await db.commit()
     await db.refresh(db_message)
 
@@ -442,6 +514,7 @@ async def handle_chat_message(
 
     message_dict = {
         "id": full_message.id,
+        "client_nonce": full_message.client_nonce,
         "content": full_message.content,
         "channelId": full_message.text_channel_id,
         "timestamp": full_message.timestamp.replace(tzinfo=timezone.utc).isoformat(),
@@ -1029,14 +1102,46 @@ async def handle_p2p_ice_candidate(user: User, message_data: dict, manager):
 async def handle_dm_message(user: User, message_data: dict, db: AsyncSession, manager):
     recipient_id = message_data.get("recipient_id")
     content = message_data.get("content", "").strip()
-    attachments = message_data.get("attachments", [])
+    attachments = list(message_data.get("attachments", []) or [])
+    attachment_upload_ids = list(dict.fromkeys(str(item) for item in (message_data.get("attachment_upload_ids") or [])))
+    client_nonce = message_data.get("client_nonce")
     reply_to_id = message_data.get("reply_to_id")
 
-    if (not content and not attachments) or not recipient_id:
+    if (not content and not attachments and not attachment_upload_ids) or not recipient_id:
+        await _send_message_failure(user.id, client_nonce, "invalid_message", "Получатель или содержимое сообщения не указаны")
         return
 
-    if len(content) > 5000 or len(attachments) > 10:
+    if len(content) > 5000 or len(attachments) + len(attachment_upload_ids) > 10:
+        await _send_message_failure(user.id, client_nonce, "validation_error", "Превышен лимит текста или вложений")
         return
+
+    if client_nonce is not None and (not isinstance(client_nonce, str) or len(client_nonce) > 64):
+        return
+
+    if client_nonce:
+        existing = (await db.execute(select(DirectMessage).where(
+            DirectMessage.sender_id == user.id,
+            DirectMessage.client_nonce == client_nonce,
+        ))).scalar_one_or_none()
+        if existing is not None:
+            if existing.recipient_id != recipient_id or (existing.content or "") != content:
+                await _send_message_failure(user.id, client_nonce, "nonce_conflict", "client_nonce уже использован для другого сообщения")
+                return
+            await manager.send_to_user(user.id, {
+                "type": "message_ack",
+                "data": {"id": existing.id, "client_nonce": existing.client_nonce},
+            })
+            return
+
+    pending_uploads = []
+    if attachment_upload_ids:
+        pending_uploads = (await db.execute(select(PendingChatUpload).where(
+            PendingChatUpload.id.in_(attachment_upload_ids),
+            PendingChatUpload.owner_id == user.id,
+        ))).scalars().all()
+        if len(pending_uploads) != len(attachment_upload_ids):
+            await _send_message_failure(user.id, client_nonce, "upload_expired", "Загрузка файла не найдена или истекла", True)
+            return
 
     allowed, retry_after, limit_message = enforce_message_antispam(
         user.id,
@@ -1044,6 +1149,7 @@ async def handle_dm_message(user: User, message_data: dict, db: AsyncSession, ma
         content=content,
     )
     if not allowed:
+        await _send_message_failure(user.id, client_nonce, "rate_limited", limit_message, True, retry_after)
         await manager.send_to_user(
             user.id,
             rate_limit_payload(
@@ -1062,11 +1168,14 @@ async def handle_dm_message(user: User, message_data: dict, db: AsyncSession, ma
         content=content if content else None,
         attachments=attachments,
         reply_to_id=reply_to_id,
+        client_nonce=client_nonce,
+        pending_uploads=pending_uploads,
     )
     author = await db.get(User, user.id)
 
     message_dict = {
         "id": db_message.id,
+        "client_nonce": db_message.client_nonce,
         "content": db_message.content,
         "timestamp": db_message.timestamp,
         "sender_id": db_message.sender_id,

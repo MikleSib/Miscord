@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { useOutgoingMessageStore } from './outgoingMessageStore';
 import { persist } from 'zustand/middleware';
 import { Server, Channel, User } from '../types';
 import websocketService from '../services/websocketService';
@@ -56,12 +57,15 @@ export const useAuthStore = create<AuthState>()(
       registerStart: () => set({ isLoading: true, error: null }),
       registerSuccess: () => set({ isLoading: false }),
       registerFailure: (error) => set({ isLoading: false, error }),
-      logout: () => set({
-        user: null,
-        token: null,
-        isAuthenticated: false,
-        error: null,
-      }),
+      logout: () => {
+        void useOutgoingMessageStore.getState().clearForLogout();
+        set({
+          user: null,
+          token: null,
+          isAuthenticated: false,
+          error: null,
+        });
+      },
       setUser: (user) => set({ user, isAuthenticated: true }),
       updateUser: (user) => set({ user }),
       clearError: () => set({ error: null }),

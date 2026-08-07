@@ -189,13 +189,15 @@ class UnifiedWebSocketService {
   /**
    * Отправка сообщения на сервер
    */
-  public send(data: any): void {
+  public send(data: any): boolean {
     if (this.ws?.readyState === WebSocket.OPEN) {
       const messageStr = JSON.stringify(data);
       this.ws.send(messageStr);
       console.log('[UnifiedWS] 📤 Отправлено:', data.type || 'unknown');
+      return true;
     } else {
       console.warn('[UnifiedWS] ⚠️ WebSocket не открыт, сообщение не отправлено:', data.type);
+      return false;
     }
   }
 
