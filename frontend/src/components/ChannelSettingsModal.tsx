@@ -43,7 +43,7 @@ export function ChannelSettingsModal({
   onChannelDelete,
   onPermissionsChange,
 }: ChannelSettingsModalProps) {
-  const { can } = useServerPermissions(isOpen ? channel.channel_id : null)
+  const { can } = useServerPermissions(isOpen ? channel.serverId : null)
   const canManageWebhooks = can(Permissions.MANAGE_WEBHOOKS)
   const [activeTab, setActiveTab] = useState<SettingsTab>('overview')
   const [channelName, setChannelName] = useState(channel.name)
