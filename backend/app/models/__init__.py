@@ -11,6 +11,7 @@ from .invite import Invite
 from .audit_log import AuditLog
 from .channel_permission import ChannelPermissionOverwrite, ChannelKind, OverwriteTargetType
 from .notification_settings import ChannelNotificationOverride, ServerNotificationSettings
+from .webhook import Webhook
 
 __all__ = [
     "User",
@@ -35,4 +36,5 @@ __all__ = [
     "OverwriteTargetType",
     "ServerNotificationSettings",
     "ChannelNotificationOverride",
+    "Webhook",
 ]

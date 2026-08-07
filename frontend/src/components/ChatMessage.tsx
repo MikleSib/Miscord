@@ -12,6 +12,9 @@ import { useChatStore } from '../store/chatStore'
 import { MediaLightbox, MediaLightboxItem } from './MediaLightbox'
 import { MessageContent } from './MessageContent'
 import { MessageLinkEmbeds } from './MessageLinkEmbeds'
+import { RichMessageEmbeds } from './RichMessageEmbeds'
+import { ManagedMessageAttachments } from './ManagedMessageAttachments'
+import { RichWebhookEmbed } from '../types/webhook'
 import { contentMentionsUser } from '../lib/mentions'
 import { useMentionNotificationStore } from '../store/mentionNotificationStore'
 import { cn } from '../lib/utils'
@@ -98,7 +101,8 @@ export function ChatMessage({
   }
 
   // Проверяем, может ли текущий пользователь редактировать/удалять это сообщение
-  const canEditDelete = currentUser && 
+  const canEditDelete = currentUser &&
+    !(message.author as typeof message.author & { is_webhook?: boolean }).is_webhook &&
     message.author.id === currentUser.id && 
     (new Date().getTime() - new Date(message.timestamp).getTime()) < 2 * 60 * 60 * 1000; // 2 часа
 
@@ -245,6 +249,11 @@ export function ChatMessage({
             >
               {message.author.username}
             </span>
+            {(message.author as typeof message.author & { is_webhook?: boolean }).is_webhook && (
+              <span className="rounded bg-[#5865f2] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+                WEBHOOK
+              </span>
+            )}
             <Tooltip content={formatMessageFullTime(message.timestamp)}>
               <span className="text-xs text-muted-foreground cursor-help">
                 {formatMessageTime(message.timestamp)}
@@ -294,23 +303,31 @@ export function ChatMessage({
             </div>
           </div>
         ) : (
-          message.content && (
-            <>
+          <>
+            {message.content && (
               <MessageContent
                 content={message.content}
                 currentUserId={currentUser?.id}
                 resolveMentionLabel={mentionLabel}
                 onMentionClick={onMentionClick}
               />
+            )}
+            {(message.embeds?.length ?? 0) > 0 ? (
+              <RichMessageEmbeds embeds={message.embeds as unknown as RichWebhookEmbed[]} />
+            ) : message.content ? (
               <MessageLinkEmbeds content={message.content} />
-            </>
-          )
+            ) : null}
+            <ManagedMessageAttachments attachments={message.attachments || []} />
+          </>
         )}
 
         {/* Attachments */}
         {message.attachments && message.attachments.length > 0 && (
           <div className="mt-2 flex flex-col items-start gap-2">
-            {message.attachments.map(att => (
+            {message.attachments.filter((att) => {
+              const contentType = (att as typeof att & { content_type?: string | null }).content_type
+              return !contentType || contentType.startsWith('image/')
+            }).map(att => (
               <button
                 key={att.id}
                 type="button"

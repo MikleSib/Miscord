@@ -8,7 +8,7 @@ from app.core.config import settings
 # Создаем асинхронный движок для PostgreSQL с увеличенным пулом соединений
 engine = create_async_engine(
     settings.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://"),
-    echo=True,
+    echo=(settings.ENVIRONMENT or "development").lower() not in {"production", "prod"},
     pool_size=20,              # Увеличиваем основной пул до 20
     max_overflow=30,           # Позволяем до 30 дополнительных соединений
     pool_timeout=30,           # Таймаут ожидания соединения 30 сек

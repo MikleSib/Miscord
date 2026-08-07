@@ -19,6 +19,21 @@ class Settings(BaseSettings):
     
     # Redis
     REDIS_URL: str = "redis://localhost:6379"
+
+    # Incoming webhooks
+    WEBHOOKS_ENABLED: bool = True
+    WEBHOOK_FILES_ENABLED: bool = True
+    WEBHOOK_TOKEN_ENCRYPTION_KEY: str = ""
+    ATTACHMENT_SIGNING_KEY: str = ""
+    ATTACHMENT_STORAGE_DIR: str = "/app/data/attachments"
+    ATTACHMENT_QUARANTINE_DIR: str = "/app/data/quarantine"
+    ATTACHMENT_X_ACCEL_ENABLED: bool = False
+    ATTACHMENT_URL_TTL_SECONDS: int = 86400
+    ATTACHMENT_DISK_RESERVE_BYTES: int = 1073741824
+    CLAMAV_HOST: str = "clamav"
+    CLAMAV_PORT: int = 3310
+    CLAMAV_SCAN_CONCURRENCY: int = 2
+    CLAMAV_SCAN_TIMEOUT_SECONDS: int = 30
     
     # Безопасность
     SECRET_KEY: str = "your-secret-key-here-change-in-production"
@@ -57,6 +72,8 @@ class Settings(BaseSettings):
             if env in {"production", "prod"}:
                 raise RuntimeError(msg)
             logger.warning(msg)
+        if self.WEBHOOKS_ENABLED and env in {"production", "prod"} and not self.WEBHOOK_TOKEN_ENCRYPTION_KEY:
+            raise RuntimeError("WEBHOOK_TOKEN_ENCRYPTION_KEY is required when webhooks are enabled in production.")
     
     # WebRTC. TURN обязателен для абонентов за разными или строгими NAT.
     # Production передаёт полный список через JSON-переменную ICE_SERVERS.

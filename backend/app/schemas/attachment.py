@@ -9,6 +9,10 @@ class AttachmentCreate(AttachmentBase):
 
 class Attachment(AttachmentBase):
     id: int
+    filename: Optional[str] = None
+    content_type: Optional[str] = None
+    size_bytes: Optional[int] = None
+    description: Optional[str] = None
     message_id: Optional[int] = None  # Опционально для DM (там будет dm_message_id)
 
     class Config:

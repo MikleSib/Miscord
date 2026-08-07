@@ -3,11 +3,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import asyncio
+import logging
+import re
 from sqlalchemy import delete
 
 from app.core.config import settings
 from app.db.database import engine, Base
-from app.api import auth, channels, channel_permissions, servers, uploads, reactions, friends, direct_messages, embeds
+from app.api import auth, channels, channel_permissions, servers, uploads, reactions, friends, direct_messages, embeds, webhooks, attachment_files
 from app.websocket import chat, voice
 from app.websocket.connection_manager import manager
 from app.websocket.chat import websocket_chat_endpoint, websocket_notifications_endpoint
@@ -16,6 +18,47 @@ from app.websocket.unified import websocket_unified_endpoint
 from app.services.user_activity_service import user_activity_service
 from app.db.database import AsyncSessionLocal
 from app.models import VoiceChannelUser
+from app.services.clamav import clamav_health
+from app.services.webhook_notifications import dispatcher as webhook_notification_dispatcher
+
+
+_SENSITIVE_QUERY_VALUE = re.compile(
+    r"(?i)([?&](?:token|access_token|refresh_token|authorization|api_key)=)[^&\s\"]+"
+)
+_SENSITIVE_WEBHOOK_PATH = re.compile(r"(/api/webhooks/\d+/)[A-Za-z0-9_-]{43}")
+
+
+def _redact_sensitive_query_values(value):
+    if isinstance(value, str):
+        value = _SENSITIVE_QUERY_VALUE.sub(r"\1[REDACTED]", value)
+        return _SENSITIVE_WEBHOOK_PATH.sub(r"\1[REDACTED]", value)
+    if isinstance(value, tuple):
+        return tuple(_redact_sensitive_query_values(item) for item in value)
+    if isinstance(value, list):
+        return [_redact_sensitive_query_values(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _redact_sensitive_query_values(item)
+            for key, item in value.items()
+        }
+    return value
+
+
+class SensitiveQueryLogFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.msg = _redact_sensitive_query_values(record.msg)
+        record.args = _redact_sensitive_query_values(record.args)
+        return True
+
+
+def configure_sensitive_log_redaction() -> None:
+    for logger_name in ("uvicorn.access", "uvicorn.error"):
+        logger = logging.getLogger(logger_name)
+        if not any(isinstance(item, SensitiveQueryLogFilter) for item in logger.filters):
+            logger.addFilter(SensitiveQueryLogFilter())
+
+
+configure_sensitive_log_redaction()
 
 # Создание таблиц при старте
 @asynccontextmanager
@@ -33,10 +76,12 @@ async def lifespan(app: FastAPI):
     
     # Запуск сервиса активности пользователей
     await user_activity_service.start_cleanup_task(AsyncSessionLocal)
+    await webhook_notification_dispatcher.start()
     
     yield
     # Shutdown
     await user_activity_service.stop_cleanup_task()
+    await webhook_notification_dispatcher.stop()
     if manager.redis_client:
         await manager.redis_client.close()
 
@@ -71,6 +116,8 @@ app.include_router(reactions.router, prefix="/api", tags=["reactions"])
 app.include_router(friends.router, prefix="/api/friends", tags=["friends"])
 app.include_router(direct_messages.router, prefix="/api/dms", tags=["dms"])
 app.include_router(embeds.router, prefix="/api", tags=["embeds"])
+app.include_router(webhooks.router, prefix="/api", tags=["webhooks"])
+app.include_router(attachment_files.router, prefix="/api", tags=["attachments"])
 
 # WebSocket эндпоинты
 
@@ -112,7 +159,11 @@ async def root():
 # Эндпоинт для проверки здоровья
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    scanner = await clamav_health() if settings.WEBHOOK_FILES_ENABLED else None
+    return {
+        "status": "healthy" if scanner is not False else "degraded",
+        "components": {"database": "ok", "redis": "ok" if manager.redis_client else "degraded", "clamav": scanner},
+    }
 
 # Подключаем статические файлы
 app.mount("/static", StaticFiles(directory="static"), name="static")

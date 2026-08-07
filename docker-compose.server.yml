@@ -34,6 +34,15 @@ services:
     environment:
       DATABASE_URL: postgresql://miscord_user:miscord_password@postgres:5432/miscord
       REDIS_URL: redis://redis:6379
+      WEBHOOKS_ENABLED: "true"
+      WEBHOOK_FILES_ENABLED: "true"
+      WEBHOOK_TOKEN_ENCRYPTION_KEY: ${WEBHOOK_TOKEN_ENCRYPTION_KEY:-}
+      ATTACHMENT_SIGNING_KEY: ${ATTACHMENT_SIGNING_KEY:-}
+      ATTACHMENT_STORAGE_DIR: /app/data/attachments
+      ATTACHMENT_QUARANTINE_DIR: /app/data/quarantine
+      ATTACHMENT_X_ACCEL_ENABLED: "true"
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: "3310"
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY to a long random string}
       ENVIRONMENT: production
       CORS_ORIGINS: '["https://miscord.ru", "https://www.miscord.ru", "http://localhost:3000"]'
@@ -47,6 +56,8 @@ services:
         condition: service_healthy
     volumes:
       - uploads_data:/app/static/uploads
+      - attachment_data:/app/data/attachments
+      - attachment_quarantine:/app/data/quarantine
     networks:
       - miscord_network
     restart: unless-stopped
@@ -100,6 +111,14 @@ services:
       - --no-software-attribute
       - --log-file=stdout
 
+  clamav:
+    image: clamav/clamav:stable
+    volumes:
+      - clamav_db:/var/lib/clamav
+    networks:
+      - miscord_network
+    restart: unless-stopped
+
   nginx:
     image: nginx:1.25-alpine
     ports:
@@ -107,6 +126,7 @@ services:
     volumes:
       - ./nginx/nginx.server.conf:/etc/nginx/nginx.conf:ro
       - uploads_data:/app/static/uploads:ro
+      - attachment_data:/app/data/attachments:ro
     depends_on:
       - frontend
       - backend
@@ -117,6 +137,9 @@ services:
 volumes:
   postgres_data:
   uploads_data:
+  attachment_data:
+  attachment_quarantine:
+  clamav_db:
 
 networks:
   miscord_network:

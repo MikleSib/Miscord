@@ -207,11 +207,12 @@ async def websocket_chat_endpoint(
                             "content": "Сообщение удалено" if full_message.reply_to.is_deleted else full_message.reply_to.content,
                             "is_deleted": full_message.reply_to.is_deleted,
                             "author": {
-                                "id": full_message.reply_to.author.id,
-                                "username": full_message.reply_to.author.display_name or full_message.reply_to.author.username,
+                                "id": full_message.reply_to.webhook_id or full_message.reply_to.author.id,
+                                "username": full_message.reply_to.webhook_name if full_message.reply_to.webhook_id else (full_message.reply_to.author.display_name or full_message.reply_to.author.username),
                                 "email": "",
-                                "display_name": full_message.reply_to.author.display_name,
-                                "avatar_url": getattr(full_message.reply_to.author, 'avatar_url', None)
+                                "display_name": None if full_message.reply_to.webhook_id else full_message.reply_to.author.display_name,
+                                "avatar_url": full_message.reply_to.webhook_avatar_url if full_message.reply_to.webhook_id else getattr(full_message.reply_to.author, 'avatar_url', None),
+                                "is_webhook": full_message.reply_to.webhook_id is not None
                             }
                         }
                     }

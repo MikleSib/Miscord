@@ -13,7 +13,10 @@ import {
   SLOW_MODE_OPTIONS,
 } from '../lib/slowMode'
 import { cn } from '../lib/utils'
+import { Permissions } from '../lib/permissions'
+import { useServerPermissions } from '../lib/serverPermissions'
 import { ChannelPermissionsTab } from './channel-settings/ChannelPermissionsTab'
+import { ChannelWebhooksTab } from './channel-settings/ChannelWebhooksTab'
 import { UnsavedChangesBar } from './channel-settings/UnsavedChangesBar'
 
 type VideoQuality = 'auto' | '720p'
@@ -27,7 +30,7 @@ interface ChannelSettingsModalProps {
   onPermissionsChange?: () => void
 }
 
-type SettingsTab = 'overview' | 'permissions'
+type SettingsTab = 'overview' | 'permissions' | 'webhooks'
 
 /** Выше сайдбара, профиля и lightbox. */
 const MODAL_Z_INDEX = 100
@@ -40,6 +43,8 @@ export function ChannelSettingsModal({
   onChannelDelete,
   onPermissionsChange,
 }: ChannelSettingsModalProps) {
+  const { can } = useServerPermissions(isOpen ? channel.channel_id : null)
+  const canManageWebhooks = can(Permissions.MANAGE_WEBHOOKS)
   const [activeTab, setActiveTab] = useState<SettingsTab>('overview')
   const [channelName, setChannelName] = useState(channel.name)
   const [slowModeSeconds, setSlowModeSeconds] = useState(channel.slow_mode_seconds ?? 0)
@@ -214,6 +219,15 @@ export function ChannelSettingsModal({
             >
               Права доступа
             </button>
+            {channel.type === 'text' && canManageWebhooks && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('webhooks')}
+                className={navItemClass('webhooks')}
+              >
+                Вебхуки
+              </button>
+            )}
             <button
               type="button"
               disabled
@@ -462,11 +476,13 @@ export function ChannelSettingsModal({
                 onSave={() => void handleSave()}
               />
             </div>
-          ) : (
+          ) : activeTab === 'permissions' ? (
             <ChannelPermissionsTab
               channel={channel}
               onPermissionsChange={onPermissionsChange}
             />
+          ) : (
+            <ChannelWebhooksTab channel={channel} />
           )}
         </main>
       </div>

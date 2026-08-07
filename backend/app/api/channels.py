@@ -27,6 +27,7 @@ from datetime import timezone, datetime, timedelta
 from app.schemas.message import MessageUpdate
 from app.services.user_activity_service import user_activity_service
 from app.services.audit_service import AuditAction, log_audit
+from app.services.message_serializer import serialize_attachment
 from app.services.server_membership import add_member_and_notify
 from app.services.text_channel_visibility import (
     get_text_channel_any,
@@ -1441,7 +1442,16 @@ async def get_channel_messages(
     message_list = []
     for msg in messages:
         # Обрабатываем случай удаленного пользователя
-        if msg.author is None:
+        if msg.webhook_id is not None:
+            author_data = {
+                "id": msg.webhook_id,
+                "username": msg.webhook_name or "Webhook",
+                "email": "",
+                "display_name": None,
+                "avatar_url": msg.webhook_avatar_url,
+                "is_webhook": True,
+            }
+        elif msg.author is None:
             author_data = {
                 "id": -1,  # Специальный ID для удаленных пользователей
                 "username": "УДАЛЕННЫЙ АККАУНТ",
@@ -1456,6 +1466,7 @@ async def get_channel_messages(
                 "email": "",
                 "display_name": msg.author.display_name,
                 "avatar_url": getattr(msg.author, 'avatar_url', None)
+                ,"is_webhook": False
             }
         
         # Формируем реакции
@@ -1487,12 +1498,18 @@ async def get_channel_messages(
             "channelId": msg.text_channel_id,
             "timestamp": msg.timestamp.replace(tzinfo=timezone.utc).isoformat(),
             "is_edited": msg.is_edited,
+            "webhook_id": msg.webhook_id,
+            "embeds": msg.embeds or [],
+            "flags": msg.flags or 0,
             "author": author_data,
             "attachments": [
                 {
                     "id": att.id,
-                    "file_url": att.file_url,
-                    "filename": getattr(att, 'filename', None)
+                    "file_url": serialize_attachment(att)["file_url"],
+                    "filename": att.original_filename,
+                    "content_type": att.content_type,
+                    "size_bytes": att.size_bytes or 0,
+                    "description": att.description,
                 } for att in msg.attachments
             ],
             "reactions": list(reactions_dict.values()),
@@ -1503,6 +1520,13 @@ async def get_channel_messages(
                 "timestamp": msg.reply_to.timestamp.replace(tzinfo=timezone.utc).isoformat(),
                 "is_deleted": msg.reply_to.is_deleted,
                 "author": {
+                    "id": msg.reply_to.webhook_id,
+                    "username": msg.reply_to.webhook_name or "Webhook",
+                    "email": "",
+                    "display_name": None,
+                    "avatar_url": msg.reply_to.webhook_avatar_url,
+                    "is_webhook": True,
+                } if msg.reply_to.webhook_id is not None else {
                     "id": msg.reply_to.author.id,
                     "username": msg.reply_to.author.display_name or msg.reply_to.author.username,
                     "email": "",

@@ -24,6 +24,15 @@ services:
     environment:
       DATABASE_URL: postgresql://miscord_user:miscord_password@postgres:5432/miscord
       REDIS_URL: redis://redis:6379
+      WEBHOOKS_ENABLED: "true"
+      WEBHOOK_FILES_ENABLED: "true"
+      WEBHOOK_TOKEN_ENCRYPTION_KEY: ${WEBHOOK_TOKEN_ENCRYPTION_KEY:-}
+      ATTACHMENT_SIGNING_KEY: ${ATTACHMENT_SIGNING_KEY:-}
+      ATTACHMENT_STORAGE_DIR: /app/data/attachments
+      ATTACHMENT_QUARANTINE_DIR: /app/data/quarantine
+      ATTACHMENT_X_ACCEL_ENABLED: "true"
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: "3310"
       SECRET_KEY: your-secret-key-here-change-in-production
       CORS_ORIGINS: '["http://localhost:3000", "https://miscord.ru", "https://www.miscord.ru"]'
       ICE_SERVERS: '${ICE_SERVERS:-[{"urls":["stun:stun.l.google.com:19302","stun:stun1.l.google.com:19302"]},{"urls":["turn:miscord.ru:3478?transport=udp","turn:miscord.ru:3478?transport=tcp"],"username":"miscord","credential":"change-this-turn-password"}]}'
@@ -34,6 +43,8 @@ services:
       - redis
     volumes:
       - ./backend:/app
+      - attachment_data:/app/data/attachments
+      - attachment_quarantine:/app/data/quarantine
     networks:
       - miscord_network
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
@@ -62,6 +73,12 @@ services:
       retries: 3
       start_period: 40s
 
+  clamav:
+    image: clamav/clamav:stable
+    volumes:
+      - clamav_db:/var/lib/clamav
+    networks:
+      - miscord_network
   nginx:
     image: nginx:1.25-alpine
     ports:
@@ -72,6 +89,7 @@ services:
       - ./certbot/conf:/etc/letsencrypt
       - ./certbot/www:/var/www/certbot
       - ./backend/static:/app/static
+      - attachment_data:/app/data/attachments:ro
     depends_on:
       - frontend
       - backend
@@ -109,6 +127,9 @@ services:
 
 volumes:
   postgres_data:
+  attachment_data:
+  attachment_quarantine:
+  clamav_db:
 
 networks:
   miscord_network:
