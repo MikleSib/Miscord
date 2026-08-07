@@ -4,10 +4,20 @@ import { channelApi } from './api';
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://miscord.ru';
 
 export type ChatMessageHandler = (msg: Message) => void;
+export type SlowModeHandler = (data: { text_channel_id: number; retry_after_seconds: number }) => void;
+export type RateLimitHandler = (data: {
+  message?: string;
+  retry_after_seconds: number;
+  scope?: string;
+  text_channel_id?: number;
+  recipient_id?: number;
+}) => void;
 
 class ChatService {
   private ws: WebSocket | null = null;
   private messageHandler: ChatMessageHandler | null = null;
+  private slowModeHandler: SlowModeHandler | null = null;
+  private rateLimitHandler: RateLimitHandler | null = null;
   private typingHandler: ((data: any) => void) | null = null;
   private messageDeletedHandler: ((data: { message_id: number; text_channel_id: number }) => void) | null = null;
   private messageEditedHandler: ChatMessageHandler | null = null;
@@ -97,6 +107,12 @@ class ChatService {
           }
           if (data.type === 'reaction_updated' && this.reactionUpdatedHandler) {
             this.reactionUpdatedHandler(data.data);
+          }
+          if (data.type === 'slow_mode' && this.slowModeHandler) {
+            this.slowModeHandler(data);
+          }
+          if (data.type === 'rate_limit' && this.rateLimitHandler) {
+            this.rateLimitHandler(data);
           }
         } catch (e) {
           console.error('[ChatService] Ошибка обработки сообщения:', e);
@@ -196,6 +212,14 @@ class ChatService {
 
   onMessage(handler: ChatMessageHandler) {
     this.messageHandler = handler;
+  }
+
+  onSlowMode(handler: SlowModeHandler) {
+    this.slowModeHandler = handler;
+  }
+
+  onRateLimit(handler: RateLimitHandler) {
+    this.rateLimitHandler = handler;
   }
 
   onTyping(handler: (data: any) => void) {

@@ -142,7 +142,9 @@ class WebSocketService {
     server_id: number; 
     name: string; 
     description?: string; 
-    icon?: string; 
+    icon?: string;
+    banner?: string | null;
+    is_public?: boolean;
     updated_by: { id: number; username: string; display_name: string } 
   }) => void) {
     this.on('server_updated', handler);

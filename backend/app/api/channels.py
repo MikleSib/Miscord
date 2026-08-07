@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, delete
+from sqlalchemy import select, func, and_, delete, update
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from app.db.database import get_db
 from app.models import (
     Channel, ChannelMember, TextChannel, VoiceChannel, User, ChannelType,
-    VoiceChannelUser, Message, Reaction, Role, MemberRole, ServerBan, Invite, AuditLog
+    VoiceChannelUser, Message, Reaction, Role, MemberRole, ServerBan, Invite, AuditLog, Attachment,
+    ChannelPermissionOverwrite, ChannelKind,
 )
 from app.schemas.channel import (
     ChannelCreate, Channel as ChannelSchema, ChannelUpdate,
@@ -27,17 +28,55 @@ from app.schemas.message import MessageUpdate
 from app.services.user_activity_service import user_activity_service
 from app.services.audit_service import AuditAction, log_audit
 from app.services.server_membership import add_member_and_notify
+from app.services.text_channel_visibility import (
+    get_text_channel_any,
+    get_visible_text_channel,
+)
+from app.services.channel_permissions import (
+    filter_viewable_text_channels,
+    filter_viewable_voice_channels,
+)
+from app.services.channel_access import (
+    require_text_channel_access,
+    require_voice_channel_access,
+    user_can_manage_messages,
+)
+import secrets as secrets_mod
 
 router = APIRouter()
 
 
+async def _delete_server_text_messages(db: AsyncSession, server_id: int) -> None:
+    """Удаляет все сообщения текстовых каналов сервера."""
+    text_channel_ids_stmt = select(TextChannel.id).where(TextChannel.channel_id == server_id)
+    text_channel_ids_result = await db.execute(text_channel_ids_stmt)
+    text_channel_ids = [row[0] for row in text_channel_ids_result.fetchall()]
+
+    if not text_channel_ids:
+        return
+
+    messages_stmt = select(Message.id).where(Message.text_channel_id.in_(text_channel_ids))
+    messages_result = await db.execute(messages_stmt)
+    message_ids = [row[0] for row in messages_result.fetchall()]
+
+    if message_ids:
+        await db.execute(delete(Attachment).where(Attachment.message_id.in_(message_ids)))
+        await db.execute(delete(Reaction).where(Reaction.message_id.in_(message_ids)))
+
+    await db.execute(
+        update(Message)
+        .where(Message.text_channel_id.in_(text_channel_ids))
+        .values(reply_to_id=None)
+    )
+    await db.execute(delete(Message).where(Message.text_channel_id.in_(text_channel_ids)))
+
+
 def _serialize_server_member(user: User) -> dict:
-    """Формат участника сервера — совпадает с GET /channels/{id}."""
+    """Формат участника сервера — без email (PII)."""
     return {
         "id": user.id,
-        "username": user.display_name or user.username,
+        "username": user.username,
         "display_name": user.display_name,
-        "email": user.email,
         "is_active": user.is_active,
         "is_online": user.is_online,
         "avatar_url": user.avatar_url,
@@ -123,22 +162,31 @@ async def get_full_server_data(
     for channel in channels:
         # Текстовые каналы без сообщений
         text_channels = []
-        for tc in channel.text_channels:
+        visible_text = await filter_viewable_text_channels(
+            db, channel.id, current_user.id, channel.text_channels, owner_id=channel.owner_id
+        )
+        for tc in visible_text:
             text_channels.append({
                 "id": tc.id,
                 "name": tc.name,
                 "position": tc.position,
+                "slow_mode_seconds": tc.slow_mode_seconds,
                 "created_at": tc.created_at
             })
         
         # Голосовые каналы без активных пользователей
         voice_channels = []
-        for vc in channel.voice_channels:
+        visible_voice = await filter_viewable_voice_channels(
+            db, channel.id, current_user.id, channel.voice_channels, owner_id=channel.owner_id
+        )
+        for vc in visible_voice:
             voice_channels.append({
                 "id": vc.id,
                 "name": vc.name,
                 "position": vc.position,
                 "max_users": vc.max_users,
+                "bitrate": int(getattr(vc, "bitrate", 64) or 64),
+                "video_quality": getattr(vc, "video_quality", None) or "auto",
                 "created_at": vc.created_at
             })
             
@@ -218,7 +266,9 @@ async def create_channel(
         name="General",
         channel_id=db_channel.id,
         position=0,
-        max_users=10
+        max_users=0,
+        bitrate=64,
+        video_quality="auto",
     )
     db.add(default_voice)
     
@@ -286,8 +336,7 @@ async def get_online_users(
         "online_users": [
             {
                 "id": user.id,
-                "username": user.display_name or user.username,
-                "email": user.email,
+                "username": user.username,
                 "avatar_url": user.avatar_url,
                 "is_online": user.is_online,
                 "last_activity": user.last_activity.isoformat() if user.last_activity else None
@@ -324,8 +373,14 @@ async def get_all_channels(
             continue
             
         # Преобразуем модели SQLAlchemy в Pydantic схемы
-        text_channels_schema = [TextChannelSchema.from_orm(tc) for tc in channel.text_channels]
-        voice_channels_schema = [VoiceChannelSchema.from_orm(vc) for vc in channel.voice_channels]
+        visible_text = await filter_viewable_text_channels(
+            db, channel.id, current_user.id, channel.text_channels, owner_id=channel.owner_id
+        )
+        text_channels_schema = [TextChannelSchema.from_orm(tc) for tc in visible_text]
+        visible_voice = await filter_viewable_voice_channels(
+            db, channel.id, current_user.id, channel.voice_channels, owner_id=channel.owner_id
+        )
+        voice_channels_schema = [VoiceChannelSchema.from_orm(vc) for vc in visible_voice]
 
         response_channels.append({
             "id": channel.id,
@@ -376,8 +431,23 @@ async def update_channel(
     
     # Обновляем данные
     update_data = channel_data.dict(exclude_unset=True)
+    was_public = bool(channel.is_public)
+    becoming_private = (
+        "is_public" in update_data
+        and was_public
+        and not bool(update_data.get("is_public"))
+    )
+
     for field, value in update_data.items():
         setattr(channel, field, value)
+
+    revoked_invites = 0
+    if becoming_private:
+        # Закрыли сервер — все старые ссылки-приглашения сразу перестают действовать
+        revoke_result = await db.execute(delete(Invite).where(Invite.server_id == channel_id))
+        revoked_invites = int(revoke_result.rowcount or 0)
+        if revoked_invites:
+            update_data = {**update_data, "revoked_invites": revoked_invites}
     
     channel.updated_at = func.now()
     await db.commit()
@@ -393,6 +463,18 @@ async def update_channel(
         target_name=channel.name,
         changes=update_data,
     )
+
+    if becoming_private and revoked_invites:
+        await log_audit(
+            db,
+            channel_id,
+            current_user,
+            AuditAction.INVITE_DELETE,
+            target_type="invite",
+            target_id=None,
+            target_name="*",
+            changes={"reason": "server_closed", "revoked_count": revoked_invites},
+        )
     
     # Отправляем WebSocket уведомление всем участникам сервера о обновлении
     # Получаем всех участников сервера
@@ -468,15 +550,23 @@ async def get_channel_details(
     
     # Получаем текстовые каналы
     text_result = await db.execute(
-        select(TextChannel).where(TextChannel.channel_id == channel_id).order_by(TextChannel.position)
+        select(TextChannel)
+        .where(TextChannel.channel_id == channel_id)
+        .order_by(TextChannel.position)
     )
-    text_channels = text_result.scalars().all()
+    all_text_channels = text_result.scalars().all()
+    text_channels = await filter_viewable_text_channels(
+        db, channel_id, current_user.id, all_text_channels, owner_id=channel.owner_id
+    )
     
     # Получаем голосовые каналы
     voice_result = await db.execute(
         select(VoiceChannel).where(VoiceChannel.channel_id == channel_id).order_by(VoiceChannel.position)
     )
-    voice_channels = voice_result.scalars().all()
+    all_voice_channels = voice_result.scalars().all()
+    voice_channels = await filter_viewable_voice_channels(
+        db, channel_id, current_user.id, all_voice_channels, owner_id=channel.owner_id
+    )
     
     # Получаем участников сервера вместе с их серверными никнеймами
     members_result = await db.execute(
@@ -520,10 +610,18 @@ async def get_channel_details(
             "updated_at": channel.owner.updated_at
         } if channel.owner else None,
         "channels": [
-            {"id": tc.id, "name": tc.name, "type": "text", "position": tc.position}
+            {"id": tc.id, "name": tc.name, "type": "text", "position": tc.position, "slow_mode_seconds": tc.slow_mode_seconds}
             for tc in text_channels
         ] + [
-            {"id": vc.id, "name": vc.name, "type": "voice", "position": vc.position, "max_users": vc.max_users}
+            {
+                "id": vc.id,
+                "name": vc.name,
+                "type": "voice",
+                "position": vc.position,
+                "max_users": vc.max_users,
+                "bitrate": int(getattr(vc, "bitrate", 64) or 64),
+                "video_quality": getattr(vc, "video_quality", None) or "auto",
+            }
             for vc in voice_channels
         ],
         "members": [
@@ -532,7 +630,6 @@ async def get_channel_details(
                 "username": member.display_name or member.username,
                 "display_name": member.display_name,
                 "nickname": membership.nickname,
-                "email": member.email,
                 "is_active": member.is_active,
                 "is_online": member.is_online,
                 "avatar_url": member.avatar_url,
@@ -555,18 +652,17 @@ async def join_channel(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Присоединение к каналу"""
-    # Проверка существования канала
+    """Присоединение к публичному серверу. Закрытый — только по приглашению."""
     channel_result = await db.execute(
         select(Channel).where(Channel.id == channel_id)
     )
-    if not channel_result.scalar_one_or_none():
+    channel = channel_result.scalar_one_or_none()
+    if not channel:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Channel not found"
         )
 
-    # Заблокированный пользователь не может вернуться на сервер
     ban_result = await db.execute(
         select(ServerBan.id).where(
             and_(ServerBan.server_id == channel_id, ServerBan.user_id == current_user.id)
@@ -577,36 +673,20 @@ async def join_channel(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Вы заблокированы на этом сервере"
         )
-    
-    # Проверка, не является ли уже участником
-    member_result = await db.execute(
-        select(ChannelMember)
-        .where(
-            (ChannelMember.channel_id == channel_id) &
-            (ChannelMember.user_id == current_user.id)
+
+    if not channel.is_public and current_user.id != channel.owner_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Сервер закрыт. Нужно приглашение.",
         )
-    )
-    if member_result.scalar_one_or_none():
+
+    if await is_server_member(db, channel_id, current_user.id):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Already a member of this channel"
         )
-    
-    # Добавление участника
-    new_member = ChannelMember(
-        channel_id=channel_id,
-        user_id=current_user.id
-    )
-    db.add(new_member)
-    await db.commit()
 
-    await _notify_server_member_joined(
-        db,
-        channel_id,
-        current_user,
-        exclude_user_id=current_user.id,
-    )
-    
+    await add_member_and_notify(db, channel_id, current_user)
     return {"detail": "Successfully joined the channel"}
 
 
@@ -771,7 +851,9 @@ async def create_voice_channel(
         name=channel_data.name,
         channel_id=channel_id,
         position=channel_data.position,
-        max_users=channel_data.max_users
+        max_users=channel_data.max_users,
+        bitrate=channel_data.bitrate,
+        video_quality=channel_data.video_quality,
     )
     db.add(new_voice_channel)
     await db.commit()
@@ -788,6 +870,8 @@ async def create_voice_channel(
                 "type": "voice",
                 "position": new_voice_channel.position,
                 "max_users": new_voice_channel.max_users,
+                "bitrate": new_voice_channel.bitrate,
+                "video_quality": new_voice_channel.video_quality,
                 "serverId": channel_id,
             },
             "created_by": {
@@ -823,7 +907,10 @@ async def update_text_channel(
     stmt = (
         select(TextChannel)
         .join(Channel, TextChannel.channel_id == Channel.id)
-        .where(TextChannel.id == text_channel_id)
+        .where(
+            TextChannel.id == text_channel_id,
+            TextChannel.is_hidden.is_(False),
+        )
     )
     result = await db.execute(stmt)
     text_channel = result.scalar_one_or_none()
@@ -869,6 +956,7 @@ async def update_text_channel(
                 "text_channel_id": text_channel.id,
                 "name": text_channel.name,
                 "position": text_channel.position,
+                "slow_mode_seconds": text_channel.slow_mode_seconds,
                 "updated_by": {
                     "id": current_user.id,
                     "username": current_user.display_name or current_user.username
@@ -937,6 +1025,8 @@ async def update_voice_channel(
                 "name": voice_channel.name,
                 "position": voice_channel.position,
                 "max_users": voice_channel.max_users,
+                "bitrate": voice_channel.bitrate,
+                "video_quality": voice_channel.video_quality,
                 "updated_by": {
                     "id": current_user.id,
                     "username": current_user.display_name or current_user.username
@@ -952,15 +1042,8 @@ async def delete_text_channel(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Удаление текстового канала (право «Управлять каналами»)"""
-    # Находим текстовый канал
-    stmt = (
-        select(TextChannel)
-        .join(Channel, TextChannel.channel_id == Channel.id)
-        .where(TextChannel.id == text_channel_id)
-    )
-    result = await db.execute(stmt)
-    text_channel = result.scalar_one_or_none()
+    """Скрывает текстовый канал. Сообщения и вложения остаются в базе для аудита."""
+    text_channel = await get_visible_text_channel(db, text_channel_id)
 
     if not text_channel:
         raise HTTPException(
@@ -972,33 +1055,19 @@ async def delete_text_channel(
         db, text_channel.channel_id, current_user, Permission.MANAGE_CHANNELS
     )
 
-    # Получаем сервер для уведомления
     server_id = text_channel.channel_id
     deleted_channel_name = text_channel.name
 
-    # Получаем всех участников сервера для уведомления
     members_stmt = select(ChannelMember.user_id).where(ChannelMember.channel_id == server_id)
     members_result = await db.execute(members_stmt)
     member_ids = [row[0] for row in members_result.fetchall()]
 
-    # Удаляем канал и все связанные данные
-    # 1. Реакции на сообщения
-    messages_stmt = select(Message.id).where(Message.text_channel_id == text_channel_id)
-    messages_result = await db.execute(messages_stmt)
-    message_ids = [row[0] for row in messages_result.fetchall()]
-
-    if message_ids:
-        await db.execute(delete(Reaction).where(Reaction.message_id.in_(message_ids)))
-
-    # 2. Сообщения
-    await db.execute(delete(Message).where(Message.text_channel_id == text_channel_id))
-
-    # 3. Сам канал
-    await db.execute(delete(TextChannel).where(TextChannel.id == text_channel_id))
+    text_channel.is_hidden = True
+    text_channel.hidden_at = datetime.now(timezone.utc)
+    text_channel.hidden_by_id = current_user.id
 
     await db.commit()
 
-    # Отправляем WebSocket уведомление всем участникам сервера об удалении канала
     for member_id in member_ids:
         await manager.send_to_user(member_id, {
             "type": "text_channel_deleted",
@@ -1020,10 +1089,68 @@ async def delete_text_channel(
         target_type="channel",
         target_id=text_channel_id,
         target_name=deleted_channel_name,
-        changes={"kind": "text"},
+        changes={"kind": "text", "soft_hide": True},
     )
 
-    return {"detail": "Текстовый канал успешно удален"}
+    return {"detail": "Текстовый канал скрыт"}
+
+
+@router.post("/text/{text_channel_id}/restore", response_model=TextChannelSchema)
+async def restore_text_channel(
+    text_channel_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Восстанавливает ранее скрытый текстовый канал."""
+    text_channel = await get_text_channel_any(db, text_channel_id)
+
+    if not text_channel or not text_channel.is_hidden:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Скрытый текстовый канал не найден"
+        )
+
+    await require_permission(
+        db, text_channel.channel_id, current_user, Permission.MANAGE_CHANNELS
+    )
+
+    server_id = text_channel.channel_id
+    restored_name = text_channel.name
+
+    text_channel.is_hidden = False
+    text_channel.hidden_at = None
+    text_channel.hidden_by_id = None
+
+    await db.commit()
+    await db.refresh(text_channel)
+
+    members_stmt = select(ChannelMember.user_id).where(ChannelMember.channel_id == server_id)
+    members_result = await db.execute(members_stmt)
+    member_ids = [row[0] for row in members_result.fetchall()]
+
+    for member_id in member_ids:
+        await manager.send_to_user(member_id, {
+            "type": "text_channel_created",
+            "text_channel": {
+                "id": text_channel.id,
+                "name": text_channel.name,
+                "channel_id": server_id,
+                "position": text_channel.position,
+            },
+        })
+
+    await log_audit(
+        db,
+        server_id,
+        current_user,
+        AuditAction.CHANNEL_UPDATE,
+        target_type="channel",
+        target_id=text_channel.id,
+        target_name=restored_name,
+        changes={"kind": "text", "restored": True},
+    )
+
+    return text_channel
 
 @router.delete("/voice/{voice_channel_id}")
 async def delete_voice_channel(
@@ -1064,7 +1191,15 @@ async def delete_voice_channel(
     # 1. Пользователи в голосовом канале
     await db.execute(delete(VoiceChannelUser).where(VoiceChannelUser.voice_channel_id == voice_channel_id))
 
-    # 2. Сам канал
+    # 2. Переопределения прав канала
+    await db.execute(
+        delete(ChannelPermissionOverwrite).where(
+            ChannelPermissionOverwrite.channel_kind == ChannelKind.VOICE,
+            ChannelPermissionOverwrite.channel_id == voice_channel_id,
+        )
+    )
+
+    # 3. Сам канал
     await db.execute(delete(VoiceChannel).where(VoiceChannel.id == voice_channel_id))
 
     await db.commit()
@@ -1104,10 +1239,12 @@ async def invite_user_to_channel(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Приглашение пользователя в канал (сервер) по имени пользователя"""
+    """
+    Приглашение по username: создаёт одноразовый инвайт и уведомляет человека.
+    Не добавляет на сервер без согласия (в отличие от старого поведения).
+    """
     await require_permission(db, channel_id, current_user, Permission.CREATE_INVITE)
 
-    # Находим пользователя по username
     user_result = await db.execute(
         select(User).where(User.username == username)
     )
@@ -1118,7 +1255,6 @@ async def invite_user_to_channel(
             detail="Пользователь не найден"
         )
 
-    # Заблокированного пользователя нельзя пригласить обратно
     ban_result = await db.execute(
         select(ServerBan.id).where(
             and_(ServerBan.server_id == channel_id, ServerBan.user_id == target_user.id)
@@ -1129,50 +1265,57 @@ async def invite_user_to_channel(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Пользователь заблокирован на этом сервере. Сначала снимите блокировку."
         )
-    
-    # Проверяем, не является ли пользователь уже участником
-    existing_member = await db.execute(
-        select(ChannelMember).where(
-            and_(
-                ChannelMember.channel_id == channel_id,
-                ChannelMember.user_id == target_user.id
-            )
-        )
-    )
-    if existing_member.scalar_one_or_none():
+
+    if await is_server_member(db, channel_id, target_user.id):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Пользователь уже в этом канале"
         )
 
-    # Добавление участника и рассылка событий — общая логика для всех способов входа
-    await add_member_and_notify(
-        db,
-        channel_id,
-        target_user,
-        invited_by=current_user.display_name or current_user.username,
+    code = secrets_mod.token_urlsafe(8)
+    invite = Invite(
+        code=code,
+        server_id=channel_id,
+        inviter_id=current_user.id,
+        max_uses=1,
+        uses=0,
+        expires_at=datetime.utcnow() + timedelta(days=7),
+    )
+    db.add(invite)
+    await db.commit()
+    await db.refresh(invite)
+
+    await manager.send_personal_message(
+        {
+            "type": "server_invite",
+            "data": {
+                "code": invite.code,
+                "server_id": channel_id,
+                "inviter_id": current_user.id,
+                "inviter_name": current_user.display_name or current_user.username,
+                "invite_url": f"/invite/{invite.code}",
+            },
+        },
+        target_user.id,
     )
 
     await log_audit(
         db,
         channel_id,
         current_user,
-        AuditAction.MEMBER_JOIN,
-        target_type="member",
-        target_id=target_user.id,
-        target_name=target_user.display_name or target_user.username,
-        changes={"method": "username_invite"},
+        AuditAction.INVITE_CREATE,
+        target_type="invite",
+        target_id=invite.id,
+        target_name=invite.code,
+        changes={"method": "username_invite", "target_user_id": target_user.id},
     )
-    
-    member_payload = _serialize_server_member(target_user)
+
     return {
-        "message": f"User {username} successfully invited to channel",
+        "message": f"Приглашение отправлено пользователю {username}",
         "channel_id": channel_id,
         "user_id": target_user.id,
-        "username": member_payload["username"],
-        "display_name": target_user.display_name,
-        "avatar_url": target_user.avatar_url,
-        "user": member_payload,
+        "invite_code": invite.code,
+        "pending_accept": True,
     }
 
 @router.get("/{channel_id}/members")
@@ -1207,7 +1350,6 @@ async def get_channel_members(
             "username": member.display_name or member.username,
             "display_name": member.display_name,
             "nickname": membership.nickname,
-            "email": member.email,
             "is_active": member.is_active,
             "is_online": member.is_online,
             "avatar_url": member.avatar_url,
@@ -1228,29 +1370,7 @@ async def get_voice_channel_members(
     db: AsyncSession = Depends(get_db)
 ):
     """Получение списка участников голосового канала"""
-    # Проверяем существование голосового канала
-    voice_channel_result = await db.execute(
-        select(VoiceChannel).where(VoiceChannel.id == voice_channel_id)
-    )
-    voice_channel = voice_channel_result.scalar_one_or_none()
-    if not voice_channel:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Voice channel not found"
-        )
-    
-    # Получаем всех участников голосового канала с информацией о пользователях
-    membership_result = await db.execute(
-        select(ChannelMember).where(
-            (ChannelMember.channel_id == voice_channel.channel_id) &
-            (ChannelMember.user_id == current_user.id)
-        )
-    )
-    if not membership_result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Server membership required"
-        )
+    await require_voice_channel_access(db, current_user, voice_channel_id)
     result = await db.execute(
         select(VoiceChannelUser, User).join(User, VoiceChannelUser.user_id == User.id).where(
             VoiceChannelUser.voice_channel_id == voice_channel_id
@@ -1261,15 +1381,16 @@ async def get_voice_channel_members(
     return [
         {
             "id": user.id,
-            "username": user.display_name or user.username,
-            "email": user.email,
+            "user_id": user.id,
+            "username": user.username,
+            "display_name": user.display_name,
             "is_active": user.is_active,
             "is_online": user.is_online,
             "avatar_url": user.avatar_url,
             "created_at": user.created_at,
             "updated_at": user.updated_at,
             "is_muted": voice_user.is_muted,
-            "is_deafened": voice_user.is_deafened
+            "is_deafened": voice_user.is_deafened,
         }
         for voice_user, user in voice_members
     ]
@@ -1282,30 +1403,24 @@ async def get_channel_messages(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Получение сообщений текстового канала"""
-    # Проверяем существование канала
-    channel_result = await db.execute(
-        select(TextChannel).where(TextChannel.id == channel_id)
-    )
-    channel = channel_result.scalar_one_or_none()
-    
-    if not channel:
-        raise HTTPException(status_code=404, detail="Текстовый канал не найден")
-    
-    # Согласно памяти - все пользователи имеют доступ к любым каналам
-    # Убираем проверку членства
-    
-    # Строим запрос для сообщений (показываем только не удаленные)
+    """
+    Сообщения пачками (как Discord):
+    - без before → последние `limit` сообщений;
+    - with before → ещё `limit` сообщений старше этого id.
+    """
+    await require_text_channel_access(db, current_user, channel_id)
+
+    # Защита сервера: не даём вытянуть весь чат одним запросом
+    limit = max(1, min(int(limit or 50), 100))
+
     query = select(Message).where(
         Message.text_channel_id == channel_id,
         Message.is_deleted == False
     )
     
-    # Если указан before, загружаем сообщения до этого ID
     if before:
         query = query.where(Message.id < before)
     
-    # Сортируем по времени (новые сначала для пагинации, потом развернем)
     query = query.order_by(Message.timestamp.desc()).limit(limit)
     
     # Загружаем связанные данные
@@ -1338,7 +1453,7 @@ async def get_channel_messages(
             author_data = {
                 "id": msg.author.id,
                 "username": msg.author.display_name or msg.author.username,
-                "email": msg.author.email,
+                "email": "",
                 "display_name": msg.author.display_name,
                 "avatar_url": getattr(msg.author, 'avatar_url', None)
             }
@@ -1359,7 +1474,7 @@ async def get_channel_messages(
             reactions_dict[emoji]["users"].append({
                 "id": reaction.user.id,
                 "username": reaction.user.display_name or reaction.user.username,
-                "email": reaction.user.email,
+                "email": "",
                 "display_name": reaction.user.display_name,
                 "avatar_url": getattr(reaction.user, 'avatar_url', None)
             })
@@ -1390,7 +1505,7 @@ async def get_channel_messages(
                 "author": {
                     "id": msg.reply_to.author.id,
                     "username": msg.reply_to.author.display_name or msg.reply_to.author.username,
-                    "email": msg.reply_to.author.email,
+                    "email": "",
                     "display_name": msg.reply_to.author.display_name,
                     "avatar_url": getattr(msg.reply_to.author, 'avatar_url', None)
                 } if msg.reply_to.author else {
@@ -1427,27 +1542,29 @@ async def delete_message(
     if not message:
         raise HTTPException(status_code=404, detail="Сообщение не найдено")
     
-    # Проверяем авторство
-    if message.author_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Вы можете удалять только свои сообщения")
-    
-    # Проверяем временное ограничение (2 часа)
-    time_limit = timedelta(hours=2)
-    time_since_creation = datetime.utcnow() - message.timestamp
-    
-    if time_since_creation > time_limit:
-        raise HTTPException(status_code=403, detail="Сообщение можно удалить только в течение 2 часов после отправки")
-    
-    # Помечаем сообщение как удаленное (не удаляем физически из-за ссылок)
+    text_channel = await require_text_channel_access(
+        db, current_user, message.text_channel_id
+    )
+    is_author = message.author_id == current_user.id
+    can_manage = await user_can_manage_messages(db, current_user, text_channel)
+
+    if not is_author and not can_manage:
+        raise HTTPException(status_code=403, detail="Недостаточно прав для удаления")
+
+    if is_author and not can_manage:
+        time_limit = timedelta(hours=2)
+        msg_ts = message.timestamp.replace(tzinfo=None) if message.timestamp.tzinfo else message.timestamp
+        if datetime.utcnow() - msg_ts > time_limit:
+            raise HTTPException(
+                status_code=403,
+                detail="Сообщение можно удалить только в течение 2 часов после отправки",
+            )
+
     message.is_deleted = True
-    message.content = None  # Очищаем контент
-    
-    # Удаляем реакции и вложения
+    message.content = None
     await db.execute(delete(Reaction).where(Reaction.message_id == message_id))
-    
     await db.commit()
     
-    # Отправляем WebSocket уведомление о удалении
     await manager.send_to_channel(message.text_channel_id, {
         "type": "message_deleted",
         "data": {
@@ -1466,7 +1583,6 @@ async def edit_message(
     db: AsyncSession = Depends(get_db)
 ):
     """Редактирование сообщения (только автор, в течение 2 часов)"""
-    # Получаем сообщение с полными данными
     message_result = await db.execute(
         select(Message)
         .where(Message.id == message_id)
@@ -1481,19 +1597,17 @@ async def edit_message(
     
     if not message:
         raise HTTPException(status_code=404, detail="Сообщение не найдено")
-    
-    # Проверяем авторство
+
+    await require_text_channel_access(db, current_user, message.text_channel_id)
+
     if message.author_id != current_user.id:
         raise HTTPException(status_code=403, detail="Вы можете редактировать только свои сообщения")
     
-    # Проверяем временное ограничение (2 часа)
     time_limit = timedelta(hours=2)
-    time_since_creation = datetime.utcnow() - message.timestamp
-    
-    if time_since_creation > time_limit:
+    msg_ts = message.timestamp.replace(tzinfo=None) if message.timestamp.tzinfo else message.timestamp
+    if datetime.utcnow() - msg_ts > time_limit:
         raise HTTPException(status_code=403, detail="Сообщение можно редактировать только в течение 2 часов после отправки")
     
-    # Обновляем контент и помечаем как отредактированное
     message.content = message_data.content.strip()
     message.is_edited = True
     
@@ -1516,7 +1630,7 @@ async def edit_message(
         reactions_dict[emoji]["users"].append({
             "id": reaction.user.id,
             "username": reaction.user.display_name or reaction.user.username,
-            "email": reaction.user.email,
+            "email": "",
             "display_name": reaction.user.display_name,
             "avatar_url": getattr(reaction.user, 'avatar_url', None)
         })
@@ -1534,7 +1648,7 @@ async def edit_message(
         "author": {
             "id": message.author.id,
             "username": message.author.display_name or message.author.username,
-            "email": message.author.email,
+            "email": "",
             "display_name": message.author.display_name,
             "avatar_url": getattr(message.author, 'avatar_url', None)
         },
@@ -1555,7 +1669,7 @@ async def edit_message(
             "author": {
                 "id": message.reply_to.author.id,
                 "username": message.reply_to.author.display_name or message.reply_to.author.username,
-                "email": message.reply_to.author.email,
+                "email": "",
                 "display_name": message.reply_to.author.display_name,
                 "avatar_url": getattr(message.reply_to.author, 'avatar_url', None)
             } if message.reply_to.author else {
@@ -1609,20 +1723,9 @@ async def delete_channel(
     member_ids = [row[0] for row in members_result.fetchall()]
     
     # Удаляем все связанные данные
-    # 1. Реакции на сообщения
-    messages_stmt = select(Message.id).join(TextChannel).where(TextChannel.channel_id == channel_id)
-    messages_result = await db.execute(messages_stmt)
-    message_ids = [row[0] for row in messages_result.fetchall()]
+    await _delete_server_text_messages(db, channel_id)
     
-    if message_ids:
-        await db.execute(delete(Reaction).where(Reaction.message_id.in_(message_ids)))
-    
-    # 2. Сообщения в текстовых каналах
-    await db.execute(delete(Message).where(Message.text_channel_id.in_(
-        select(TextChannel.id).where(TextChannel.channel_id == channel_id)
-    )))
-    
-    # 3. Пользователи в голосовых каналах
+    # Пользователи в голосовых каналах
     await db.execute(delete(VoiceChannelUser).where(VoiceChannelUser.voice_channel_id.in_(
         select(VoiceChannel.id).where(VoiceChannel.channel_id == channel_id)
     )))

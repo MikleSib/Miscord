@@ -46,9 +46,11 @@ services:
     environment:
       DATABASE_URL: postgresql://miscord_user:miscord_password@postgres:5432/miscord
       REDIS_URL: redis://redis:6379
-      SECRET_KEY: ${SECRET_KEY:-your-secret-key-here-change-in-production}
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY to a long random string}
+      ENVIRONMENT: production
       CORS_ORIGINS: '["https://stream-cash.ru", "https://www.stream-cash.ru"]'
       SERVER_HOST: https://stream-cash.ru
+      ICE_SERVERS: '${ICE_SERVERS:-[{"urls":["stun:stun.l.google.com:19302","stun:stun1.l.google.com:19302"]},{"urls":["turn:stream-cash.ru:3478?transport=udp","turn:stream-cash.ru:3478?transport=tcp"],"username":"miscord","credential":"change-this-turn-password"}]}'
     depends_on:
       postgres:
         condition: service_healthy
@@ -101,6 +103,25 @@ services:
           memory: 1G
         reservations:
           memory: 512M
+
+  coturn:
+    image: coturn/coturn:4.6
+    network_mode: host
+    restart: unless-stopped
+    command:
+      - --no-cli
+      - --no-tls
+      - --no-dtls
+      - --fingerprint
+      - --lt-cred-mech
+      - --user=${TURN_USERNAME:-miscord}:${TURN_PASSWORD:-change-this-turn-password}
+      - --realm=${TURN_REALM:-stream-cash.ru}
+      - --external-ip=${TURN_EXTERNAL_IP:?Set TURN_EXTERNAL_IP in .env}
+      - --listening-port=3478
+      - --min-port=49152
+      - --max-port=49252
+      - --no-software-attribute
+      - --log-file=stdout
 
   nginx:
     image: nginx:1.25-alpine

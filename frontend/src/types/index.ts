@@ -11,6 +11,8 @@ export interface User {
   is_muted?: boolean;
   is_deafened?: boolean;
   request_id?: number;
+  last_message_at?: string | null;
+  is_friend?: boolean;
 }
 
 export interface FriendRequest {
@@ -156,13 +158,56 @@ export interface ServerMembershipInfo {
   roles: Role[];
 }
 
+export type ServerNotificationLevel = 'all' | 'mentions' | 'nothing'
+export type ChannelNotificationLevel = 'all' | 'mentions' | 'nothing' | 'muted'
+
+export interface ChannelNotificationOverride {
+  text_channel_id: number
+  level: ChannelNotificationLevel
+}
+
+export interface ServerNotificationSettings {
+  server_id: number
+  muted: boolean
+  notification_level: ServerNotificationLevel
+  suppress_everyone: boolean
+  suppress_roles: boolean
+  suppress_highlights: boolean
+  mute_events: boolean
+  mobile_push: boolean
+  channel_overrides: ChannelNotificationOverride[]
+}
+
+export interface ChannelPermissionCatalogItem {
+  key: string;
+  value: number;
+  label: string;
+  description: string;
+  group?: string;
+}
+
+export interface ChannelPermissionOverwrite {
+  id: number;
+  target_type: 'role' | 'member';
+  target_id: number;
+  allow: number;
+  deny: number;
+  target_name: string;
+  target_color?: string | null;
+  target_avatar_url?: string | null;
+  is_default_role?: boolean;
+}
+
 export interface Channel {
   id: number;
   name: string;
   type: 'text' | 'voice';
   serverId: number;
   position?: number;
-  max_users?: number; // Для голосовых каналов
+  slow_mode_seconds?: number;
+  max_users?: number; // Для голосовых каналов, 0 = без лимита
+  bitrate?: number; // кбит/с, 8–96
+  video_quality?: 'auto' | '720p';
 }
 
 export interface Attachment {
@@ -179,6 +224,20 @@ export interface Reaction {
   currentUserReacted: boolean;
 }
 
+/** Превью ссылки (Open Graph / картинка / сайт / видео) */
+export interface LinkEmbed {
+  url: string;
+  type: 'link' | 'image' | 'video';
+  title?: string | null;
+  description?: string | null;
+  image_url?: string | null;
+  site_name?: string | null;
+  favicon_url?: string | null;
+  /** Для YouTube и похожих */
+  video_id?: string | null;
+  embed_url?: string | null;
+}
+
 export interface Message {
   id: number;
   content: string | null;
@@ -192,6 +251,7 @@ export interface Message {
   reply_to?: Message; // Ответ на сообщение
   sender_id?: number; // Для личных сообщений
   recipient_id?: number; // Для личных сообщений
+  embeds?: LinkEmbed[];
 }
 
 export interface DirectMessage {
@@ -213,6 +273,8 @@ export interface BackendChannel {
   name: string;
   description?: string;
   icon?: string;
+  banner?: string | null;
+  is_public?: boolean;
   owner_id: number;
   owner?: User;
   created_at: string;
@@ -226,6 +288,7 @@ export interface BackendChannel {
     name: string;
     type: 'text' | 'voice';
     position: number;
+    slow_mode_seconds?: number;
     max_users?: number;
   }>;
 }
@@ -235,6 +298,7 @@ export interface TextChannel {
   name: string;
   channel_id: number;
   position: number;
+  slow_mode_seconds?: number;
   created_at?: string;
 }
 
@@ -244,6 +308,8 @@ export interface VoiceChannel {
   channel_id: number;
   position: number;
   max_users: number;
+  bitrate?: number;
+  video_quality?: 'auto' | '720p';
   created_at?: string;
   active_users_count?: number;
 }
@@ -287,6 +353,8 @@ export interface FullVoiceChannel {
   name: string;
   position: number;
   max_users: number;
+  bitrate?: number;
+  video_quality?: 'auto' | '720p';
   created_at: string;
   active_users: Array<{
     id: number;

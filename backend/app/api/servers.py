@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.dependencies import get_current_active_user, get_optional_user
+from app.core.media import to_public_media_path
 from app.core.permissions import (
     ALL_PERMISSIONS,
     DEFAULT_PERMISSIONS,
@@ -46,12 +47,20 @@ from app.models import (
 )
 from app.schemas.server import (
     BanCreate,
+    ChannelNotificationOverrideUpdate,
     InviteCreate,
     MemberUpdate,
+    NotificationSettingsUpdate,
     RoleCreate,
     RoleReorderRequest,
     RoleUpdate,
     TransferOwnershipRequest,
+)
+from app.services.notification_settings import (
+    delete_channel_override,
+    get_settings as get_notification_settings,
+    upsert_channel_override,
+    upsert_settings as upsert_notification_settings,
 )
 from app.services.audit_service import AuditAction, log_audit
 from app.services.server_events import notify_server, notify_users
@@ -169,6 +178,42 @@ def _invite_is_expired(invite: Invite) -> bool:
     return False
 
 
+async def _invite_allowed_for_server(
+    db: AsyncSession,
+    server: Channel,
+    invite: Invite,
+) -> bool:
+    """Можно ли войти по этому приглашению на текущих настройках сервера.
+
+    На открытом сервере действуют любые неистёкшие ссылки.
+    На закрытом — только ссылки от владельца или участника с правом CREATE_INVITE.
+    Так «старые» ссылки, созданные когда сервер был открыт обычным участником,
+    перестают работать после закрытия.
+    """
+    if bool(server.is_public):
+        return True
+
+    if invite.inviter_id is None:
+        return False
+    if invite.inviter_id == server.owner_id:
+        return True
+
+    # Приглашающий мог покинуть сервер — тогда ссылка больше недействительна
+    if not await is_member(db, server.id, invite.inviter_id):
+        return False
+
+    permissions = await get_member_permissions(
+        db, server.id, invite.inviter_id, owner_id=server.owner_id
+    )
+    return has_permission(permissions, Permission.CREATE_INVITE)
+
+
+async def revoke_server_invites(db: AsyncSession, server_id: int) -> int:
+    """Отзывает все приглашения сервера. Возвращает число удалённых ссылок."""
+    result = await db.execute(delete(Invite).where(Invite.server_id == server_id))
+    return int(result.rowcount or 0)
+
+
 def _serialize_invite(invite: Invite, *, inviter: Optional[User] = None) -> dict:
     return {
         "id": invite.id,
@@ -266,6 +311,18 @@ async def get_invite_preview(
             detail="Сервер больше не существует",
         )
 
+    if _invite_is_expired(invite):
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Срок действия приглашения истёк",
+        )
+
+    if not await _invite_allowed_for_server(db, server, invite):
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Сервер закрыт. Это приглашение больше не действует",
+        )
+
     members_count = await db.execute(
         select(func.count(ChannelMember.id)).where(ChannelMember.channel_id == server.id)
     )
@@ -279,14 +336,14 @@ async def get_invite_preview(
         "code": invite.code,
         "server_id": server.id,
         "server_name": server.name,
-        "server_icon": server.icon,
+        "server_icon": to_public_media_path(server.icon),
         "server_description": server.description,
         "members_count": members_count.scalar() or 0,
         "online_count": online_count.scalar() or 0,
         "inviter_name": (
             invite.inviter.display_name or invite.inviter.username
         ) if invite.inviter else None,
-        "is_expired": _invite_is_expired(invite),
+        "is_expired": False,
         "expires_at": invite.expires_at.isoformat() if invite.expires_at else None,
         "is_member": bool(
             current_user and await is_member(db, server.id, current_user.id)
@@ -304,7 +361,9 @@ async def accept_invite(
     db: AsyncSession = Depends(get_db),
 ):
     """Присоединиться к серверу по коду приглашения."""
-    result = await db.execute(select(Invite).where(Invite.code == code))
+    result = await db.execute(
+        select(Invite).options(selectinload(Invite.inviter)).where(Invite.code == code)
+    )
     invite = result.scalar_one_or_none()
     if not invite:
         raise HTTPException(
@@ -320,6 +379,12 @@ async def accept_invite(
 
     server = await get_server(db, invite.server_id)
 
+    if not await _invite_allowed_for_server(db, server, invite):
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Сервер закрыт. Это приглашение больше не действует",
+        )
+
     if await _is_banned(db, server.id, current_user.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -330,13 +395,28 @@ async def accept_invite(
     if already_member:
         return {"detail": "Вы уже участник сервера", "server_id": server.id, "already_member": True}
 
+    invited_by_name = (
+        (invite.inviter.display_name or invite.inviter.username)
+        if invite.inviter
+        else None
+    )
+
+    # Блокируем строку инвайта — чтобы не превысить max_uses при гонке
+    locked = await db.execute(
+        select(Invite).where(Invite.id == invite.id).with_for_update()
+    )
+    invite = locked.scalar_one()
+    if invite.max_uses is not None and int(invite.uses or 0) >= int(invite.max_uses):
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Приглашение больше недоступно",
+        )
+
     await add_member_and_notify(
         db,
         server.id,
         current_user,
-        invited_by=(
-            invite.inviter.display_name or invite.inviter.username
-        ) if invite.inviter else None,
+        invited_by=invited_by_name,
     )
 
     invite.uses = int(invite.uses or 0) + 1
@@ -432,6 +512,91 @@ async def get_my_server_membership(
         "top_role_position": top_position,
         "roles": [_serialize_role(role) for role in roles.get(current_user.id, [])],
     }
+
+
+# --------------------------------------------------------------------------
+# Уведомления (персональные, на каждого пользователя)
+# --------------------------------------------------------------------------
+
+@router.get("/{server_id}/me/notifications")
+async def get_my_notification_settings(
+    server_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await require_membership(db, server_id, current_user)
+    settings = await get_notification_settings(db, server_id, current_user.id)
+    return {"server_id": server_id, **settings}
+
+
+@router.patch("/{server_id}/me/notifications")
+async def update_my_notification_settings(
+    server_id: int,
+    payload: NotificationSettingsUpdate,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await require_membership(db, server_id, current_user)
+    try:
+        settings = await upsert_notification_settings(
+            db,
+            server_id,
+            current_user.id,
+            payload.model_dump(exclude_unset=True),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return {"server_id": server_id, **settings}
+
+
+@router.put("/{server_id}/me/notifications/channels/{text_channel_id}")
+async def upsert_my_channel_notification_override(
+    server_id: int,
+    text_channel_id: int,
+    payload: ChannelNotificationOverrideUpdate,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await require_membership(db, server_id, current_user)
+
+    channel_exists = await db.execute(
+        select(TextChannel.id).where(
+            TextChannel.id == text_channel_id,
+            TextChannel.channel_id == server_id,
+            TextChannel.is_hidden.is_(False),
+        )
+    )
+    if channel_exists.scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Канал не найден на этом сервере",
+        )
+
+    try:
+        settings = await upsert_channel_override(
+            db,
+            server_id,
+            current_user.id,
+            text_channel_id,
+            payload.level,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return {"server_id": server_id, **settings}
+
+
+@router.delete("/{server_id}/me/notifications/channels/{text_channel_id}")
+async def delete_my_channel_notification_override(
+    server_id: int,
+    text_channel_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await require_membership(db, server_id, current_user)
+    settings = await delete_channel_override(
+        db, server_id, current_user.id, text_channel_id
+    )
+    return {"server_id": server_id, **settings}
 
 
 # --------------------------------------------------------------------------
@@ -1124,6 +1289,13 @@ async def add_member_role(
     await require_permission(db, server_id, current_user, Permission.MANAGE_ROLES)
     role = await _get_role_or_404(db, server_id, role_id)
     await _assert_can_assign_role(db, server, current_user, role)
+    await require_hierarchy(
+        db,
+        server_id,
+        current_user,
+        user_id,
+        owner_id=server.owner_id,
+    )
 
     if not await is_member(db, server_id, user_id):
         raise HTTPException(
@@ -1167,6 +1339,13 @@ async def remove_member_role(
     await require_permission(db, server_id, current_user, Permission.MANAGE_ROLES)
     role = await _get_role_or_404(db, server_id, role_id)
     await _assert_can_assign_role(db, server, current_user, role)
+    await require_hierarchy(
+        db,
+        server_id,
+        current_user,
+        user_id,
+        owner_id=server.owner_id,
+    )
 
     await db.execute(
         delete(MemberRole).where(
@@ -1253,7 +1432,11 @@ async def create_server_invite(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await require_permission(db, server_id, current_user, Permission.CREATE_INVITE)
+    # На открытом сервере приглашать может любой участник.
+    # На закрытом — только с правом CREATE_INVITE (или владелец).
+    server = await require_membership(db, server_id, current_user)
+    if not bool(server.is_public):
+        await require_permission(db, server_id, current_user, Permission.CREATE_INVITE)
 
     target_channel_id = payload.target_text_channel_id
     if target_channel_id is not None:
@@ -1261,6 +1444,7 @@ async def create_server_invite(
             select(TextChannel.id).where(
                 TextChannel.id == target_channel_id,
                 TextChannel.channel_id == server_id,
+                TextChannel.is_hidden.is_(False),
             )
         )
         if exists.scalar_one_or_none() is None:

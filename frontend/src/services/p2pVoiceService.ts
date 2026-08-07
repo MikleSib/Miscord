@@ -1,6 +1,8 @@
 import websocketService from './websocketService';
 import { EventEmitter } from 'events';
 import { User } from '@/types';
+import { mergeIceServers } from './iceServers';
+import soundService from './soundService';
 
 class P2PVoiceService extends EventEmitter {
   public peerConnection: RTCPeerConnection | null = null;
@@ -116,17 +118,11 @@ class P2PVoiceService extends EventEmitter {
   private async createPeerConnection(peerId: number) {
     this.stopCall(); // Закрываем предыдущие соединения
 
-    // Используем TURN сервер для P2P соединений
+    // Те же ICE/TURN, что и у голосовых каналов сервера
     this.peerConnection = new RTCPeerConnection({
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        {
-          urls: ['turn:147.45.158.183:3478'],
-          username: 'stream-cash',
-          credential: 'CHANGE_ME_LONG_RANDOM_SECRET_12345'
-        }
-      ]
+      iceServers: mergeIceServers([]),
+      iceTransportPolicy: 'all',
+      bundlePolicy: 'max-bundle',
     });
     this.currentPeerId = peerId;
 
@@ -259,6 +255,7 @@ class P2PVoiceService extends EventEmitter {
         track.enabled = !this.isMuted;
       });
     }
+    soundService.playMicToggleSound(this.isMuted);
     this.emit('mute_changed', this.isMuted);
     return this.isMuted;
   }

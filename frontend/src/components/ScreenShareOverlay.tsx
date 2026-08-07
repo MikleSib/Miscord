@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Monitor, MonitorOff, Maximize2, Minimize2, Volume2, VolumeX } from 'lucide-react';
 import { Button } from './ui/button';
 import voiceService from '../services/voiceService';
+import { useScreenSharePickerStore } from '../store/screenSharePickerStore';
 
 interface ScreenShareOverlayProps {
   isVisible: boolean;
@@ -72,11 +73,8 @@ export function ScreenShareOverlay({ isVisible, onClose, sharingUsers }: ScreenS
     });
   };
 
-  const startScreenShare = async () => {
-    const success = await voiceService.startScreenShare();
-    if (!success) {
-      console.error('Не удалось начать демонстрацию экрана');
-    }
+  const startScreenShare = () => {
+    useScreenSharePickerStore.getState().open();
   };
 
   const stopScreenShare = () => {

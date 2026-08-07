@@ -5,7 +5,13 @@ import channelService from '../services/channelService';
 import websocketService from '../services/websocketService';
 import uploadService from '../services/uploadService';
 import chatService from '../services/chatService';
-import { useAuthStore } from '../store/store';
+import { useAuthStore } from '../store/store'
+import { registerDmNotificationListener, useDmNotificationStore } from '../store/dmNotificationStore';
+import { registerMentionNotificationListener } from '../store/mentionNotificationStore';
+import {
+  registerChannelUnreadListener,
+  useChannelUnreadStore,
+} from '../store/channelUnreadStore';
 // Импортируем p2pVoiceService для гарантии инициализации обработчиков до подключения WebSocket
 import p2pVoiceService from '../services/p2pVoiceService';
 import { applyMemberJoined, applyMemberLeft } from './memberSync';
@@ -85,6 +91,10 @@ export const useStore = create<AppState>()(
         if (server) {
           set({ currentServer: server, currentChannel: null });
           await loadServerDetails(serverId);
+          // Подгружаем персональные настройки уведомлений для этого сервера
+          void import('../store/notificationSettingsStore').then(({ useNotificationSettingsStore }) => {
+            void useNotificationSettingsStore.getState().load(serverId)
+          })
         }
       },
 
@@ -101,6 +111,17 @@ export const useStore = create<AppState>()(
             const isSameChannel =
               channel.id === currentChannel?.id && channel.type === currentChannel?.type;
             set({ currentChannel: channel });
+
+            // Прочитали канал — убираем «непрочитанное» для обычных сообщений и пингов
+            if (channel.type === 'text') {
+              useChannelUnreadStore.getState().setViewingTextChannelId(channel.id)
+              useChannelUnreadStore.getState().markChannelRead(channel.id)
+              void import('../store/mentionNotificationStore').then(({ useMentionNotificationStore }) => {
+                useMentionNotificationStore.getState().markChannelRead(channel.id)
+              })
+            } else {
+              useChannelUnreadStore.getState().setViewingTextChannelId(null)
+            }
             
             // Управление WebSocket чата только если это не тот же канал
             if (!isSameChannel) {
@@ -356,6 +377,7 @@ export const useStore = create<AppState>()(
       // Выход
       logout: () => {
         get().disconnectWebSocket();
+        useDmNotificationStore.getState().clearAll();
         set({ 
           user: null, 
           currentServer: null, 
@@ -367,7 +389,13 @@ export const useStore = create<AppState>()(
 
       // Загрузка серверов
       loadServers: async () => {
-        set({ isLoading: true, error: null });
+        // Полноэкранный лоадер только при первой загрузке — иначе сбрасываются модалки (настройки канала и т.п.)
+        const isInitialLoad = get().servers.length === 0
+        if (isInitialLoad) {
+          set({ isLoading: true, error: null })
+        } else {
+          set({ error: null })
+        }
         try {
           const fullData: FullServerData = await channelService.getFullServerData();
           const servers: Server[] = fullData.servers.map((s: any) => ({
@@ -375,19 +403,28 @@ export const useStore = create<AppState>()(
             name: s.name,
             description: s.description,
             icon: s.icon,
+            banner: s.banner ?? null,
+            is_public: Boolean(s.is_public),
             owner_id: s.owner_id,
+            created_at: s.created_at,
             channels: [
               ...(s.text_channels || []).map((c: any) => ({
                 id: c.id,
                 name: c.name,
                 type: 'text' as const,
                 serverId: s.id,
+                position: c.position,
+                slow_mode_seconds: c.slow_mode_seconds ?? 0,
               })),
               ...(s.voice_channels || []).map((c: any) => ({
                 id: c.id,
                 name: c.name,
                 type: 'voice' as const,
                 serverId: s.id,
+                position: c.position,
+                max_users: c.max_users ?? 0,
+                bitrate: c.bitrate ?? 64,
+                video_quality: c.video_quality === '720p' ? '720p' as const : 'auto' as const,
               })),
             ]
           }));
@@ -426,7 +463,12 @@ export const useStore = create<AppState>()(
             id: ch.id,
             name: ch.name,
             type: ch.type,
-            serverId: serverId
+            serverId: serverId,
+            position: ch.position,
+            slow_mode_seconds: ch.slow_mode_seconds,
+            max_users: ch.max_users ?? 0,
+            bitrate: ch.bitrate ?? 64,
+            video_quality: ch.video_quality === '720p' ? '720p' as const : 'auto' as const,
           }))
           
           const updatedServer: Server = {
@@ -434,6 +476,11 @@ export const useStore = create<AppState>()(
             name: serverDetails.name,
             description: serverDetails.description,
             icon: serverDetails.icon,
+            banner: serverDetails.banner ?? null,
+            is_public: Boolean(serverDetails.is_public),
+            owner_id: serverDetails.owner_id,
+            created_at: serverDetails.created_at,
+            members_count: serverDetails.members_count,
             channels
           }
           
@@ -463,6 +510,9 @@ export const useStore = create<AppState>()(
       initializeWebSocket: (token: string) => {
         p2pVoiceService.setCurrentUser(useAuthStore.getState().user);
         p2pVoiceService.registerWebSocketHandlers();
+        registerDmNotificationListener();
+        registerMentionNotificationListener();
+        registerChannelUnreadListener();
         websocketService.connect(token);
         
         // Обработка приглашения в канал
@@ -518,6 +568,8 @@ export const useStore = create<AppState>()(
             name: data.server.name,
             description: data.server.description,
             icon: data.server.icon,
+            banner: data.server.banner ?? null,
+            is_public: Boolean(data.server.is_public),
             owner_id: data.server.owner_id,
             channels: [...textChannels, ...voiceChannels],
           };
@@ -529,13 +581,16 @@ export const useStore = create<AppState>()(
         });
 
         // Обработка обновления сервера
-        websocketService.onServerUpdated((data) => {
+        websocketService.onServerUpdated((raw) => {
+          const data = (raw as any).data || raw;
           console.log('Сервер обновлен:', data);
 
           get().updateServer(data.server_id, {
             name: data.name,
             description: data.description,
-            icon: data.icon
+            icon: data.icon,
+            banner: data.banner ?? null,
+            is_public: Boolean(data.is_public),
           });
 
           const currentUser = get().user;
@@ -729,20 +784,26 @@ export const useStore = create<AppState>()(
         websocketService.onScreenShareStarted((data) => {
           console.log('🔔 [Store] Пользователь начал демонстрацию экрана:', data);
 
-          // Показываем уведомление
-          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+          const currentUserId = useAuthStore.getState().user?.id;
+          const streamerId = Number(data.user_id);
+          const isSelf = currentUserId != null && streamerId === currentUserId;
+
+          if (
+            !isSelf &&
+            typeof window !== 'undefined' &&
+            'Notification' in window &&
+            Notification.permission === 'granted'
+          ) {
             new Notification(`Демонстрация экрана`, {
               body: `${data.username} начал демонстрацию экрана`,
               icon: '/favicon.ico'
             }).onclick = () => {
-              // При клике на уведомление фокусируемся на окне
               if (typeof window !== 'undefined') {
                 window.focus();
               }
             };
           }
 
-          // Генерируем глобальное событие для обновления UI
           console.log('🔔 [Store] Отправляем событие screen_share_start с данными:', data);
           const event = new CustomEvent('screen_share_start', { detail: data });
           if (typeof window !== 'undefined') {

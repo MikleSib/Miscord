@@ -28,7 +28,7 @@ interface VoiceState {
   p2pPeer: User | null;
 
   connectToVoiceChannel: (channelId: number) => Promise<void>;
-  disconnectFromVoiceChannel: () => void;
+  disconnectFromVoiceChannel: () => Promise<void>;
   setParticipants: (participants: VoiceUser[]) => void;
   addParticipant: (participant: VoiceUser) => void;
   removeParticipant: (userId: number) => void;
@@ -46,6 +46,8 @@ interface VoiceState {
   setP2PCallActive: () => void;
   clearP2PCallState: () => void;
 }
+
+let voiceConnectGeneration = 0;
 
 export const useVoiceStore = create<VoiceState>((set, get) => ({
   isConnected: false,
@@ -66,23 +68,37 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   p2pPeer: null,
   
   connectToVoiceChannel: async (channelId) => {
+    let connectGeneration = 0;
+    const isStale = () =>
+      connectGeneration !== 0 && connectGeneration !== voiceConnectGeneration;
+
     try {
-      
-      // Если уже подключены к каналу, сначала отключаемся
       const currentState = get();
       if (currentState.isConnecting && currentState.currentVoiceChannelId === channelId) {
         return;
       }
-      if (currentState.isConnected || currentState.currentVoiceChannelId) {
-        get().disconnectFromVoiceChannel();
-        await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Смена канала: тихо выходим из предыдущего БЕЗ инвалидации новой сессии.
+      if (currentState.isConnected || currentState.currentVoiceChannelId || currentState.isConnecting) {
+        await voiceService.disconnectAsync();
+        set({
+          isConnected: false,
+          isConnecting: false,
+          participants: [],
+          speakingUsers: {},
+          localStream: null,
+        });
       }
+
+      connectGeneration = ++voiceConnectGeneration;
       
       set({
         error: null,
         isConnecting: true,
         isConnected: false,
         currentVoiceChannelId: channelId,
+        participants: [],
+        speakingUsers: {},
       });
 
       // Сразу показываем тех, кто уже в канале (не ждём микрофон/WebRTC)
@@ -132,8 +148,9 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       }
 
 
-      // Настраиваем обработчики событий
+      // Настраиваем обработчики событий (с защитой от устаревшего connect)
       voiceService.onConnectionStateChange((state, message) => {
+        if (isStale()) return;
         if (state === 'connected') {
           set({ isConnected: true, isConnecting: false, error: null });
           return;
@@ -149,9 +166,8 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         });
       });
       
-      // Обработчик присоединения участника
       voiceService.onParticipantJoin((participant) => {
-        console.log('[VoiceSlice] 👤 Участник присоединился:', participant);
+        if (isStale()) return;
         get().addParticipant({
           user_id: participant.user_id,
           username: participant.username,
@@ -162,20 +178,18 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         });
       });
       
-      // Обработчик выхода участника
       voiceService.onParticipantLeave((userId) => {
-        console.log('[VoiceSlice] 👋 Участник покинул канал:', userId);
+        if (isStale()) return;
         get().removeParticipant(userId);
       });
       
-      // Обработчик изменения голосовой активности
       voiceService.onSpeakingChange((userId, isSpeaking) => {
-       
+        if (isStale()) return;
         get().setSpeaking(userId, isSpeaking);
       });
       
-      // Обработчик получения списка участников
       voiceService.onParticipantsReceived((participants) => {
+        if (isStale()) return;
         const nextParticipants = [...participants];
         const currentUser = useAuthStore.getState().user;
         if (currentUser && !nextParticipants.some((participant: any) => participant.user_id === currentUser.id)) {
@@ -191,9 +205,8 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         get().setParticipants(nextParticipants);
       });
       
-      // Обработчик изменения статуса участников
       voiceService.onParticipantStatusChanged((userId, status) => {
-       
+        if (isStale()) return;
         const currentParticipants = get().participants;
         const participantIndex = currentParticipants.findIndex(p => p.user_id === userId);
         
@@ -206,15 +219,23 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         }
       });
       
-      // Подключаемся к голосовому каналу
+      // Битрейт канала из настроек сервера
+      try {
+        const { useStore } = await import('../../lib/store');
+        const currentServer = useStore.getState().currentServer;
+        const voiceChannel = currentServer?.channels.find(
+          (channel) => channel.id === channelId && channel.type === 'voice'
+        );
+        voiceService.setChannelAudioBitrate(voiceChannel?.bitrate ?? 64);
+      } catch {
+        voiceService.setChannelAudioBitrate(64);
+      }
+
       await voiceService.connect(channelId, token, get().isMuted, get().isDeafened);
-      
-     
-      
-      // Воспроизводим звук подключения для собственного подключения
+      if (isStale()) return;
+
       soundService.playJoinSound();
       
-      // Добавляем текущего пользователя в список участников
       const currentUser = useAuthStore.getState().user;
       if (currentUser) {
         get().addParticipant({
@@ -234,8 +255,8 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         error: null,
       });
 
-
     } catch (error: any) {
+      if (isStale()) return;
       console.error('🎙️ Ошибка подключения к голосовому каналу:', error);
       set({ 
         error: error.message || 'Ошибка подключения к голосовому каналу',
@@ -247,13 +268,14 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     }
   },
   
-  disconnectFromVoiceChannel: () => {
+  disconnectFromVoiceChannel: async () => {
+    voiceConnectGeneration += 1;
     const wasInVoice = get().isConnected || get().isConnecting || get().currentVoiceChannelId !== null;
     if (wasInVoice) {
       soundService.playLeaveSound();
     }
-    
-    voiceService.disconnect();
+
+    await voiceService.disconnectAsync();
     set({
       isConnected: false,
       isConnecting: false,
@@ -358,6 +380,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     }
     
     voiceService.setMuted(newMuted);
+    soundService.playMicToggleSound(newMuted);
     
     set({ 
       isMuted: newMuted,
@@ -412,6 +435,10 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     
     voiceService.setDeafened(newDeafened);
     voiceService.setMuted(newMuted);
+
+    if (newMuted !== currentState.isMuted) {
+      soundService.playMicToggleSound(newMuted);
+    }
     
     set({
       isDeafened: newDeafened,

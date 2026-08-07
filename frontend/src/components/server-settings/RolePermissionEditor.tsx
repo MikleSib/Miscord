@@ -3,8 +3,8 @@
 import React from 'react'
 import { Lock } from 'lucide-react'
 
-import { cn } from '../../lib/utils'
 import { PermissionCatalog } from '../../types'
+import { Switch } from '../ui/switch'
 
 interface RolePermissionEditorProps {
   catalog: PermissionCatalog
@@ -60,28 +60,15 @@ export function RolePermissionEditor({
                       <p className="mt-0.5 text-sm text-muted-foreground">{item.description}</p>
                     </div>
 
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={enabled}
-                      aria-label={item.label}
+                    <Switch
+                      className="mt-0.5"
+                      checked={enabled}
                       disabled={locked}
-                      onClick={() =>
-                        onChange(enabled ? value & ~item.value : value | item.value)
+                      aria-label={item.label}
+                      onCheckedChange={(next) =>
+                        onChange(next ? value | item.value : value & ~item.value)
                       }
-                      className={cn(
-                        'relative mt-0.5 h-6 w-11 flex-none rounded-full transition-colors',
-                        enabled ? 'bg-primary' : 'bg-muted',
-                        locked && 'cursor-not-allowed opacity-50'
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          'absolute top-1 h-4 w-4 rounded-full bg-white transition-transform',
-                          enabled ? 'translate-x-6' : 'translate-x-1'
-                        )}
-                      />
-                    </button>
+                    />
                   </div>
                 )
               })}

@@ -1,5 +1,5 @@
 import api from './api';
-import { BackendChannel, Channel, TextChannel, VoiceChannel, User, FullServerData } from '../types';
+import { BackendChannel, Channel, ChannelPermissionCatalogItem, ChannelPermissionOverwrite, TextChannel, VoiceChannel, User, FullServerData } from '../types';
 
 export interface CreateChannelRequest {
   name: string;
@@ -19,7 +19,9 @@ export interface CreateTextChannelRequest {
 export interface CreateVoiceChannelRequest {
   name: string;
   position: number;
-  max_users: number;
+  max_users?: number;
+  bitrate?: number;
+  video_quality?: 'auto' | '720p';
 }
 
 export interface UpdateServerRequest {
@@ -122,12 +124,24 @@ class ChannelService {
     await api.delete(`/api/channels/${serverId}`);
   }
 
-  async updateTextChannel(textChannelId: number, data: { name?: string; position?: number }): Promise<any> {
+  async updateTextChannel(
+    textChannelId: number,
+    data: { name?: string; position?: number; slow_mode_seconds?: number }
+  ): Promise<any> {
     const response = await api.put(`/api/channels/text/${textChannelId}`, data);
     return response.data;
   }
 
-  async updateVoiceChannel(voiceChannelId: number, data: { name?: string; position?: number; max_users?: number }): Promise<any> {
+  async updateVoiceChannel(
+    voiceChannelId: number,
+    data: {
+      name?: string
+      position?: number
+      max_users?: number
+      bitrate?: number
+      video_quality?: 'auto' | '720p'
+    }
+  ): Promise<any> {
     const response = await api.put(`/api/channels/voice/${voiceChannelId}`, data);
     return response.data;
   }
@@ -138,6 +152,48 @@ class ChannelService {
 
   async deleteVoiceChannel(voiceChannelId: number): Promise<void> {
     await api.delete(`/api/channels/voice/${voiceChannelId}`);
+  }
+
+  async getChannelPermissionCatalog(channelKind: 'text' | 'voice'): Promise<ChannelPermissionCatalogItem[]> {
+    const response = await api.get<{ permissions: ChannelPermissionCatalogItem[] }>(
+      `/api/channels/permissions/catalog/${channelKind}`
+    );
+    return response.data.permissions;
+  }
+
+  async getChannelPermissionOverwrites(channelKind: 'text' | 'voice', channelId: number): Promise<ChannelPermissionOverwrite[]> {
+    const response = await api.get<{ overwrites: ChannelPermissionOverwrite[] }>(
+      `/api/channels/${channelKind}/${channelId}/permission-overwrites`
+    );
+    return response.data.overwrites;
+  }
+
+  async upsertChannelPermissionOverwrite(
+    channelKind: 'text' | 'voice',
+    channelId: number,
+    payload: {
+      target_type: 'role' | 'member';
+      target_id: number;
+      allow: number;
+      deny: number;
+    }
+  ): Promise<ChannelPermissionOverwrite> {
+    const response = await api.put<ChannelPermissionOverwrite>(
+      `/api/channels/${channelKind}/${channelId}/permission-overwrites`,
+      payload
+    );
+    return response.data;
+  }
+
+  async deleteChannelPermissionOverwrite(
+    channelKind: 'text' | 'voice',
+    channelId: number,
+    targetType: 'role' | 'member',
+    targetId: number
+  ): Promise<void> {
+    await api.delete(
+      `/api/channels/${channelKind}/${channelId}/permission-overwrites/${targetType}/${targetId}`
+    );
   }
 }
 

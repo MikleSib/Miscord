@@ -17,6 +17,9 @@ export const Permissions = {
   DEAFEN_MEMBERS: 1 << 13,
   MOVE_MEMBERS: 1 << 14,
   ADMINISTRATOR: 1 << 15,
+  MANAGE_PERMISSIONS: 1 << 16,
+  MANAGE_WEBHOOKS: 1 << 17,
+  SEND_MESSAGES_IN_THREADS: 1 << 18,
 } as const
 
 export type PermissionKey = keyof typeof Permissions

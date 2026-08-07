@@ -11,6 +11,11 @@ from app.websocket.connection_manager import manager
 from app.core.dependencies import get_current_user_ws
 from app.services import direct_message_service
 from app.services.user_activity_service import user_activity_service
+from app.services.text_channel_visibility import get_visible_text_channel
+from app.services.slow_mode import check_slow_mode
+from app.services.rate_limit import enforce_message_antispam, rate_limit_payload
+from app.services.mentions import notify_message_mentions
+from app.services.message_notifications import notify_channel_message_activity
 from fastapi.encoders import jsonable_encoder
 import asyncio
 from datetime import timezone
@@ -50,18 +55,21 @@ async def websocket_chat_endpoint(
         
         user = await get_user_by_token_ws(token, db)
         if not user:
-            print(f"[WS_CHAT] Неавторизованная попытка подключения с токеном {token[:20]}...")
+            print("[WS_CHAT] Неавторизованная попытка подключения")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 
         # Проверяем существование текстового канала
-        text_channel_result = await db.execute(
-            select(TextChannel).where(TextChannel.id == text_channel_id)
-        )
-        text_channel = text_channel_result.scalar_one_or_none()
+        text_channel = await get_visible_text_channel(db, text_channel_id)
         
         if not text_channel:
             print(f"[WS_CHAT] Текстовый канал с id={text_channel_id} не найден!")
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
+        from app.services.channel_access import user_can_access_text_channel
+        if not await user_can_access_text_channel(db, user, text_channel, need_send=False):
+            print(f"[WS_CHAT] Нет доступа к каналу {text_channel_id} для user={user.id}")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 
@@ -107,6 +115,38 @@ async def websocket_chat_endpoint(
                     if len(attachments) > 3:
                         print("[WS_CHAT] Отклонено: слишком много вложений")
                         continue
+
+                    if not await user_can_access_text_channel(
+                        db, user, text_channel, need_send=True
+                    ):
+                        await websocket.send_text(json.dumps({
+                            "type": "error",
+                            "message": "Нет права писать в этот канал",
+                        }))
+                        continue
+
+                    allowed, retry_after, limit_message = enforce_message_antispam(
+                        user.id,
+                        dest_key=f"channel:{text_channel_id}",
+                        content=content,
+                    )
+                    if not allowed:
+                        await websocket.send_text(json.dumps(rate_limit_payload(
+                            message=limit_message,
+                            retry_after_seconds=retry_after,
+                            scope="channel",
+                            text_channel_id=text_channel_id,
+                        )))
+                        continue
+
+                    allowed, retry_after = await check_slow_mode(db, text_channel, user)
+                    if not allowed:
+                        await websocket.send_text(json.dumps({
+                            "type": "slow_mode",
+                            "text_channel_id": text_channel_id,
+                            "retry_after_seconds": retry_after,
+                        }))
+                        continue
                     
                     # Создаем сообщение
                     db_message = Message(
@@ -150,7 +190,7 @@ async def websocket_chat_endpoint(
                         "author": {
                             "id": full_message.author.id,
                             "username": full_message.author.display_name or full_message.author.username,
-                            "email": full_message.author.email,
+                            "email": "",
                             "display_name": full_message.author.display_name,
                             "avatar_url": getattr(full_message.author, 'avatar_url', None)
                         },
@@ -169,7 +209,7 @@ async def websocket_chat_endpoint(
                             "author": {
                                 "id": full_message.reply_to.author.id,
                                 "username": full_message.reply_to.author.display_name or full_message.reply_to.author.username,
-                                "email": full_message.reply_to.author.email,
+                                "email": "",
                                 "display_name": full_message.reply_to.author.display_name,
                                 "avatar_url": getattr(full_message.reply_to.author, 'avatar_url', None)
                             }
@@ -183,6 +223,23 @@ async def websocket_chat_endpoint(
                         "type": "new_message",
                         "data": message_dict
                     })
+
+                    await notify_message_mentions(
+                        db,
+                        manager,
+                        content=content,
+                        author=user,
+                        text_channel=text_channel,
+                        message_id=full_message.id,
+                    )
+                    await notify_channel_message_activity(
+                        db,
+                        manager,
+                        content=content,
+                        author=user,
+                        text_channel=text_channel,
+                        message_id=full_message.id,
+                    )
                     
                 elif message_data.get("type") == "typing":
                     # Обновляем активность при печати
@@ -309,6 +366,20 @@ async def websocket_notifications_endpoint(
                         if len(content) > 5000 or len(attachments) > 3:
                             continue
 
+                        allowed, retry_after, limit_message = enforce_message_antispam(
+                            user.id,
+                            dest_key=f"dm:{min(user.id, int(recipient_id))}:{max(user.id, int(recipient_id))}",
+                            content=content,
+                        )
+                        if not allowed:
+                            await websocket.send_text(json.dumps(rate_limit_payload(
+                                message=limit_message,
+                                retry_after_seconds=retry_after,
+                                scope="dm",
+                                recipient_id=int(recipient_id),
+                            )))
+                            continue
+
                         db_message = await direct_message_service.create_message(
                             db, 
                             sender_id=user.id, 
@@ -329,7 +400,7 @@ async def websocket_notifications_endpoint(
                             "author": {
                                 "id": author.id,
                                 "username": author.username,
-                                "email": author.email,
+                                "email": "",
                                 "display_name": author.display_name,
                                 "avatar_url": author.avatar_url,
                                 "is_active": author.is_active,
@@ -425,7 +496,7 @@ async def websocket_notifications_endpoint(
                             # Используем информацию из поля "from" для уведомления звонящего
                             recipient_info = {
                                 "username": from_user.get("username"),
-                                "email": from_user.get("email"),
+                                "email": "",
                                 "display_name": from_user.get("display_name"),
                                 "id": from_user.get("id"),
                                 "is_active": from_user.get("is_active"),

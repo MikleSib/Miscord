@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, Headphones, Mic, MicOff, Settings, VolumeX } from 'lucide-react'
 import { SpeakingAvatar } from './SpeakingAvatar'
+import { Tooltip } from './ui/tooltip'
 import { useVoiceStore } from '../store/slices/voiceSlice'
 import { useAuthStore } from '../store/store'
 import { cn } from '../lib/utils'
@@ -37,7 +38,7 @@ export function UserProfileBar({ onSettingsClick, embedded = false }: UserProfil
   }
 
   const isInVoiceChannel = Boolean(currentVoiceChannelId)
-  const presenceLabel = user?.is_online === false ? '\u041d\u0435\u0432\u0438\u0434\u0438\u043c\u044b\u0439' : '\u0412 \u0441\u0435\u0442\u0438'
+  const presenceLabel = user?.is_online === false ? 'Невидимый' : 'В сети'
 
   return (
     <div
@@ -56,78 +57,89 @@ export function UserProfileBar({ onSettingsClick, embedded = false }: UserProfil
         <i className={cn('user-dock__presence', user?.is_online && 'is-online')} aria-hidden="true" />
       </span>
 
-      <button
-        type="button"
-        onClick={handleCopyUsername}
-        className="interactive-row user-dock__identity relative z-[70] min-w-0 flex-1 overflow-visible text-left"
-        title="Скопировать имя пользователя"
-      >
-        <span className="user-dock__display-name block truncate">
-          {user?.display_name || user?.username}
-        </span>
-        <span className="user-dock__presence-label block truncate">
-          {isInVoiceChannel ? presenceLabel : `@${user?.username}`}
-        </span>
-        {showCopiedTooltip && (
-          <span
-            role="status"
-            className="pointer-events-none absolute bottom-full left-1 z-[100] mb-2 whitespace-nowrap rounded-md border border-border bg-popover px-2 py-1 text-xs text-foreground shadow-lg"
-          >
-            Скопировано
+      <Tooltip content="Скопировать имя пользователя" className="min-w-0 flex-1">
+        <button
+          type="button"
+          onClick={handleCopyUsername}
+          className="interactive-row user-dock__identity relative z-[70] w-full min-w-0 overflow-visible text-left"
+        >
+          <span className="user-dock__display-name block truncate">
+            {user?.display_name || user?.username}
           </span>
-        )}
-      </button>
+          <span className="user-dock__presence-label block truncate">
+            {isInVoiceChannel ? presenceLabel : `@${user?.username}`}
+          </span>
+          {showCopiedTooltip && (
+            <span
+              role="status"
+              className="miscord-tooltip miscord-tooltip--top is-visible pointer-events-none absolute bottom-full left-1 z-[100] mb-2"
+              style={{ opacity: 1, visibility: 'visible', transform: 'translateX(0) translateY(0)' }}
+            >
+              Скопировано
+            </span>
+          )}
+        </button>
+      </Tooltip>
 
       <div className="user-dock__profile-controls">
         <div className={cn('voice-split-control', isMuted && 'is-danger')}>
-          <button
-          type="button"
-          onClick={toggleMute}
-          className="voice-split-control__main"
-          aria-pressed={isMuted}
-          title={isMuted ? 'Включить микрофон' : 'Выключить микрофон'}
-        >
-            {isMuted ? <MicOff className="h-[18px] w-[18px]" /> : <Mic className="h-[18px] w-[18px]" />}
-          </button>
-          <button
-            type="button"
-            onClick={onSettingsClick}
-            className="voice-split-control__menu"
-            aria-label="Microphone settings"
-            title="Microphone settings"
-          >
-            <ChevronDown className="h-3 w-3" />
-          </button>
+          <Tooltip content={isMuted ? 'Вкл. микрофон' : 'Выключить микрофон'}>
+            <button
+              type="button"
+              onClick={toggleMute}
+              className="voice-split-control__main"
+              aria-pressed={isMuted}
+              aria-label={isMuted ? 'Включить микрофон' : 'Выключить микрофон'}
+            >
+              {isMuted ? <MicOff className="h-[18px] w-[18px]" /> : <Mic className="h-[18px] w-[18px]" />}
+            </button>
+          </Tooltip>
+          <Tooltip content="Настройки микрофона">
+            <button
+              type="button"
+              onClick={onSettingsClick}
+              className="voice-split-control__menu"
+              aria-label="Настройки микрофона"
+            >
+              <ChevronDown className="h-3 w-3" />
+            </button>
+          </Tooltip>
         </div>
 
         <div className={cn('voice-output-control', isDeafened && 'is-danger')}>
-          <button
-          type="button"
-          onClick={toggleDeafen}
-          className="voice-icon-button"
-          aria-pressed={isDeafened}
-          title={isDeafened ? 'Включить звук' : 'Выключить звук'}
-        >
-            {isDeafened ? <VolumeX className="h-[18px] w-[18px]" /> : <Headphones className="h-[18px] w-[18px]" />}
-          </button>
+          <Tooltip content={isDeafened ? 'Вкл. звук' : 'Выключить звук'}>
+            <button
+              type="button"
+              onClick={toggleDeafen}
+              className="voice-icon-button"
+              aria-pressed={isDeafened}
+              aria-label={isDeafened ? 'Включить звук' : 'Выключить звук'}
+            >
+              {isDeafened ? <VolumeX className="h-[18px] w-[18px]" /> : <Headphones className="h-[18px] w-[18px]" />}
+            </button>
+          </Tooltip>
+          <Tooltip content="Настройки звука">
+            <button
+              type="button"
+              onClick={onSettingsClick}
+              className="voice-output-control__menu"
+              aria-label="Настройки звука"
+            >
+              <ChevronDown className="h-3 w-3" />
+            </button>
+          </Tooltip>
+        </div>
+
+        <Tooltip content="Настройки пользователя">
           <button
             type="button"
             onClick={onSettingsClick}
-            className="voice-output-control__menu"
-            aria-label="Output settings"
-            title="Output settings"
+            className="voice-icon-button"
+            aria-label="Настройки пользователя"
           >
-            <ChevronDown className="h-3 w-3" />
+            <Settings className="h-[19px] w-[19px]" />
           </button>
-        </div>
-        <button
-          type="button"
-          onClick={onSettingsClick}
-          className="voice-icon-button"
-          title="Настройки пользователя"
-        >
-          <Settings className="h-[19px] w-[19px]" />
-        </button>
+        </Tooltip>
       </div>
     </div>
   )

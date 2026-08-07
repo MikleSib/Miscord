@@ -6,6 +6,7 @@ import { AlertTriangle, Ban, Loader2, MessagesSquare, Users } from 'lucide-react
 
 import serverService from '../../../services/serverService'
 import authService from '../../../services/authService'
+import { resolveMediaUrl } from '../../../lib/mediaUrl'
 import { useAuthStore } from '../../../store/store'
 import { useStore } from '../../../lib/store'
 import { InvitePreview } from '../../../types'
@@ -19,6 +20,7 @@ export default function InvitePage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isJoining, setIsJoining] = useState(false)
   const [error, setError] = useState('')
+  const [iconFailed, setIconFailed] = useState(false)
   const [isAuthorized, setIsAuthorized] = useState(false)
 
   /** Восстанавливаем сессию: по ссылке могут прийти из браузера без входа. */
@@ -53,6 +55,7 @@ export default function InvitePage() {
       try {
         const data = await serverService.getInvitePreview(code)
         if (active) setPreview(data)
+        if (active) setIconFailed(false)
       } catch (previewError: any) {
         if (active) {
           setError(
@@ -123,17 +126,19 @@ export default function InvitePage() {
   }
 
   const blocked = preview.is_banned || preview.is_expired
+  const serverIcon = resolveMediaUrl(preview.server_icon)
 
   return (
     <Shell>
       <div className="flex flex-col items-center text-center">
         <div className="mb-4 h-20 w-20 overflow-hidden rounded-2xl border border-border bg-primary">
-          {preview.server_icon ? (
+          {serverIcon && !iconFailed ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={preview.server_icon}
+              src={serverIcon}
               alt={preview.server_name}
               className="h-full w-full object-cover"
+              onError={() => setIconFailed(true)}
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-2xl font-semibold text-primary-foreground">

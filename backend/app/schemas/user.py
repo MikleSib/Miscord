@@ -1,20 +1,39 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional
 from datetime import datetime
 
 class UserBase(BaseModel):
-    username: str
+    username: str = Field(min_length=2, max_length=32)
     email: EmailStr
     display_name: Optional[str] = None
 
 class UserCreate(UserBase):
-    password: str
+    password: str = Field(min_length=8, max_length=128)
 
 class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
     display_name: Optional[str] = None
     avatar_url: Optional[str] = None
     password: Optional[str] = None
+
+    @field_validator("avatar_url")
+    @classmethod
+    def avatar_must_be_local(cls, value: Optional[str]) -> Optional[str]:
+        if value is None or value == "":
+            return None
+        # Только свои загруженные файлы — не произвольный URL
+        if value.startswith("/static/uploads/") or "/static/uploads/" in value:
+            return value
+        raise ValueError("avatar_url должен указывать на /static/uploads/")
+
+    @field_validator("password")
+    @classmethod
+    def password_strength(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        if len(value) < 8:
+            raise ValueError("Пароль должен быть не короче 8 символов")
+        return value
 
 class User(UserBase):
     id: int

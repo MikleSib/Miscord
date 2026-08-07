@@ -326,6 +326,7 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
     }
     
     optimizedVoiceService.toggleMute();
+    soundService.playMicToggleSound(newMuted);
     
     set({ 
       isMuted: newMuted,
@@ -369,6 +370,7 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
     optimizedVoiceService.toggleDeafen();
     if (newMuted !== currentState.isMuted) {
       optimizedVoiceService.toggleMute();
+      soundService.playMicToggleSound(newMuted);
     }
     
     set({

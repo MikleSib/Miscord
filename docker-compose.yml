@@ -26,6 +26,7 @@ services:
       REDIS_URL: redis://redis:6379
       SECRET_KEY: your-secret-key-here-change-in-production
       CORS_ORIGINS: '["http://localhost:3000", "https://miscord.ru", "https://www.miscord.ru"]'
+      ICE_SERVERS: '${ICE_SERVERS:-[{"urls":["stun:stun.l.google.com:19302","stun:stun1.l.google.com:19302"]},{"urls":["turn:miscord.ru:3478?transport=udp","turn:miscord.ru:3478?transport=tcp"],"username":"miscord","credential":"change-this-turn-password"}]}'
     ports:
       - "8000:8000"
     depends_on:
@@ -97,9 +98,9 @@ services:
       --no-dtls
       --fingerprint
       --lt-cred-mech
-      --user=stream-cash:CHANGE_ME_LONG_RANDOM_SECRET_12345
-      --realm=stream-cash.ru
-      --external-ip=147.45.158.183
+      --user=${TURN_USERNAME:-miscord}:${TURN_PASSWORD:-change-this-turn-password}
+      --realm=${TURN_REALM:-miscord.ru}
+      --external-ip=${TURN_EXTERNAL_IP:?Set TURN_EXTERNAL_IP in .env}
       --listening-port=3478
       --min-port=49152
       --max-port=49252

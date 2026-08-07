@@ -34,16 +34,19 @@ services:
     environment:
       DATABASE_URL: postgresql://miscord_user:miscord_password@postgres:5432/miscord
       REDIS_URL: redis://redis:6379
-      SECRET_KEY: ${SECRET_KEY:-miscord-prod-secret-change-me-please-9f3a2c}
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY to a long random string}
+      ENVIRONMENT: production
       CORS_ORIGINS: '["https://miscord.ru", "https://www.miscord.ru", "http://localhost:3000"]'
       SERVER_HOST: https://miscord.ru
+      # ICE_SERVERS задавайте в .env на сервере (не храните TURN-пароли в git)
+      ICE_SERVERS: ${ICE_SERVERS:-[{"urls":["stun:stun.l.google.com:19302","stun:stun1.l.google.com:19302"]}]}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
-      - ./backend/static:/app/static
+      - uploads_data:/app/static/uploads
     networks:
       - miscord_network
     restart: unless-stopped
@@ -78,13 +81,32 @@ services:
       retries: 5
       start_period: 40s
 
+  coturn:
+    image: coturn/coturn:4.6
+    network_mode: host
+    restart: unless-stopped
+    command:
+      - --no-cli
+      - --no-tls
+      - --no-dtls
+      - --fingerprint
+      - --lt-cred-mech
+      - --user=${TURN_USERNAME:-miscord}:${TURN_PASSWORD:-change-this-turn-password}
+      - --realm=${TURN_REALM:-miscord.ru}
+      - --external-ip=${TURN_EXTERNAL_IP:?Set TURN_EXTERNAL_IP in .env}
+      - --listening-port=3478
+      - --min-port=49152
+      - --max-port=49252
+      - --no-software-attribute
+      - --log-file=stdout
+
   nginx:
     image: nginx:1.25-alpine
     ports:
       - "127.0.0.1:8443:80"
     volumes:
       - ./nginx/nginx.server.conf:/etc/nginx/nginx.conf:ro
-      - ./backend/static:/app/static:ro
+      - uploads_data:/app/static/uploads:ro
     depends_on:
       - frontend
       - backend
@@ -94,6 +116,7 @@ services:
 
 volumes:
   postgres_data:
+  uploads_data:
 
 networks:
   miscord_network:

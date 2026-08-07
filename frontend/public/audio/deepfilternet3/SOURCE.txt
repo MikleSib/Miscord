@@ -1,0 +1,4 @@
+﻿Source: https://github.com/kdrkdrkdr/DeepFilterNet3.c.wasm
+Pinned commit: 1695a9b3282e20515ab08eb97c83520f20d23138
+Built with: emscripten/emsdk:latest, -O3, WASM SIMD128
+License: upstream repository did not declare a license at this commit; test-only integration.

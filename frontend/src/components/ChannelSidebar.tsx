@@ -1,20 +1,18 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Hash, Volume2, ChevronDown, Settings, Plus, Mic, MicOff, Headphones, PhoneOff, VolumeX, Monitor, MonitorOff, UserX, UserCheck, Shield, Volume1, LogOut, UserPlus, Copy, X } from 'lucide-react'
+import { Hash, Volume2, ChevronDown, Settings, Plus, Mic, MicOff, Headphones, PhoneOff, VolumeX, Monitor, MonitorOff, UserX, UserCheck, Shield, Volume1, LogOut, Copy, UserPlus, Bell } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { useVoiceStore } from '../store/slices/voiceSlice'
 import { useAuthStore } from '../store/store'
 import { useRouter } from 'next/navigation'
 import { cn } from '../lib/utils'
 import { Button } from './ui/button'
+import { Tooltip } from './ui/tooltip'
 import voiceService from '../services/voiceService'
+import { useScreenSharePickerStore } from '../store/screenSharePickerStore'
 import { Channel } from '../types'
 import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  TextField,
   Box,
   Avatar,
   Typography,
@@ -25,17 +23,30 @@ import {
   Divider,
   Slider,
   Paper,
-  IconButton,
 } from '@mui/material'
 import channelService from '../services/channelService'
-import { applyMemberJoined } from '../lib/memberSync'
+import { Permissions } from '../lib/permissions'
+import { useServerPermissions } from '../lib/serverPermissions'
 import { ServerSettingsModal } from './ServerSettingsModal'
 import { ChannelSettingsModal } from './ChannelSettingsModal'
+import { CreateChannelModal } from './CreateChannelModal'
+import { InvitePeopleModal } from './InvitePeopleModal'
+import { ServerNotificationSettingsModal } from './ServerNotificationSettingsModal'
 
 // Компонент для аватарки с анимацией при разговоре
 import { SpeakingAvatar } from './SpeakingAvatar'
+import { openScreenShareView } from '../lib/screenShareNavigation'
+import { StreamHoverPreview } from './StreamHoverPreview'
+import {
+  useMentionNotificationStore,
+  formatMentionBadge,
+} from '../store/mentionNotificationStore'
+import { useChannelUnreadStore } from '../store/channelUnreadStore'
+
 export function ChannelSidebar() {
-  const { currentServer, currentChannel, selectChannel, addChannel, loadServers } = useStore()
+  const { currentServer, currentChannel, selectChannel, addChannel, loadServers, updateServer } = useStore()
+  const mentionPending = useMentionNotificationStore((state) => state.pending)
+  const channelUnreadPending = useChannelUnreadStore((state) => state.pending)
   const { 
     connectToVoiceChannel, 
     currentVoiceChannelId, 
@@ -51,11 +62,14 @@ export function ChannelSidebar() {
     setError
   } = useVoiceStore()
   const { user, logout } = useAuthStore()
+  const { can: canManageServer } = useServerPermissions(currentServer?.id ?? null)
+  const canManageChannels = canManageServer(Permissions.MANAGE_CHANNELS)
+  const canCreateInvite = canManageServer(Permissions.CREATE_INVITE)
+  // Публичный сервер — кнопка у всех; приватный — только с правом приглашать
+  const canShowInviteButton = Boolean(currentServer?.is_public) || canCreateInvite
   const router = useRouter()
-  const [isCreateTextModalOpen, setIsCreateTextModalOpen] = useState(false)
-  const [isCreateVoiceModalOpen, setIsCreateVoiceModalOpen] = useState(false)
-  const [newChannelName, setNewChannelName] = useState('')
-  const [isCreating, setIsCreating] = useState(false)
+  const [isCreateChannelModalOpen, setIsCreateChannelModalOpen] = useState(false)
+  const [createChannelInitialType, setCreateChannelInitialType] = useState<'text' | 'voice'>('text')
   const [voiceChannelMembers, setVoiceChannelMembers] = useState<Record<number, any[]>>({})
   
   // Состояние для контекстного меню
@@ -70,21 +84,24 @@ export function ChannelSidebar() {
 
   // Состояние для пользователей, демонстрирующих экран
   const [screenSharingUsers, setScreenSharingUsers] = useState<Set<number>>(new Set());
+  const [streamHoverPreview, setStreamHoverPreview] = useState<{
+    userId: number;
+    username: string;
+    anchorRect: DOMRect;
+  } | null>(null);
+  const streamHoverTimerRef = useRef<number | null>(null);
 
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [activeSharingUsers, setActiveSharingUsers] = useState<{ userId: number; username: string }[]>([]);
 
   // Состояние для контекстного меню заголовка сервера
   const [serverContextMenu, setServerContextMenu] = useState<{ mouseX: number; mouseY: number } | null>(null);
-  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false)
   const [isChannelSettingsModalOpen, setIsChannelSettingsModalOpen] = useState(false)
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false)
+  const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false)
   const [selectedChannelForSettings, setSelectedChannelForSettings] = useState<Channel | null>(null)
   const [hoveredChannel, setHoveredChannel] = useState<number | null>(null)
-
-  const [inviteUsername, setInviteUsername] = useState('');
-  const [inviteError, setInviteError] = useState('');
-  const [isInviting, setIsInviting] = useState(false);
 
   // Ref для отслеживания загружаемых каналов (предотвращаем дублирующиеся запросы)
   const loadingChannelsRef = useRef<Set<number>>(new Set());
@@ -265,6 +282,9 @@ export function ChannelSidebar() {
         newSet.delete(data.user_id);
         return newSet;
       });
+      setStreamHoverPreview((prev) =>
+        prev?.userId === data.user_id ? null : prev
+      );
     };
 
     // Подписываемся на события
@@ -341,12 +361,12 @@ export function ChannelSidebar() {
       setError(error instanceof Error ? error.message : 'Не удалось отключиться от голосового канала')
     }
   };
-  const handleScreenShareToggle = async () => {
+  const handleScreenShareToggle = () => {
     try {
       if (isScreenSharing) {
         voiceService.stopScreenShare()
       } else {
-        await voiceService.startScreenShare()
+        useScreenSharePickerStore.getState().open()
       }
       setIsScreenSharing(voiceService.getScreenSharingStatus())
       setError(null)
@@ -355,14 +375,47 @@ export function ChannelSidebar() {
     }
   };
   const handleViewScreenShare = () => {
-    // Создаем событие для открытия ScreenShareOverlay
-    const event = new CustomEvent('open_screen_share', {
-      detail: { 
-        userId: activeSharingUsers[0]?.userId, 
-        username: activeSharingUsers[0]?.username 
-      }
+    const streamer = activeSharingUsers[0];
+    if (!streamer) return;
+    openScreenShareView(streamer.userId, streamer.username);
+  };
+
+  const clearStreamHoverTimer = () => {
+    if (streamHoverTimerRef.current !== null) {
+      window.clearTimeout(streamHoverTimerRef.current);
+      streamHoverTimerRef.current = null;
+    }
+  };
+
+  const showStreamHoverPreview = (participant: { user_id: number; username: string }, anchorRect: DOMRect) => {
+    clearStreamHoverTimer();
+    setStreamHoverPreview({
+      userId: participant.user_id,
+      username: participant.username,
+      anchorRect,
     });
-    window.dispatchEvent(event);
+  };
+
+  const scheduleStreamHoverPreview = (
+    participant: { user_id: number; username: string },
+    anchorRect: DOMRect,
+    delayMs = 350
+  ) => {
+    clearStreamHoverTimer();
+    streamHoverTimerRef.current = window.setTimeout(() => {
+      showStreamHoverPreview(participant, anchorRect);
+    }, delayMs);
+  };
+
+  const hideStreamHoverPreview = (delayMs = 200) => {
+    clearStreamHoverTimer();
+    streamHoverTimerRef.current = window.setTimeout(() => {
+      setStreamHoverPreview(null);
+    }, delayMs);
+  };
+
+  const keepStreamHoverPreview = () => {
+    clearStreamHoverTimer();
   };
 
   const isSelectedChannel = (channel: { id: number; type: string }) =>
@@ -538,65 +591,18 @@ export function ChannelSidebar() {
       audioElement.volume = normalizedVolume / 100
     }
   }
-  const handleCreateTextChannel = async () => {
-    if (!newChannelName.trim() || !currentServer) return
-
-    setIsCreating(true)
-    try {
-      const newTextChannel = await channelService.createTextChannel(currentServer.id, {
-        name: newChannelName.trim(),
-        position: currentServer.channels.filter((c) => c.type === 'text').length,
-      })
-
-      const newChannel: Channel = {
-        id: newTextChannel.id,
-        name: newTextChannel.name,
-        type: 'text',
-        serverId: currentServer.id,
-        position: newTextChannel.position,
-      }
-
-      addChannel(currentServer.id, newChannel)
-      selectChannel(newChannel.id, 'text')
-      setIsCreateTextModalOpen(false)
-      setNewChannelName('')
-    } catch (error) {
-      console.error('Ошибка создания текстового канала:', error)
-      setError('Не удалось создать текстовый канал')
-    } finally {
-      setIsCreating(false)
-    }
+  const openCreateChannelModal = (type: 'text' | 'voice') => {
+    setCreateChannelInitialType(type)
+    setIsCreateChannelModalOpen(true)
   }
 
-  const handleCreateVoiceChannel = async () => {
-    if (!newChannelName.trim() || !currentServer) return
-
-    setIsCreating(true)
-    try {
-      const newVoiceChannel = await channelService.createVoiceChannel(currentServer.id, {
-        name: newChannelName.trim(),
-        position: currentServer.channels.filter((c) => c.type === 'voice').length,
-        max_users: 10,
-      })
-
-      const newChannel: Channel = {
-        id: newVoiceChannel.id,
-        name: newVoiceChannel.name,
-        type: 'voice',
-        serverId: currentServer.id,
-        position: newVoiceChannel.position,
-        max_users: newVoiceChannel.max_users,
-      }
-
-      addChannel(currentServer.id, newChannel)
-      setIsCreateVoiceModalOpen(false)
-      setNewChannelName('')
-    } catch (error) {
-      console.error('Ошибка создания голосового канала:', error)
-      setError('Не удалось создать голосовой канал')
-    } finally {
-      setIsCreating(false)
+  const handleChannelCreated = (newChannel: Channel) => {
+    if (!currentServer) return
+    addChannel(currentServer.id, newChannel)
+    if (newChannel.type === 'text') {
+      selectChannel(newChannel.id, 'text')
     }
+    void loadServers()
   }
 
   const handleServerHeaderContextMenu = (event: React.MouseEvent) => {
@@ -608,25 +614,25 @@ export function ChannelSidebar() {
     setServerContextMenu(null);
   };
 
-  const handleInviteToServer = () => {
-    setIsInviteModalOpen(true);
-    handleServerContextMenuClose();
-  };
-
   const handleServerSettings = () => {
     setIsSettingsModalOpen(true);
     handleServerContextMenuClose();
   };
 
+  const handleNotificationSettings = () => {
+    setIsNotificationSettingsOpen(true)
+    handleServerContextMenuClose()
+  }
+
   const handleChannelSettings = (channel: Channel) => {
-    // Проверяем, является ли текущий пользователь владельцем сервера
-    if (currentServer && currentServer.owner_id === user?.id) {
+    if (currentServer && canManageChannels) {
       setSelectedChannelForSettings(channel);
       setIsChannelSettingsModalOpen(true);
     }
   };
 
-  const handleChannelUpdate = () => {
+  const handleChannelUpdate = (updatedChannel: Channel) => {
+    setSelectedChannelForSettings(updatedChannel)
     void loadServers()
   }
 
@@ -652,34 +658,6 @@ export function ChannelSidebar() {
     handleServerContextMenuClose();
   };
 
-  const handleInviteUser = async () => {
-    if (!inviteUsername.trim() || !currentServer) return;
-    setIsInviting(true);
-    setInviteError('');
-    try {
-      const result = await channelService.inviteUserToServer(currentServer.id, inviteUsername);
-      applyMemberJoined({
-        channel_id: currentServer.id,
-        user_id: result.user_id,
-        username: result.username,
-        display_name: result.display_name,
-        avatar_url: result.avatar_url,
-        user: result.user,
-      });
-      setIsInviteModalOpen(false);
-      setInviteUsername('');
-    } catch (error: any) {
-      console.error('Ошибка приглашения пользователя:', error);
-      if (error.response?.data?.detail) {
-        setInviteError(error.response.data.detail);
-      } else {
-        setInviteError('Не удалось пригласить пользователя');
-      }
-    } finally {
-      setIsInviting(false);
-    }
-  };
-
   if (!currentServer) {
     return (
       <div className="app-sidebar flex h-full flex-col border-r">
@@ -697,12 +675,30 @@ export function ChannelSidebar() {
     <>
       <div className="app-sidebar flex h-full flex-col border-r">
         {/* Server Header */}
-        <div
-          className="interactive-row mx-3 mb-2 mt-3 flex h-10 cursor-pointer items-center justify-between border border-border/60 px-3 text-sm hover:text-foreground"
-          onClick={handleServerHeaderContextMenu}
-        >
-          <span className="font-semibold">{currentServer.name}</span>
-          <ChevronDown className="w-4 h-4" />
+        <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border/70 px-3 shadow-sm">
+          <button
+            type="button"
+            onClick={handleServerHeaderContextMenu}
+            className="group flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-1 text-left transition hover:bg-secondary/60"
+          >
+            <span className="truncate text-[15px] font-semibold text-foreground">
+              {currentServer.name}
+            </span>
+            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition group-hover:text-foreground" />
+          </button>
+
+          {canShowInviteButton && (
+            <Tooltip content="Пригласить на сервер" side="bottom">
+              <button
+                type="button"
+                aria-label="Пригласить на сервер"
+                onClick={() => setIsInviteModalOpen(true)}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-secondary/80 text-muted-foreground transition hover:bg-secondary hover:text-foreground"
+              >
+                <UserPlus className="h-4 w-4" />
+              </button>
+            </Tooltip>
+          )}
         </div>
 
         {/* Channels List */}
@@ -712,14 +708,32 @@ export function ChannelSidebar() {
             <div className="mb-1 px-3">
               <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground uppercase">
                 <span>Текстовые каналы</span>
-                <Plus 
-                  className="w-4 h-4 cursor-pointer hover:text-foreground" 
-                  onClick={() => setIsCreateTextModalOpen(true)}
-                />
+                <Tooltip content="Создать канал">
+                  <button
+                    type="button"
+                    aria-label="Создать канал"
+                    onClick={() => openCreateChannelModal('text')}
+                    className="rounded p-0.5 text-muted-foreground transition hover:bg-secondary/60 hover:text-foreground"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </Tooltip>
               </div>
             </div>
             <div className="space-y-0.5 px-3">
-              {textChannels.map((channel) => (
+              {textChannels.map((channel) => {
+                const mentionCount = mentionPending.filter(
+                  (item) => item.textChannelId === channel.id
+                ).length
+                const hasUnread =
+                  mentionCount === 0 &&
+                  channelUnreadPending.some((item) => item.textChannelId === channel.id)
+                const showSettings =
+                  hoveredChannel === channel.id &&
+                  currentServer &&
+                  canManageChannels
+
+                return (
                 <div
                   key={channel.id}
                   className="relative group"
@@ -731,34 +745,54 @@ export function ChannelSidebar() {
                     size="sm"
                     className={cn(
                       "interactive-row h-9 w-full justify-start gap-2 px-2.5 text-muted-foreground hover:text-foreground",
-                      isSelectedChannel(channel) && "bg-accent text-foreground"
+                      isSelectedChannel(channel) && "bg-accent text-foreground",
+                      hasUnread && !isSelectedChannel(channel) && "text-foreground",
+                      mentionCount > 0 && !isSelectedChannel(channel) && "text-[#f23f43]"
                     )}
                     onClick={() => handleChannelClick(channel)}
                   >
                     <Hash className={cn(
-                      "w-4 h-4",
-                      isSelectedChannel(channel) ? "text-foreground" : "text-muted-foreground"
+                      "w-4 h-4 flex-none",
+                      isSelectedChannel(channel) ? "text-foreground" : "text-muted-foreground",
+                      hasUnread && !isSelectedChannel(channel) && "text-foreground",
+                      mentionCount > 0 && !isSelectedChannel(channel) && "text-[#f23f43]"
                     )} />
                     <span className={cn(
-                      isSelectedChannel(channel) ? "text-foreground font-medium" : ""
+                      "min-w-0 flex-1 truncate text-left",
+                      isSelectedChannel(channel) ? "text-foreground font-medium" : "",
+                      hasUnread && !isSelectedChannel(channel) && "font-semibold text-foreground",
+                      mentionCount > 0 && !isSelectedChannel(channel) && "font-semibold text-[#f23f43]"
                     )}>{channel.name}</span>
+                    {mentionCount > 0 && !showSettings && (
+                      <span className="ml-auto flex h-5 min-w-5 flex-none items-center justify-center rounded-full bg-[#f23f43] px-1.5 text-[10px] font-bold leading-none text-white">
+                        {formatMentionBadge(mentionCount)}
+                      </span>
+                    )}
+                    {hasUnread && !showSettings && (
+                      <span className="ml-auto h-2 w-2 flex-none rounded-full bg-foreground" />
+                    )}
                   </Button>
-                  {hoveredChannel === channel.id && currentServer && currentServer.owner_id === user?.id && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-2 top-1/2 transform -translate-y-1/2 w-6 h-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-accent/50"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleChannelSettings(channel);
-                      }}
-                      title="Настройки канала"
+                  {showSettings && (
+                    <Tooltip
+                      content="Настройки канала"
+                      className="absolute right-2 top-1/2 -translate-y-1/2"
                     >
-                      <Settings className="w-4 h-4 text-muted-foreground hover:text-foreground" />
-                    </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 opacity-0 transition-opacity duration-200 group-hover:opacity-100 hover:bg-accent/50"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleChannelSettings(channel);
+                        }}
+                        aria-label="Настройки канала"
+                      >
+                        <Settings className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                      </Button>
+                    </Tooltip>
                   )}
                 </div>
-              ))}
+              )})}
               {textChannels.length === 0 && (
                 <div className="px-2 py-2 text-xs text-muted-foreground">
                   Нет текстовых каналов
@@ -772,15 +806,27 @@ export function ChannelSidebar() {
             <div className="mb-1 px-3">
               <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground uppercase">
                 <span>Голосовые каналы</span>
-                <Plus 
-                  className="w-4 h-4 cursor-pointer hover:text-foreground" 
-                  onClick={() => setIsCreateVoiceModalOpen(true)}
-                />
+                <Tooltip content="Создать канал">
+                  <button
+                    type="button"
+                    aria-label="Создать канал"
+                    onClick={() => openCreateChannelModal('voice')}
+                    className="rounded p-0.5 text-muted-foreground transition hover:bg-secondary/60 hover:text-foreground"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </Tooltip>
               </div>
             </div>
             <div className="space-y-0.5 px-3">
               {voiceChannels.map((channel) => {
                 const channelParticipants = getChannelParticipants(channel.id);
+                const userLimit = channel.max_users ?? 0
+                const hasUserLimit = userLimit > 0
+                const isHovered = hoveredChannel === channel.id
+                const showVoiceSettings = isHovered && canManageChannels
+                const currentCount = channelParticipants.length
+
                 return (
                   <div key={channel.id}>
                     <div
@@ -792,38 +838,66 @@ export function ChannelSidebar() {
                         variant="ghost"
                         size="sm"
                         className={cn(
-                          "interactive-row h-9 w-full justify-start gap-2 px-2.5 text-muted-foreground",
+                          "interactive-row h-9 w-full justify-start gap-2 px-2.5 pr-10 text-muted-foreground",
                           currentVoiceChannelId === channel.id && "bg-[#23a55a]/10 text-[#23a55a] ring-1 ring-inset ring-[#23a55a]/20"
                         )}
                         onClick={() => handleChannelClick(channel)}
                         disabled={isConnecting && currentVoiceChannelId !== channel.id}
                       >
                         <Volume2 className={cn(
-                          "w-4 h-4",
+                          "w-4 h-4 shrink-0",
                           currentVoiceChannelId === channel.id && "text-green-400"
                         )} />
                         <span className={cn(
+                          "min-w-0 flex-1 truncate text-left",
                           currentVoiceChannelId === channel.id && "text-green-400"
                         )}>
                           {channel.name}
                         </span>
-                        {currentVoiceChannelId === channel.id && (
-                          <div className="voice-status-dot ml-auto" />
+                        {currentVoiceChannelId === channel.id && !hasUserLimit && !showVoiceSettings && (
+                          <div className="voice-status-dot shrink-0" />
                         )}
                       </Button>
-                      {hoveredChannel === channel.id && currentServer && currentServer.owner_id === user?.id && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="absolute right-2 top-1/2 transform -translate-y-1/2 w-6 h-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-accent/50"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleChannelSettings(channel);
-                          }}
-                          title="Настройки канала"
+
+                      {/* Лимит: двухцветная капсула с косым разрезом (как в Discord) */}
+                      {hasUserLimit && !showVoiceSettings && (
+                        <span
+                          aria-label={`Участников ${currentCount} из ${userLimit}`}
+                          className="pointer-events-none absolute right-2 top-1/2 flex h-4 -translate-y-1/2 items-stretch overflow-hidden rounded-[8px] text-[12px] font-medium leading-none text-[#b5bac1]"
                         >
-                          <Settings className="w-4 h-4 text-muted-foreground hover:text-foreground" />
-                        </Button>
+                          {/* Тёмная левая половина — косой срез справа */}
+                          <span
+                            className="relative z-[1] flex items-center bg-[#1e1f22] pl-[6px] pr-[10px] tabular-nums tracking-tight"
+                            style={{
+                              clipPath: 'polygon(0 0, 100% 0, calc(100% - 5px) 100%, 0 100%)',
+                            }}
+                          >
+                            {String(currentCount).padStart(2, '0')}
+                          </span>
+                          {/* Светлая правая половина */}
+                          <span className="-ml-[5px] flex items-center bg-[#2b2d31] pl-[9px] pr-[6px] tabular-nums tracking-tight">
+                            {String(userLimit).padStart(2, '0')}
+                          </span>
+                        </span>
+                      )}
+
+                      {showVoiceSettings && (
+                        <Tooltip
+                          content="Настройки канала"
+                          className="absolute right-2 top-1/2 -translate-y-1/2"
+                        >
+                          <button
+                            type="button"
+                            className="flex h-6 w-6 items-center justify-center rounded text-[#b5bac1] transition hover:bg-[#35373c] hover:text-white"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleChannelSettings(channel);
+                            }}
+                            aria-label="Настройки канала"
+                          >
+                            <Settings className="h-4 w-4" />
+                          </button>
+                        </Tooltip>
                       )}
                     </div>
                     
@@ -837,6 +911,17 @@ export function ChannelSidebar() {
                               key={participant.user_id}
                               className="interactive-row flex cursor-pointer items-center gap-2 overflow-visible px-2 py-1.5"
                               onContextMenu={(e) => handleParticipantContextMenu(e, participant)}
+                              onMouseEnter={(e) => {
+                                if (!isScreenSharing) return;
+                                scheduleStreamHoverPreview(
+                                  participant,
+                                  e.currentTarget.getBoundingClientRect()
+                                );
+                              }}
+                              onMouseLeave={() => {
+                                if (!isScreenSharing) return;
+                                hideStreamHoverPreview();
+                              }}
                             >
                               <SpeakingAvatar
                                 user={participant}
@@ -852,36 +937,12 @@ export function ChannelSidebar() {
                               >
                                 {participant.username}
                                 {participant.user_id === user?.id && " (Вы)"}
-                                {isScreenSharing && (
-                                  <span className="text-green-400 font-medium ml-1">
-                                    • Стримит
-                                  </span>
-                                )}
                               </Typography>
-                              
-                              {/* Индикатор демонстрации экрана */}
+
                               {isScreenSharing && (
-                                <div className="flex items-center gap-1">
-                                  {/* Анимированная точка */}
-                                  <div className="voice-status-dot" />
-                                  
-                                  {/* Кнопка для просмотра */}
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="w-7 h-7 p-0 text-green-400 hover:text-green-300 hover:bg-green-400/20 border border-green-400/30 hover:border-green-400/50 transition-all duration-200"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      const event = new CustomEvent('open_screen_share', {
-                                        detail: { userId: participant.user_id, username: participant.username }
-                                      });
-                                      window.dispatchEvent(event);
-                                    }}
-                                    title={`${participant.username} демонстрирует экран - нажмите для просмотра`}
-                                  >
-                                    <Monitor className="w-3.5 h-3.5" />
-                                  </Button>
-                                </div>
+                                <span className="rounded bg-[#da373c] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+                                  В эфире
+                                </span>
                               )}
                               
                               <div className="flex gap-1">
@@ -908,198 +969,37 @@ export function ChannelSidebar() {
             </div>
           </div>
         </div>
+
       </div>
 
-      {/* Модальное окно создания текстового канала */}
-      <Dialog
-        open={isCreateTextModalOpen}
-        onClose={() => {
-          if (!isCreating) {
-            setIsCreateTextModalOpen(false)
-            setNewChannelName('')
-          }
-        }}
-        maxWidth="xs"
-        fullWidth
-        PaperProps={{
-          sx: {
-            backgroundColor: '#323339',
-            color: 'white',
-            borderRadius: '12px',
-            border: '1px solid #3e3f45',
-          },
-        }}
-      >
-        <DialogContent sx={{ padding: '24px' }}>
-          <div className="mb-5 flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-xl font-bold text-white">Создать текстовый канал</h2>
-              <p className="mt-1 text-sm text-[#999aa1]">Введите название для нового канала</p>
-            </div>
-            <IconButton
-              onClick={() => {
-                setIsCreateTextModalOpen(false)
-                setNewChannelName('')
-              }}
-              disabled={isCreating}
-              sx={{ color: '#999aa1' }}
-            >
-              <X size={20} />
-            </IconButton>
-          </div>
-          <TextField
-            label="Название канала"
-            value={newChannelName}
-            onChange={(e) => setNewChannelName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && newChannelName.trim() && !isCreating) {
-                void handleCreateTextChannel()
-              }
-            }}
-            fullWidth
-            required
-            autoFocus
-            name="miscord-text-channel-name"
-            autoComplete="off"
-            inputProps={{
-              autoComplete: 'off',
-              autoCorrect: 'off',
-              autoCapitalize: 'off',
-              spellCheck: false,
-              'data-lpignore': 'true',
-              'data-1p-ignore': 'true',
-              'data-form-type': 'other',
-            }}
-            InputLabelProps={{ sx: { color: '#999aa1' } }}
-            InputProps={{
-              sx: {
-                color: 'white',
-                backgroundColor: '#1e1f22',
-                borderRadius: '8px',
-                '& fieldset': { borderColor: '#3e3f45' },
-                '&:hover fieldset': { borderColor: '#5865f2' },
-                '&.Mui-focused fieldset': { borderColor: '#5865f2' },
-              },
-            }}
-          />
-          <div className="mt-6 flex justify-end gap-3">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setIsCreateTextModalOpen(false)
-                setNewChannelName('')
-              }}
-              disabled={isCreating}
-              className="border-[#4e5058] bg-transparent text-white hover:bg-[#4e5058]"
-            >
-              Отмена
-            </Button>
-            <Button
-              onClick={() => void handleCreateTextChannel()}
-              disabled={!newChannelName.trim() || isCreating}
-              className="bg-[#5865f2] text-white hover:bg-[#4752c4]"
-            >
-              {isCreating ? 'Создание...' : 'Создать'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {streamHoverPreview && (
+        <StreamHoverPreview
+          userId={streamHoverPreview.userId}
+          username={streamHoverPreview.username}
+          anchorRect={streamHoverPreview.anchorRect}
+          isSelf={streamHoverPreview.userId === user?.id}
+          onMouseEnter={keepStreamHoverPreview}
+          onMouseLeave={() => hideStreamHoverPreview(120)}
+        />
+      )}
 
-      {/* Create Voice Channel Modal */}
-      <Dialog
-        open={isCreateVoiceModalOpen}
-        onClose={() => {
-          if (!isCreating) {
-            setIsCreateVoiceModalOpen(false)
-            setNewChannelName('')
-          }
-        }}
-        maxWidth="xs"
-        fullWidth
-        PaperProps={{
-          sx: {
-            backgroundColor: '#323339',
-            color: 'white',
-            borderRadius: '12px',
-            border: '1px solid #3e3f45',
-          },
-        }}
-      >
-        <DialogContent sx={{ padding: '24px' }}>
-          <div className="mb-5 flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-xl font-bold text-white">Создать голосовой канал</h2>
-              <p className="mt-1 text-sm text-[#999aa1]">Введите название для нового канала</p>
-            </div>
-            <IconButton
-              onClick={() => {
-                setIsCreateVoiceModalOpen(false)
-                setNewChannelName('')
-              }}
-              disabled={isCreating}
-              sx={{ color: '#999aa1' }}
-            >
-              <X size={20} />
-            </IconButton>
-          </div>
-          <TextField
-            label="Название канала"
-            value={newChannelName}
-            onChange={(e) => setNewChannelName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && newChannelName.trim() && !isCreating) {
-                void handleCreateVoiceChannel()
-              }
-            }}
-            fullWidth
-            required
-            autoFocus
-            name="miscord-voice-channel-name"
-            autoComplete="off"
-            inputProps={{
-              autoComplete: 'off',
-              autoCorrect: 'off',
-              autoCapitalize: 'off',
-              spellCheck: false,
-              'data-lpignore': 'true',
-              'data-1p-ignore': 'true',
-              'data-form-type': 'other',
-            }}
-            InputLabelProps={{ sx: { color: '#999aa1' } }}
-            InputProps={{
-              sx: {
-                color: 'white',
-                backgroundColor: '#1e1f22',
-                borderRadius: '8px',
-                '& fieldset': { borderColor: '#3e3f45' },
-                '&:hover fieldset': { borderColor: '#5865f2' },
-                '&.Mui-focused fieldset': { borderColor: '#5865f2' },
-              },
-            }}
-          />
-          <div className="mt-6 flex justify-end gap-3">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setIsCreateVoiceModalOpen(false)
-                setNewChannelName('')
-              }}
-              disabled={isCreating}
-              className="border-[#4e5058] bg-transparent text-white hover:bg-[#4e5058]"
-            >
-              Отмена
-            </Button>
-            <Button
-              onClick={() => void handleCreateVoiceChannel()}
-              disabled={!newChannelName.trim() || isCreating}
-              className="bg-[#5865f2] text-white hover:bg-[#4752c4]"
-            >
-              {isCreating ? 'Создание...' : 'Создать'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-      
+      <InvitePeopleModal
+        isOpen={isInviteModalOpen}
+        onClose={() => setIsInviteModalOpen(false)}
+        server={currentServer}
+      />
+
+      <CreateChannelModal
+        isOpen={isCreateChannelModalOpen}
+        onClose={() => setIsCreateChannelModalOpen(false)}
+        serverId={currentServer.id}
+        initialType={createChannelInitialType}
+        categoryLabel={
+          createChannelInitialType === 'voice' ? 'Голосовые каналы' : 'Текстовые каналы'
+        }
+        onCreated={handleChannelCreated}
+      />
+
       {/* Контекстное меню для участников голосового канала */}
       <Menu
         open={contextMenu !== null}
@@ -1316,18 +1216,17 @@ export function ChannelSidebar() {
           },
         }}
       >
-        <MenuItem onClick={handleInviteToServer}>
-          <ListItemIcon sx={{ minWidth: '36px' }}>
-            <UserPlus size={18} color="rgb(153, 154, 161)" />
-          </ListItemIcon>
-          <ListItemText primary="Пригласить людей" />
-        </MenuItem>
-        <Divider />
         <MenuItem onClick={handleServerSettings}>
           <ListItemIcon sx={{ minWidth: '36px' }}>
             <Settings size={18} color="rgb(153, 154, 161)" />
           </ListItemIcon>
           <ListItemText primary="Настройки сервера" />
+        </MenuItem>
+        <MenuItem onClick={handleNotificationSettings}>
+          <ListItemIcon sx={{ minWidth: '36px' }}>
+            <Bell size={18} color="rgb(153, 154, 161)" />
+          </ListItemIcon>
+          <ListItemText primary="Настройки уведомлений" />
         </MenuItem>
         <Divider />
         <MenuItem onClick={handleCopyServerId}>
@@ -1338,11 +1237,19 @@ export function ChannelSidebar() {
         </MenuItem>
       </Menu>
 
+      <ServerNotificationSettingsModal
+        isOpen={isNotificationSettingsOpen}
+        onClose={() => setIsNotificationSettingsOpen(false)}
+        server={currentServer}
+      />
+
       <ServerSettingsModal
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
         server={currentServer}
-        onServerUpdate={() => { void loadServers() }}
+        onServerUpdate={(updatedServer) => {
+          updateServer(updatedServer.id, updatedServer)
+        }}
       />
 
       {selectedChannelForSettings && (
@@ -1355,133 +1262,10 @@ export function ChannelSidebar() {
           channel={selectedChannelForSettings}
           onChannelUpdate={handleChannelUpdate}
           onChannelDelete={handleChannelDelete}
+          onPermissionsChange={() => void loadServers()}
         />
       )}
 
-      {/* Invite User Modal */}
-      <Dialog 
-        open={isInviteModalOpen} 
-        onClose={() => {
-          setIsInviteModalOpen(false)
-          setInviteError('')
-          setInviteUsername('')
-        }}
-        maxWidth="sm"
-        fullWidth
-        PaperProps={{
-          sx: {
-            backgroundColor: '#323339',
-            color: 'white',
-            borderRadius: '8px',
-            minWidth: '440px'
-          }
-        }}
-      >
-        <DialogContent sx={{ padding: 0 }}>
-          <div className="p-6">
-            <div className="flex justify-between items-center mb-6">
-              <div>
-                <h2 className="text-xl font-bold text-white mb-1">Пригласить пользователя</h2>
-                <p className="text-[#999aa1] text-sm">
-                  {currentServer ? `на сервер ${currentServer.name}` : 'на сервер'}
-                </p>
-              </div>
-              <IconButton
-                onClick={() => {
-                  setIsInviteModalOpen(false)
-                  setInviteError('')
-                  setInviteUsername('')
-                }}
-                sx={{ color: '#999aa1' }}
-              >
-                <X size={24} />
-              </IconButton>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-[#999aa1] mb-2">
-                  Имя пользователя *
-                </label>
-                <TextField
-                  value={inviteUsername}
-                  onChange={(e) => setInviteUsername(e.target.value)}
-                  fullWidth
-                  placeholder="Введите имя пользователя..."
-                  error={!!inviteError}
-                  helperText={inviteError}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      backgroundColor: '#1e1f22',
-                      color: 'white',
-                      fontSize: '16px',
-                      '& fieldset': {
-                        borderColor: '#393a41',
-                      },
-                      '&:hover fieldset': {
-                        borderColor: '#5865f2',
-                      },
-                      '&.Mui-focused fieldset': {
-                        borderColor: '#5865f2',
-                      },
-                      '&.Mui-error fieldset': {
-                        borderColor: '#da3e44',
-                      },
-                    },
-                    '& .MuiInputBase-input': {
-                      padding: '12px 16px',
-                    },
-                    '& .MuiFormHelperText-root': {
-                      color: '#da3e44',
-                      marginLeft: 0,
-                      marginTop: '8px',
-                    },
-                  }}
-                />
-              </div>
-
-              {!inviteError && (
-                <div className="bg-[#2c2d32] p-4 rounded-lg">
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 bg-[#5865f2] rounded-full flex items-center justify-center text-white font-semibold">
-                      ?
-                    </div>
-                    <div>
-                      <h4 className="text-white font-medium text-sm mb-1">Как пригласить пользователя</h4>
-                      <p className="text-[#999aa1] text-xs leading-relaxed">
-                        Введите точное имя пользователя. После приглашения пользователь получит уведомление 
-                        и сможет присоединиться к серверу.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="flex gap-3 justify-end mt-6 pt-6 border-t border-[#393a3f]">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setIsInviteModalOpen(false)
-                  setInviteError('')
-                  setInviteUsername('')
-                }}
-                disabled={isInviting}
-                className="bg-transparent border-[#4e5058] text-white hover:bg-[#4e5058] hover:border-[#4e5058] px-6"
-              >
-                Отмена
-              </Button>
-              <Button
-                onClick={handleInviteUser}
-                disabled={!inviteUsername.trim() || isInviting}
-                className="bg-[#5865f2] hover:bg-[#4752c4] text-white px-6"
-              >
-                {isInviting ? 'Приглашение...' : 'Пригласить'}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </>
   )
 }

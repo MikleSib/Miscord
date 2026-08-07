@@ -1,14 +1,20 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Reply, MoreHorizontal, Smile, Trash2, Edit3 } from 'lucide-react'
 import { Message, User } from '../types'
 import { UserAvatar } from './ui/user-avatar'
 import { Button } from './ui/button'
+import { Tooltip } from './ui/tooltip'
 import { formatMessageTime, formatMessageFullTime } from '../lib/utils'
 import { messageService } from '../services/messageService'
 import { useChatStore } from '../store/chatStore'
 import { MediaLightbox, MediaLightboxItem } from './MediaLightbox'
+import { MessageContent } from './MessageContent'
+import { MessageLinkEmbeds } from './MessageLinkEmbeds'
+import { contentMentionsUser } from '../lib/mentions'
+import { useMentionNotificationStore } from '../store/mentionNotificationStore'
+import { cn } from '../lib/utils'
 
 interface ChatMessageProps {
   message: Message;
@@ -16,20 +22,75 @@ interface ChatMessageProps {
   onReply: (message: Message) => void;
   onReaction: (messageId: number, emoji: string) => void;
   currentUser?: User;
+  resolveMentionLabel?: (userId: number) => string;
+  onMentionClick?: (userId: number, anchorRect: DOMRect) => void;
+  /** Цвет ника по высшей роли на сервере (например #ed4245) */
+  authorColor?: string | null;
+  /** Цвет ника автора ответа */
+  replyAuthorColor?: string | null;
 }
 
 // Список доступных эмодзи для реакций
 const AVAILABLE_EMOJIS = ['😀', '😂', '❤️', '👍', '👎', '😢', '😡', '😮', '🎉', '🔥'];
 
-export function ChatMessage({ message, showAuthor, onReply, onReaction, currentUser }: ChatMessageProps) {
+export function ChatMessage({
+  message,
+  showAuthor,
+  onReply,
+  onReaction,
+  currentUser,
+  resolveMentionLabel,
+  onMentionClick,
+  authorColor,
+  replyAuthorColor,
+}: ChatMessageProps) {
   const [isHovered, setIsHovered] = useState(false)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState(message.content || '')
   const [showMoreMenu, setShowMoreMenu] = useState(false)
   const [lightboxItem, setLightboxItem] = useState<MediaLightboxItem | null>(null)
+  const rowRef = useRef<HTMLDivElement>(null)
   
   const { deleteMessage, editMessage } = useChatStore()
+  const mentionsCurrentUser = contentMentionsUser(message.content, currentUser?.id)
+  const isUnreadMention = useMentionNotificationStore((state) =>
+    state.pending.some((item) => item.messageId === message.id)
+  )
+  const markMentionRead = useMentionNotificationStore((state) => state.markMessageRead)
+  // Пока непрочитано — синий фон; после прочтения класс снимается и фон плавно гаснет ~2с
+  const showMentionHighlight = isUnreadMention
+  const mentionLabel = resolveMentionLabel || ((userId: number) => `user_${userId}`)
+
+  // Если пинг виден на экране — считаем прочитанным (как обычное SMS)
+  useEffect(() => {
+    if (!mentionsCurrentUser || !isUnreadMention) return
+    const el = rowRef.current
+    if (!el) return
+
+    let visibleTimer: number | null = null
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting && entry.intersectionRatio >= 0.35) {
+          if (visibleTimer == null) {
+            visibleTimer = window.setTimeout(() => {
+              markMentionRead(message.id)
+            }, 500)
+          }
+        } else if (visibleTimer != null) {
+          window.clearTimeout(visibleTimer)
+          visibleTimer = null
+        }
+      },
+      { threshold: [0.35, 0.6] }
+    )
+
+    observer.observe(el)
+    return () => {
+      observer.disconnect()
+      if (visibleTimer != null) window.clearTimeout(visibleTimer)
+    }
+  }, [mentionsCurrentUser, isUnreadMention, markMentionRead, message.id])
 
   const handleReaction = (emoji: string) => {
     onReaction(message.id, emoji);
@@ -78,52 +139,70 @@ export function ChatMessage({ message, showAuthor, onReply, onReaction, currentU
   }
 
   return (
-    <div 
-      className={`group relative flex items-start gap-3 py-1 px-2 rounded transition-colors hover:bg-[#3e3f45] ${showAuthor ? 'mt-3' : ''}`}
+    <div
+      ref={rowRef}
+      id={`chat-message-${message.id}`}
+      data-message-id={message.id}
+      style={{ transition: 'background-color 2s ease-out' }}
+      className={cn(
+        'group relative flex items-start gap-3 py-1 px-2 rounded',
+        showAuthor && 'mt-3',
+        showMentionHighlight
+          ? 'bg-[#5865f2]/20 hover:bg-[#5865f2]/25'
+          : 'hover:bg-[#3e3f45]'
+      )}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
       {/* Hover menu */}
       {isHovered && !isEditing && (
         <div className="absolute top-1 right-2 bg-background border border-border rounded-lg shadow-lg flex items-center z-10">
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-8 px-2"
-            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-            title="Добавить реакцию"
-          >
-            <Smile className="w-4 h-4" />
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-8 px-2"
-            onClick={() => onReply(message)}
-            title="Ответить"
-          >
-            <Reply className="w-4 h-4" />
-          </Button>
+          <Tooltip content="Добавить реакцию">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 px-2"
+              onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+              aria-label="Добавить реакцию"
+            >
+              <Smile className="w-4 h-4" />
+            </Button>
+          </Tooltip>
+          <Tooltip content="Ответить">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 px-2"
+              onClick={() => onReply(message)}
+              aria-label="Ответить"
+            >
+              <Reply className="w-4 h-4" />
+            </Button>
+          </Tooltip>
           {canEditDelete && (
             <>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 px-2"
-                onClick={handleEditStart}
-                title="Редактировать"
-              >
-                <Edit3 className="w-4 h-4" />
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 px-2 text-destructive hover:text-destructive"
-                onClick={handleDelete}
-                title="Удалить"
-              >
-                <Trash2 className="w-4 h-4" />
-              </Button>
+              <Tooltip content="Редактировать">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 px-2"
+                  onClick={handleEditStart}
+                  aria-label="Редактировать"
+                >
+                  <Edit3 className="w-4 h-4" />
+                </Button>
+              </Tooltip>
+              <Tooltip content="Удалить">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 px-2 text-destructive hover:text-destructive"
+                  onClick={handleDelete}
+                  aria-label="Удалить"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </Tooltip>
             </>
           )}
         </div>
@@ -133,14 +212,15 @@ export function ChatMessage({ message, showAuthor, onReply, onReaction, currentU
       {showEmojiPicker && (
         <div className="absolute top-10 right-2 bg-background border border-border rounded-lg shadow-lg p-2 grid grid-cols-5 gap-1 z-20">
           {AVAILABLE_EMOJIS.map((emoji) => (
-            <button
-              key={emoji}
-              className="w-8 h-8 text-lg hover:bg-muted rounded transition-colors"
-              onClick={() => handleReaction(emoji)}
-              title={`Реакция ${emoji}`}
-            >
-              {emoji}
-            </button>
+            <Tooltip key={emoji} content={`Реакция ${emoji}`}>
+              <button
+                className="w-8 h-8 text-lg hover:bg-muted rounded transition-colors"
+                onClick={() => handleReaction(emoji)}
+                aria-label={`Реакция ${emoji}`}
+              >
+                {emoji}
+              </button>
+            </Tooltip>
           ))}
         </div>
       )}
@@ -159,13 +239,17 @@ export function ChatMessage({ message, showAuthor, onReply, onReaction, currentU
         {/* Author and timestamp */}
         {showAuthor && (
           <div className="flex items-baseline gap-2">
-            <span className="font-semibold">{message.author.username}</span>
-            <span 
-              className="text-xs text-muted-foreground cursor-help" 
-              title={formatMessageFullTime(message.timestamp)}
+            <span
+              className="font-semibold hover:underline cursor-default"
+              style={authorColor ? { color: authorColor } : undefined}
             >
-              {formatMessageTime(message.timestamp)}
+              {message.author.username}
             </span>
+            <Tooltip content={formatMessageFullTime(message.timestamp)}>
+              <span className="text-xs text-muted-foreground cursor-help">
+                {formatMessageTime(message.timestamp)}
+              </span>
+            </Tooltip>
             {message.is_edited && (
               <span className="text-xs text-muted-foreground">(изменено)</span>
             )}
@@ -175,7 +259,12 @@ export function ChatMessage({ message, showAuthor, onReply, onReaction, currentU
         {/* Reply reference */}
         {message.reply_to && (
           <div className="mb-1 pl-2 border-l-2 border-muted text-xs text-muted-foreground">
-            <span className="font-medium">{message.reply_to.author.username}</span>: {
+            <span
+              className="font-medium"
+              style={replyAuthorColor ? { color: replyAuthorColor } : undefined}
+            >
+              {message.reply_to.author.username}
+            </span>: {
               message.reply_to.is_deleted 
                 ? 'Сообщение удалено'
                 : message.reply_to.content && message.reply_to.content.length > 50 
@@ -205,7 +294,17 @@ export function ChatMessage({ message, showAuthor, onReply, onReaction, currentU
             </div>
           </div>
         ) : (
-          message.content && <p className="text-sm leading-relaxed">{message.content}</p>
+          message.content && (
+            <>
+              <MessageContent
+                content={message.content}
+                currentUserId={currentUser?.id}
+                resolveMentionLabel={mentionLabel}
+                onMentionClick={onMentionClick}
+              />
+              <MessageLinkEmbeds content={message.content} />
+            </>
+          )
         )}
 
         {/* Attachments */}
@@ -239,19 +338,20 @@ export function ChatMessage({ message, showAuthor, onReply, onReaction, currentU
         {message.reactions && message.reactions.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1">
             {message.reactions.map((reaction) => (
-              <button
-                key={reaction.id}
-                className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs border transition-colors hover:bg-muted ${
-                  reaction.currentUserReacted 
-                    ? 'border-[#5865f2] bg-[#5865f2]/20 text-[#f5f5f5]'
-                    : 'bg-background border-border'
-                }`}
-                onClick={() => handleReaction(reaction.emoji)}
-                title={`${reaction.users.map(u => u.username).join(', ')}`}
-              >
-                <span>{reaction.emoji}</span>
-                <span>{reaction.count}</span>
-              </button>
+              <Tooltip key={reaction.id} content={reaction.users.map((u) => u.username).join(', ')}>
+                <button
+                  className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs border transition-colors hover:bg-muted ${
+                    reaction.currentUserReacted 
+                      ? 'border-[#5865f2] bg-[#5865f2]/20 text-[#f5f5f5]'
+                      : 'bg-background border-border'
+                  }`}
+                  onClick={() => handleReaction(reaction.emoji)}
+                  aria-label={`${reaction.emoji} ${reaction.count}`}
+                >
+                  <span>{reaction.emoji}</span>
+                  <span>{reaction.count}</span>
+                </button>
+              </Tooltip>
             ))}
           </div>
         )}

@@ -4,6 +4,10 @@ import {
   miscordNoiseSuppressor,
 } from './miscordNoiseSuppressor';
 import {
+  DeepFilterNet3NoiseSuppressor,
+  deepFilterNet3NoiseSuppressor,
+} from './deepFilterNet3NoiseSuppressor';
+import {
   NoiseSuppressionEngine,
   NoiseSuppressionRuntimeStatus,
   useNoiseSuppressionStore,
@@ -49,6 +53,10 @@ export class AudioProcessingService {
   private makeupGainNode: GainNode | null = null;
   private muteGainNode: GainNode | null = null;
   private aiNode: AudioWorkletNode | null = null;
+  private deepFilterNet3Node: AudioWorkletNode | null = null;
+  /** Тихий генератор держит Web Audio → WebRTC поток «живым» в Chrome. */
+  private keepAliveOscillator: OscillatorNode | null = null;
+  private keepAliveGain: GainNode | null = null;
   private inputVolumePercent = 100;
   private analyser: AnalyserNode | null = null;
   private analyserSource: MediaStreamAudioSourceNode | null = null;
@@ -57,13 +65,15 @@ export class AudioProcessingService {
   private cpuExpectedAt = 0;
   private cpuOverloadStrikes = 0;
   private pipelineGeneration = 0;
+  private transitionGeneration = 0;
   private currentVolume = 0;
   private muted = false;
   private speaking = false;
   private activeEngine: NoiseSuppressionEngine | null = null;
 
   private config: AudioProcessingConfig = {
-    vadEnabled: true,
+    // Silero VAD требует ONNX WASM — на части браузеров падает; голос работает без него.
+    vadEnabled: false,
     noiseSuppression: true,
     echoCancellation: true,
     autoGainControl: true,
@@ -84,6 +94,11 @@ export class AudioProcessingService {
         name: 'Miscord AI',
       },
       {
+        engine: 'deepfilternet3',
+        supported: DeepFilterNet3NoiseSuppressor.isSupported(),
+        name: 'DeepFilterNet3',
+      },
+      {
         engine: 'browser',
         supported: true,
         name: 'Стандартное',
@@ -94,6 +109,7 @@ export class AudioProcessingService {
   async initialize(stream: MediaStream): Promise<MediaStream> {
     await this.destroy();
     const generation = ++this.pipelineGeneration;
+    const token = ++this.transitionGeneration;
     const storedSettings = useNoiseSuppressionStore.getState();
 
     this.config.noiseSuppression = storedSettings.enabled;
@@ -124,10 +140,13 @@ export class AudioProcessingService {
 
       this.configureVoiceNodes();
       this.connectBaseGraph();
+      this.startDestinationKeepAlive();
 
       if (this.config.noiseSuppression) {
         if (this.config.noiseSuppressionEngine === 'miscord-ai') {
-          await this.activateMiscordAI(generation);
+          await this.activateMiscordAI(generation, token);
+        } else if (this.config.noiseSuppressionEngine === 'deepfilternet3') {
+          await this.activateDeepFilterNet3(generation, token);
         } else {
           await this.activateBrowserSuppression(false);
         }
@@ -217,6 +236,44 @@ export class AudioProcessingService {
     this.muteGainNode.connect(this.destinationNode);
   }
 
+  /**
+   * Chrome иногда «замораживает» MediaStreamDestination без постоянного сигнала.
+   * Подмешиваем неслышимый тон — на слух не влияет, WebRTC продолжает слать пакеты.
+   */
+  private startDestinationKeepAlive(): void {
+    if (!this.audioContext || !this.destinationNode) return;
+
+    this.stopDestinationKeepAlive();
+
+    this.keepAliveOscillator = this.audioContext.createOscillator();
+    this.keepAliveGain = this.audioContext.createGain();
+    this.keepAliveOscillator.frequency.value = 20;
+    this.keepAliveGain.gain.value = 0.0001;
+    this.keepAliveOscillator.connect(this.keepAliveGain);
+    this.keepAliveGain.connect(this.destinationNode);
+    this.keepAliveOscillator.start();
+  }
+
+  private stopDestinationKeepAlive(): void {
+    try {
+      this.keepAliveOscillator?.stop();
+    } catch {
+      // already stopped
+    }
+    try {
+      this.keepAliveOscillator?.disconnect();
+    } catch {
+      // ignore
+    }
+    try {
+      this.keepAliveGain?.disconnect();
+    } catch {
+      // ignore
+    }
+    this.keepAliveOscillator = null;
+    this.keepAliveGain = null;
+  }
+
   private applyInputVolumeGain(): void {
     if (!this.inputGainNode) return;
     const normalized = Math.min(100, Math.max(0, this.inputVolumePercent)) / 100;
@@ -235,15 +292,27 @@ export class AudioProcessingService {
     return this.inputVolumePercent;
   }
 
-  private async activateMiscordAI(generation = this.pipelineGeneration): Promise<void> {
+  private isTransitionCurrent(token: number, engine: NoiseSuppressionEngine): boolean {
+    return token === this.transitionGeneration && this.config.noiseSuppression && this.config.noiseSuppressionEngine === engine;
+  }
+
+  private async activateMiscordAI(generation = this.pipelineGeneration, token = this.transitionGeneration): Promise<void> {
+    deepFilterNet3NoiseSuppressor.destroy();
+    this.deepFilterNet3Node = null;
     if (!this.audioContext || !this.highPassNode || !this.wetGainNode) return;
 
     this.setRuntimeStatus('loading', 'Загрузка локальной нейросети…', null);
     await this.applyCaptureConstraints(true, 'miscord-ai');
+    if (!this.isTransitionCurrent(token, 'miscord-ai') || generation !== this.pipelineGeneration) return;
 
     try {
       if (!this.aiNode) {
         this.aiNode = await miscordNoiseSuppressor.createNode(this.audioContext);
+        if (!this.isTransitionCurrent(token, 'miscord-ai') || generation !== this.pipelineGeneration) {
+          miscordNoiseSuppressor.destroy();
+          this.aiNode = null;
+          return;
+        }
         this.aiNode.addEventListener('processorerror', () => {
           void this.handleAIFailure('AI-процессор остановился. Включено стандартное шумоподавление.');
         });
@@ -253,9 +322,14 @@ export class AudioProcessingService {
         // RNNoise initializes its WASM instance inside the audio render thread.
         // Keep the dry path audible until the first neural frames are ready.
         await miscordNoiseSuppressor.warmUp();
+        if (!this.isTransitionCurrent(token, 'miscord-ai') || generation !== this.pipelineGeneration) {
+          miscordNoiseSuppressor.destroy();
+          this.aiNode = null;
+          return;
+        }
       }
 
-      if (generation !== this.pipelineGeneration) return;
+      if (!this.isTransitionCurrent(token, 'miscord-ai') || generation !== this.pipelineGeneration) return;
 
       this.crossfadeToAI(true);
       this.activeEngine = 'miscord-ai';
@@ -267,11 +341,58 @@ export class AudioProcessingService {
     }
   }
 
+  private async activateDeepFilterNet3(generation = this.pipelineGeneration, token = this.transitionGeneration): Promise<void> {
+    if (!this.audioContext || !this.highPassNode || !this.wetGainNode) return;
+
+    this.setRuntimeStatus('loading', 'Загрузка тестового DeepFilterNet3…', null);
+    await this.applyCaptureConstraints(true, 'deepfilternet3');
+    if (!this.isTransitionCurrent(token, 'deepfilternet3') || generation !== this.pipelineGeneration) return;
+
+    try {
+      miscordNoiseSuppressor.destroy();
+      this.aiNode = null;
+      if (!this.deepFilterNet3Node) {
+        this.deepFilterNet3Node = await deepFilterNet3NoiseSuppressor.createNode(this.audioContext);
+        if (!this.isTransitionCurrent(token, 'deepfilternet3') || generation !== this.pipelineGeneration) {
+          deepFilterNet3NoiseSuppressor.destroy();
+          this.deepFilterNet3Node = null;
+          return;
+        }
+        this.deepFilterNet3Node.addEventListener('processorerror', () => {
+          void this.handleAIFailure('DeepFilterNet3 остановился. Включено стандартное шумоподавление.');
+        });
+        this.highPassNode.connect(this.deepFilterNet3Node);
+        this.deepFilterNet3Node.connect(this.wetGainNode);
+        await deepFilterNet3NoiseSuppressor.warmUp();
+        if (!this.isTransitionCurrent(token, 'deepfilternet3') || generation !== this.pipelineGeneration) {
+          deepFilterNet3NoiseSuppressor.destroy();
+          this.deepFilterNet3Node = null;
+          return;
+        }
+      }
+
+      if (!this.isTransitionCurrent(token, 'deepfilternet3') || generation !== this.pipelineGeneration) return;
+      this.crossfadeToAI(true, 0.005);
+      this.activeEngine = 'deepfilternet3';
+      this.setRuntimeStatus('active', 'DeepFilterNet3 обрабатывает звук локально в тестовом режиме.', 'deepfilternet3');
+      this.startCpuWatchdog();
+    } catch (error) {
+      console.error('[DeepFilterNet3] Initialization failed:', error);
+      deepFilterNet3NoiseSuppressor.destroy();
+      this.deepFilterNet3Node = null;
+      await this.handleAIFailure('DeepFilterNet3 недоступен. Включено стандартное шумоподавление.');
+    }
+  }
+
   private async activateBrowserSuppression(
     fallback: boolean,
     message = 'Используется встроенная обработка WebRTC.'
   ): Promise<void> {
     this.stopCpuWatchdog();
+    miscordNoiseSuppressor.destroy();
+    deepFilterNet3NoiseSuppressor.destroy();
+    this.aiNode = null;
+    this.deepFilterNet3Node = null;
     await this.applyCaptureConstraints(true, 'browser');
     this.crossfadeToAI(false);
     this.activeEngine = 'browser';
@@ -286,6 +407,7 @@ export class AudioProcessingService {
     enabled: boolean,
     engine: NoiseSuppressionEngine = this.config.noiseSuppressionEngine
   ): Promise<void> {
+    const token = ++this.transitionGeneration;
     this.config.noiseSuppression = enabled;
     this.config.noiseSuppressionEngine = engine;
 
@@ -304,7 +426,12 @@ export class AudioProcessingService {
     }
 
     if (engine === 'miscord-ai') {
-      await this.activateMiscordAI();
+      await this.activateMiscordAI(this.pipelineGeneration, token);
+      return;
+    }
+
+    if (engine === 'deepfilternet3') {
+      await this.activateDeepFilterNet3(this.pipelineGeneration, token);
       return;
     }
 
@@ -338,6 +465,7 @@ export class AudioProcessingService {
 
     const now = this.audioContext.currentTime;
     const end = now + durationSeconds;
+    // Полный переход на AI-ветку — максимальное шумоподавление Miscord AI.
     const dryTarget = useAI ? 0 : 1;
     const wetTarget = useAI ? 1 : 0;
 
@@ -384,7 +512,7 @@ export class AudioProcessingService {
         this.stopCpuWatchdog();
         void this.activateBrowserSuppression(
           true,
-          'Miscord AI временно отключён из-за высокой нагрузки на систему.'
+          (this.activeEngine === 'deepfilternet3' ? 'DeepFilterNet3' : 'Miscord AI') + ' временно отключён из-за высокой нагрузки на систему.'
         );
       }
     }, 1000);
@@ -475,6 +603,10 @@ export class AudioProcessingService {
     this.analyserSource.connect(this.analyser);
 
     const data = new Uint8Array(this.analyser.frequencyBinCount);
+    // Без Silero VAD зелёную рамку ведём по уровню громкости.
+    let speechFrames = 0;
+    let silenceFrames = 0;
+
     const checkVolume = () => {
       if (!this.analyser || this.audioContext?.state === 'closed') return;
 
@@ -488,6 +620,25 @@ export class AudioProcessingService {
       const rms = Math.sqrt(sumSquares / data.length);
       this.currentVolume = Math.min(100, rms * 220);
       this.onVolumeChange?.(this.currentVolume / 100);
+
+      if (!this.config.vadEnabled && !this.muted) {
+        if (this.currentVolume > 8) {
+          speechFrames += 1;
+          silenceFrames = 0;
+          if (!this.speaking && speechFrames >= 3) {
+            this.speaking = true;
+            this.onSpeechStart?.();
+          }
+        } else {
+          silenceFrames += 1;
+          speechFrames = 0;
+          if (this.speaking && silenceFrames >= 10) {
+            this.speaking = false;
+            this.onSpeechEnd?.();
+          }
+        }
+      }
+
       this.volumeAnimationFrame = requestAnimationFrame(checkVolume);
     };
 
@@ -561,7 +712,9 @@ export class AudioProcessingService {
 
   async destroy(resetRuntimeStatus = true): Promise<void> {
     this.pipelineGeneration += 1;
+    this.transitionGeneration += 1;
     this.stopCpuWatchdog();
+    this.stopDestinationKeepAlive();
 
     if (this.volumeAnimationFrame !== null) {
       cancelAnimationFrame(this.volumeAnimationFrame);
@@ -574,6 +727,7 @@ export class AudioProcessingService {
     }
 
     miscordNoiseSuppressor.destroy();
+    deepFilterNet3NoiseSuppressor.destroy();
 
     const nodes: Array<AudioNode | null> = [
       this.analyserSource,
@@ -586,6 +740,8 @@ export class AudioProcessingService {
       this.compressorNode,
       this.makeupGainNode,
       this.muteGainNode,
+      this.aiNode,
+      this.deepFilterNet3Node,
       this.destinationNode,
     ];
     nodes.forEach((node) => {
@@ -595,6 +751,8 @@ export class AudioProcessingService {
         // A node can already be disconnected after an AudioWorklet failure.
       }
     });
+    this.aiNode = null;
+    this.deepFilterNet3Node = null;
 
     if (this.audioContext && this.audioContext.state !== 'closed') {
       await this.audioContext.close();
@@ -624,3 +782,4 @@ export class AudioProcessingService {
 }
 
 export const audioProcessingService = new AudioProcessingService();
+

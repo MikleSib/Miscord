@@ -1,21 +1,22 @@
 import logging
 import os
-import shutil
-import uuid
 from pathlib import Path
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.dependencies import get_current_active_user
+from app.core.media import to_public_media_path
 from app.core.security import create_access_token, get_password_hash, verify_password
 from app.db.database import get_db
 from app.models.user import User
 from app.schemas.user import Token, User as UserSchema, UserCreate, UserUpdate
+from app.services.image_upload import read_and_validate_image, save_image_bytes
+from app.services.rate_limit import rate_limit_auth, rate_limit_user
 from app.websocket.connection_manager import manager
 
 logger = logging.getLogger(__name__)
@@ -60,10 +61,12 @@ async def _broadcast_profile_update(user: User) -> None:
 
 @router.post("/register", response_model=UserSchema)
 async def register(
+    request: Request,
     user_data: UserCreate,
     db: AsyncSession = Depends(get_db)
 ):
     """Регистрация нового пользователя"""
+    rate_limit_auth(request, "register", limit=5, window=300)
     # Проверка существующего пользователя
     result = await db.execute(
         select(User).where(
@@ -94,10 +97,12 @@ async def register(
 
 @router.post("/login", response_model=Token)
 async def login(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db)
 ):
     """Вход пользователя"""
+    rate_limit_auth(request, "login", limit=20, window=60)
     # Поиск пользователя
     result = await db.execute(
         select(User).where(User.username == form_data.username)
@@ -154,34 +159,18 @@ async def update_profile(
 
 @router.post("/avatar")
 async def upload_avatar(
+    request: Request,
     avatar: UploadFile = File(...),
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Загрузка аватара пользователя."""
-    if not avatar.content_type or not avatar.content_type.startswith("image/"):
-        raise HTTPException(
-            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="Поддерживаются только изображения.",
-        )
-
-    if avatar.size is not None and avatar.size > 5 * 1024 * 1024:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="Размер файла не должен превышать 5MB.",
-        )
-
-    extension = Path(avatar.filename or "").suffix.lower() or ".png"
-    if extension not in {".png", ".jpg", ".jpeg", ".gif", ".webp"}:
-        extension = ".png"
-
-    unique_filename = f"{uuid.uuid4()}{extension}"
-    file_path = AVATARS_DIR / unique_filename
-
+    rate_limit_user(current_user.id, "avatar", limit=10, window=60, request=request)
     try:
-        with file_path.open("wb") as buffer:
-            shutil.copyfileobj(avatar.file, buffer)
-        os.chmod(file_path, 0o644)
+        data, extension, _ctype = await read_and_validate_image(avatar)
+        unique_filename = save_image_bytes(data, AVATARS_DIR, extension)
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error("[AVATAR] Ошибка сохранения: %s", exc)
         raise HTTPException(
@@ -191,7 +180,7 @@ async def upload_avatar(
     finally:
         await avatar.close()
 
-    # Удаляем старый файл, если он был нашим
+    file_path = AVATARS_DIR / unique_filename
     old_path = _local_path_from_avatar_url(current_user.avatar_url)
     if old_path and old_path.exists() and old_path != file_path:
         try:
@@ -199,7 +188,7 @@ async def upload_avatar(
         except OSError:
             pass
 
-    avatar_url = f"{settings.SERVER_HOST}/static/uploads/avatars/{unique_filename}"
+    avatar_url = to_public_media_path(f"/static/uploads/avatars/{unique_filename}")
     current_user.avatar_url = avatar_url
     await db.commit()
     await db.refresh(current_user)

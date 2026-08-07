@@ -1,6 +1,7 @@
 import api from './api';
 import {
   AuditLogEntry,
+  ChannelNotificationLevel,
   InvitePreview,
   PermissionCatalog,
   Role,
@@ -8,6 +9,7 @@ import {
   ServerInvite,
   ServerMember,
   ServerMembershipInfo,
+  ServerNotificationSettings,
 } from '../types';
 
 export interface CreateRoleRequest {
@@ -45,6 +47,48 @@ class ServerService {
 
   async getMyMembership(serverId: number): Promise<ServerMembershipInfo> {
     const response = await api.get<ServerMembershipInfo>(`/api/servers/${serverId}/me`);
+    return response.data;
+  }
+
+  // --- Уведомления ---
+
+  async getNotificationSettings(serverId: number): Promise<ServerNotificationSettings> {
+    const response = await api.get<ServerNotificationSettings>(
+      `/api/servers/${serverId}/me/notifications`
+    );
+    return response.data;
+  }
+
+  async updateNotificationSettings(
+    serverId: number,
+    data: Partial<Omit<ServerNotificationSettings, 'server_id' | 'channel_overrides'>>
+  ): Promise<ServerNotificationSettings> {
+    const response = await api.patch<ServerNotificationSettings>(
+      `/api/servers/${serverId}/me/notifications`,
+      data
+    );
+    return response.data;
+  }
+
+  async setChannelNotificationOverride(
+    serverId: number,
+    textChannelId: number,
+    level: ChannelNotificationLevel
+  ): Promise<ServerNotificationSettings> {
+    const response = await api.put<ServerNotificationSettings>(
+      `/api/servers/${serverId}/me/notifications/channels/${textChannelId}`,
+      { level }
+    );
+    return response.data;
+  }
+
+  async removeChannelNotificationOverride(
+    serverId: number,
+    textChannelId: number
+  ): Promise<ServerNotificationSettings> {
+    const response = await api.delete<ServerNotificationSettings>(
+      `/api/servers/${serverId}/me/notifications/channels/${textChannelId}`
+    );
     return response.data;
   }
 

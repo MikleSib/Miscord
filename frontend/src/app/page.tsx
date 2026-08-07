@@ -16,6 +16,10 @@ import { VoiceOverlay } from '../components/VoiceOverlay'
 import { useVoiceStore } from '../store/slices/voiceSlice'
 import voiceService from '../services/voiceService'
 import websocketService from '../services/websocketService'
+import { openScreenShareView } from '../lib/screenShareNavigation'
+import { ScreenShareVideoPool } from '../components/ScreenShareVideoPool'
+import { ScreenShareViewerHost } from '../components/ScreenShareViewerHost'
+import { ScreenSharePickerModal } from '../components/ScreenSharePickerModal'
 import soundService from '../services/soundService'
 import p2pVoiceService from '../services/p2pVoiceService'
 import { Button } from '../components/ui/button'
@@ -61,6 +65,7 @@ export default function HomePage() {
   })
   const [showUserSidebar, setShowUserSidebar] = useState(true)
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false)
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'profile' | 'voice'>('profile')
 
   useEffect(() => {
     setIsMounted(true)
@@ -126,24 +131,18 @@ export default function HomePage() {
     const handleScreenShareChange = (userId: number, isSharing: boolean) => {
       setSharingUsers(prev => {
         if (isSharing) {
-          // Добавляем пользователя если его нет в списке
           if (!prev.find(u => u.userId === userId)) {
-            const username = `User ${userId}`; // Здесь нужно получить имя пользователя
+            const isSelf = authUser?.id === userId;
+            const username = isSelf
+              ? (authUser.display_name?.trim() || authUser.username || 'Вы')
+              : (prev.find((u) => u.userId === userId)?.username ?? '');
 
-            // Показываем Toast уведомление
-            const toastId = `${userId}-${Date.now()}`;
-            setToastNotifications(prevToasts => [
-              ...prevToasts,
-              { userId, username, id: toastId }
-            ]);
-
-            return [...prev, { userId, username }];
+            // Toast только через handleScreenShareStartEvent (там имя с сервера и проверка «не я»)
+            return [...prev, { userId, username: username || `User ${userId}` }];
           }
           return prev;
-        } else {
-          // Удаляем пользователя из списка
-          return prev.filter(u => u.userId !== userId);
         }
+        return prev.filter(u => u.userId !== userId);
       });
     };
 
@@ -160,25 +159,33 @@ export default function HomePage() {
 
     // Обработчик событий screen_share_start из WebSocket
     const handleScreenShareStartEvent = (event: any) => {
-      const { user_id, username } = event.detail;
+      const { user_id, username, display_name } = event.detail;
+      const streamerId = Number(user_id);
+      if (!Number.isFinite(streamerId)) return;
+
+      const streamerName =
+        (typeof display_name === 'string' && display_name.trim()) ||
+        (typeof username === 'string' && username.trim()) ||
+        `User ${streamerId}`;
+
+      const isSelf = authUser?.id === streamerId;
 
       setSharingUsers(prev => {
-        if (!prev.find(u => u.userId === user_id)) {
-          // Показываем Toast уведомление только если это не мы сами
-          const currentUser = authUser;
-          if (currentUser && user_id !== currentUser.id) {
-            const toastId = `${user_id}-${Date.now()}`;
-            setToastNotifications(prevToasts => [
-              ...prevToasts,
-              { userId: user_id, username, id: toastId }
-            ]);
-          } else {
-
-          }
-
-          return [...prev, { userId: user_id, username }];
+        if (prev.find(u => u.userId === streamerId)) {
+          return prev.map((u) =>
+            u.userId === streamerId ? { ...u, username: streamerName } : u
+          );
         }
-        return prev;
+
+        if (!isSelf) {
+          const toastId = `${streamerId}-${Date.now()}`;
+          setToastNotifications((prevToasts) => [
+            ...prevToasts,
+            { userId: streamerId, username: streamerName, id: toastId },
+          ]);
+        }
+
+        return [...prev, { userId: streamerId, username: streamerName }];
       });
     };
 
@@ -367,15 +374,7 @@ export default function HomePage() {
 
   // Функции для работы с Toast уведомлениями
   const handleViewScreenShare = (userId: number, username: string) => {
-    // Отправляем событие для открытия демонстрации в ChatArea
-    if (typeof window !== 'undefined') {
-      const event = new CustomEvent('open_screen_share', {
-        detail: { userId, username }
-      });
-      window.dispatchEvent(event);
-    }
-    
-    // Убираем Toast уведомление
+    openScreenShareView(userId, username);
     setToastNotifications(prev => prev.filter(toast => toast.userId !== userId));
   };
 
@@ -384,12 +383,14 @@ export default function HomePage() {
   };
 
   const handleOpenSettings = () => {
-    setIsSettingsModalOpen(true);
-  };
+    // В голосовом канале сразу открываем «Голос и видео»
+    setSettingsInitialTab(currentVoiceChannelId ? 'voice' : 'profile')
+    setIsSettingsModalOpen(true)
+  }
 
   const handleCloseSettings = () => {
-    setIsSettingsModalOpen(false);
-  };
+    setIsSettingsModalOpen(false)
+  }
 
   if (!isMounted) {
     return null // Предотвращаем гидратацию
@@ -406,7 +407,8 @@ export default function HomePage() {
     )
   }
 
-  if (isLoading) {
+  // Показываем лоадер только при первой загрузке, иначе модалки (настройки канала) слетают
+  if (isLoading && servers.length === 0) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
@@ -425,6 +427,9 @@ export default function HomePage() {
 
       {currentServer ? (
         <>
+          <ScreenShareVideoPool />
+          <ScreenShareViewerHost showMemberSidebar={showUserSidebar} />
+          <ScreenSharePickerModal />
           <div className="relative z-40">
             <ChannelSidebar />
           </div>
@@ -518,6 +523,7 @@ export default function HomePage() {
       <SettingsModal
         isOpen={isSettingsModalOpen}
         onClose={handleCloseSettings}
+        initialTab={settingsInitialTab}
       />
     </div>
   )

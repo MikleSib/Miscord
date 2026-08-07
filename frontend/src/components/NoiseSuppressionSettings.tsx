@@ -13,6 +13,7 @@ import {
   NoiseSuppressionEngine,
 } from '../services/audioProcessingService';
 import { useNoiseSuppressionStore } from '../store/noiseSuppressionStore';
+import { Switch } from './ui/switch';
 
 interface NoiseSuppressionSettingsProps {
   currentEngine?: NoiseSuppressionEngine;
@@ -50,6 +51,11 @@ export const NoiseSuppressionSettings: React.FC<NoiseSuppressionSettingsProps> =
       name: 'Miscord AI',
     },
     {
+      engine: 'deepfilternet3',
+      supported: false,
+      name: 'DeepFilterNet3',
+    },
+    {
       engine: 'browser',
       supported: true,
       name: 'Стандартное',
@@ -80,8 +86,7 @@ export const NoiseSuppressionSettings: React.FC<NoiseSuppressionSettingsProps> =
     }
   };
 
-  const handleEnabledChange = () => {
-    const nextEnabled = !enabled;
+  const handleEnabledChange = (nextEnabled: boolean) => {
     setEnabled(nextEnabled);
     void apply(nextEnabled, engine);
   };
@@ -116,29 +121,21 @@ export const NoiseSuppressionSettings: React.FC<NoiseSuppressionSettingsProps> =
             </p>
           </div>
         </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={enabled}
+        <Switch
+          className="mt-1"
+          checked={enabled}
           aria-label="Включить шумоподавление"
-          onClick={handleEnabledChange}
           disabled={isApplying || !selectedEngineSupported}
-          className={`relative mt-1 h-6 w-11 shrink-0 rounded-full transition-colors ${
-            enabled ? 'bg-emerald-500' : 'bg-muted'
-          } disabled:cursor-not-allowed disabled:opacity-50`}
-        >
-          <span
-            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
-              enabled ? 'translate-x-5' : 'translate-x-0.5'
-            }`}
-          />
-        </button>
+          onCheckedChange={handleEnabledChange}
+        />
       </div>
 
       <div className="mt-5 space-y-2">
         {supportedEngines.map(({ engine: itemEngine, supported, name }) => {
           const isSelected = engine === itemEngine;
-          const isAI = itemEngine === 'miscord-ai';
+          const isMiscordAI = itemEngine === 'miscord-ai';
+          const isDeepFilterNet3 = itemEngine === 'deepfilternet3';
+          const isNeural = isMiscordAI || isDeepFilterNet3;
 
           return (
             <button
@@ -158,14 +155,19 @@ export const NoiseSuppressionSettings: React.FC<NoiseSuppressionSettingsProps> =
                   isSelected ? 'bg-emerald-400/15 text-emerald-300' : 'bg-muted text-muted-foreground'
                 }`}
               >
-                {isAI ? <Sparkles className="h-4 w-4" /> : <Cpu className="h-4 w-4" />}
+                {isNeural ? <Sparkles className="h-4 w-4" /> : <Cpu className="h-4 w-4" />}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex flex-wrap items-center gap-2">
                   <span className="font-medium text-foreground">{name}</span>
-                  {isAI && (
+                  {isMiscordAI && (
                     <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-300">
                       Рекомендуется
+                    </span>
+                  )}
+                  {isDeepFilterNet3 && (
+                    <span className="rounded-full bg-sky-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-300">
+                      Тестовый
                     </span>
                   )}
                   {!supported && (
@@ -173,14 +175,16 @@ export const NoiseSuppressionSettings: React.FC<NoiseSuppressionSettingsProps> =
                   )}
                 </span>
                 <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
-                  {isAI
-                    ? 'Локальная рекуррентная нейросеть RNNoise. Лучше отделяет речь от постоянного и импульсного шума.'
-                    : 'Встроенная обработка WebRTC. Минимальная нагрузка и резервный вариант для слабых устройств.'}
+                  {isMiscordAI
+                    ? 'Локальная нейросеть RNNoise отделяет речь от постоянного и импульсного шума.'
+                    : isDeepFilterNet3
+                      ? 'Локальный DeepFilterNet3 C/WASM. Тестовое подавление сложного фонового шума.'
+                      : 'Встроенная обработка WebRTC с минимальной нагрузкой на систему.'}
                 </span>
                 <span className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-                  <span>{isAI ? 'AI · 48 кГц' : 'WebRTC'}</span>
-                  <span>{isAI ? 'Нагрузка: средняя' : 'Нагрузка: низкая'}</span>
-                  <span>{isAI ? 'Обработка: локально' : 'Обработка: в браузере'}</span>
+                  <span>{isMiscordAI ? 'AI — 48 кГц' : isDeepFilterNet3 ? 'DeepFilterNet3 — 48 кГц' : 'WebRTC'}</span>
+                  <span>{isMiscordAI ? 'Нагрузка: средняя' : isDeepFilterNet3 ? 'Нагрузка: высокая' : 'Нагрузка: низкая'}</span>
+                  <span>{isNeural ? 'Обработка: локально' : 'Обработка: браузер'}</span>
                 </span>
               </span>
               <span
@@ -224,7 +228,7 @@ export const NoiseSuppressionSettings: React.FC<NoiseSuppressionSettingsProps> =
           )}
           <div>
             <span className="font-semibold">{runtimeLabels[runtimeStatus]}</span>
-            {activeEngine === 'browser' && engine === 'miscord-ai' && ' · WebRTC'}
+            {activeEngine === 'browser' && engine !== 'browser' && ' · WebRTC'}
             {runtimeMessage && <p className="mt-0.5 leading-relaxed opacity-85">{runtimeMessage}</p>}
           </div>
         </div>

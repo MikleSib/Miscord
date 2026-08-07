@@ -35,6 +35,10 @@ class TextChannel(Base):
     name = Column(String, nullable=False)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False)
     position = Column(Integer, default=0)
+    slow_mode_seconds = Column(Integer, default=0, nullable=False, server_default="0")
+    is_hidden = Column(Boolean, default=False, nullable=False, server_default="false")
+    hidden_at = Column(DateTime(timezone=True), nullable=True)
+    hidden_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Отношения
@@ -48,7 +52,12 @@ class VoiceChannel(Base):
     name = Column(String, nullable=False)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False)
     position = Column(Integer, default=0)
-    max_users = Column(Integer, default=10)
+    # 0 = без лимита (∞)
+    max_users = Column(Integer, default=0)
+    # Битрейт аудио в кбит/с (8–96)
+    bitrate = Column(Integer, default=64, nullable=False)
+    # auto | 720p
+    video_quality = Column(String(16), default="auto", nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Отношения

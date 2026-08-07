@@ -11,14 +11,22 @@ import p2pVoiceService from '../services/p2pVoiceService'
 import { Phone, PhoneOff, Send, X, Clock, PlusCircle, Smile, Reply, Trash2, Edit } from 'lucide-react'
 import { UserAvatar } from './ui/user-avatar'
 import { MediaLightbox, MediaLightboxItem } from './MediaLightbox'
+import { MessageContent } from './MessageContent'
+import { MessageLinkEmbeds } from './MessageLinkEmbeds'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 
 interface DirectMessageAreaProps {
   friend: User
+  initialMessage?: string | null
+  onInitialMessageSent?: () => void
 }
 
-export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
+export function DirectMessageArea({
+  friend,
+  initialMessage = null,
+  onInitialMessageSent,
+}: DirectMessageAreaProps) {
   const [messages, setMessages] = useState<DirectMessage[]>([])
   const [newMessage, setNewMessage] = useState('')
   const [files, setFiles] = useState<File[]>([])
@@ -34,6 +42,9 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
   const [replyingTo, setReplyingTo] = useState<DirectMessage | null>(null)
   const [hoveredMessageId, setHoveredMessageId] = useState<number | string | null>(null)
   const [showEmojiPicker, setShowEmojiPicker] = useState<number | string | null>(null)
+  const [rateLimitUntil, setRateLimitUntil] = useState<number | null>(null)
+  const [rateLimitHint, setRateLimitHint] = useState<string | null>(null)
+  const initialMessageSentRef = useRef(false)
 
   // Загрузка сообщений с пагинацией
   const fetchMessages = async (loadSkip: number = 0, loadLimit: number = 30) => {
@@ -70,8 +81,86 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
     setMessages([])
     setSkip(0)
     setHasMore(true)
+    setRateLimitUntil(null)
+    setRateLimitHint(null)
+    initialMessageSentRef.current = false
     fetchMessages(0)
   }, [friend.id])
+
+  useEffect(() => {
+    if (!rateLimitUntil) return
+    const timer = window.setInterval(() => {
+      if (Date.now() >= rateLimitUntil) {
+        setRateLimitUntil(null)
+        setRateLimitHint(null)
+      }
+    }, 250)
+    return () => window.clearInterval(timer)
+  }, [rateLimitUntil])
+
+  const rateLimitRemainingSeconds =
+    rateLimitUntil && rateLimitUntil > Date.now()
+      ? Math.ceil((rateLimitUntil - Date.now()) / 1000)
+      : 0
+  const isRateLimited = rateLimitRemainingSeconds > 0
+
+  const sendMessageContent = async (messageContent: string, attachmentUrls: string[] = []) => {
+    if (!messageContent.trim() && attachmentUrls.length === 0) return
+    if (!user) return
+    if (isSending) return
+    if (isRateLimited) return
+
+    const tempId = `temp-${Date.now()}-${Math.random()}`
+
+    setIsSending(true)
+
+    try {
+      const optimisticMessage: DirectMessage = {
+        id: tempId,
+        tempId,
+        content: messageContent,
+        timestamp: new Date().toISOString(),
+        sender_id: user.id,
+        recipient_id: friend.id,
+        isPending: true,
+        author: user,
+        attachments: attachmentUrls.map((url, index) => ({
+          id: index,
+          file_url: url,
+          message_id: 0,
+        })),
+        reactions: [],
+      }
+
+      setMessages((prev) => [...prev, optimisticMessage])
+      setNewMessage('')
+      setFiles([])
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+
+      websocketService.send({
+        type: 'dm_message',
+        recipient_id: friend.id,
+        content: messageContent,
+        attachments: attachmentUrls,
+      })
+    } catch (error) {
+      console.error('[DirectMessageArea] Ошибка отправки:', error)
+      alert('Не удалось отправить сообщение')
+    } finally {
+      setIsSending(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!initialMessage?.trim() || initialMessageSentRef.current || !user) return
+
+    initialMessageSentRef.current = true
+    void sendMessageContent(initialMessage.trim()).then(() => {
+      onInitialMessageSent?.()
+    })
+  }, [friend.id, initialMessage, user])
 
   useEffect(() => {
     const handleNewMessage = (payload: any) => {
@@ -152,14 +241,47 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
       }));
     };
 
+    const handleRateLimit = (data: {
+      message?: string
+      retry_after_seconds?: number
+      scope?: string
+      recipient_id?: number
+    }) => {
+      if (data.scope && data.scope !== 'dm') return
+      if (data.recipient_id && data.recipient_id !== friend.id) return
+
+      const seconds = Math.max(1, data.retry_after_seconds || 1)
+      setRateLimitUntil(Date.now() + seconds * 1000)
+      setRateLimitHint(
+        data.message
+          ? `${data.message} (${seconds} сек.)`
+          : `Слишком быстро. Подождите ${seconds} сек.`
+      )
+
+      // Убираем «фантомные» pending-сообщения, которые сервер отклонил
+      setMessages((prev) => {
+        const pending = prev.filter((m) => m.isPending && m.sender_id === user?.id)
+        if (pending.length === 0) return prev
+        const lastPending = pending[pending.length - 1]
+        queueMicrotask(() => {
+          if (lastPending.content) {
+            setNewMessage((current) => (current.trim() ? current : lastPending.content || ''))
+          }
+        })
+        return prev.filter((m) => m !== lastPending)
+      })
+    }
+
     websocketService.on('dm', handleNewMessage);
     websocketService.on('dm_deleted', handleDMDeleted);
     websocketService.on('dm_reaction_updated', handleDMReactionUpdated);
+    websocketService.on('rate_limit', handleRateLimit);
     
     return () => {
       websocketService.off('dm', handleNewMessage);
       websocketService.off('dm_deleted', handleDMDeleted);
       websocketService.off('dm_reaction_updated', handleDMReactionUpdated);
+      websocketService.off('rate_limit', handleRateLimit);
     };
   }, [friend.id, user?.id]);
 
@@ -198,62 +320,27 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
     if (!newMessage.trim() && files.length === 0) return
     if (!user) return
     if (isSending) return
+    if (isRateLimited) return
 
-    const messageContent = newMessage;
-    const tempId = `temp-${Date.now()}-${Math.random()}`;
-    
-    setIsSending(true);
+    const messageContent = newMessage
+
+    setIsSending(true)
 
     try {
-      // Загружаем файлы, если они есть
-      const attachmentUrls: string[] = [];
+      const attachmentUrls: string[] = []
       for (const file of files) {
-        console.log('[DirectMessageArea] Загружаем файл:', file.name);
-        const response = await uploadService.uploadFile(file);
-        attachmentUrls.push(response.file_url);
-        console.log('[DirectMessageArea] Файл загружен:', response.file_url);
+        console.log('[DirectMessageArea] Загружаем файл:', file.name)
+        const response = await uploadService.uploadFile(file)
+        attachmentUrls.push(response.file_url)
+        console.log('[DirectMessageArea] Файл загружен:', response.file_url)
       }
 
-      // Создаем оптимистичное сообщение
-      const optimisticMessage: DirectMessage = {
-        id: tempId,
-        tempId,
-        content: messageContent,
-        timestamp: new Date().toISOString(),
-        sender_id: user.id,
-        recipient_id: friend.id,
-        isPending: true,
-        author: user,
-        attachments: attachmentUrls.map((url, index) => ({
-          id: index,
-          file_url: url,
-          message_id: 0
-        })),
-        reactions: []
-      };
-
-      console.log('[DirectMessageArea] Отправка сообщения:', { optimisticMessage });
-
-      // Добавляем сообщение в UI сразу
-      setMessages((prev) => [...prev, optimisticMessage]);
-      setNewMessage('');
-      setFiles([]);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-
-      // Отправляем через WebSocket
-      websocketService.send({
-        type: 'dm_message',
-        recipient_id: friend.id,
-        content: messageContent,
-        attachments: attachmentUrls
-      });
+      await sendMessageContent(messageContent, attachmentUrls)
     } catch (error) {
-      console.error('[DirectMessageArea] Ошибка отправки:', error);
-      alert('Не удалось отправить сообщение');
+      console.error('[DirectMessageArea] Ошибка отправки:', error)
+      alert('Не удалось отправить сообщение')
     } finally {
-      setIsSending(false);
+      setIsSending(false)
     }
   }
 
@@ -437,10 +524,22 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
                     </div>
                   )}
                   
-                  {/* Message content */}
+                  {/* Message content + превью ссылок */}
                   {msg.content && (
                     <div className={`${isPending ? 'text-gray-400 opacity-70' : 'text-white'} ${isCurrentUser ? 'bg-blue-600' : 'bg-gray-700'} rounded-lg px-3 py-2 ${isPending ? 'bg-opacity-70' : ''}`}>
-                      {msg.content}
+                      <MessageContent
+                        content={msg.content}
+                        currentUserId={user?.id}
+                        resolveMentionLabel={(id) =>
+                          id === user?.id
+                            ? user.username
+                            : id === friend.id
+                              ? friend.username
+                              : `user_${id}`
+                        }
+                        className={isCurrentUser ? 'text-white' : undefined}
+                      />
+                      {!isPending && <MessageLinkEmbeds content={msg.content} />}
                     </div>
                   )}
 
@@ -524,6 +623,11 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
 
       {/* Input */}
       <div className="px-4 pb-4 border-t border-[#2c2d32] flex-shrink-0">
+        {isRateLimited && (
+          <div className="mb-2 rounded-md border border-[#5865f2]/30 bg-[#5865f2]/10 px-3 py-2 text-sm text-[#dbdee1]">
+            {rateLimitHint || `Слишком быстро. Подождите ${rateLimitRemainingSeconds} сек.`}
+          </div>
+        )}
         <form onSubmit={handleSendMessage} className="bg-[#393a41] rounded-lg flex flex-col">
           
           {/* Reply Preview */}
@@ -582,7 +686,7 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
               type="button"
               onClick={() => fileInputRef.current?.click()}
               className="text-gray-400 hover:text-white mr-2"
-              disabled={files.length >= 3 || isSending}
+              disabled={files.length >= 3 || isSending || isRateLimited}
               title="Прикрепить изображение"
             >
               <PlusCircle className="w-5 h-5" />
@@ -593,12 +697,12 @@ export function DirectMessageArea({ friend }: DirectMessageAreaProps) {
               onChange={(e) => setNewMessage(e.target.value)}
               placeholder={replyingTo ? 'Напишите ответ...' : `Написать @${friend.username}`}
               className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none py-3"
-              disabled={isSending}
+              disabled={isSending || isRateLimited}
             />
             <button 
               type="submit" 
               className="text-gray-400 hover:text-white disabled:opacity-50" 
-              disabled={(!newMessage.trim() && files.length === 0) || isSending}
+              disabled={(!newMessage.trim() && files.length === 0) || isSending || isRateLimited}
             >
               <Send />
             </button>

@@ -6,6 +6,7 @@
 import unifiedWebSocketService from './unifiedWebSocketService';
 import { EventEmitter } from 'events';
 import { User } from '@/types';
+import soundService from './soundService';
 
 class OptimizedP2PVoiceService extends EventEmitter {
   public peerConnection: RTCPeerConnection | null = null;
@@ -293,6 +294,7 @@ class OptimizedP2PVoiceService extends EventEmitter {
       });
     }
 
+    soundService.playMicToggleSound(this.isMuted);
     this.emit('mute_changed', this.isMuted);
     console.log('[OptimizedP2P] 🔇 Mute:', this.isMuted);
     return this.isMuted;

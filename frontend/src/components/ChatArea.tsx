@@ -1,8 +1,8 @@
 'use client'
 
 import React from 'react'
-import { useState, useRef, useEffect } from 'react'
-import { Hash, Send, PlusCircle, X, Users } from 'lucide-react'
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
+import { Hash, Send, PlusCircle, X, Users, AtSign } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { useAuthStore } from '../store/store'
 import { useChatStore } from '../store/chatStore'
@@ -10,22 +10,50 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from './ui/button'
 import { UserAvatar } from './ui/user-avatar'
 import { ChatMessage } from './ChatMessage'
+import { Tooltip } from './ui/tooltip'
 import { ReplyInput } from './ReplyInput'
-import { Message } from '../types'
+import { MentionAutocomplete } from './MentionAutocomplete'
+import { MemberProfilePopover } from './MemberProfilePopover'
+import { Message, Role, ServerMember } from '../types'
 import { formatDateDivider } from '../lib/utils'
 import chatService from '../services/chatService'
 import uploadService from '../services/uploadService'
 import reactionService from '../services/reactionService'
-import { ScreenShareViewer } from './ScreenShareViewer'
+import serverService from '../services/serverService'
+import { formatSlowModeLabel } from '../lib/slowMode'
+import {
+  filterMentionCandidates,
+  getActiveMentionQuery,
+  insertMentionHandle,
+  insertMentionToken,
+  serializeLooseMentions,
+  toMentionCandidates,
+  contentMentionsUser,
+  getMemberMentionId,
+  MentionCandidate,
+} from '../lib/mentions'
+import { shallow } from 'zustand/shallow'
+import {
+  useMentionNotificationStore,
+  formatMentionBadge,
+  PendingMention,
+} from '../store/mentionNotificationStore'
+import {
+  shouldNotifyMentionClient,
+  useNotificationSettingsStore,
+} from '../store/notificationSettingsStore'
 
 export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSidebar: boolean, setShowUserSidebar: (v: boolean) => void }) {
   const { currentChannel, currentServer } = useStore()
   const { user, token } = useAuthStore()
   const { 
     messages, 
-    isLoading: chatLoading, 
+    isLoading: chatLoading,
+    isLoadingOlder,
+    hasMoreOlder,
     error: chatError,
     loadMessageHistory,
+    loadOlderMessages,
     addMessage,
     updateMessageReactions,
     updateSingleReaction,
@@ -42,20 +70,233 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   const [isLoading, setIsLoading] = useState(false)
   const [typingUsers, setTypingUsers] = useState<string[]>([])
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
+  const [slowModeUntil, setSlowModeUntil] = useState<number | null>(null)
+  const [sendLimitHint, setSendLimitHint] = useState<string | null>(null)
+  const [mentionMembers, setMentionMembers] = useState<ServerMember[]>([])
+  const [serverRoles, setServerRoles] = useState<Role[]>([])
+  const [mentionQuery, setMentionQuery] = useState<{ start: number; query: string } | null>(null)
+  const [mentionIndex, setMentionIndex] = useState(0)
+  const [profilePopover, setProfilePopover] = useState<{
+    member: ServerMember
+    anchorRect: DOMRect
+  } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const messageInputRef = useRef<HTMLInputElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  
-  // Состояние для демонстрации экрана
-  const [sharingUsers, setSharingUsers] = useState<Array<{
-    userId: number;
-    username: string;
-    avatar_url?: string;
-  }>>([])
-  const [isScreenShareVisible, setIsScreenShareVisible] = useState(false)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
+  const messagesContentRef = useRef<HTMLDivElement>(null)
+  const suppressAutoScrollRef = useRef(false)
+  /** Держим низ чата, пока пользователь сам не ушёл вверх читать историю */
+  const stickToBottomRef = useRef(true)
+  /** Игнорим onScroll пока сами прыгаем вниз (иначе stick сбрасывается) */
+  const programmaticScrollRef = useRef(false)
+  /** Чтобы скролл вверх не запросил одну пачку несколько раз подряд */
+  const loadingOlderLockRef = useRef(false)
+
+  const channelIdForMentions =
+    currentChannel?.type === 'text' ? currentChannel.id : null
+  const channelMentions = useMentionNotificationStore(
+    (state): PendingMention[] => {
+      if (channelIdForMentions == null) return []
+      return state.pending
+        .filter((item) => item.textChannelId === channelIdForMentions)
+        .sort((a, b) => a.createdAt - b.createdAt || a.messageId - b.messageId)
+    },
+    shallow
+  )
+  const markMentionRead = useMentionNotificationStore((state) => state.markMessageRead)
+  const addMentionNotification = useMentionNotificationStore((state) => state.addMention)
+
+  const mentionCandidates = useMemo(
+    () => toMentionCandidates(mentionMembers),
+    [mentionMembers]
+  )
+
+  const filteredMentions = useMemo(
+    () => (mentionQuery ? filterMentionCandidates(mentionCandidates, mentionQuery.query) : []),
+    [mentionCandidates, mentionQuery]
+  )
+
+  const mentionNameById = useMemo(() => {
+    const map = new Map<number, string>()
+    for (const candidate of mentionCandidates) {
+      map.set(candidate.id, candidate.displayName)
+    }
+    return map
+  }, [mentionCandidates])
+
+  const resolveMentionLabel = useCallback(
+    (userId: number) => mentionNameById.get(userId) || `user_${userId}`,
+    [mentionNameById]
+  )
+
+  // Список участников и ролей — для @упоминаний и карточки профиля
+  useEffect(() => {
+    if (!currentServer?.id || currentChannel?.type !== 'text') {
+      setMentionMembers([])
+      setServerRoles([])
+      setProfilePopover(null)
+      return
+    }
+
+    let cancelled = false
+    Promise.all([
+      serverService.getMembers(currentServer.id),
+      serverService.getRoles(currentServer.id),
+    ])
+      .then(([membersResponse, rolesResponse]) => {
+        if (cancelled) return
+        setMentionMembers(membersResponse.members)
+        setServerRoles(rolesResponse)
+      })
+      .catch((error) => {
+        console.error('Не удалось загрузить участников для упоминаний:', error)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [currentServer?.id, currentChannel?.type])
+
+  const handleMentionClick = useCallback(
+    (userId: number, anchorRect: DOMRect) => {
+      const member = mentionMembers.find((item) => getMemberMentionId(item) === userId)
+      if (!member) return
+      setProfilePopover({ member, anchorRect })
+    },
+    [mentionMembers]
+  )
+
+  /** Цвет ника участника по роли (как в списке справа) */
+  const getMemberColor = useCallback(
+    (userId: number | undefined | null): string | null => {
+      if (!userId) return null
+      const member = mentionMembers.find((item) => getMemberMentionId(item) === userId)
+      return member?.color || null
+    },
+    [mentionMembers]
+  )
+
+  const handleProfileMemberUpdated = useCallback((updatedMember: ServerMember) => {
+    setMentionMembers((prev) =>
+      prev.map((member) =>
+        getMemberMentionId(member) === updatedMember.user_id ? updatedMember : member
+      )
+    )
+    setProfilePopover((prev) =>
+      prev && prev.member.user_id === updatedMember.user_id
+        ? { ...prev, member: updatedMember }
+        : prev
+    )
+  }, [])
+
+  useEffect(() => {
+    setSlowModeUntil(null)
+    setSendLimitHint(null)
+  }, [currentChannel?.id, currentChannel?.type])
+
+  // Зашли в канал — всегда начинаем с последних сообщений (низ)
+  useEffect(() => {
+    if (currentChannel?.type !== 'text') return
+    stickToBottomRef.current = true
+  }, [currentChannel?.id, currentChannel?.type])
+
+  useEffect(() => {
+    if (!slowModeUntil) return
+    const timer = window.setInterval(() => {
+      if (Date.now() >= slowModeUntil) {
+        setSlowModeUntil(null)
+        setSendLimitHint(null)
+      }
+    }, 250)
+    return () => window.clearInterval(timer)
+  }, [slowModeUntil])
+
+  const slowModeRemainingSeconds =
+    slowModeUntil && slowModeUntil > Date.now()
+      ? Math.ceil((slowModeUntil - Date.now()) / 1000)
+      : 0
+  const isSlowModeActive = slowModeRemainingSeconds > 0
+
+  const scrollMessagesToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
+    const container = messagesContainerRef.current
+    if (!container) return
+    programmaticScrollRef.current = true
+    if (behavior === 'smooth') {
+      container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
+    } else {
+      // Мгновенно — иначе при куче сообщений smooth «ломается» и остаёшься наверху
+      container.scrollTop = container.scrollHeight
+    }
+    // На всякий случай якорь в конце списка
+    messagesEndRef.current?.scrollIntoView({ block: 'end', behavior: 'auto' })
+    // Даём браузеру применить scrollTop, потом снова слушаем onScroll
+    window.requestAnimationFrame(() => {
+      programmaticScrollRef.current = false
+    })
+  }, [])
+
+  const handleMessagesScroll = useCallback(() => {
+    if (programmaticScrollRef.current) return
+    const container = messagesContainerRef.current
+    if (!container) return
+
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight
+    stickToBottomRef.current = distanceFromBottom < 140
+
+    // Как в Discord: доскроллил вверх → подгрузить ещё пачку старых
+    if (
+      container.scrollTop < 80 &&
+      hasMoreOlder &&
+      !isLoadingOlder &&
+      !chatLoading &&
+      !loadingOlderLockRef.current
+    ) {
+      const prevHeight = container.scrollHeight
+      const prevTop = container.scrollTop
+      suppressAutoScrollRef.current = true
+      stickToBottomRef.current = false
+      loadingOlderLockRef.current = true
+
+      void loadOlderMessages()
+        .then((added) => {
+          if (!added) return
+          // Сохраняем позицию глаз: после prepend не прыгаем
+          window.requestAnimationFrame(() => {
+            const el = messagesContainerRef.current
+            if (!el) return
+            programmaticScrollRef.current = true
+            el.scrollTop = prevTop + (el.scrollHeight - prevHeight)
+            window.requestAnimationFrame(() => {
+              programmaticScrollRef.current = false
+            })
+          })
+        })
+        .finally(() => {
+          loadingOlderLockRef.current = false
+        })
+    }
+  }, [hasMoreOlder, isLoadingOlder, chatLoading, loadOlderMessages])
+
+  // Пока «прилипли» к низу — любой рост высоты (превью, картинки) снова кидает вниз
+  useEffect(() => {
+    const content = messagesContentRef.current
+    if (!content || typeof ResizeObserver === 'undefined') return
+
+    const observer = new ResizeObserver(() => {
+      if (!stickToBottomRef.current) return
+      scrollMessagesToBottom('auto')
+    })
+    observer.observe(content)
+
+    return () => observer.disconnect()
+  }, [scrollMessagesToBottom, currentChannel?.id, messages.length])
 
   // Загрузка истории сообщений при смене канала
   useEffect(() => {
     if (currentChannel?.type === 'text') {
+      stickToBottomRef.current = true
       loadMessageHistory(currentChannel.id);
       
       // Подключаемся к WebSocket чата только если еще не подключены
@@ -71,6 +312,27 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
             content: msg.content || '', // Гарантируем что content не null
           };
           addMessage(chatMessage);
+
+          // Если в сообщении пинг текущего пользователя — кладём в непрочитанные
+          // (дедуп со звуком уже внутри store; событие mention тоже может прийти)
+          if (
+            currentServer?.id &&
+            user?.id &&
+            msg.author?.id !== user.id &&
+            contentMentionsUser(chatMessage.content, user.id)
+          ) {
+            const notificationSettings = useNotificationSettingsStore
+              .getState()
+              .get(currentServer.id)
+            if (shouldNotifyMentionClient(notificationSettings, currentChannel.id)) {
+              addMentionNotification({
+                messageId: msg.id,
+                textChannelId: currentChannel.id,
+                serverId: currentServer.id,
+                channelName: currentChannel.name,
+              })
+            }
+          }
         });
         
         // Обработчик печати
@@ -103,6 +365,25 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
         chatService.onReactionUpdated((data) => {
           updateSingleReaction(data.message_id, data.emoji, data.reaction);
         });
+
+        chatService.onSlowMode((data) => {
+          if (data.text_channel_id !== currentChannel.id) return;
+          setSlowModeUntil(Date.now() + data.retry_after_seconds * 1000);
+          setSendLimitHint(
+            `Подождите ${data.retry_after_seconds} сек. — в этом канале включён медленный режим.`
+          );
+        });
+
+        chatService.onRateLimit((data) => {
+          if (data.text_channel_id && data.text_channel_id !== currentChannel.id) return;
+          const seconds = Math.max(1, data.retry_after_seconds || 1);
+          setSlowModeUntil(Date.now() + seconds * 1000);
+          setSendLimitHint(
+            data.message
+              ? `${data.message} (${seconds} сек.)`
+              : `Слишком быстро. Подождите ${seconds} сек.`
+          );
+        });
       }
     } else {
       setTypingUsers([]);
@@ -112,58 +393,79 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     return () => {
       setTypingUsers([]);
     };
-  }, [currentChannel?.id, currentChannel?.type, loadMessageHistory, addMessage, deleteMessage, editMessage, token]);
-  
+  }, [
+    currentChannel?.id,
+    currentChannel?.type,
+    currentChannel?.name,
+    currentServer?.id,
+    user?.id,
+    loadMessageHistory,
+    addMessage,
+    deleteMessage,
+    editMessage,
+    token,
+    addMentionNotification,
+  ]);
+
+  // После загрузки/новых сообщений — прыгаем вниз (и при F5 / смене канала)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+    if (suppressAutoScrollRef.current) {
+      suppressAutoScrollRef.current = false
+      return
+    }
+    if (!stickToBottomRef.current) return
+    if (!messages.length) return
 
-  // Обработчики событий демонстрации экрана
-  useEffect(() => {
-    const handleScreenShareStart = (event: any) => {
-      const { user_id, username, avatar_url } = event.detail;
-      
-      setSharingUsers(prev => {
-        if (!prev.find(u => u.userId === user_id)) {
-          return [...prev, { userId: user_id, username, avatar_url }];
-        }
-        return prev;
-      });
-      
-      console.log('🖥️ [ChatArea] Показываем overlay демонстрации экрана');
-      setIsScreenShareVisible(true);
-    };
+    let cancelled = false
+    const timers: number[] = []
 
-    const handleScreenShareStop = (event: any) => {
-      const { user_id } = event.detail;
-      console.log('[ChatArea] Остановлена демонстрация экрана:', user_id);
-      
-      setSharingUsers(prev => {
-        const newUsers = prev.filter(u => u.userId !== user_id);
-        if (newUsers.length === 0) {
-          setIsScreenShareVisible(false);
-        }
-        return newUsers;
-      });
-    };
+    const jump = () => {
+      if (cancelled || !stickToBottomRef.current) return
+      scrollMessagesToBottom('auto')
+    }
 
-    const handleOpenScreenShare = (event: any) => {
-      const { userId, username } = event.detail;
-      console.log('[ChatArea] Открытие демонстрации экрана:', { userId, username });
-      setIsScreenShareVisible(true);
-    };
-
-    // Подписываемся на события
-    window.addEventListener('screen_share_start', handleScreenShareStart);
-    window.addEventListener('screen_share_stop', handleScreenShareStop);
-    window.addEventListener('open_screen_share', handleOpenScreenShare);
+    // Несколько попыток: после paint, после layout и после превью/картинок
+    const frame1 = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(jump)
+    })
+    timers.push(window.setTimeout(jump, 0))
+    timers.push(window.setTimeout(jump, 50))
+    timers.push(window.setTimeout(jump, 200))
+    timers.push(window.setTimeout(jump, 500))
+    timers.push(window.setTimeout(jump, 1000))
 
     return () => {
-      window.removeEventListener('screen_share_start', handleScreenShareStart);
-      window.removeEventListener('screen_share_stop', handleScreenShareStop);
-      window.removeEventListener('open_screen_share', handleOpenScreenShare);
-    };
-  }, []);
+      cancelled = true
+      window.cancelAnimationFrame(frame1)
+      timers.forEach((id) => window.clearTimeout(id))
+    }
+  }, [messages, currentChannel?.id, chatLoading, scrollMessagesToBottom])
+
+  const scrollToMention = useCallback((messageId: number) => {
+    const el = document.getElementById(`chat-message-${messageId}`)
+    if (!el) return false
+
+    suppressAutoScrollRef.current = true
+    stickToBottomRef.current = false
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.classList.add('ring-2', 'ring-[#5865f2]', 'ring-offset-2', 'ring-offset-background')
+    window.setTimeout(() => {
+      el.classList.remove('ring-2', 'ring-[#5865f2]', 'ring-offset-2', 'ring-offset-background')
+    }, 1600)
+    return true
+  }, [])
+
+  /** Как в Telegram: каждый клик — к следующему непрочитанному пингу. */
+  const handleJumpToMention = useCallback(() => {
+    const target = channelMentions[0]
+    if (!target) return
+
+    if (!scrollToMention(target.messageId)) {
+      // Сообщения нет в загруженной истории — снимаем, чтобы не застревать
+      markMentionRead(target.messageId)
+    }
+    // Прочитанным станет само сообщение, когда оно окажется на экране (и фон плавно погаснет)
+  }, [channelMentions, markMentionRead, scrollToMention])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -180,8 +482,39 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     setFiles(prev => prev.filter((_, i) => i !== index));
   }
 
+  const updateMentionState = (value: string, caret: number) => {
+    const active = getActiveMentionQuery(value, caret)
+    setMentionQuery(active)
+    setMentionIndex(0)
+  }
+
+  const applyMention = (candidate: MentionCandidate) => {
+    if (!mentionQuery) return
+
+    const input = messageInputRef.current
+    const caret = input?.selectionStart ?? messageInput.length
+    const safeUsername = /^[\w.-]+$/.test(candidate.username)
+    const next = safeUsername
+      ? insertMentionHandle(messageInput, caret, mentionQuery.start, candidate.username)
+      : insertMentionToken(messageInput, caret, mentionQuery.start, candidate.id)
+
+    setMessageInput(next.value)
+    setMentionQuery(null)
+    setMentionIndex(0)
+
+    requestAnimationFrame(() => {
+      const el = messageInputRef.current
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(next.caret, next.caret)
+    })
+  }
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
+    // Закрываем подсказки @ — кнопка «Отправить» всегда шлёт сообщение
+    setMentionQuery(null)
+
     console.log('[ChatArea] handleSendMessage вызван', { messageInput, files, currentChannel });
     
     if (!messageInput.trim() && files.length === 0) {
@@ -203,18 +536,21 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
         attachmentUrls.push(response.file_url);
         console.log('[ChatArea] Файл загружен:', response.file_url);
       }
+
+      const contentToSend = serializeLooseMentions(messageInput, mentionCandidates)
       
       console.log('[ChatArea] Отправляем сообщение через chatService', { 
-        content: messageInput, 
+        content: contentToSend, 
         attachments: attachmentUrls,
         channelId: currentChannel.id,
         replyTo: replyingTo?.id 
       });
       
-      chatService.sendMessage(messageInput, attachmentUrls, replyingTo?.id);
+      chatService.sendMessage(contentToSend, attachmentUrls, replyingTo?.id);
       
       console.log('[ChatArea] Сообщение отправлено, очищаем форму');
       setMessageInput('')
+      setMentionQuery(null)
       setFiles([])
       setReplyingTo(null)
       if (fileInputRef.current) {
@@ -229,9 +565,36 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setMessageInput(e.target.value);
+    const value = e.target.value
+    const caret = e.target.selectionStart ?? value.length
+    setMessageInput(value)
+    updateMentionState(value, caret)
     if (currentChannel?.type === 'text') {
       chatService.sendTyping();
+    }
+  }
+
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!mentionQuery || filteredMentions.length === 0) return
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setMentionIndex((prev) => (prev + 1) % filteredMentions.length)
+      return
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setMentionIndex((prev) => (prev - 1 + filteredMentions.length) % filteredMentions.length)
+      return
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      setMentionQuery(null)
+      return
+    }
+    if (e.key === 'Tab' || e.key === 'Enter') {
+      e.preventDefault()
+      applyMention(filteredMentions[mentionIndex] || filteredMentions[0])
     }
   }
 
@@ -292,76 +655,112 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   }
 
   return (
-    <div className="flex h-full min-w-0 flex-1 flex-col bg-background">
+    <div className="relative flex h-full min-w-0 flex-1 flex-col bg-background">
       {/* Channel Header */}
       <div className="app-header flex h-12 flex-shrink-0 items-center justify-between border-b px-4">
         <div className="flex items-center">
           <Hash className="w-5 h-5 text-muted-foreground mr-2" />
           <span className="font-semibold">{currentChannel.name}</span>
+          {currentChannel.type === 'text' && (currentChannel.slow_mode_seconds ?? 0) > 0 && (
+            <span className="ml-3 rounded bg-[#5865f2]/15 px-2 py-0.5 text-xs text-[#949cf7]">
+              Медленный режим: {formatSlowModeLabel(currentChannel.slow_mode_seconds ?? 0)}
+            </span>
+          )}
         </div>
         <div className="flex items-center space-x-2">
-          <button
-            className="interactive-row flex items-center p-2 text-muted-foreground hover:text-foreground"
-            title={showUserSidebar ? 'Скрыть список участников' : 'Показать список участников'}
-            onClick={() => setShowUserSidebar(!showUserSidebar)}
-          >
-            <Users className="w-6 h-6 text-muted-foreground" />
-          </button>
+          <Tooltip content={showUserSidebar ? 'Скрыть список участников' : 'Показать список участников'}>
+            <button
+              className="interactive-row flex items-center p-2 text-muted-foreground hover:text-foreground"
+              onClick={() => setShowUserSidebar(!showUserSidebar)}
+              aria-label={showUserSidebar ? 'Скрыть список участников' : 'Показать список участников'}
+            >
+              <Users className="w-6 h-6 text-muted-foreground" />
+            </button>
+          </Tooltip>
         </div>
       </div>
 
 
 
-      {/* Screen Share Viewer */}
-      <ScreenShareViewer
-        isVisible={isScreenShareVisible}
-        onClose={() => setIsScreenShareVisible(false)}
-        sharingUsers={sharingUsers}
-        currentChannelName={currentChannel?.name || 'Неизвестный канал'}
-        currentServerName={currentServer?.name || 'Неизвестный сервер'}
-      />
-
       {/* Messages */}
-      <div className="chat-scroll flex-1 space-y-1 overflow-y-auto px-5 py-4">
-        {chatLoading && (
-          <div className="text-center text-muted-foreground py-4">
-            Загрузка истории сообщений...
-          </div>
-        )}
-        
-        {chatError && (
-          <div className="text-center text-red-400 py-4">
-            {chatError}
-          </div>
-        )}
-        
-        {messages.map((msg, index) => {
-          const prevMsg = messages[index - 1];
-          const showAuthor = !prevMsg || prevMsg.author.id !== msg.author.id || (new Date(msg.timestamp).getTime() - new Date(prevMsg.timestamp).getTime()) > 5 * 60 * 1000;
-          const showDateDivider =
-            !prevMsg ||
-            new Date(prevMsg.timestamp).toDateString() !== new Date(msg.timestamp).toDateString();
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={messagesContainerRef}
+          className="chat-scroll h-full overflow-y-auto px-5 py-4"
+          onScroll={handleMessagesScroll}
+        >
+          <div ref={messagesContentRef} className="space-y-1">
+            {chatLoading && messages.length === 0 && (
+              <div className="text-center text-muted-foreground py-4">
+                Загрузка истории сообщений...
+              </div>
+            )}
 
-          return (
-            <React.Fragment key={msg.id}>
-              {showDateDivider && (
-                <div className="date-divider">
-                  <span>
-                    {formatDateDivider(msg.timestamp)}
-                  </span>
-                </div>
-              )}
-              <ChatMessage
-                message={msg}
-                showAuthor={showAuthor}
-                onReply={handleReply}
-                onReaction={handleReaction}
-                currentUser={user || undefined}
-              />
-            </React.Fragment>
-          )
-        })}
-        <div ref={messagesEndRef} />
+            {isLoadingOlder && (
+              <div className="py-2 text-center text-xs text-muted-foreground">
+                Загрузка старых сообщений...
+              </div>
+            )}
+
+            {!hasMoreOlder && messages.length > 0 && !chatLoading && (
+              <div className="py-3 text-center text-xs text-muted-foreground/70">
+                Это начало канала
+              </div>
+            )}
+            
+            {chatError && (
+              <div className="text-center text-red-400 py-4">
+                {chatError}
+              </div>
+            )}
+            
+            {messages.map((msg, index) => {
+              const prevMsg = messages[index - 1];
+              const showAuthor = !prevMsg || prevMsg.author.id !== msg.author.id || (new Date(msg.timestamp).getTime() - new Date(prevMsg.timestamp).getTime()) > 5 * 60 * 1000;
+              const showDateDivider =
+                !prevMsg ||
+                new Date(prevMsg.timestamp).toDateString() !== new Date(msg.timestamp).toDateString();
+
+              return (
+                <React.Fragment key={msg.id}>
+                  {showDateDivider && (
+                    <div className="date-divider">
+                      <span>
+                        {formatDateDivider(msg.timestamp)}
+                      </span>
+                    </div>
+                  )}
+                  <ChatMessage
+                    message={msg}
+                    showAuthor={showAuthor}
+                    onReply={handleReply}
+                    onReaction={handleReaction}
+                    currentUser={user || undefined}
+                    resolveMentionLabel={resolveMentionLabel}
+                    onMentionClick={handleMentionClick}
+                    authorColor={getMemberColor(msg.author?.id)}
+                    replyAuthorColor={getMemberColor(msg.reply_to?.author?.id)}
+                  />
+                </React.Fragment>
+              )
+            })}
+            <div ref={messagesEndRef} />
+          </div>
+        </div>
+
+        {currentChannel.type === 'text' && channelMentions.length > 0 && (
+          <Tooltip content="Перейти к упоминанию">
+            <button
+              type="button"
+              onClick={handleJumpToMention}
+              className="absolute bottom-4 right-4 z-20 flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-full bg-[#5865f2] px-3 text-sm font-bold text-white shadow-lg transition hover:bg-[#4752c4] active:scale-95"
+              aria-label="Перейти к упоминанию"
+            >
+              <AtSign className="h-4 w-4" />
+              <span>{formatMentionBadge(channelMentions.length)}</span>
+            </button>
+          </Tooltip>
+        )}
       </div>
       
       <TypingIndicator />
@@ -372,7 +771,21 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
       {/* Message Input */}
       {currentChannel.type === 'text' && (
         <div className="flex-shrink-0 border-t border-border/70 p-3">
-          <form onSubmit={handleSendMessage} className="flex flex-col rounded-xl border border-[#3e3f45] bg-[#393a41] p-2">
+          {isSlowModeActive && (
+            <div className="mb-2 rounded-md border border-[#5865f2]/30 bg-[#5865f2]/10 px-3 py-2 text-sm text-[#dbdee1]">
+              {sendLimitHint ||
+                `Подождите ${slowModeRemainingSeconds} сек. — в этом канале включён медленный режим.`}
+            </div>
+          )}
+          <form onSubmit={handleSendMessage} className="relative flex flex-col rounded-xl border border-[#3e3f45] bg-[#393a41] p-2">
+            {mentionQuery && (
+              <MentionAutocomplete
+                candidates={filteredMentions}
+                selectedIndex={mentionIndex}
+                onSelect={applyMention}
+                onHover={setMentionIndex}
+              />
+            )}
             
             {/* File Previews */}
             {files.length > 0 && (
@@ -416,23 +829,36 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
                 <PlusCircle className="w-5 h-5" />
               </Button>
               <input
+                ref={messageInputRef}
                 type="text"
                 value={messageInput}
                 onChange={handleInputChange}
+                onKeyDown={handleInputKeyDown}
+                onClick={(e) => {
+                  const target = e.currentTarget
+                  updateMentionState(target.value, target.selectionStart ?? target.value.length)
+                }}
+                onKeyUp={(e) => {
+                  if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+                    const target = e.currentTarget
+                    updateMentionState(target.value, target.selectionStart ?? target.value.length)
+                  }
+                }}
                 placeholder={
                   replyingTo 
                     ? `Ответ пользователю ${replyingTo.author.username}...`
-                    : `Написать в #${currentChannel.name}`
+                    : `Написать в #${currentChannel.name} · @ — упомянуть`
                 }
                 className="flex-1 bg-transparent outline-none text-sm"
-                disabled={isLoading}
+                disabled={isLoading || isSlowModeActive}
+                autoComplete="off"
               />
               <Button
                 type="submit"
                 size="icon"
                 variant="ghost"
                 className="h-8 w-8"
-                disabled={(!messageInput.trim() && files.length === 0) || isLoading}
+                disabled={(!messageInput.trim() && files.length === 0) || isLoading || isSlowModeActive}
               >
                 {isLoading ? '...' : <Send className="w-4 h-4" />}
               </Button>
@@ -446,6 +872,17 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
           <p>Голосовой канал: {currentChannel.name}</p>
           <p className="text-sm">Нажмите на канал для подключения к голосовому чату</p>
         </div>
+      )}
+
+      {profilePopover && currentServer && (
+        <MemberProfilePopover
+          member={profilePopover.member}
+          serverId={currentServer.id}
+          roles={serverRoles}
+          anchorRect={profilePopover.anchorRect}
+          onClose={() => setProfilePopover(null)}
+          onMemberUpdated={handleProfileMemberUpdated}
+        />
       )}
     </div>
   )

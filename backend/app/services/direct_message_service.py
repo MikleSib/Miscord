@@ -1,8 +1,9 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, func, case
 from sqlalchemy.orm import selectinload
 from app.models.direct_message import DirectMessage
 from app.models.attachment import Attachment
+from app.models.user import User
 
 async def get_messages(db: AsyncSession, user1_id: int, user2_id: int, skip: int = 0, limit: int = 30):
     result = await db.execute(
@@ -49,3 +50,51 @@ async def create_message(db: AsyncSession, sender_id: int, recipient_id: int, co
         )
     )
     return result.scalar_one()
+
+
+async def get_conversations(db: AsyncSession, user_id: int):
+    """Уникальные собеседники с временем последнего сообщения."""
+    peer_id_expr = case(
+        (DirectMessage.sender_id == user_id, DirectMessage.recipient_id),
+        else_=DirectMessage.sender_id,
+    )
+
+    conversations_subq = (
+        select(
+            peer_id_expr.label("peer_id"),
+            func.max(DirectMessage.timestamp).label("last_message_at"),
+        )
+        .where(
+            or_(
+                DirectMessage.sender_id == user_id,
+                DirectMessage.recipient_id == user_id,
+            )
+        )
+        .group_by(peer_id_expr)
+        .subquery()
+    )
+
+    result = await db.execute(
+        select(User, conversations_subq.c.last_message_at)
+        .join(conversations_subq, User.id == conversations_subq.c.peer_id)
+        .order_by(conversations_subq.c.last_message_at.desc())
+    )
+
+    conversations = []
+    for user, last_message_at in result.all():
+        conversations.append(
+            {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "display_name": user.display_name,
+                "avatar_url": user.avatar_url,
+                "is_active": user.is_active,
+                "is_online": user.is_online,
+                "created_at": user.created_at,
+                "updated_at": user.updated_at,
+                "last_message_at": last_message_at,
+            }
+        )
+
+    return conversations

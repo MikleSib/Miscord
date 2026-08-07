@@ -1,139 +1,122 @@
-import React, { useState, useEffect } from 'react';
-import { X, Maximize2, Minimize2 } from 'lucide-react';
+import React, { useEffect } from 'react';
+import { X, Maximize2 } from 'lucide-react';
+import {
+  mountStreamVideoToViewer,
+  mountStreamVideosToPool,
+} from '../lib/screenShareVideo';
+import voiceService from '../services/voiceService';
 
 interface ScreenShareViewerProps {
   isVisible: boolean;
   onClose: () => void;
+  activeStreamerId: number | null;
   sharingUsers: Array<{
     userId: number;
     username: string;
     avatar_url?: string;
   }>;
   currentChannelName: string;
-  currentServerName: string;
+  showMemberSidebar: boolean;
 }
 
-export function ScreenShareViewer({ 
-  isVisible, 
-  onClose, 
-  sharingUsers, 
-  currentChannelName, 
-  currentServerName 
+export function ScreenShareViewer({
+  isVisible,
+  onClose,
+  activeStreamerId,
+  sharingUsers,
+  currentChannelName,
+  showMemberSidebar,
 }: ScreenShareViewerProps) {
-  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isMinimized, setIsMinimized] = useState(false);
+  const selectedUser =
+    sharingUsers.find((user) => user.userId === activeStreamerId) ??
+    (activeStreamerId
+      ? { userId: activeStreamerId, username: `User ${activeStreamerId}` }
+      : null) ??
+    sharingUsers[0] ??
+    null;
 
-  // Автоматически выбираем первого пользователя при появлении стримов
   useEffect(() => {
-    if (sharingUsers.length > 0 && !selectedUserId) {
-      setSelectedUserId(sharingUsers[0].userId);
+    if (!isVisible || !selectedUser) {
+      mountStreamVideosToPool();
+      return;
     }
-  }, [sharingUsers, selectedUserId]);
 
-	// Когда не видим или нет стримеров — ничего не рендерим
-	if (!isVisible || sharingUsers.length === 0) {
-	  return null;
-	}
+    mountStreamVideoToViewer(selectedUser.userId);
+  }, [isVisible, selectedUser?.userId]);
 
-  const selectedUser = sharingUsers.find(user => user.userId === selectedUserId);
-  const isScreenSharing = selectedUser !== undefined;
+  if (!isVisible || !selectedUser) {
+    return null;
+  }
 
   const handleFullscreen = () => {
+    const container = document.getElementById('screen-share-container-chat');
+    if (!container) return;
+
     if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen();
-      setIsFullscreen(true);
+      void container.requestFullscreen();
     } else {
-      document.exitFullscreen();
-      setIsFullscreen(false);
+      void document.exitFullscreen();
     }
   };
 
-  const handleMinimize = () => {
-    setIsMinimized(!isMinimized);
-  };
+  const qualityLabel = voiceService.getStreamQualityLabel();
 
   return (
-    <>
-      {/* Main Screen Share Area - показывается только когда НЕ свернуто */}
-      {!isMinimized && (
-        <div className="fixed bottom-0 right-0 top-0 left-[calc(var(--server-rail-width)+var(--channel-sidebar-width))] z-40 bg-black">
-          {/* Header */}
-          <div className="absolute top-0 left-0 right-0 z-10 bg-black/80 backdrop-blur-sm border-b border-gray-700">
-            <div className="flex items-center justify-between px-4 py-3">
-              <div className="flex items-center space-x-3">
-                <div className="flex items-center space-x-2">
-                  <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                  <span className="text-white font-medium">
-                    {currentChannelName} - Экран {selectedUser?.username || 'Неизвестно'}
-                  </span>
-                </div>
-                <div className="text-gray-400 text-sm">
-                  720p 30 кадров в секунду В ЭФИРЕ
-                </div>
-              </div>
-              
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={handleMinimize}
-                  className="p-2 hover:bg-gray-700 rounded text-gray-300 hover:text-white transition-colors"
-                  title="Свернуть"
-                >
-                  <Minimize2 className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={handleFullscreen}
-                  className="p-2 hover:bg-gray-700 rounded text-gray-300 hover:text-white transition-colors"
-                  title="Полноэкранный режим"
-                >
-                  <Maximize2 className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={onClose}
-                  className="p-2 hover:bg-gray-700 rounded text-gray-300 hover:text-white transition-colors"
-                  title="Закрыть"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
+    <div
+      className="fixed bottom-0 top-0 z-[45] bg-black"
+      style={{
+        left: 'var(--left-dock-width)',
+        right: showMemberSidebar ? 'var(--member-sidebar-width)' : 0,
+      }}
+    >
+      <div className="absolute inset-x-0 top-0 z-10 border-b border-[#3e3f45] bg-black/85 backdrop-blur-sm">
+        <div className="flex items-center justify-between px-4 py-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-[#da373c]" />
+              <span className="truncate font-medium text-white">
+                Экран {selectedUser.username}
+              </span>
             </div>
-          </div>
-
-          {/* Main Content */}
-          <div className="flex h-full pt-12">
-            {/* Main Screen Share Area */}
-            <div className="flex-1 flex items-center justify-center relative">
-              <div 
-                id="screen-share-container-chat" 
-                className="w-full h-full flex items-center justify-center"
-              >
-                {/* Видео элементы будут добавлены сюда через VoiceService */}
-                <div className="text-center text-gray-400">
-                  <p>Загрузка видео потока от {selectedUser?.username}...</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Minimized State - показывается только когда свернуто */}
-      {isMinimized && (
-        <div className="fixed bottom-4 right-4 z-50 bg-gray-800 rounded-lg p-3 shadow-lg border border-gray-700" style={{ left: '320px' }}>
-          <div className="flex items-center space-x-2">
-            <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-            <span className="text-white text-sm">
-              {selectedUser?.username} демонстрирует экран
+            <span className="hidden text-sm text-[#b5bac1] sm:inline">
+              {qualityLabel}
             </span>
+            <span className="rounded bg-[#da373c] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+              В эфире
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1">
             <button
-              onClick={handleMinimize}
-              className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
+              type="button"
+              onClick={handleFullscreen}
+              className="rounded p-2 text-[#b5bac1] transition-colors hover:bg-[#2b2d31] hover:text-white"
+              title="Полноэкранный режим"
             >
-              <Maximize2 className="w-3 h-3" />
+              <Maximize2 className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded p-2 text-[#b5bac1] transition-colors hover:bg-[#2b2d31] hover:text-white"
+              title="Закрыть"
+            >
+              <X className="h-4 w-4" />
             </button>
           </div>
         </div>
-      )}
-    </>
+      </div>
+
+      <div className="flex h-full pt-[3.25rem]">
+        <div
+          id="screen-share-container-chat"
+          className="relative flex h-full w-full items-center justify-center bg-black"
+        >
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-[#949ba4]">
+            <p>Загрузка видео от {selectedUser.username}...</p>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -12,6 +12,7 @@ import { Permissions } from '../../lib/permissions'
 import { useServerPermissions } from '../../lib/serverPermissions'
 import { useStore } from '../../lib/store'
 import { cn } from '../../lib/utils'
+import { resolveMediaUrl } from '../../lib/mediaUrl'
 import { Server } from '../../types'
 import { ErrorBanner, FieldLabel, Section, TabShell, TextInput, Toggle } from './layout'
 
@@ -37,6 +38,7 @@ export function ServerOverviewTab({ server, onServerUpdate }: ServerOverviewTabP
   const [isSaving, setIsSaving] = useState(false)
   const [uploadingTarget, setUploadingTarget] = useState<'icon' | 'banner' | null>(null)
   const [error, setError] = useState('')
+  const [iconLoadFailed, setIconLoadFailed] = useState(false)
 
   const iconInputRef = useRef<HTMLInputElement>(null)
   const bannerInputRef = useRef<HTMLInputElement>(null)
@@ -47,6 +49,7 @@ export function ServerOverviewTab({ server, onServerUpdate }: ServerOverviewTabP
     setIcon(server.icon || null)
     setBanner(server.banner || null)
     setIsPublic(Boolean(server.is_public))
+    setIconLoadFailed(false)
     setError('')
   }, [server.id, server.name, server.description, server.icon, server.banner, server.is_public])
 
@@ -76,6 +79,7 @@ export function ServerOverviewTab({ server, onServerUpdate }: ServerOverviewTabP
       const { file_url } = await uploadService.uploadFile(file)
       if (target === 'icon') {
         setIcon(file_url)
+        setIconLoadFailed(false)
       } else {
         setBanner(file_url)
       }
@@ -150,6 +154,9 @@ export function ServerOverviewTab({ server, onServerUpdate }: ServerOverviewTabP
     }
   }
 
+  const iconUrl = resolveMediaUrl(icon)
+  const bannerUrl = resolveMediaUrl(banner)
+
   return (
     <TabShell
       footer={
@@ -183,9 +190,14 @@ export function ServerOverviewTab({ server, onServerUpdate }: ServerOverviewTabP
               banner && 'bg-none'
             )}
           >
-            {banner && (
+            {bannerUrl && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={banner} alt="Баннер сервера" className="h-full w-full object-cover" />
+              <img
+                key={bannerUrl}
+                src={bannerUrl}
+                alt="Баннер сервера"
+                className="h-full w-full object-cover"
+              />
             )}
             {uploadingTarget === 'banner' && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/50">
@@ -196,9 +208,15 @@ export function ServerOverviewTab({ server, onServerUpdate }: ServerOverviewTabP
 
           <div className="flex flex-wrap items-center gap-4 bg-secondary/40 px-4 py-4">
             <div className="relative -mt-12 h-20 w-20 flex-none overflow-hidden rounded-full border-4 border-background bg-primary">
-              {icon ? (
+              {iconUrl && !iconLoadFailed ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={icon} alt="Иконка сервера" className="h-full w-full object-cover" />
+                <img
+                  key={iconUrl}
+                  src={iconUrl}
+                  alt="Иконка сервера"
+                  className="h-full w-full object-cover"
+                  onError={() => setIconLoadFailed(true)}
+                />
               ) : (
                 <div className="flex h-full w-full items-center justify-center text-2xl font-semibold text-primary-foreground">
                   {server.name.charAt(0).toUpperCase()}
@@ -316,7 +334,11 @@ export function ServerOverviewTab({ server, onServerUpdate }: ServerOverviewTabP
           disabled={!canManage}
           onChange={setIsPublic}
           label="Открытый сервер"
-          description="Название и описание сервера видны в превью приглашения всем, у кого есть ссылка."
+          description={
+            isPublic
+              ? 'Любой участник может создавать ссылки-приглашения. Если выключить — все текущие ссылки сразу перестанут работать.'
+              : 'Сервер закрыт: войти можно только по новой ссылке от человека с правом «Создавать приглашения». Старые ссылки не действуют.'
+          }
         />
       </Section>
 

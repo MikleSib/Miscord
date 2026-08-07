@@ -32,6 +32,7 @@
     --server-rail-width: 5.75rem;
     --channel-sidebar-width: clamp(18.5rem, calc(100vw - 13.5rem), 22rem);
     --left-dock-width: calc(var(--server-rail-width) + var(--channel-sidebar-width));
+    --member-sidebar-width: 15rem;
     --radius: 0.625rem;
     --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
     --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
@@ -318,10 +319,40 @@
 
   .user-dock__voice-levels {
     display: inline-flex;
-    height: 1.25rem;
+    height: 1.75rem;
+    width: 1.75rem;
     align-items: center;
+    justify-content: center;
     gap: 2px;
     color: #b5bac1;
+    border-radius: 0.35rem;
+  }
+
+  .user-dock__voice-levels:hover:not(:disabled) {
+    color: #dbdee1;
+    background: rgba(78, 80, 88, 0.45);
+  }
+
+  .user-dock__voice-levels.is-active {
+    color: #23a559;
+  }
+
+  .user-dock__voice-levels.is-active:hover:not(:disabled) {
+    color: #2dc770;
+  }
+
+  .user-dock__voice-levels.is-open {
+    background: rgba(78, 80, 88, 0.55);
+    color: #f2f3f5;
+  }
+
+  .user-dock__voice-levels.is-open.is-active {
+    color: #23a559;
+  }
+
+  .user-dock__voice-levels:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
 
   .user-dock__voice-levels i {
@@ -343,6 +374,67 @@
 
   .user-dock__voice-levels i:nth-child(3) {
     height: 1.125rem;
+  }
+
+  .user-dock__noise-popover {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 0.55rem);
+    z-index: 80;
+    width: min(18.5rem, calc(100vw - 2rem));
+    padding: 0.9rem 1rem 0.85rem;
+    border-radius: 0.5rem;
+    border: 1px solid #1e1f22;
+    background: #111214;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  }
+
+  .user-dock__noise-popover::after {
+    content: '';
+    position: absolute;
+    right: 0.85rem;
+    bottom: -6px;
+    width: 10px;
+    height: 10px;
+    border-right: 1px solid #1e1f22;
+    border-bottom: 1px solid #1e1f22;
+    background: #111214;
+    transform: rotate(45deg);
+  }
+
+  .user-dock__noise-popover-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .user-dock__noise-popover-header h3 {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #f2f3f5;
+  }
+
+  .user-dock__noise-popover-text {
+    margin: 0.7rem 0 0;
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    color: #b5bac1;
+  }
+
+  .user-dock__noise-popover-hint {
+    margin: 0.55rem 0 0;
+    font-size: 0.75rem;
+    line-height: 1.35;
+    color: #f0b232;
+  }
+
+  .user-dock__noise-popover-footer {
+    margin: 0.85rem 0 0;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #949ba4;
   }
 
   .user-dock__disconnect:hover {
@@ -386,6 +478,7 @@
 
   .user-dock__profile {
     min-height: 3.75rem;
+    width: 100%;
     gap: 0.5rem;
     padding: 0.375rem 0.75rem 0.625rem;
     border-radius: 0 0 0.625rem 0.625rem;
@@ -444,6 +537,23 @@
     flex: none;
     align-items: center;
     gap: 0.25rem;
+    margin-left: auto;
+    overflow: visible;
+  }
+
+  .voice-split-control > .miscord-tooltip-trigger,
+  .voice-output-control > .miscord-tooltip-trigger {
+    display: flex;
+    align-items: stretch;
+  }
+
+  .voice-output-control > .miscord-tooltip-trigger:first-child {
+    flex: 1;
+  }
+
+  .voice-output-control > .miscord-tooltip-trigger .voice-icon-button {
+    width: 100%;
+    height: 100%;
   }
 
   .voice-icon-button {
@@ -477,7 +587,7 @@
     display: flex;
     height: 2rem;
     align-items: stretch;
-    overflow: hidden;
+    overflow: visible;
     border-radius: 0.45rem;
     color: #b5bac1;
     transition: color 150ms var(--ease-out), background-color 150ms var(--ease-out);
@@ -532,12 +642,15 @@
     transform: scale(0.92);
   }
 
-  .voice-output-control > .voice-icon-button {
+  .voice-output-control > .voice-icon-button,
+  .voice-output-control > .miscord-tooltip-trigger .voice-icon-button {
     color: inherit;
   }
 
   .voice-output-control:hover > .voice-icon-button,
-  .voice-output-control.is-danger > .voice-icon-button {
+  .voice-output-control.is-danger > .voice-icon-button,
+  .voice-output-control:hover > .miscord-tooltip-trigger .voice-icon-button,
+  .voice-output-control.is-danger > .miscord-tooltip-trigger .voice-icon-button {
     background: transparent;
   }
   /* Зелёная обводка при речи в голосовом канале */
@@ -1138,6 +1251,120 @@
 
 .media-lightbox__media:not(.is-zoomed) {
   cursor: zoom-in;
+}
+
+/* —— Discord-style tooltips —— */
+.miscord-tooltip-trigger {
+  display: inline-flex;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.miscord-tooltip {
+  position: absolute;
+  z-index: 10050;
+  pointer-events: none;
+  white-space: nowrap;
+  max-width: min(18rem, 70vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0.5rem 0.625rem;
+  border-radius: 0.3125rem;
+  background: #111214;
+  color: #f2f3f5;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: 0.01em;
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.32),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 80ms ease 0s,
+    visibility 80ms ease 0s,
+    transform 80ms ease 0s;
+}
+
+.miscord-tooltip--top {
+  bottom: calc(100% + 0.5rem);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+}
+
+.miscord-tooltip--bottom {
+  top: calc(100% + 0.5rem);
+  left: 50%;
+  transform: translateX(-50%) translateY(-4px);
+}
+
+.miscord-tooltip--left {
+  right: calc(100% + 0.5rem);
+  top: 50%;
+  transform: translateY(-50%) translateX(4px);
+}
+
+.miscord-tooltip--right {
+  left: calc(100% + 0.5rem);
+  top: 50%;
+  transform: translateY(-50%) translateX(-4px);
+}
+
+.miscord-tooltip--top::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-left: -5px;
+  border: 5px solid transparent;
+  border-top-color: #111214;
+}
+
+.miscord-tooltip--bottom::after {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  margin-left: -5px;
+  border: 5px solid transparent;
+  border-bottom-color: #111214;
+}
+
+.miscord-tooltip--left::after {
+  content: '';
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  margin-top: -5px;
+  border: 5px solid transparent;
+  border-left-color: #111214;
+}
+
+.miscord-tooltip--right::after {
+  content: '';
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  margin-top: -5px;
+  border: 5px solid transparent;
+  border-right-color: #111214;
+}
+
+/* Portal tooltips — поверх всего, не обрезаются sidebar/rail */
+.miscord-tooltip--portal {
+  position: fixed;
+  z-index: 99999;
+  opacity: 0;
+  visibility: visible;
+  transform: none;
+  bottom: auto;
+  right: auto;
+  transition: opacity 80ms ease 0s;
+}
+
+.miscord-tooltip--portal.is-positioned {
+  opacity: 1;
 }
 
 @media (prefers-reduced-motion: reduce) {

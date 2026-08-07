@@ -1,9 +1,21 @@
 import { audioProcessingService } from './audioProcessingService';
 import { useNoiseSuppressionStore } from '../store/noiseSuppressionStore';
 import { useAudioDeviceStore } from '../store/audioDeviceStore';
+import { useVADSettingsStore } from '../store/vadSettingsStore';
 import { useAuthStore } from '../store/store';
 import soundService from './soundService';
 import { advancedNoiseGate } from './advancedNoiseGate';
+import { mergeIceServers } from './iceServers';
+import { shouldCreateOffer, canAcceptAnswer, shouldBufferIceCandidate } from './voicePeerUtils';
+import {
+  formatStreamQualityLabel,
+  getDisplayMediaVideoConstraints,
+  getElectronCaptureConstraints,
+  getScreenShareEncoding,
+  resolveQualitySettings,
+} from '../lib/screenShareQuality';
+import { useScreenShareSettingsStore } from '../store/screenShareSettingsStore';
+import { StartScreenShareOptions } from '../lib/screenShareCapture';
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://miscord.ru';
 
@@ -26,13 +38,52 @@ class VoiceService {
   private ws: WebSocket | null = null;
   private rawInputStream: MediaStream | null = null;
   private localStream: MediaStream | null = null;
+  /** Игнорировать ended от треков, которые мы сами остановили при смене устройства. */
+  private ignoreInputTrackEnded = false;
+  private inputRecoveryInFlight = false;
+  private deviceChangeHandler: (() => void) | null = null;
+  private inputTrackEndedHandler: ((event: Event) => void) | null = null;
   private screenStream: MediaStream | null = null; // Поток демонстрации экрана
+  /** Битрейт голосового канала из настроек (кбит/с). */
+  private channelAudioBitrateKbps = 64;
   private peerConnections: Map<number, PeerConnection> = new Map();
   // Буфер кандидатов ICE, пришедших до установки remoteDescription
   private pendingIceCandidates: Map<number, RTCIceCandidateInit[]> = new Map();
+  /** Answer пришёл раньше, чем мы успели отправить offer / создать peer. */
+  private pendingAnswers: Map<number, RTCSessionDescriptionInit> = new Map();
+  /** Один createPeerConnection на userId — иначе два PC и тишина до ICE restart. */
+  private peerInitPromises: Map<number, Promise<RTCPeerConnection>> = new Map();
+  /**
+   * Поколение peer на userId. При force-recreate увеличивается —
+   * старый initialize/handlers после await игнорируются (иначе тишина).
+   */
+  private peerGenerations: Map<number, number> = new Map();
   private iceServers: RTCIceServer[] = [];
+  private iceRestartTimers: Map<number, ReturnType<typeof setTimeout>> = new Map();
+  /** Watchdog: если peer застрял не в checking/connected — полное пересоздание. */
+  private connectWatchdogs: Map<number, ReturnType<typeof setTimeout>> = new Map();
+  /** Сколько раз подряд пересоздавали peer (сброс при connected / inbound audio). */
+  private recreateAttempts: Map<number, number> = new Map();
+  /** Сколько раз watchdog продлил ожидание из‑за checking (макс. 1 = до ~24с). */
+  private connectWatchdogExtends: Map<number, number> = new Map();
+  /** connection_id собеседника с сервера — новый id = новый WebRTC, даже если UI «connected». */
+  private remoteConnectionIds: Map<number, string> = new Map();
+  /** Таймеры проверки: connectionState=connected, но входящих аудио-байт нет. */
+  private mediaHealthTimers: Map<number, ReturnType<typeof setTimeout>> = new Map();
+  /** Сколько раз подряд media-health не увидел входящее аудио. */
+  private mediaHealthMisses: Map<number, number> = new Map();
+  /** Не сдаёмся навсегда: после N попыток — пауза и снова. */
+  private static readonly MAX_RECREATE_BURST = 5;
+  private static readonly RECREATE_COOLDOWN_MS = 8000;
+  private static readonly CONNECT_WATCHDOG_MS = 10000;
+  private static readonly MAX_WATCHDOG_EXTENDS = 1;
+  private static readonly MEDIA_HEALTH_MS = 5000;
+  /** Очередь WS: offer/answer/ice нельзя обрабатывать параллельно. */
+  private messageQueue: Promise<void> = Promise.resolve();
   private voiceChannelId: number | null = null;
   private token: string | null = null;
+  /** Инкремент на каждый connect — отсекает события от старой сессии. */
+  private sessionId = 0;
   private onParticipantJoined: ((participant: any) => void) | null = null;
   private onParticipantLeft: ((userId: number) => void) | null = null;
   private onSpeakingChanged: ((userId: number, isSpeaking: boolean) => void) | null = null;
@@ -49,19 +100,26 @@ class VoiceService {
   private onParticipantStatusChangedCallback: ((userId: number, status: Partial<{ is_muted: boolean; is_deafened: boolean }>) => void) | null = null;
   private onConnectionStateChanged: ((state: 'connected' | 'disconnected' | 'error', message?: string) => void) | null = null;
   private isScreenSharing: boolean = false; // Статус демонстрации экрана
+  private lastScreenShareStartCancelled = false;
   private onScreenShareChanged: ((userId: number, isSharing: boolean) => void) | null = null;
   private isMuted: boolean = false;
   private isDeafened: boolean = false;
   private adaptiveQualityEnabled: boolean = true; // Включено ли адаптивное качество
   // Локальный справочник участников: userId -> { username, avatar_url }
   private participantDirectory: Map<number, { username: string; avatar_url?: string }> = new Map();
+  /** Антиспам screen_share_viewer_joined (мс между отправками на одного стримера). */
+  private lastViewerJoinedSent: Map<number, number> = new Map();
+  /** Debounce ensureRemoteScreenShare. */
+  private screenShareEnsureTimers: Map<number, ReturnType<typeof setTimeout>> = new Map();
   
   // VAD настройки
   private vadThreshold: number = 50; // 0-100, где 0 = максимально чувствительный
   private inputMode: 'voice-activity' | 'push-to-talk' = 'voice-activity';
   private pttKey: string = 'Space';
+  private pttDelayMs: number = 20;
   private isPTTActive: boolean = false;
   private pttKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+  private pttReleaseTimer: ReturnType<typeof setTimeout> | null = null;
   public vadThresholds: { total: number; mid: number; max: number } = {
     total: 25,
     mid: 20,
@@ -84,21 +142,116 @@ class VoiceService {
   public setInputMode(mode: 'voice-activity' | 'push-to-talk'): void {
     console.log('🎙️ Установка режима ввода:', mode);
     this.inputMode = mode;
-    
+
     if (mode === 'push-to-talk') {
       this.setupPTTHandlers();
     } else {
       this.removePTTHandlers();
+    }
+
+    // В режиме рации микрофон «закрыт», пока не зажата клавиша — без смены кнопки Mute
+    this.applyTransmitGate();
+    if (mode === 'push-to-talk' && !this.isPTTActive) {
+      this.setLocalSpeechDetected(false);
     }
   }
 
   public setPTTKey(key: string): void {
     console.log('🎙️ Установка клавиши PTT:', key);
     this.pttKey = key;
-    
+
     if (this.inputMode === 'push-to-talk') {
       this.removePTTHandlers();
       this.setupPTTHandlers();
+    }
+  }
+
+  public setPTTDelay(delayMs: number): void {
+    this.pttDelayMs = Math.max(0, Math.min(2000, delayMs));
+  }
+
+  /** Синхронизация режима рации / VAD из настроек пользователя */
+  public syncInputSettingsFromStore(): void {
+    try {
+      const {
+        inputMode,
+        pttKey,
+        pttDelay,
+        vadSensitivity,
+      } = useVADSettingsStore.getState();
+      this.updateVADThresholds(vadSensitivity);
+      this.pttKey = pttKey || 'Space';
+      this.setPTTDelay(pttDelay ?? 20);
+      this.setInputMode(inputMode || 'voice-activity');
+    } catch (error) {
+      console.warn('🎙️ Не удалось синхронизировать настройки ввода:', error);
+    }
+  }
+
+  /**
+   * Реально ли микрофон сейчас должен передавать звук.
+   * Режим рации: только пока зажата клавиша (и не Mute).
+   */
+  private canTransmitAudio(): boolean {
+    if (this.isMuted) return false;
+    if (this.inputMode === 'push-to-talk') return this.isPTTActive;
+    return true;
+  }
+
+  private applyTransmitGate(): void {
+    const enabled = this.canTransmitAudio();
+
+    // Не трогаем isMuted / кнопку Mute — только фактическую передачу
+    audioProcessingService.setMuted(!enabled || this.isMuted);
+
+    if (this.localStream) {
+      this.localStream.getAudioTracks().forEach((track) => {
+        track.enabled = enabled;
+      });
+    }
+
+    this.peerConnections.forEach(({ pc }) => {
+      pc.getSenders()
+        .filter((sender) => sender.track?.kind === 'audio')
+        .forEach((sender) => {
+          if (sender.track) sender.track.enabled = enabled;
+        });
+    });
+  }
+
+  private clearPttReleaseTimer(): void {
+    if (this.pttReleaseTimer != null) {
+      clearTimeout(this.pttReleaseTimer);
+      this.pttReleaseTimer = null;
+    }
+  }
+
+  private activatePTT(): void {
+    this.clearPttReleaseTimer();
+    if (this.isPTTActive) return;
+    this.isPTTActive = true;
+    this.applyTransmitGate();
+    if (!this.isMuted) {
+      this.setLocalSpeechDetected(true);
+    }
+    console.log('🎙️ PTT активирован');
+  }
+
+  private deactivatePTT(): void {
+    this.clearPttReleaseTimer();
+    const release = () => {
+      this.pttReleaseTimer = null;
+      if (!this.isPTTActive) return;
+      this.isPTTActive = false;
+      this.applyTransmitGate();
+      this.setLocalSpeechDetected(false);
+      console.log('🎙️ PTT деактивирован');
+    };
+
+    if (this.pttDelayMs > 0) {
+      this.pttReleaseTimer = setTimeout(release, this.pttDelayMs);
+    } else {
+      release();
     }
   }
 
@@ -106,42 +259,52 @@ class VoiceService {
     if (this.pttKeyHandler) {
       this.removePTTHandlers();
     }
-    
+
     this.pttKeyHandler = (e: KeyboardEvent) => {
-      if (e.code === this.pttKey) {
-        if (e.type === 'keydown' && !this.isPTTActive) {
-          this.isPTTActive = true;
-          this.unmute(); // Включаем микрофон
-          this.setLocalSpeechDetected(true);
-          console.log('🎙️ PTT активирован');
-        } else if (e.type === 'keyup' && this.isPTTActive) {
-          this.isPTTActive = false;
-          this.setLocalSpeechDetected(false);
-          this.mute(); // Отключаем микрофон
-          console.log('🎙️ PTT деактивирован');
-        }
+      if (e.code !== this.pttKey) return;
+      // Не перехватываем набор текста в полях ввода
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT' ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+
+      if (e.type === 'keydown') {
+        if (e.repeat) return;
+        e.preventDefault();
+        this.activatePTT();
+      } else if (e.type === 'keyup') {
+        e.preventDefault();
+        this.deactivatePTT();
       }
     };
-    
+
     document.addEventListener('keydown', this.pttKeyHandler);
     document.addEventListener('keyup', this.pttKeyHandler);
-    
+
     console.log('🎙️ PTT обработчики установлены для клавиши:', this.pttKey);
   }
 
   public removePTTHandlers(): void {
+    this.clearPttReleaseTimer();
     if (this.pttKeyHandler) {
       document.removeEventListener('keydown', this.pttKeyHandler);
       document.removeEventListener('keyup', this.pttKeyHandler);
       this.pttKeyHandler = null;
-      
-      if (this.isPTTActive) {
-        this.isPTTActive = false;
-        this.mute();
-      }
-      
-      console.log('🎙️ PTT обработчики удалены');
     }
+
+    if (this.isPTTActive) {
+      this.isPTTActive = false;
+      this.applyTransmitGate();
+      this.setLocalSpeechDetected(false);
+    }
+
+    console.log('🎙️ PTT обработчики удалены');
   }
 
   public getCurrentVolume(): number {
@@ -209,27 +372,15 @@ class VoiceService {
   }
 
   async connect(voiceChannelId: number, token: string, isMuted: boolean = false, isDeafened: boolean = false) {
-    
-    
-    // Проверяем, не подключены ли мы уже к этому каналу
+    // Уже в этом канале с живым сокетом — не пересоздаём зря
     if (this.voiceChannelId === voiceChannelId && this.ws && this.ws.readyState === WebSocket.OPEN) {
       return;
     }
-    
-    // Если есть активное WebSocket соединение, сначала закрываем его
-    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
-      
-      this.disconnect();
-      // Ждём немного для завершения закрытия
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-    
-    // Если подключены к другому каналу или соединение закрыто, сначала очищаем
-    if (this.ws || this.voiceChannelId) {
-      console.log('🎙️ Очищаем предыдущее соединение перед новым подключением');
-      this.cleanup();
-    }
-    
+
+    // Discord: сначала полностью выходим из прошлого канала
+    await this.disconnectAsync();
+
+    const sessionId = ++this.sessionId;
     this.voiceChannelId = voiceChannelId;
     this.token = token;
     this.isMuted = isMuted;
@@ -243,8 +394,12 @@ class VoiceService {
 
       // Не включаем два шумодава одновременно: каскадная обработка делает речь
       // металлической. AGC оставляем включённым, чтобы уровень микрофона был нормальным.
+      const inputDeviceId = useAudioDeviceStore.getState().inputDeviceId;
       const rawStream = await navigator.mediaDevices.getUserMedia({
         audio: {
+          ...(inputDeviceId && inputDeviceId !== 'default'
+            ? { deviceId: { exact: inputDeviceId } }
+            : {}),
           echoCancellation: true,
           noiseSuppression: useBrowserNoiseSuppression,
           autoGainControl: true,
@@ -253,7 +408,10 @@ class VoiceService {
         },
         video: false,
       });
+      this.unbindInputTrackWatchdogs(this.rawInputStream);
       this.rawInputStream = rawStream;
+      this.bindInputTrackWatchdogs(rawStream);
+      this.startDeviceWatch();
 
       const bindSpeakingCallbacks = () => {
         audioProcessingService.setOnSpeechStart(() => {
@@ -270,28 +428,42 @@ class VoiceService {
 
       bindSpeakingCallbacks();
 
-      // Инициализируем audioProcessingService и получаем обработанный поток
       const processedStream = await audioProcessingService.initialize(rawStream);
-      
-      // Используем обработанный поток для WebRTC (с VAD и другими эффектами)
-      this.localStream = processedStream;
-      // Громкость микрофона из настроек (по умолчанию 100%)
-      audioProcessingService.setInputVolume(useAudioDeviceStore.getState().inputVolume ?? 100);
-      audioProcessingService.setMuted(isMuted);
-      processedStream.getAudioTracks().forEach((track) => {
-        track.enabled = !isMuted;
-      });
 
-      // VAD стартует внутри initialize — перезапускаем, чтобы callbacks точно были подключены
-      await audioProcessingService.refreshSpeakingDetection();
-      
-      // Индикатор читает уже очищенный сигнал, а не исходный микрофон.
+      const processedTrack = processedStream.getAudioTracks()[0];
+      const useProcessedTrack =
+        Boolean(processedTrack) && processedTrack.readyState === 'live';
+
+      // Miscord AI обрабатывает звук в Web Audio graph — в эфир идёт processedStream.
+      this.localStream = useProcessedTrack ? processedStream : rawStream;
+      if (!useProcessedTrack) {
+        console.warn('[VoiceService] Обработанный поток недоступен, fallback на сырой микрофон');
+      }
+
+      audioProcessingService.setInputVolume(useAudioDeviceStore.getState().inputVolume ?? 100);
+      this.syncInputSettingsFromStore();
+      this.applyTransmitGate();
+
+      await audioProcessingService.refreshSpeakingDetection().catch(() => undefined);
       audioProcessingService.analyzeVolume(processedStream);
     } catch (error) {
       console.error('🎙️ Ошибка доступа к микрофону:', error);
       this.rawInputStream?.getTracks().forEach((track) => track.stop());
       this.rawInputStream = null;
+      if (this.sessionId === sessionId) {
+        this.voiceChannelId = null;
+        this.token = null;
+      }
       throw new Error('Не удалось получить доступ к микрофону');
+    }
+
+    if (this.sessionId !== sessionId) {
+      this.rawInputStream?.getTracks().forEach((track) => track.stop());
+      this.rawInputStream = null;
+      this.localStream?.getTracks().forEach((track) => track.stop());
+      this.localStream = null;
+      await audioProcessingService.destroy();
+      return;
     }
 
     // Подключаемся к WebSocket
@@ -303,17 +475,19 @@ class VoiceService {
     return new Promise<void>((resolve, reject) => {
       let settled = false;
       const connectionTimeout = globalThis.setTimeout(() => {
-        if (settled || this.ws !== socket) return;
+        if (settled || this.sessionId !== sessionId || this.ws !== socket) return;
         settled = true;
         const callback = this.onConnectionStateChanged;
-        this.cleanup();
+        void this.disconnectAsync();
         callback?.('error', 'Сервер голосового канала не ответил вовремя');
         reject(new Error('Сервер голосового канала не ответил вовремя'));
       }, 15000);
 
       const clearConnectionTimeout = () => globalThis.clearTimeout(connectionTimeout);
+      const isCurrentSession = () => this.sessionId === sessionId && this.ws === socket;
 
       socket.onopen = () => {
+        if (!isCurrentSession()) return;
         const joinMessage = {
           type: 'join',
           channel_id: voiceChannelId,
@@ -321,6 +495,7 @@ class VoiceService {
           is_deafened: isDeafened
         };
         socket.send(JSON.stringify(joinMessage));
+        this.initVoiceActivityDetection();
         settled = true;
         clearConnectionTimeout();
         this.onConnectionStateChanged?.('connected');
@@ -329,23 +504,32 @@ class VoiceService {
 
       socket.onerror = (event) => {
         console.error('🎙️ Ошибка Voice WebSocket:', event);
-        if (!settled) {
+        if (!settled && isCurrentSession()) {
           settled = true;
           clearConnectionTimeout();
           const callback = this.onConnectionStateChanged;
-          this.cleanup();
+          void this.disconnectAsync();
           callback?.('error', 'Не удалось подключиться к голосовому каналу');
           reject(new Error('Не удалось подключиться к голосовому каналу'));
         }
       };
 
-      socket.onmessage = async (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          await this.handleMessage(data);
-        } catch (error) {
-          console.error('🎙️ Некорректное сообщение голосового WebSocket:', error);
-        }
+      socket.onmessage = (event) => {
+        if (!isCurrentSession()) return;
+        // Строго по очереди — иначе createPeerConnection гоняется с offer/answer
+        this.messageQueue = this.messageQueue
+          .then(async () => {
+            if (!isCurrentSession()) return;
+            try {
+              const data = JSON.parse(event.data);
+              await this.handleMessage(data);
+            } catch (error) {
+              console.error('🎙️ Некорректное сообщение голосового WebSocket:', error);
+            }
+          })
+          .catch((error) => {
+            console.error('🎙️ Ошибка очереди голосовых сообщений:', error);
+          });
       };
 
       socket.onclose = (event) => {
@@ -356,9 +540,12 @@ class VoiceService {
           reject(new Error(event.reason || 'Голосовое соединение было закрыто'));
         }
 
-        if (this.ws === socket) {
+        // Реагируем только если это всё ещё активная сессия
+        if (isCurrentSession()) {
           const callback = this.onConnectionStateChanged;
-          const reason = event.reason || (event.code === 1000 ? undefined : 'Соединение с голосовым каналом потеряно');
+          const reason =
+            event.reason ||
+            (event.code === 1000 ? undefined : 'Соединение с голосовым каналом потеряно');
           this.cleanup();
           callback?.('disconnected', reason);
         }
@@ -367,39 +554,21 @@ class VoiceService {
   }
 
   /**
-   * Внедряет поддержку RED (Redundant Audio Data) для Opus в SDP.
-   * Это повышает устойчивость к потере пакетов за счет отправки избыточных аудиоданных.
-   * @param sdp Исходный SDP.
-   * @returns Модифицированный SDP с поддержкой RED.
+   * Раньше тут переставляли Opus RED в SDP — это ломало переговоры
+   * на части устройств (телефон/Chrome). Личные звонки без RED работают стабильно.
    */
   private enableOpusRed(sdp: string): string {
-    if (!sdp.includes('m=audio')) return sdp;
-
-    const opusMatch = sdp.match(/a=rtpmap:(\d+) opus\/48000\/2/i);
-    const redMatch = sdp.match(/a=rtpmap:(\d+) red\/48000\/2/i);
-    if (!opusMatch || !redMatch) {
-      return sdp;
-    }
-
-    const opusPayloadType = opusMatch[1];
-    const redPayloadType = redMatch[1];
-    const mAudioRegex = /(m=audio\s\d+\s[A-Z/]+\s)(.*)/;
-    const mAudioMatch = sdp.match(mAudioRegex);
-    if (!mAudioMatch) return sdp;
-
-    const payloadTypes = mAudioMatch[2]
-      .split(' ')
-      .filter((payloadType) => payloadType !== redPayloadType);
-    const opusIndex = payloadTypes.indexOf(opusPayloadType);
-    payloadTypes.splice(opusIndex >= 0 ? opusIndex : 0, 0, redPayloadType);
-
-    return sdp.replace(mAudioRegex, `${mAudioMatch[1]}${payloadTypes.join(' ')}`);
+    return sdp;
   }
   private async handleMessage(data: any) {
     
     switch (data.type) {
       case 'participants':
-        this.iceServers = Array.isArray(data.ice_servers) ? data.ice_servers : [];
+        // Серверные ICE + запасной TURN (личные звонки уже ходят через него).
+        this.iceServers = mergeIceServers(
+          Array.isArray(data.ice_servers) ? data.ice_servers : []
+        );
+        console.log('[VoiceService] ICE servers:', this.iceServers.map((s) => s.urls));
 
         // Передаем список участников в store
         if (this.onParticipantsReceivedCallback) {
@@ -442,9 +611,14 @@ class VoiceService {
         // Создаем соединения с существующими участниками (кроме себя)
         for (const participant of data.participants) {
           if (participant.user_id !== currentUserId) {
-
-            const shouldCreateOffer = currentUserId !== null && currentUserId < participant.user_id;
-            await this.createPeerConnection(participant.user_id, shouldCreateOffer);
+            if (typeof participant.connection_id === 'string' && participant.connection_id) {
+              this.remoteConnectionIds.set(participant.user_id, participant.connection_id);
+            }
+            await this.createPeerConnection(
+              participant.user_id,
+              shouldCreateOffer(currentUserId, participant.user_id),
+              false
+            );
           }
         }
         break;
@@ -485,12 +659,52 @@ class VoiceService {
           console.warn('🔊 [VoiceService] onParticipantJoined НЕ ЗАРЕГИСТРИРОВАН! Пользователь не будет добавлен в UI');
         }
         
-        // Создаем соединение только если это не мы сами
+        // user_joined = новая голосовая сессия. Старый "connected" часто мёртвый
+        // (reconnect без leave) — тогда мы молчали минутами. Пересобираем всегда,
+        // кроме точного дубля того же connection_id.
         if (data.user_id !== currentUserId2) {
-          // Создаем offer только если наш ID меньше (существующий пользователь создает offer для нового)
-          const shouldCreateOffer = currentUserId2 !== null && currentUserId2 < data.user_id;
-          console.log('🔊 [VoiceService] Создаем peer connection для пользователя', data.user_id, 'shouldCreateOffer:', shouldCreateOffer);
-          await this.createPeerConnection(data.user_id, shouldCreateOffer);
+          const newConnId =
+            typeof data.connection_id === 'string' && data.connection_id
+              ? data.connection_id
+              : null;
+          const prevConnId = this.remoteConnectionIds.get(data.user_id);
+          const existing = this.peerConnections.get(data.user_id)?.pc;
+          const sameSession =
+            newConnId !== null &&
+            prevConnId === newConnId &&
+            existing &&
+            (existing.connectionState === 'connected' ||
+              existing.iceConnectionState === 'connected' ||
+              existing.iceConnectionState === 'completed');
+
+          if (sameSession) {
+            console.log(
+              '🔊 [VoiceService] Дубль user_joined той же сессии',
+              data.user_id,
+              newConnId
+            );
+            break;
+          }
+
+          if (newConnId) {
+            this.remoteConnectionIds.set(data.user_id, newConnId);
+          } else {
+            this.remoteConnectionIds.delete(data.user_id);
+          }
+
+          const createOffer = shouldCreateOffer(currentUserId2, data.user_id);
+          console.log(
+            '🔊 [VoiceService] Пересоздаём peer для',
+            data.user_id,
+            'shouldCreateOffer:',
+            createOffer,
+            'prevState:',
+            existing?.connectionState,
+            'connId:',
+            newConnId
+          );
+          this.recreateAttempts.delete(data.user_id);
+          await this.createPeerConnection(data.user_id, createOffer, true);
         }
         break;
 
@@ -506,6 +720,8 @@ class VoiceService {
         if (this.onParticipantLeft) {
           this.onParticipantLeft(data.user_id);
         }
+        this.recreateAttempts.delete(data.user_id);
+        this.remoteConnectionIds.delete(data.user_id);
         this.removePeerConnection(data.user_id);
         break;
 
@@ -519,6 +735,12 @@ class VoiceService {
 
       case 'ice_candidate':
         await this.handleIceCandidate(data.from_id, data.candidate);
+        break;
+
+      case 'request_offer':
+        // Нас попросили прислать offer (мы меньший user_id). Без этого
+        // сторона с большим id после recreate ждёт вечность.
+        await this.handleRequestOffer(data.from_id);
         break;
         
       case 'user_speaking':
@@ -552,14 +774,18 @@ class VoiceService {
 
       case 'screen_share_started':
         console.log('🖥️ Пользователь начал демонстрацию экрана:', data.user_id);
-        
-        // Генерируем событие для UI
-        const screenShareStartEvent = new CustomEvent('screen_share_start', { 
-          detail: { 
-            user_id: data.user_id, 
+
+        // Эхо своего стрима с сервера — UI уже обновлён локально
+        if (data.user_id === this.getCurrentUserId()) {
+          break;
+        }
+
+        const screenShareStartEvent = new CustomEvent('screen_share_start', {
+          detail: {
+            user_id: data.user_id,
             username: data.username,
-            avatar_url: data.avatar_url 
-          } 
+            avatar_url: data.avatar_url,
+          },
         });
         if (typeof window !== 'undefined') {
           window.dispatchEvent(screenShareStartEvent);
@@ -569,17 +795,18 @@ class VoiceService {
         if (this.onScreenShareChanged) {
           this.onScreenShareChanged(data.user_id, true);
         }
+
+        void this.ensureRemoteScreenShare(data.user_id);
         break;
 
       case 'screen_share_stopped':
         console.log('🖥️ Пользователь остановил демонстрацию экрана:', data.user_id);
-        
-        // Генерируем событие для UI
-        const screenShareStopEvent = new CustomEvent('screen_share_stop', { 
-          detail: { 
-            user_id: data.user_id, 
-            username: data.username 
-          } 
+
+        const screenShareStopEvent = new CustomEvent('screen_share_stop', {
+          detail: {
+            user_id: data.user_id,
+            username: data.username
+          }
         });
         if (typeof window !== 'undefined') {
           window.dispatchEvent(screenShareStopEvent);
@@ -593,7 +820,7 @@ class VoiceService {
         }
         
         // Скрываем контейнер если больше нет демонстраций экрана
-        const videoContainer = document.getElementById('screen-share-container-chat');
+        const videoContainer = document.getElementById('screen-share-video-pool');
         if (videoContainer && videoContainer.children.length === 0) {
           videoContainer.style.display = 'none';
           console.log('🖥️ Контейнер скрыт, так как нет активных демонстраций экрана');
@@ -601,6 +828,17 @@ class VoiceService {
         
         if (this.onScreenShareChanged) {
           this.onScreenShareChanged(data.user_id, false);
+        }
+        break;
+
+      case 'screen_share_viewer_joined':
+        console.log('🖥️ Зритель присоединился к стриму:', data.viewer_id, data.viewer_username);
+        soundService.playStreamJoinSound();
+        if (this.isScreenSharing) {
+          const viewerId = Number(data.viewer_id);
+          if (Number.isFinite(viewerId)) {
+            void this.refreshScreenShareOfferForViewer(viewerId);
+          }
         }
         break;
 
@@ -614,34 +852,154 @@ class VoiceService {
     }
   }
 
-  private async createPeerConnection(userId: number, createOffer: boolean) {
+  private async createPeerConnection(
+    userId: number,
+    createOffer: boolean,
+    forceRecreate: boolean = false
+  ) {
     const existingPeer = this.peerConnections.get(userId)?.pc;
-    if (existingPeer && existingPeer.connectionState !== 'closed' && existingPeer.connectionState !== 'failed') {
-      return;
+    const existingAlive =
+      existingPeer &&
+      existingPeer.connectionState !== 'closed' &&
+      existingPeer.connectionState !== 'failed';
+
+    // Переиспользуем только полностью живой peer. connecting/disconnected — мусор после reconnect.
+    if (
+      !forceRecreate &&
+      existingAlive &&
+      existingPeer.connectionState === 'connected'
+    ) {
+      return existingPeer;
     }
-    if (existingPeer) {
+
+    if (forceRecreate || (existingAlive && existingPeer.connectionState !== 'connected')) {
+      console.log(
+        `[VoiceService] Пересоздание peer ${userId} (force=${forceRecreate}, state=${existingPeer?.connectionState})`
+      );
+      this.removePeerConnection(userId);
+    } else if (existingPeer && !existingAlive) {
       this.removePeerConnection(userId);
     }
 
+    const inflight = this.peerInitPromises.get(userId);
+    if (inflight && !forceRecreate) {
+      const pc = await inflight;
+      // После await peer мог быть пересоздан — отдаём актуальный
+      const current = this.peerConnections.get(userId)?.pc;
+      if (current && current !== pc) {
+        return current;
+      }
+      if (
+        createOffer &&
+        pc.signalingState === 'stable' &&
+        !pc.currentRemoteDescription &&
+        !pc.currentLocalDescription &&
+        this.isPeerCurrent(userId, pc)
+      ) {
+        await this.sendOfferToPeer(userId, pc);
+      }
+      return this.peerConnections.get(userId)?.pc ?? pc;
+    }
+
+    const generation = (this.peerGenerations.get(userId) || 0) + 1;
+    this.peerGenerations.set(userId, generation);
+
+    const initPromise = this.initializePeerConnection(userId, createOffer, generation);
+    this.peerInitPromises.set(userId, initPromise);
+    try {
+      return await initPromise;
+    } finally {
+      // Удаляем только свою промису — чужую (более новое поколение) не трогаем
+      if (this.peerInitPromises.get(userId) === initPromise) {
+        this.peerInitPromises.delete(userId);
+      }
+    }
+  }
+
+  private isPeerCurrent(userId: number, pc: RTCPeerConnection, generation?: number): boolean {
+    if (generation !== undefined && this.peerGenerations.get(userId) !== generation) {
+      return false;
+    }
+    return this.peerConnections.get(userId)?.pc === pc;
+  }
+
+  private async initializePeerConnection(
+    userId: number,
+    createOffer: boolean,
+    generation: number
+  ): Promise<RTCPeerConnection> {
     const pc = new RTCPeerConnection({
-      iceServers: this.iceServers,
+      iceServers: this.iceServers.length > 0 ? this.iceServers : mergeIceServers([]),
+      iceTransportPolicy: 'all',
+      bundlePolicy: 'max-bundle',
     });
+
+    // Сразу в map — до любых await, иначе параллельный handleOffer создаст второй PC
+    this.peerConnections.set(userId, { pc, userId });
     
     // Добавляем обработчики событий для отладки и адаптивного качества
     pc.oniceconnectionstatechange = () => {
-      // Адаптируем качество при изменении состояния ICE соединения
+      if (!this.isPeerCurrent(userId, pc, generation)) return;
+      const iceState = pc.iceConnectionState;
+      console.log(`[VoiceService] ICE user ${userId}: ${iceState}`);
+
+      if (iceState === 'connected' || iceState === 'completed') {
+        this.clearIceRestartTimer(userId);
+        this.clearConnectWatchdog(userId);
+        this.recreateAttempts.delete(userId);
+        this.connectWatchdogExtends.delete(userId);
+        this.armMediaHealthCheck(userId, pc, generation);
+      } else if (iceState === 'failed') {
+        this.clearIceRestartTimer(userId);
+        // Полное пересоздание надёжнее iceRestart на мобильных сетях
+        this.enqueueVoiceTask(() => this.recreatePeerConnection(userId));
+      } else if (iceState === 'disconnected' && !this.iceRestartTimers.has(userId)) {
+        // Короткий disconnected бывает при смене сети — ждём, потом пересоздаём
+        const timer = globalThis.setTimeout(() => {
+          this.iceRestartTimers.delete(userId);
+          if (!this.isPeerCurrent(userId, pc, generation)) return;
+          if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+            this.enqueueVoiceTask(() => this.recreatePeerConnection(userId));
+          }
+        }, 3000);
+        this.iceRestartTimers.set(userId, timer);
+      }
+      // НЕ трогаем 'checking' — это нормальная фаза ICE, iceRestart тут убивал связь
+
       this.adjustVideoQuality(pc, userId, false);
     };
     
     pc.onicegatheringstatechange = () => {
+      if (!this.isPeerCurrent(userId, pc, generation)) return;
+      console.log(`[VoiceService] ICE gathering ${userId}: ${pc.iceGatheringState}`);
     };
     
     pc.onconnectionstatechange = () => {
-      // Адаптируем качество при изменении состояния соединения
+      if (!this.isPeerCurrent(userId, pc, generation)) return;
+      console.log(`[VoiceService] Peer user ${userId}: ${pc.connectionState}`);
+      if (pc.connectionState === 'connected') {
+        this.clearConnectWatchdog(userId);
+        this.recreateAttempts.delete(userId);
+        this.connectWatchdogExtends.delete(userId);
+        this.armMediaHealthCheck(userId, pc, generation);
+      } else if (pc.connectionState === 'failed') {
+        this.enqueueVoiceTask(() => this.recreatePeerConnection(userId));
+      }
       this.adjustVideoQuality(pc, userId, false);
     };
+
+    this.armConnectWatchdog(userId);
     
     pc.onsignalingstatechange = () => {
+      if (!this.isPeerCurrent(userId, pc, generation)) return;
+      // Answer мог прийти пока мы ещё не были в have-local-offer
+      if (canAcceptAnswer(pc.signalingState)) {
+        const pending = this.pendingAnswers.get(userId);
+        if (pending) {
+          this.pendingAnswers.delete(userId);
+          void this.handleAnswer(userId, pending);
+        }
+      }
     };
 
     // Добавляем локальный поток
@@ -649,9 +1007,14 @@ class VoiceService {
       this.localStream.getTracks().forEach(track => {
         pc.addTrack(track, this.localStream!);
       });
+      await this.applyAudioBitrateToPeer(pc);
       
       // Настраиваем адаптивное качество для видео треков
       await this.adjustVideoQuality(pc, userId, false);
+      if (!this.isPeerCurrent(userId, pc, generation)) {
+        try { pc.close(); } catch { /* ignore */ }
+        return pc;
+      }
     }
 
     // Если мы УЖЕ демонстрируем экран, добавим screenShare треки и инициируем переговоры
@@ -661,34 +1024,52 @@ class VoiceService {
       } catch (e) {
         console.warn(`🖥️ Не удалось сразу добавить screen share для нового соединения с пользователем ${userId}:`, e);
       }
+      if (!this.isPeerCurrent(userId, pc, generation)) {
+        try { pc.close(); } catch { /* ignore */ }
+        return pc;
+      }
     }
 
     // Обработка входящего потока
     pc.ontrack = (event) => {
+      if (!this.isPeerCurrent(userId, pc, generation)) return;
+      const stream =
+        event.streams?.[0] ||
+        (event.track ? new MediaStream([event.track]) : null);
 
-      
-      if (event.streams && event.streams[0]) {
-        const stream = event.streams[0];
+      if (!stream) {
+        console.warn(`[VoiceService] ontrack без stream/track от ${userId}`);
+        return;
+      }
+
+      {
         const audioTracks = stream.getAudioTracks();
         const videoTracks = stream.getVideoTracks();
 
         // Обрабатываем аудио треки
-        if (audioTracks.length > 0) {
-      
-          audioTracks.forEach((track, index) => {
-       
-          });
-          
+        if (audioTracks.length > 0 || event.track?.kind === 'audio') {
+          const tracksForPlayback =
+            audioTracks.length > 0
+              ? audioTracks
+              : event.track?.kind === 'audio'
+                ? [event.track]
+                : [];
+
+          console.log(
+            `[VoiceService] Входящее аудио от ${userId}: tracks=${tracksForPlayback.length}, muted=${this.isDeafened}`
+          );
+
           let remoteAudio = document.getElementById(`remote-audio-${userId}`) as HTMLAudioElement | null;
           if (!remoteAudio) {
             remoteAudio = new Audio();
             remoteAudio.id = `remote-audio-${userId}`;
             remoteAudio.autoplay = true;
             remoteAudio.controls = false;
+            remoteAudio.setAttribute('playsinline', 'true');
             remoteAudio.style.display = 'none';
             document.body.appendChild(remoteAudio);
           }
-          remoteAudio.srcObject = new MediaStream(audioTracks);
+          remoteAudio.srcObject = new MediaStream(tracksForPlayback);
           remoteAudio.muted = this.isDeafened;
           // Общая громкость вывода (по умолчанию 100%) × персональная громкость участника
           const outputVolume = (useAudioDeviceStore.getState().outputVolume ?? 100) / 100;
@@ -697,14 +1078,23 @@ class VoiceService {
             ? Math.min(Math.max(Number.parseInt(savedVolume, 10) || 100, 0), 100) / 100
             : 1;
           remoteAudio.volume = Math.min(1, Math.max(0, outputVolume * participantVolume));
+
+          const outputDeviceId = useAudioDeviceStore.getState().outputDeviceId;
+          if (
+            outputDeviceId &&
+            outputDeviceId !== 'default' &&
+            typeof (remoteAudio as any).setSinkId === 'function'
+          ) {
+            (remoteAudio as any).setSinkId(outputDeviceId).catch(() => undefined);
+          }
           
           // Пытаемся воспроизвести аудио
           const playPromise = remoteAudio.play();
           if (playPromise !== undefined) {
             playPromise.then(() => {
-             
+              console.log(`[VoiceService] Воспроизведение аудио от ${userId} OK`);
             }).catch(error => {
-             
+              console.warn(`[VoiceService] autoplay blocked for ${userId}:`, error);
               
               // Показываем уведомление пользователю о необходимости разрешить аудио
               this.showAudioPermissionNotification(userId);
@@ -778,7 +1168,7 @@ class VoiceService {
             
             // Ждем появления контейнера в ScreenShareViewer
             const waitForRemoteContainer = (attempts = 0): void => {
-              const videoContainer = document.getElementById('screen-share-container-chat');
+              const videoContainer = document.getElementById('screen-share-video-pool');
 
               if (videoContainer) {
                 // Убираем плейсхолдеры не-видео, чтобы видео стало видно
@@ -799,9 +1189,8 @@ class VoiceService {
               } else if (attempts < 200) { // ждем до ~20с
                 setTimeout(() => waitForRemoteContainer(attempts + 1), 100);
               } else {
-                console.error(`🖥️ Контейнер для демонстрации экрана не найден (user ${userId}). Отмена.`);
-                remoteVideo.remove();
-                return;
+                console.warn(`🖥️ Пул видео не найден (user ${userId}), fallback на body`);
+                this.attachRemoteVideoElement(remoteVideo, userId);
               }
             };
 
@@ -809,7 +1198,7 @@ class VoiceService {
             const observer = new MutationObserver((mutations) => {
               mutations.forEach((mutation) => {
                 mutation.addedNodes.forEach((node) => {
-                  if (node instanceof HTMLElement && node.id === 'screen-share-container-chat') {
+                  if (node instanceof HTMLElement && node.id === 'screen-share-video-pool') {
                     console.log(`🖥️ MutationObserver нашел контейнер для пользователя ${userId}`);
                     observer.disconnect();
                     waitForRemoteContainer();
@@ -891,7 +1280,7 @@ class VoiceService {
 
           // Гарантируем запуск воспроизведения только когда элемент присоединён к DOM контейнеру
           const safePlay = () => {
-            const container = document.getElementById('screen-share-container-chat');
+            const container = document.getElementById('screen-share-video-pool');
             if (!remoteVideo.isConnected || !container || !container.contains(remoteVideo)) {
               return; // Не пытаемся воспроизводить, пока элемент не в DOM контейнере
             }
@@ -914,7 +1303,7 @@ class VoiceService {
           // Watchdog: если элемент внезапно удалён (при ре-рендерах React), пере-добавляем его
           const watchdogInterval = (typeof window !== 'undefined' ? window : globalThis).setInterval(() => {
             if (!document.body.contains(remoteVideo)) {
-              const container = document.getElementById('screen-share-container-chat');
+              const container = document.getElementById('screen-share-video-pool');
               if (container) {
                 try {
                   container.appendChild(remoteVideo);
@@ -977,8 +1366,8 @@ class VoiceService {
 
     // Обработка ICE кандидатов
     pc.onicecandidate = (event) => {
+      if (!this.isPeerCurrent(userId, pc, generation)) return;
       if (event.candidate) {
-       
         this.sendMessage({
           type: 'ice_candidate',
           target_id: userId,
@@ -987,22 +1376,312 @@ class VoiceService {
       }
     };
 
-    // Обработка состояния соединения
-    this.peerConnections.set(userId, { pc, userId });
-
     if (createOffer) {
-
-      const offer = await pc.createOffer();
-      // Внедряем RED в offer SDP
-      if (offer.sdp) {
-        offer.sdp = this.enableOpusRed(offer.sdp);
+      if (this.isPeerCurrent(userId, pc, generation)) {
+        await this.sendOfferToPeer(userId, pc);
       }
-      await pc.setLocalDescription(offer);
-      this.sendMessage({
-        type: 'offer',
-        target_id: userId,
-        offer: pc.localDescription,
+    } else if (this.isPeerCurrent(userId, pc, generation)) {
+      // Мы ждём offer — явно просим меньший user_id, иначе тишина на минуты
+      this.requestOfferFromPeer(userId);
+    }
+
+    if (!this.isPeerCurrent(userId, pc, generation)) {
+      try { pc.close(); } catch { /* ignore */ }
+      return pc;
+    }
+
+    // Answer мог прийти раньше, чем мы создали peer / отправили offer
+    const pendingAnswer = this.pendingAnswers.get(userId);
+    if (pendingAnswer) {
+      this.pendingAnswers.delete(userId);
+      await this.handleAnswer(userId, pendingAnswer);
+    }
+
+    return pc;
+  }
+
+  /** Попросить собеседника (меньший user_id) прислать offer. */
+  private requestOfferFromPeer(userId: number): void {
+    this.sendMessage({
+      type: 'request_offer',
+      target_id: userId,
+    });
+    console.log(`[VoiceService] request_offer → ${userId}`);
+  }
+
+  private async handleRequestOffer(fromUserId: number): Promise<void> {
+    const currentUserId = this.getCurrentUserId();
+    if (!shouldCreateOffer(currentUserId, fromUserId)) {
+      // Нас попросили, но offer должен делать другой — игнор
+      return;
+    }
+
+    let peer = this.peerConnections.get(fromUserId);
+    if (!peer) {
+      await this.createPeerConnection(fromUserId, true, true);
+      return;
+    }
+
+    const pc = peer.pc;
+    // Если уже идёт нормальный обмен — не ломаем
+    if (
+      pc.signalingState === 'have-local-offer' ||
+      pc.signalingState === 'have-remote-offer'
+    ) {
+      return;
+    }
+
+    // Connected без входящего звука или просто stable без remote — шлём (пере)offer
+    try {
+      if (pc.signalingState === 'stable' && pc.connectionState === 'connected') {
+        const hasAudio = await this.hasInboundAudio(pc);
+        if (hasAudio) {
+          console.log(`[VoiceService] request_offer от ${fromUserId}: звук уже есть`);
+          return;
+        }
+        await this.sendOfferToPeer(fromUserId, pc, true);
+        return;
+      }
+      if (pc.signalingState === 'stable') {
+        await this.sendOfferToPeer(fromUserId, pc, Boolean(pc.currentRemoteDescription));
+        return;
+      }
+    } catch (error) {
+      console.warn(`[VoiceService] handleRequestOffer failed for ${fromUserId}:`, error);
+    }
+
+    await this.createPeerConnection(fromUserId, true, true);
+  }
+
+  private async hasInboundAudio(pc: RTCPeerConnection): Promise<boolean> {
+    try {
+      const stats = await pc.getStats();
+      let bytes = 0;
+      stats.forEach((report) => {
+        if (report.type === 'inbound-rtp' && report.kind === 'audio') {
+          bytes += report.bytesReceived ?? 0;
+        }
       });
+      return bytes > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * connectionState=connected ≠ «я слышу». Через 5с проверяем inbound байты;
+   * если 0 — просим offer / пересоздаём.
+   */
+  private armMediaHealthCheck(
+    userId: number,
+    pc: RTCPeerConnection,
+    generation: number
+  ): void {
+    this.clearMediaHealthTimer(userId);
+    const timer = globalThis.setTimeout(() => {
+      this.mediaHealthTimers.delete(userId);
+      void this.runMediaHealthCheck(userId, pc, generation);
+    }, VoiceService.MEDIA_HEALTH_MS);
+    this.mediaHealthTimers.set(userId, timer);
+  }
+
+  private clearMediaHealthTimer(userId: number): void {
+    const timer = this.mediaHealthTimers.get(userId);
+    if (timer !== undefined) {
+      globalThis.clearTimeout(timer);
+      this.mediaHealthTimers.delete(userId);
+    }
+  }
+
+  private async runMediaHealthCheck(
+    userId: number,
+    pc: RTCPeerConnection,
+    generation: number
+  ): Promise<void> {
+    if (!this.isPeerCurrent(userId, pc, generation)) return;
+    if (pc.connectionState !== 'connected' && pc.iceConnectionState !== 'connected') {
+      return;
+    }
+
+    const audioEl = document.getElementById(`remote-audio-${userId}`) as HTMLAudioElement | null;
+    const hasAudio = await this.hasInboundAudio(pc);
+
+    if (hasAudio) {
+      this.mediaHealthMisses.delete(userId);
+      this.recreateAttempts.delete(userId);
+      if (audioEl?.paused) {
+        try {
+          audioEl.muted = this.isDeafened;
+          await audioEl.play();
+          console.log(`[VoiceService] media health: play() дожат для ${userId}`);
+        } catch {
+          /* autoplay — пользовательский жест */
+        }
+      }
+      return;
+    }
+
+    const misses = (this.mediaHealthMisses.get(userId) || 0) + 1;
+    this.mediaHealthMisses.set(userId, misses);
+    console.warn(
+      `[VoiceService] media health: peer ${userId} connected без inbound audio (miss=${misses})`
+    );
+
+    const currentUserId = this.getCurrentUserId();
+    if (shouldCreateOffer(currentUserId, userId) || misses >= 2) {
+      this.mediaHealthMisses.delete(userId);
+      this.enqueueVoiceTask(() => this.recreatePeerConnection(userId));
+    } else {
+      this.requestOfferFromPeer(userId);
+      this.armMediaHealthCheck(userId, pc, generation);
+    }
+  }
+
+  /** Все recreate/offer-чинки — через ту же очередь, что и WS, без гонок. */
+  private enqueueVoiceTask(task: () => Promise<void>): void {
+    this.messageQueue = this.messageQueue
+      .then(async () => {
+        try {
+          await task();
+        } catch (error) {
+          console.error('[VoiceService] Ошибка фоновой voice-задачи:', error);
+        }
+      })
+      .catch((error) => {
+        console.error('[VoiceService] Ошибка очереди voice-задач:', error);
+      });
+  }
+
+  private async sendOfferToPeer(
+    userId: number,
+    pc: RTCPeerConnection,
+    iceRestart: boolean = false
+  ): Promise<void> {
+    if (!iceRestart) {
+      if (pc.signalingState !== 'stable') return;
+      if (pc.currentLocalDescription || pc.pendingLocalDescription) return;
+    } else if (pc.signalingState !== 'stable') {
+      return;
+    }
+
+    const offer = await pc.createOffer(iceRestart ? { iceRestart: true } : undefined);
+    if (offer.sdp) {
+      offer.sdp = this.enableOpusRed(offer.sdp);
+    }
+    await pc.setLocalDescription(offer);
+    this.sendMessage({
+      type: 'offer',
+      target_id: userId,
+      offer: pc.localDescription,
+    });
+  }
+
+  private clearIceRestartTimer(userId: number): void {
+    const timer = this.iceRestartTimers.get(userId);
+    if (timer !== undefined) {
+      globalThis.clearTimeout(timer);
+      this.iceRestartTimers.delete(userId);
+    }
+  }
+
+  private clearConnectWatchdog(userId: number): void {
+    const timer = this.connectWatchdogs.get(userId);
+    if (timer !== undefined) {
+      globalThis.clearTimeout(timer);
+      this.connectWatchdogs.delete(userId);
+    }
+  }
+
+  /**
+   * Watchdog 12с. НЕ рвём ICE в checking — через TURN это нормально 5–10с.
+   * Пересоздаём только если реально застряли (new/connecting без прогресса / failed).
+   */
+  private armConnectWatchdog(userId: number): void {
+    this.clearConnectWatchdog(userId);
+    const timer = globalThis.setTimeout(() => {
+      this.connectWatchdogs.delete(userId);
+      const peer = this.peerConnections.get(userId);
+      if (!peer) return;
+
+      const pcState = peer.pc.connectionState;
+      const iceState = peer.pc.iceConnectionState;
+
+      if (
+        pcState === 'connected' ||
+        iceState === 'connected' ||
+        iceState === 'completed'
+      ) {
+        return;
+      }
+
+      // ICE ещё работает — один раз продлеваем (TURN часто 5–15с), потом пересоздаём
+      if (iceState === 'checking' || iceState === 'disconnected') {
+        const extendCount = this.connectWatchdogExtends.get(userId) || 0;
+        if (extendCount < VoiceService.MAX_WATCHDOG_EXTENDS) {
+          this.connectWatchdogExtends.set(userId, extendCount + 1);
+          console.log(
+            `[VoiceService] Watchdog: peer ${userId} ещё ${iceState} — продление ${extendCount + 1}`
+          );
+          this.armConnectWatchdog(userId);
+          return;
+        }
+      }
+
+      console.warn(
+        `[VoiceService] Watchdog: peer ${userId} застрял ` +
+          `(pc=${pcState}, ice=${iceState}) — пересоздаём`
+      );
+      this.enqueueVoiceTask(() => this.recreatePeerConnection(userId));
+    }, VoiceService.CONNECT_WATCHDOG_MS);
+    this.connectWatchdogs.set(userId, timer);
+  }
+
+  private async recreatePeerConnection(userId: number): Promise<void> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (!this.peerConnections.has(userId) && !this.peerInitPromises.has(userId)) return;
+
+    const attempts = (this.recreateAttempts.get(userId) || 0) + 1;
+    this.recreateAttempts.set(userId, attempts);
+
+    // После пачки неудач — пауза, но НЕ сдаёмся навсегда (это давало тишину ~2 мин)
+    if (attempts > VoiceService.MAX_RECREATE_BURST) {
+      console.warn(
+        `[VoiceService] recreate ${userId}: пауза ${VoiceService.RECREATE_COOLDOWN_MS}ms после ${attempts - 1} попыток`
+      );
+      this.recreateAttempts.set(userId, 0);
+      globalThis.setTimeout(() => {
+        if (!this.peerConnections.has(userId) && !this.peerInitPromises.has(userId)) return;
+        this.enqueueVoiceTask(() => this.recreatePeerConnection(userId));
+      }, VoiceService.RECREATE_COOLDOWN_MS);
+      return;
+    }
+
+    const currentUserId = this.getCurrentUserId();
+    const createOffer = shouldCreateOffer(currentUserId, userId);
+    console.log(
+      `[VoiceService] recreatePeerConnection ${userId}, createOffer=${createOffer}, attempt=${attempts}`
+    );
+    await this.createPeerConnection(userId, createOffer, true);
+
+    // Больший id сам offer не шлёт — сразу просим
+    if (!createOffer) {
+      this.requestOfferFromPeer(userId);
+    }
+  }
+
+  private async restartPeerIce(userId: number): Promise<void> {
+    // Мягкий fallback; основной путь — recreatePeerConnection
+    const currentUserId = this.getCurrentUserId();
+    const peer = this.peerConnections.get(userId);
+    if (!peer || currentUserId === null || currentUserId > userId) return;
+    if (peer.pc.signalingState !== 'stable') return;
+
+    try {
+      await this.sendOfferToPeer(userId, peer.pc, true);
+      console.log(`[VoiceService] Отправлен ICE restart offer пользователю ${userId}`);
+    } catch (error) {
+      console.warn(`[VoiceService] Не удалось перезапустить ICE для пользователя ${userId}:`, error);
+      this.enqueueVoiceTask(() => this.recreatePeerConnection(userId));
     }
   }
 
@@ -1040,18 +1719,7 @@ class VoiceService {
       await peerConnection.pc.setLocalDescription(answer);
       console.log(`🔊 Создан и установлен answer для пользователя ${userId}:`, answer);
 
-      // После установки remoteDescription применяем отложенные ICE кандидаты
-      const queued = this.pendingIceCandidates.get(userId);
-      if (queued && queued.length > 0) {
-        for (const cand of queued) {
-          try {
-            await peerConnection.pc.addIceCandidate(cand);
-          } catch (e) {
-            console.warn(`🔊 Не удалось применить отложенный ICE candidate для ${userId}:`, e);
-          }
-        }
-        this.pendingIceCandidates.delete(userId);
-      }
+      await this.flushPendingIceCandidates(userId, peerConnection.pc);
 
       this.sendMessage({
         type: 'answer',
@@ -1066,65 +1734,94 @@ class VoiceService {
 
   private async handleAnswer(userId: number, answer: RTCSessionDescriptionInit) {
     console.log(`🔊 Обрабатываем answer от пользователя ${userId}:`, answer);
-    
-    const peerConnection = this.peerConnections.get(userId);
-    if (peerConnection) {
-      try {
-        // Защита от некорректного состояния: answer принимаем только когда есть локальный offer
-        if (peerConnection.pc.signalingState !== 'have-local-offer') {
-          console.warn(`🔊 Пропускаем answer от ${userId} — текущее signalingState=${peerConnection.pc.signalingState}`);
-          return;
-        }
-        await peerConnection.pc.setRemoteDescription(answer);
-        // После установки remoteDescription применяем отложенные ICE кандидаты
-        const queued = this.pendingIceCandidates.get(userId);
-        if (queued && queued.length > 0) {
-          for (const cand of queued) {
-            try {
-              await peerConnection.pc.addIceCandidate(cand);
-            } catch (e) {
-              console.warn(`🔊 Не удалось применить отложенный ICE candidate для ${userId}:`, e);
-            }
-          }
-          this.pendingIceCandidates.delete(userId);
-        }
-      } catch (error) {
-        console.error(`🔊 Ошибка при обработке answer от пользователя ${userId}:`, error);
+
+    let peerConnection = this.peerConnections.get(userId);
+    if (!peerConnection) {
+      const inflight = this.peerInitPromises.get(userId);
+      if (inflight) {
+        await inflight;
+        peerConnection = this.peerConnections.get(userId);
       }
-    } else {
-      console.error(`🔊 Не найдено peer connection для пользователя ${userId}`);
     }
+
+    if (!peerConnection) {
+      // Answer раньше offer/peer — сохраним и применим после createOffer
+      console.warn(`🔊 Answer от ${userId} буферизуем — peer ещё не готов`);
+      this.pendingAnswers.set(userId, answer);
+      return;
+    }
+
+    try {
+      if (!canAcceptAnswer(peerConnection.pc.signalingState)) {
+        console.warn(
+          `🔊 Answer от ${userId} буферизуем — signalingState=${peerConnection.pc.signalingState}`
+        );
+        this.pendingAnswers.set(userId, answer);
+        return;
+      }
+      await peerConnection.pc.setRemoteDescription(answer);
+      this.pendingAnswers.delete(userId);
+      await this.flushPendingIceCandidates(userId, peerConnection.pc);
+    } catch (error) {
+      console.error(`🔊 Ошибка при обработке answer от пользователя ${userId}:`, error);
+    }
+  }
+
+  private async flushPendingIceCandidates(userId: number, pc: RTCPeerConnection): Promise<void> {
+    const queued = this.pendingIceCandidates.get(userId);
+    if (!queued || queued.length === 0) return;
+    for (const cand of queued) {
+      try {
+        await pc.addIceCandidate(cand);
+      } catch (e) {
+        console.warn(`🔊 Не удалось применить отложенный ICE candidate для ${userId}:`, e);
+      }
+    }
+    this.pendingIceCandidates.delete(userId);
   }
 
   private async handleIceCandidate(userId: number, candidate: RTCIceCandidateInit) {
     const peerConnection = this.peerConnections.get(userId);
-    if (peerConnection) {
-      try {
-        // Если remoteDescription ещё не установлен — буферизуем кандидата
-        if (!peerConnection.pc.remoteDescription) {
-          const list = this.pendingIceCandidates.get(userId) || [];
-          list.push(candidate);
-          this.pendingIceCandidates.set(userId, list);
-          return;
-        }
-        await peerConnection.pc.addIceCandidate(candidate);
-      } catch (error) {
-        console.error(`🔊 Ошибка при добавлении ICE candidate для пользователя ${userId}:`, error);
-      }
-    } else {
-      console.error(`🔊 Не найдено peer connection для пользователя ${userId}`);
+    const hasRemoteDescription = Boolean(peerConnection?.pc.remoteDescription);
+
+    if (shouldBufferIceCandidate(Boolean(peerConnection), hasRemoteDescription)) {
+      const list = this.pendingIceCandidates.get(userId) || [];
+      list.push(candidate);
+      this.pendingIceCandidates.set(userId, list);
+      return;
+    }
+
+    try {
+      await peerConnection!.pc.addIceCandidate(candidate);
+    } catch (error) {
+      console.error(`🔊 Ошибка при добавлении ICE candidate для пользователя ${userId}:`, error);
     }
   }
 
   private removePeerConnection(userId: number) {
     console.log(`🔊 Удаляем peer connection для пользователя ${userId}`);
     
+    this.clearIceRestartTimer(userId);
+    this.clearConnectWatchdog(userId);
+    this.clearMediaHealthTimer(userId);
+    this.mediaHealthMisses.delete(userId);
+    // Инвалидируем поколение — любые await старого initialize отвалятся
+    this.peerGenerations.set(userId, (this.peerGenerations.get(userId) || 0) + 1);
     const peerConnection = this.peerConnections.get(userId);
     if (peerConnection) {
+      try {
+        peerConnection.pc.onicecandidate = null;
+        peerConnection.pc.ontrack = null;
+        peerConnection.pc.oniceconnectionstatechange = null;
+        peerConnection.pc.onconnectionstatechange = null;
+      } catch { /* ignore */ }
       peerConnection.pc.close();
       this.peerConnections.delete(userId);
     }
     this.pendingIceCandidates.delete(userId);
+    this.pendingAnswers.delete(userId);
+    this.peerInitPromises.delete(userId);
+    this.connectWatchdogExtends.delete(userId);
     this.speakingUsers.delete(userId);
     this.onSpeakingChanged?.(userId, false);
     
@@ -1185,37 +1882,244 @@ class VoiceService {
     });
   }
 
+  /** Сменить динамик/наушники для всех входящих голосов. */
+  async setOutputDevice(deviceId: string): Promise<void> {
+    const nextId = deviceId || 'default';
+    useAudioDeviceStore.getState().setOutputDeviceId(nextId);
+
+    if (typeof document === 'undefined') return;
+
+    const sinkId = nextId === 'default' ? '' : nextId;
+    const audioElements = document.querySelectorAll<HTMLAudioElement>('[id^="remote-audio-"]');
+    await Promise.all(
+      Array.from(audioElements).map(async (audio) => {
+        if (typeof (audio as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }).setSinkId !== 'function') {
+          return;
+        }
+        try {
+          await (audio as HTMLAudioElement & { setSinkId: (id: string) => Promise<void> }).setSinkId(sinkId);
+        } catch (error) {
+          console.warn('Не удалось применить устройство вывода:', error);
+        }
+      })
+    );
+  }
+
+  /**
+   * Сменить микрофон во время активного голосового канала.
+   * Пересоздаёт raw stream + пайплайн обработки и подменяет трек в peer connections.
+   */
+  async switchInputDevice(deviceId: string): Promise<void> {
+    const nextId = deviceId || 'default';
+    useAudioDeviceStore.getState().setInputDeviceId(nextId);
+
+    if (!this.voiceChannelId) {
+      return;
+    }
+
+    const noiseSuppressionSettings = useNoiseSuppressionStore.getState();
+    const useBrowserNoiseSuppression =
+      noiseSuppressionSettings.enabled && noiseSuppressionSettings.engine === 'browser';
+
+    const audioConstraints: MediaTrackConstraints = {
+      echoCancellation: true,
+      noiseSuppression: useBrowserNoiseSuppression,
+      autoGainControl: true,
+      sampleRate: 48000,
+      channelCount: 1,
+    };
+
+    let newRaw: MediaStream;
+    try {
+      newRaw = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          ...audioConstraints,
+          ...(nextId !== 'default' ? { deviceId: { ideal: nextId } } : {}),
+        },
+        video: false,
+      });
+    } catch (error) {
+      console.warn('🎙️ Не удалось открыть выбранный микрофон, пробуем любой:', error);
+      newRaw = await navigator.mediaDevices.getUserMedia({
+        audio: audioConstraints,
+        video: false,
+      });
+    }
+
+    const previousRaw = this.rawInputStream;
+    this.unbindInputTrackWatchdogs(previousRaw);
+    this.rawInputStream = newRaw;
+    this.bindInputTrackWatchdogs(newRaw);
+
+    const processedStream = await audioProcessingService.initialize(newRaw);
+    const processedTrack = processedStream.getAudioTracks()[0];
+    const useProcessedTrack =
+      Boolean(processedTrack) && processedTrack.readyState === 'live';
+    this.localStream = useProcessedTrack ? processedStream : newRaw;
+
+    audioProcessingService.setInputVolume(useAudioDeviceStore.getState().inputVolume ?? 100);
+    this.syncInputSettingsFromStore();
+    this.applyTransmitGate();
+
+    const trackToSend = this.localStream.getAudioTracks()[0] ?? null;
+    await Promise.all(
+      Array.from(this.peerConnections.values()).map(async ({ pc }) => {
+        const audioSender =
+          pc.getSenders().find((sender) => sender.track?.kind === 'audio') ??
+          pc.getTransceivers().find((t) => t.receiver.track?.kind === 'audio')?.sender;
+
+        if (audioSender) {
+          try {
+            await audioSender.replaceTrack(trackToSend);
+          } catch (error) {
+            console.warn('replaceTrack при смене микрофона не удался:', error);
+          }
+          return;
+        }
+
+        if (trackToSend && this.localStream) {
+          pc.addTrack(trackToSend, this.localStream);
+        }
+      })
+    );
+
+    this.ignoreInputTrackEnded = true;
+    try {
+      previousRaw?.getTracks().forEach((track) => track.stop());
+    } finally {
+      // небольшой сдвиг, чтобы ended от старого трека не запустил recover
+      window.setTimeout(() => {
+        this.ignoreInputTrackEnded = false;
+      }, 300);
+    }
+
+    await audioProcessingService.refreshSpeakingDetection().catch(() => undefined);
+    if (this.localStream) {
+      audioProcessingService.analyzeVolume(this.localStream);
+    }
+
+    const actualId = newRaw.getAudioTracks()[0]?.getSettings()?.deviceId;
+    if (actualId) {
+      useAudioDeviceStore.getState().setInputDeviceId(actualId);
+    }
+
+    console.log('🎙️ Микрофон переключён:', actualId || nextId);
+  }
+
+  private unbindInputTrackWatchdogs(stream: MediaStream | null): void {
+    if (!stream || !this.inputTrackEndedHandler) return;
+    const handler = this.inputTrackEndedHandler;
+    stream.getAudioTracks().forEach((track) => {
+      track.removeEventListener('ended', handler);
+    });
+  }
+
+  /** Подписка на обрыв USB-микрофона и смену устройств. */
+  private bindInputTrackWatchdogs(stream: MediaStream): void {
+    this.inputTrackEndedHandler = () => {
+      if (this.ignoreInputTrackEnded) return;
+      console.warn('🎙️ Трек микрофона завершился — пробуем другое устройство');
+      void this.recoverInputDevice();
+    };
+
+    const handler = this.inputTrackEndedHandler;
+    stream.getAudioTracks().forEach((track) => {
+      track.addEventListener('ended', handler);
+    });
+  }
+
+  private startDeviceWatch(): void {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices) return;
+    if (this.deviceChangeHandler) return;
+
+    this.deviceChangeHandler = () => {
+      void this.handleDeviceChange();
+    };
+    navigator.mediaDevices.addEventListener('devicechange', this.deviceChangeHandler);
+  }
+
+  private stopDeviceWatch(): void {
+    if (!this.deviceChangeHandler || typeof navigator === 'undefined' || !navigator.mediaDevices) {
+      this.deviceChangeHandler = null;
+      return;
+    }
+    navigator.mediaDevices.removeEventListener('devicechange', this.deviceChangeHandler);
+    this.deviceChangeHandler = null;
+  }
+
+  private async handleDeviceChange(): Promise<void> {
+    if (!this.voiceChannelId) return;
+
+    const track = this.rawInputStream?.getAudioTracks()[0];
+    const trackDead = !track || track.readyState !== 'live';
+
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const inputs = devices.filter((d) => d.kind === 'audioinput');
+      if (inputs.length === 0) return;
+
+      const currentId = track?.getSettings()?.deviceId;
+      const currentStillPresent = Boolean(
+        currentId && inputs.some((d) => d.deviceId === currentId)
+      );
+
+      if (trackDead || !currentStillPresent) {
+        await this.recoverInputDevice();
+      }
+    } catch (error) {
+      console.warn('🎙️ Ошибка обработки devicechange:', error);
+    }
+  }
+
+  /** После отвала USB выбрать другой доступный микрофон и переподключить пайплайн. */
+  async recoverInputDevice(): Promise<void> {
+    if (!this.voiceChannelId || this.inputRecoveryInFlight) return;
+    this.inputRecoveryInFlight = true;
+
+    try {
+      // Даем системе мгновение перечислить устройства после unplug
+      await new Promise((r) => window.setTimeout(r, 200));
+
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const inputs = devices.filter((d) => d.kind === 'audioinput');
+      if (inputs.length === 0) {
+        console.error('🎙️ Нет доступных микрофонов после отключения устройства');
+        return;
+      }
+
+      const preferred = useAudioDeviceStore.getState().inputDeviceId;
+      const next =
+        (preferred &&
+          preferred !== 'default' &&
+          inputs.find((d) => d.deviceId === preferred)?.deviceId) ||
+        inputs[0].deviceId;
+
+      await this.switchInputDevice(next);
+    } catch (error) {
+      console.error('🎙️ Не удалось восстановить микрофон:', error);
+    } finally {
+      this.inputRecoveryInFlight = false;
+    }
+  }
+
   setMuted(muted: boolean) {
     this.isMuted = muted;
-    // Используем audio processing service для управления mute
-    audioProcessingService.setMuted(muted);
-    
-    // КРИТИЧНО: Отключаем треки на уровне WebRTC
-    // Это останавливает отправку RTP пакетов (как в Discord!)
-    if (this.localStream) {
-      this.localStream.getAudioTracks().forEach(track => {
-        track.enabled = !muted;
-      });
-    }
-    
-    // Также останавливаем отправку через RTCRtpSender
-    this.peerConnections.forEach(({ pc }) => {
-      const audioSenders = pc.getSenders().filter(s => s.track?.kind === 'audio');
-      audioSenders.forEach(sender => {
-        if (sender.track) {
-          sender.track.enabled = !muted;
-        }
-      });
-    });
-    
-    // Отправляем сообщение на сервер
+
+    // Учитываем режим рации: Mute — отдельный флажок, передача через applyTransmitGate
+    this.applyTransmitGate();
+
+    // Отправляем сообщение на сервер (состояние кнопки Mute, не факт передачи PTT)
     this.sendMessage({ type: 'mute', is_muted: muted });
 
-    if (muted) {
+    if (muted || (this.inputMode === 'push-to-talk' && !this.isPTTActive)) {
       this.setLocalSpeechDetected(false);
     }
-    
-    console.log(`🎙️ Микрофон ${muted ? 'заглушен' : 'включен'} - RTP пакеты ${muted ? 'НЕ отправляются' : 'отправляются'} (как в Discord!)`);
+
+    console.log(
+      `🎙️ Микрофон ${muted ? 'заглушен' : 'включен'} (передача: ${
+        this.canTransmitAudio() ? 'да' : 'нет'
+      })`
+    );
   }
 
   setDeafened(deafened: boolean) {
@@ -1320,40 +2224,47 @@ class VoiceService {
   }
 
   disconnect() {
-    console.log('🎙️ VoiceService.disconnect вызван');
-    console.log('🎙️ Текущее состояние ws:', this.ws ? this.ws.readyState : 'null');
-    console.log('🎙️ Текущий voiceChannelId:', this.voiceChannelId);
-    
-    // Сохраняем ссылку на WebSocket для закрытия
+    void this.disconnectAsync();
+  }
+
+  /** Полный выход из голосового канала с ожиданием закрытия сокета. */
+  async disconnectAsync(): Promise<void> {
+    this.sessionId += 1;
     const wsToClose = this.ws;
-    
-    // Вызываем cleanup
     this.cleanup();
-    
-    // Дополнительная проверка - если WebSocket всё ещё существует
-    if (wsToClose && wsToClose.readyState !== WebSocket.CLOSED) {
-      console.warn('🎙️ WebSocket не закрылся после cleanup, пробуем ещё раз');
-      try {
-        wsToClose.close();
-      } catch (e) {
-        console.error('🎙️ Ошибка при дополнительном закрытии:', e);
-      }
+
+    if (!wsToClose || wsToClose.readyState === WebSocket.CLOSED) {
+      return;
     }
+
+    await new Promise<void>((resolve) => {
+      const done = () => resolve();
+      const timer = globalThis.setTimeout(done, 300);
+      try {
+        wsToClose.addEventListener('close', () => {
+          globalThis.clearTimeout(timer);
+          done();
+        }, { once: true });
+        if (wsToClose.readyState !== WebSocket.CLOSING) {
+          wsToClose.close(1000, 'User disconnected');
+        }
+      } catch {
+        globalThis.clearTimeout(timer);
+        done();
+      }
+    });
   }
 
   private cleanup() {
     console.log('🔊 Очистка VoiceService');
+
+    this.stopDeviceWatch();
+    this.ignoreInputTrackEnded = true;
+    this.inputTrackEndedHandler = null;
+    this.inputRecoveryInFlight = false;
     
     // Очищаем аудио обработку
     audioProcessingService.destroy();
-    
-    // Очищаем все обработчики событий
-    this.onParticipantJoined = null;
-    this.onParticipantLeft = null;
-    this.onSpeakingChanged = null;
-    this.onParticipantsReceivedCallback = null;
-    this.onParticipantStatusChangedCallback = null;
-    this.onScreenShareChanged = null;
     
     // Закрываем все peer connections
     this.peerConnections.forEach(({ pc, userId }) => {
@@ -1371,7 +2282,21 @@ class VoiceService {
       }
     });
     this.peerConnections.clear();
+    this.peerInitPromises.clear();
+    this.peerGenerations.clear();
+    this.recreateAttempts.clear();
+    this.connectWatchdogExtends.clear();
+    this.remoteConnectionIds.clear();
+    this.mediaHealthMisses.clear();
+    this.mediaHealthTimers.forEach((timer) => globalThis.clearTimeout(timer));
+    this.mediaHealthTimers.clear();
+    this.iceRestartTimers.forEach((timer) => globalThis.clearTimeout(timer));
+    this.iceRestartTimers.clear();
+    this.connectWatchdogs.forEach((timer) => globalThis.clearTimeout(timer));
+    this.connectWatchdogs.clear();
     this.pendingIceCandidates.clear();
+    this.pendingAnswers.clear();
+    this.messageQueue = Promise.resolve();
     this.participantDirectory.clear();
     this.speakingUsers.clear();
     this.removePTTHandlers();
@@ -1401,6 +2326,7 @@ class VoiceService {
       this.rawInputStream.getTracks().forEach(track => track.stop());
       this.rawInputStream = null;
     }
+    this.ignoreInputTrackEnded = false;
 
     // Очищаем VAD
     this.cleanupVoiceActivityDetection();
@@ -1527,24 +2453,11 @@ class VoiceService {
           midAverage > midThreshold || 
           maxValue > maxThreshold;
         
+        // Только локальная подсказка: зелёную рамку собеседникам шлём
+        // через applySpeakingIndicator (когда пакеты реально уходят по WebRTC).
         if (currentlySpeaking !== this.isSpeaking) {
           this.isSpeaking = currentlySpeaking;
-          
-        
-          // Отправляем информацию о голосовой активности
-          this.sendMessage({
-            type: 'speaking',
-            is_speaking: currentlySpeaking
-          });
-          
-          // Уведомляем UI
-          if (this.onSpeakingChanged) {
-            // Для локального пользователя используем ID из токена
-            const currentUserId = this.getCurrentUserId();
-            if (currentUserId) {
-              this.onSpeakingChanged(currentUserId, currentlySpeaking);
-            }
-          }
+          this.setLocalSpeechDetected(currentlySpeaking);
         }
       } catch (error) {
         console.error('🎙️ Ошибка при анализе голосовой активности:', error);
@@ -1553,14 +2466,17 @@ class VoiceService {
   }
 
   private getCurrentUserId(): number | null {
-    if (!this.token) return null;
-    
     try {
-      const payload = JSON.parse(atob(this.token.split('.')[1]));
-      return parseInt(payload.sub);
+      if (this.token) {
+        const payload = JSON.parse(atob(this.token.split('.')[1]));
+        const fromToken = Number(payload.sub);
+        if (Number.isFinite(fromToken)) return fromToken;
+      }
     } catch {
-      return null;
+      // fallback ниже
     }
+    const fromStore = useAuthStore.getState().user?.id;
+    return typeof fromStore === 'number' ? fromStore : null;
   }
 
   private cleanupVoiceActivityDetection() {
@@ -1641,13 +2557,14 @@ class VoiceService {
 
   /** Проверяем, что аудио-пакеты реально уходят собеседникам (WebRTC outbound-rtp). */
   private async pollOutboundAudio(): Promise<void> {
-    if (this.isMuted || this.isDeafened || !this.localSpeechDetected) {
+    if (this.isMuted || this.isDeafened || !this.localSpeechDetected || !this.canTransmitAudio()) {
       this.applySpeakingIndicator(false);
       return;
     }
 
+    // Без собеседников outbound RTP нет — рамка уже ставится в setLocalSpeechDetected
     if (!this.hasConnectedAudioPeer()) {
-      this.applySpeakingIndicator(false);
+      this.applySpeakingIndicator(true);
       return;
     }
 
@@ -1681,6 +2598,12 @@ class VoiceService {
     this.localSpeechDetected = detected;
 
     if (detected) {
+      // Один в канале — всё равно показываем зелёную рамку (тестирование / PTT)
+      if (!this.hasConnectedAudioPeer()) {
+        this.applySpeakingIndicator(true);
+        return;
+      }
+
       void this.seedOutboundBytesBaseline().then(() => {
         if (this.localSpeechDetected) {
           this.startOutboundAudioMonitor();
@@ -1723,43 +2646,42 @@ class VoiceService {
   }
 
   // Демонстрация экрана
-  async startScreenShare(): Promise<boolean> {
+  async startScreenShare(options: StartScreenShareOptions = {}): Promise<boolean> {
+    this.lastScreenShareStartCancelled = false;
     try {
-      console.log('🖥️ Начинаем демонстрацию экрана');
+      console.log('🖥️ Начинаем демонстрацию экрана', options);
       
-      // Проверяем, не демонстрирует ли пользователь уже экран
       if (this.isScreenSharing) {
         console.log('🖥️ Пользователь уже демонстрирует экран');
         return false;
       }
       
-      // Electron: используем desktopCapturer для выбора источника, как в Discord
+      const streamSettings = useScreenShareSettingsStore.getState();
+      const resolvedQuality = resolveQualitySettings(streamSettings);
+      const electronCapture = getElectronCaptureConstraints(resolvedQuality);
       const isElectron = typeof window !== 'undefined' && !!window.electronAPI && typeof window.electronAPI.getDesktopSources === 'function';
+
       if (isElectron) {
-        const sources: Array<{ id: string; name: string; type: string }> = await window.electronAPI!.getDesktopSources!({});
-        // Выбираем основной экран
-        const selected = sources.find((s: { id: string; name: string; type: string }) => s.type === 'screen' && /1|Primary|Главный/i.test(s.name))
-          || sources.find((s: { id: string; name: string; type: string }) => s.type === 'screen')
-          || sources[0];
-        if (!selected) throw new Error('Не удалось получить список источников экрана');
+        const sourceId = options.sourceId;
+        if (!sourceId) {
+          console.warn('🖥️ Electron: sourceId не передан');
+          return false;
+        }
 
         const buildConstraints = (withSystemAudio: boolean) => ({
-          audio: withSystemAudio
+          audio: withSystemAudio && !streamSettings.muteStreamAudio
             ? {
                 mandatory: {
                   chromeMediaSource: 'desktop',
-                  chromeMediaSourceId: selected.id,
+                  chromeMediaSourceId: sourceId,
                 }
               }
             : false,
           video: {
             mandatory: {
               chromeMediaSource: 'desktop',
-              chromeMediaSourceId: selected.id,
-              maxFrameRate: 30,
-              minFrameRate: 15,
-              maxWidth: 1920,
-              maxHeight: 1080,
+              chromeMediaSourceId: sourceId,
+              ...electronCapture,
             }
           } as any
         }) as MediaStreamConstraints;
@@ -1771,30 +2693,35 @@ class VoiceService {
           this.screenStream = await navigator.mediaDevices.getUserMedia(buildConstraints(false));
         }
 
-        // Валидация: убеждаемся, что получили настоящий MediaStream
         if (!this.screenStream || typeof (this.screenStream as any).getVideoTracks !== 'function') {
-          console.warn('🖥️ Получен несовместимый объект вместо MediaStream. Пробуем getDisplayMedia как fallback');
-          try {
-            const gdm = await navigator.mediaDevices.getDisplayMedia({
-              video: true,
-              audio: false
-            } as any);
-            this.screenStream = gdm as any;
-          } catch (e) {
-            console.error('🖥️ Fallback getDisplayMedia также не удался', e);
-            throw e;
-          }
+          throw new Error('Не удалось получить поток экрана');
         }
       } else {
-        // Браузер: стандартный getDisplayMedia
+        const videoConstraints: MediaTrackConstraints = {
+          ...getDisplayMediaVideoConstraints(resolvedQuality),
+        };
+
+        if (options.preferDisplaySurface) {
+          (videoConstraints as MediaTrackConstraints & { displaySurface?: string }).displaySurface =
+            options.preferDisplaySurface;
+        }
+
         this.screenStream = await navigator.mediaDevices.getDisplayMedia({
-          video: {
-            width: { ideal: 1920, max: 1920 },
-            height: { ideal: 1080, max: 1080 },
-            frameRate: { ideal: 30, max: 60 },
-            aspectRatio: { ideal: 16/9 }
-          },
-          audio: true
+          video: videoConstraints,
+          audio: !streamSettings.muteStreamAudio,
+        });
+      }
+
+      const videoTrack = this.screenStream!.getVideoTracks()[0];
+      if (videoTrack) {
+        try {
+          videoTrack.contentHint = resolvedQuality.contentHint;
+        } catch {}
+      }
+
+      if (streamSettings.muteStreamAudio) {
+        this.screenStream!.getAudioTracks().forEach((track) => {
+          track.enabled = false;
         });
       }
 
@@ -1832,6 +2759,7 @@ class VoiceService {
       this.createLocalScreenShareVideo();
 
       this.isScreenSharing = true;
+      console.log(`🖥️ Стрим запущен: ${this.getStreamQualityLabel()}`);
       
       // Уведомляем сервер о начале демонстрации экрана
       this.sendMessage({ 
@@ -1841,22 +2769,27 @@ class VoiceService {
       // Отправляем локальное событие для обновления UI
       const currentUserId = this.getCurrentUserId();
       if (currentUserId) {
-        // Получаем имя пользователя из токена или используем "Вы"
         let username = 'Вы';
+        let display_name: string | undefined;
         try {
-          if (this.token) {
+          const authUser = useAuthStore.getState().user;
+          if (authUser?.id === currentUserId) {
+            display_name = authUser.display_name;
+            username = authUser.display_name?.trim() || authUser.username || 'Вы';
+          } else if (this.token) {
             const payload = JSON.parse(atob(this.token.split('.')[1]));
             username = payload.username || 'Вы';
           }
         } catch (error) {
-          console.warn('Не удалось получить имя пользователя из токена:', error);
+          console.warn('Не удалось получить имя пользователя:', error);
         }
-        
+
         const event = new CustomEvent('screen_share_start', {
-          detail: { 
+          detail: {
             user_id: currentUserId,
-            username: username
-          }
+            username,
+            display_name,
+          },
         });
         if (typeof window !== 'undefined') {
           window.dispatchEvent(event);
@@ -1865,8 +2798,15 @@ class VoiceService {
       }
 
       console.log('🖥️ Демонстрация экрана успешно начата');
+      soundService.playStreamStartSound();
       return true;
     } catch (error) {
+      if (
+        error instanceof DOMException &&
+        (error.name === 'NotAllowedError' || error.name === 'AbortError')
+      ) {
+        this.lastScreenShareStartCancelled = true;
+      }
       console.error('🖥️ Ошибка начала демонстрации экрана:', error);
       return false;
     }
@@ -1876,6 +2816,7 @@ class VoiceService {
     if (!this.screenStream) return;
 
     console.log('🖥️ Останавливаем демонстрацию экрана');
+    soundService.playStreamEndSound();
 
     // Отправляем локальное событие для немедленного обновления UI
     const userId = this.getCurrentUserId();
@@ -1945,6 +2886,84 @@ class VoiceService {
     });
 
     console.log('🖥️ Демонстрация экрана остановлена');
+  }
+
+  /** Зритель открыл стрим — уведомляем ведущего (звук + пере-offer с видео). */
+  notifyStreamerViewerJoined(streamerId: number): void {
+    const currentUserId = this.getCurrentUserId();
+    if (!currentUserId || currentUserId === streamerId) return;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+
+    const now = Date.now();
+    const lastSent = this.lastViewerJoinedSent.get(streamerId) ?? 0;
+    if (now - lastSent < 3000) return;
+    this.lastViewerJoinedSent.set(streamerId, now);
+
+    this.sendMessage({
+      type: 'screen_share_viewer_joined',
+      streamer_id: streamerId,
+    });
+  }
+
+  /** Зритель: убедиться, что WebRTC-видео от стримера подключено. */
+  async ensureRemoteScreenShare(streamerId: number): Promise<void> {
+    const currentUserId = this.getCurrentUserId();
+    if (!currentUserId || currentUserId === streamerId) return;
+
+    const video = document.getElementById(`remote-video-${streamerId}`) as HTMLVideoElement | null;
+    if (video?.srcObject) {
+      const track = (video.srcObject as MediaStream).getVideoTracks()[0];
+      if (track?.readyState === 'live' && video.videoWidth > 0) {
+        return;
+      }
+    }
+
+    if (this.screenShareEnsureTimers.has(streamerId)) return;
+
+    this.notifyStreamerViewerJoined(streamerId);
+
+    if (this.peerConnections.has(streamerId)) {
+      this.requestOfferFromPeer(streamerId);
+    }
+
+    const timer = globalThis.setTimeout(() => {
+      this.screenShareEnsureTimers.delete(streamerId);
+    }, 2500);
+    this.screenShareEnsureTimers.set(streamerId, timer);
+  }
+
+  private async refreshScreenShareOfferForViewer(viewerId: number): Promise<void> {
+    const peer = this.peerConnections.get(viewerId);
+    if (!peer?.pc || !this.screenStream) return;
+
+    try {
+      await this.updatePeerConnectionForScreenShare(peer.pc, viewerId);
+    } catch (error) {
+      console.warn(`🖥️ Не удалось обновить стрим для зрителя ${viewerId}:`, error);
+    }
+  }
+
+  private attachRemoteVideoElement(remoteVideo: HTMLVideoElement, userId: number): void {
+    const pool = document.getElementById('screen-share-video-pool');
+    if (pool) {
+      if (!pool.contains(remoteVideo)) {
+        pool.appendChild(remoteVideo);
+      }
+      void remoteVideo.play().catch(() => {});
+      console.log(`🖥️ Видео пользователя ${userId} добавлено в пул`);
+      return;
+    }
+
+    if (!document.body.contains(remoteVideo)) {
+      remoteVideo.style.position = 'fixed';
+      remoteVideo.style.left = '-9999px';
+      remoteVideo.style.width = '640px';
+      remoteVideo.style.height = '360px';
+      remoteVideo.style.opacity = '0.01';
+      document.body.appendChild(remoteVideo);
+    }
+    void remoteVideo.play().catch(() => {});
+    console.log(`🖥️ Видео пользователя ${userId} добавлено в body (fallback)`);
   }
 
   // Вспомогательный метод для удаления screen share из peer connection
@@ -2025,6 +3044,10 @@ class VoiceService {
     return this.isScreenSharing;
   }
 
+  wasLastScreenShareStartCancelled(): boolean {
+    return this.lastScreenShareStartCancelled;
+  }
+
   onScreenShareChange(callback: (userId: number, isSharing: boolean) => void) {
     this.onScreenShareChanged = callback;
 
@@ -2044,10 +3067,117 @@ class VoiceService {
   // Принудительное обновление качества для всех соединений
   async updateAllVideoQuality() {
     if (!this.adaptiveQualityEnabled) return;
-    
-    this.peerConnections.forEach(async ({ pc }, userId) => {
-      await this.adjustVideoQuality(pc, userId, this.isScreenSharing);
+
+    const tasks: Promise<void>[] = [];
+    this.peerConnections.forEach(({ pc }, userId) => {
+      if (this.isScreenSharing) {
+        tasks.push(this.applyScreenShareEncoding(pc, userId));
+      } else {
+        tasks.push(this.adjustVideoQuality(pc, userId, false));
+      }
     });
+    await Promise.all(tasks);
+  }
+
+  getStreamQualityLabel(): string {
+    const settings = useScreenShareSettingsStore.getState();
+    return formatStreamQualityLabel(resolveQualitySettings(settings));
+  }
+
+  async reapplyScreenShareQuality(): Promise<void> {
+    if (!this.isScreenSharing || !this.screenStream) return;
+
+    const settings = useScreenShareSettingsStore.getState();
+    const resolved = resolveQualitySettings(settings);
+    const videoTrack = this.screenStream.getVideoTracks()[0];
+
+    if (videoTrack) {
+      try {
+        videoTrack.contentHint = resolved.contentHint;
+      } catch {}
+      try {
+        await videoTrack.applyConstraints({
+          frameRate: { ideal: resolved.fps, max: resolved.fps },
+        });
+      } catch (error) {
+        console.warn('🖥️ Не удалось обновить FPS захвата, нужен перезапуск стрима:', error);
+      }
+    }
+
+    this.screenStream.getAudioTracks().forEach((track) => {
+      track.enabled = !settings.muteStreamAudio;
+    });
+
+    const tasks: Promise<void>[] = [];
+    this.peerConnections.forEach(({ pc }, userId) => {
+      tasks.push(this.applyScreenShareEncoding(pc, userId));
+    });
+    await Promise.all(tasks);
+  }
+
+  private async applyScreenShareEncoding(
+    pc: RTCPeerConnection,
+    userId: number
+  ): Promise<void> {
+    try {
+      const videoSender = pc.getSenders().find((sender) => sender.track?.kind === 'video');
+      if (!videoSender?.track) return;
+
+      const settings = useScreenShareSettingsStore.getState();
+      const resolved = resolveQualitySettings(settings);
+      const trackSettings = videoSender.track.getSettings();
+      const encoding = getScreenShareEncoding(resolved, trackSettings);
+
+      const parameters = videoSender.getParameters();
+      if (!parameters.encodings || parameters.encodings.length === 0) {
+        parameters.encodings = [{}];
+      }
+
+      Object.assign(parameters.encodings[0], encoding);
+      await videoSender.setParameters(parameters);
+
+      try {
+        videoSender.track.contentHint = resolved.contentHint;
+      } catch {}
+
+      console.log(
+        `🖥️ Качество стрима для ${userId}: ${formatStreamQualityLabel(resolved)}, ` +
+          `${Math.round((encoding.maxBitrate ?? 0) / 1_000_000)} Mbps`
+      );
+    } catch (error) {
+      console.warn(`🖥️ Не удалось применить качество стрима для ${userId}:`, error);
+    }
+  }
+
+  /** Применить битрейт из настроек голосового канала (кбит/с). */
+  public setChannelAudioBitrate(kbps: number): void {
+    const next = Math.max(8, Math.min(96, Math.round(kbps || 64)));
+    this.channelAudioBitrateKbps = next;
+    void this.applyAudioBitrateToAllPeers();
+  }
+
+  private async applyAudioBitrateToPeer(pc: RTCPeerConnection): Promise<void> {
+    const audioSenders = pc.getSenders().filter((sender) => sender.track?.kind === 'audio');
+    const maxBitrate = this.channelAudioBitrateKbps * 1000;
+    for (const sender of audioSenders) {
+      try {
+        const parameters = sender.getParameters();
+        if (!parameters.encodings || parameters.encodings.length === 0) {
+          parameters.encodings = [{}];
+        }
+        parameters.encodings[0].maxBitrate = maxBitrate;
+        await sender.setParameters(parameters);
+      } catch (error) {
+        console.warn('[VoiceService] Не удалось задать битрейт аудио:', error);
+      }
+    }
+  }
+
+  private async applyAudioBitrateToAllPeers(): Promise<void> {
+    const peers = Array.from(this.peerConnections.values());
+    for (const peer of peers) {
+      await this.applyAudioBitrateToPeer(peer.pc);
+    }
   }
 
   // Адаптивное изменение качества в зависимости от состояния соединения
@@ -2064,25 +3194,17 @@ class VoiceService {
       // Определяем качество на основе состояния соединения
       const connectionState = pc.connectionState;
       const iceConnectionState = pc.iceConnectionState;
+      const iceReady =
+        iceConnectionState === 'connected' || iceConnectionState === 'completed';
       
       let maxBitrate: number;
       let maxFramerate: number;
       
       if (isScreenShare) {
-        // Для демонстрации экрана - более высокие требования
-        if (connectionState === 'connected' && iceConnectionState === 'connected') {
-          maxBitrate = 8_000_000; // 8 Mbps для отличного соединения
-          maxFramerate = 30;
-        } else if (connectionState === 'connecting' || iceConnectionState === 'checking') {
-          maxBitrate = 4_000_000; // 4 Mbps для среднего соединения
-          maxFramerate = 24;
-        } else {
-          maxBitrate = 2_000_000; // 2 Mbps для слабого соединения
-          maxFramerate = 15;
-        }
+        return;
       } else {
         // Для обычного видео
-        if (connectionState === 'connected' && iceConnectionState === 'connected') {
+        if (connectionState === 'connected' && iceReady) {
           maxBitrate = 2_000_000; // 2 Mbps для отличного соединения
           maxFramerate = 30;
         } else if (connectionState === 'connecting' || iceConnectionState === 'checking') {
@@ -2142,18 +3264,12 @@ class VoiceService {
         console.log(`🖥️ Добавлен видео трек для пользователя ${userId}`);
       }
 
-      // Настраиваем адаптивное качество для демонстрации экрана
-      await this.adjustVideoQuality(pc, userId, true);
-
-      // Подсказка контента для улучшения качества движения
-      try {
-        // contentHint поддерживается в современных браузерах
-        // @ts-ignore
-        videoTrack.contentHint = 'motion';
-      } catch {}
+      // Настраиваем кодирование экрана по выбранному режиму
+      await this.applyScreenShareEncoding(pc, userId);
 
       // Обрабатываем системный аудио трек
-      if (audioTracks.length > 0) {
+      const streamSettings = useScreenShareSettingsStore.getState();
+      if (audioTracks.length > 0 && !streamSettings.muteStreamAudio) {
         const systemAudioTrack = audioTracks[0];
         
         // Проверяем, что это действительно системный звук
@@ -2247,7 +3363,7 @@ class VoiceService {
     
     // Ждем появления контейнера в ChatArea (максимум 5 секунд)
     const waitForContainer = (attempts = 0): void => {
-      const videoContainer = document.getElementById('screen-share-container-chat');
+      const videoContainer = document.getElementById('screen-share-video-pool');
       
       if (videoContainer) {
         // Контейнер найден, добавляем видео
@@ -2275,11 +3391,11 @@ class VoiceService {
         }, 1000);
       } else if (attempts < 50) { // Максимум 5 секунд (50 * 100ms)
         // Контейнер ещё не создан, ждем
-        console.log(`🖥️ Ожидание контейнера screen-share-container-chat (попытка ${attempts + 1}/50)`);
+        console.log(`🖥️ Ожидание контейнера screen-share-video-pool (попытка ${attempts + 1}/50)`);
         setTimeout(() => waitForContainer(attempts + 1), 100);
       } else {
         // Превышено время ожидания
-        console.error('🖥️ Превышено время ожидания контейнера screen-share-container-chat');
+        console.error('🖥️ Превышено время ожидания контейнера screen-share-video-pool');
         localVideo.remove();
         return;
       }

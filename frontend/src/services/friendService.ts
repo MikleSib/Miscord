@@ -1,9 +1,14 @@
 import api from './api'
 import { User, FriendRequest } from '../types'
 
+function normalizeLogin(value: string): string {
+  return value.trim().replace(/^@+/, '')
+}
+
 class FriendService {
   async sendFriendRequest(username: string): Promise<User> {
-    const response = await api.post<User>('/api/friends/friends/request', { username })
+    const login = normalizeLogin(username)
+    const response = await api.post<User>('/api/friends/friends/request', { username: login })
     return response.data
   }
 

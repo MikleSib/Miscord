@@ -2,6 +2,7 @@
 
 import React from 'react'
 import { cn } from '../../lib/utils'
+import { Switch } from '../ui/switch'
 
 /** Стандартная раскладка вкладки: прокручиваемое тело + закреплённая полоса действий. */
 export function TabShell({
@@ -121,26 +122,13 @@ export function Toggle({
         <p className="text-sm font-medium text-foreground">{label}</p>
         {description && <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>}
       </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
+      <Switch
+        className="mt-0.5"
+        checked={checked}
+        onCheckedChange={onChange}
         disabled={disabled}
-        onClick={() => onChange(!checked)}
-        className={cn(
-          'relative mt-0.5 h-6 w-11 flex-none rounded-full transition-colors',
-          checked ? 'bg-primary' : 'bg-muted',
-          disabled && 'cursor-not-allowed opacity-60'
-        )}
-      >
-        <span
-          className={cn(
-            'absolute top-1 h-4 w-4 rounded-full bg-white transition-transform',
-            checked ? 'translate-x-6' : 'translate-x-1'
-          )}
-        />
-      </button>
+        aria-label={label}
+      />
     </div>
   )
 }

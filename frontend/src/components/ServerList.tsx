@@ -1,10 +1,20 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, Home, UserPlus, Settings, Copy, UserCheck, X, ChevronRight, Users, Gamepad2, Heart, Apple, BookOpen } from 'lucide-react'
+import { Plus, Home, Settings, Copy, X, ChevronRight, Bell } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { useAuthStore } from '../store/store'
+import { useDmNotificationStore, selectPendingDmNotifications } from '../store/dmNotificationStore'
+import {
+  useMentionNotificationStore,
+  formatMentionBadge,
+} from '../store/mentionNotificationStore'
+import { useChannelUnreadStore } from '../store/channelUnreadStore'
+import { queueDirectMessage } from '../lib/dmNavigation'
+import { UserAvatar } from './ui/user-avatar'
+import { Tooltip } from './ui/tooltip'
 import { cn } from '../lib/utils'
+import { resolveMediaUrl } from '../lib/mediaUrl'
 import { Button } from './ui/button'
 import {
   Dialog,
@@ -13,27 +23,26 @@ import {
   TextField,
   Box,
   IconButton,
-  Tooltip
 } from '@mui/material'
 import channelService from '../services/channelService'
-import { applyMemberJoined } from '../lib/memberSync'
 import { ServerSettingsModal } from './ServerSettingsModal'
+import { ServerNotificationSettingsModal } from './ServerNotificationSettingsModal'
 import { Server } from '../types'
+import { User } from '../types'
 
 export function ServerList() {
   const { servers, currentServer, selectServer, loadServers, updateServer } = useStore()
   const { user } = useAuthStore()
+  const pendingDmNotifications = useDmNotificationStore(selectPendingDmNotifications)
+  const markDmViewed = useDmNotificationStore((state) => state.markViewed)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
-  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false)
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false)
+  const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false)
   const [contextMenuOpen, setContextMenuOpen] = useState<number | null>(null)
   const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 })
   const [selectedServer, setSelectedServer] = useState<Server | null>(null)
   const [newServerName, setNewServerName] = useState('')
-  const [inviteUsername, setInviteUsername] = useState('')
   const [isCreating, setIsCreating] = useState(false)
-  const [isInviting, setIsInviting] = useState(false)
-  const [inviteError, setInviteError] = useState('')
   const [createStep, setCreateStep] = useState<'template' | 'custom'>('template')
 
   const serverTemplates = [
@@ -110,47 +119,9 @@ export function ServerList() {
     }
   }
 
-  const handleInviteUser = async () => {
-    if (!inviteUsername.trim() || !currentServer) return
-
-    setIsInviting(true)
-    setInviteError('')
-    
-    try {
-      const result = await channelService.inviteUserToServer(currentServer.id, inviteUsername)
-      applyMemberJoined({
-        channel_id: currentServer.id,
-        user_id: result.user_id,
-        username: result.username,
-        display_name: result.display_name,
-        avatar_url: result.avatar_url,
-        user: result.user,
-      })
-      setIsInviteModalOpen(false)
-      setInviteUsername('')
-    } catch (error: any) {
-      console.error('Ошибка приглашения пользователя:', error)
-      if (error.response?.data?.detail) {
-        setInviteError(error.response.data.detail)
-      } else {
-        setInviteError('Не удалось пригласить пользователя')
-      }
-    } finally {
-      setIsInviting(false)
-    }
-  }
-
   const handleContextMenu = (e: React.MouseEvent, server: Server) => {
     e.preventDefault()
     e.stopPropagation()
-    
-    console.log('Context menu triggered:', {
-      user: user,
-      server: server,
-      server_owner_id: server.owner_id,
-      user_id: user?.id,
-      isOwner: user && server.owner_id === user.id
-    })
     
     setContextMenuPosition({ x: e.clientX, y: e.clientY })
     setContextMenuOpen(server.id)
@@ -164,10 +135,9 @@ export function ServerList() {
     }
   }
 
-  const handleInviteToServer = () => {
+  const handleNotificationSettings = () => {
     if (selectedServer) {
-      selectServer(selectedServer.id)
-      setIsInviteModalOpen(true)
+      setIsNotificationSettingsOpen(true)
       setContextMenuOpen(null)
     }
   }
@@ -187,6 +157,16 @@ export function ServerList() {
     setContextMenuOpen(null)
     setSelectedServer(null)
   }
+
+  const handlePendingDmClick = async (entry: { user: User; unreadCount: number }) => {
+    markDmViewed(entry.user.id)
+    queueDirectMessage(entry.user)
+    await selectServer(0)
+  }
+
+  const formatUnreadBadge = (count: number) => formatMentionBadge(count)
+  const mentionPending = useMentionNotificationStore((state) => state.pending)
+  const channelUnreadPending = useChannelUnreadStore((state) => state.pending)
 
   useEffect(() => {
     const handleGlobalClick = () => {
@@ -225,66 +205,95 @@ export function ServerList() {
           </Button>
         </div>
 
+        {pendingDmNotifications.length > 0 && (
+          <div className="flex w-full flex-col items-center gap-3">
+            {pendingDmNotifications.map((entry) => (
+              <div key={entry.user.id} className="relative flex w-full justify-center">
+                <Tooltip
+                  content={`${entry.user.display_name || entry.user.username} — ${entry.unreadCount} новых`}
+                >
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="relative h-12 w-12 overflow-visible rounded-[1.5rem] border border-border/60 bg-secondary p-0 transition-[border-radius,background-color,transform] duration-200 ease-out hover:rounded-[0.9rem] hover:bg-accent active:scale-[0.97]"
+                    onClick={() => void handlePendingDmClick(entry)}
+                    aria-label={`${entry.user.display_name || entry.user.username} — ${entry.unreadCount} новых`}
+                  >
+                    <UserAvatar user={entry.user} size={48} sx={{ width: 48, height: 48 }} />
+                    <span className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-background">
+                      {formatUnreadBadge(entry.unreadCount)}
+                    </span>
+                  </Button>
+                </Tooltip>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="h-[2px] w-8 rounded-full bg-border" />
 
         {/* Server Icons */}
         <div className="flex w-full flex-1 flex-col items-center gap-3">
           {servers.map((server) => {
             const isActive = currentServer?.id === server.id
+            const mentionCount = mentionPending.filter((item) => item.serverId === server.id).length
+            const hasUnread =
+              mentionCount === 0 &&
+              channelUnreadPending.some((item) => item.serverId === server.id)
 
             return (
               <div key={server.id} className="group relative flex w-full justify-center">
-                {isActive && (
+                {isActive ? (
                   <div className="absolute left-0 top-1/2 h-10 w-1 -translate-y-1/2 rounded-r-full bg-foreground" />
-                )}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={cn(
-                    "h-12 w-12 overflow-hidden rounded-[1.5rem] border border-border/60 bg-secondary transition-[border-radius,background-color,color,transform] duration-200 ease-out hover:rounded-[0.9rem] hover:bg-accent",
-                    isActive && "rounded-[0.9rem] bg-primary text-primary-foreground hover:bg-primary/90",
-                    "active:scale-[0.97]"
-                  )}
-                  onClick={() => selectServer(server.id)}
-                  onContextMenu={(e) => handleContextMenu(e, server)}
+                ) : hasUnread || mentionCount > 0 ? (
+                  <div className="absolute left-0 top-1/2 h-2 w-1 -translate-y-1/2 rounded-r-full bg-foreground" />
+                ) : null}
+                <Tooltip
+                  content={
+                    mentionCount > 0
+                      ? `${server.name} — ${mentionCount} упоминаний`
+                      : hasUnread
+                        ? `${server.name} — есть новые сообщения`
+                        : server.name
+                  }
+                  side="right"
                 >
-                  {server.icon ? (
-                    <img
-                      src={server.icon}
-                      alt={server.name}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <span className="text-lg font-semibold">
-                      {server.name.slice(0, 2).toUpperCase()}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "relative h-12 w-12 overflow-visible rounded-[1.5rem] border border-border/60 bg-secondary transition-[border-radius,background-color,color,transform] duration-200 ease-out hover:rounded-[0.9rem] hover:bg-accent",
+                      isActive && "rounded-[0.9rem] bg-primary text-primary-foreground hover:bg-primary/90",
+                      "active:scale-[0.97]"
+                    )}
+                    onClick={() => selectServer(server.id)}
+                    onContextMenu={(e) => handleContextMenu(e, server)}
+                    aria-label={server.name}
+                  >
+                  <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-[inherit]">
+                    {server.icon ? (
+                      <img
+                        key={server.icon}
+                        src={resolveMediaUrl(server.icon) || server.icon}
+                        alt={server.name}
+                        className="h-full w-full object-cover"
+                        onError={(event) => {
+                          event.currentTarget.style.display = 'none'
+                        }}
+                      />
+                    ) : (
+                      <span className="text-lg font-semibold">
+                        {server.name.slice(0, 2).toUpperCase()}
+                      </span>
+                    )}
+                  </span>
+                  {mentionCount > 0 && (
+                    <span className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-background">
+                      {formatUnreadBadge(mentionCount)}
                     </span>
                   )}
                 </Button>
-
-                {isActive && (
-                  <div className="absolute -right-0.5 top-0 opacity-0 transition-opacity duration-150 ease-out group-hover:opacity-100">
-                    <Tooltip title="Пригласить пользователя">
-                      <IconButton
-                        size="small"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setIsInviteModalOpen(true)
-                        }}
-                        sx={{
-                          backgroundColor: 'rgba(67, 181, 129, 0.1)',
-                          color: '#23a55a',
-                          width: 24,
-                          height: 24,
-                          '&:hover': {
-                            backgroundColor: 'rgba(67, 181, 129, 0.2)',
-                          }
-                        }}
-                      >
-                        <UserPlus size={14} />
-                      </IconButton>
-                    </Tooltip>
-                  </div>
-                )}
+                </Tooltip>
               </div>
             )
           })}
@@ -435,131 +444,6 @@ export function ServerList() {
         </DialogContent>
       </Dialog>
 
-      {/* Invite User Modal */}
-      <Dialog 
-        open={isInviteModalOpen} 
-        onClose={() => {
-          setIsInviteModalOpen(false)
-          setInviteError('')
-          setInviteUsername('')
-        }}
-        maxWidth="sm"
-        fullWidth
-        PaperProps={{
-          sx: {
-            backgroundColor: '#323339',
-            color: 'white',
-            borderRadius: '8px',
-            minWidth: '440px'
-          }
-        }}
-      >
-        <DialogContent sx={{ padding: 0 }}>
-          <div className="p-6">
-            <div className="flex justify-between items-center mb-6">
-              <div>
-                <h2 className="text-xl font-bold text-white mb-1">Пригласить пользователя</h2>
-                <p className="text-[#999aa1] text-sm">
-                  {currentServer ? `на сервер ${currentServer.name}` : 'на сервер'}
-                </p>
-              </div>
-              <IconButton
-                onClick={() => {
-                  setIsInviteModalOpen(false)
-                  setInviteError('')
-                  setInviteUsername('')
-                }}
-                sx={{ color: '#999aa1' }}
-              >
-                <X size={24} />
-              </IconButton>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-[#999aa1] mb-2">
-                  Имя пользователя *
-                </label>
-                <TextField
-                  value={inviteUsername}
-                  onChange={(e) => setInviteUsername(e.target.value)}
-                  fullWidth
-                  placeholder="Введите имя пользователя..."
-                  error={!!inviteError}
-                  helperText={inviteError}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      backgroundColor: '#1e1f22',
-                      color: 'white',
-                      fontSize: '16px',
-                      '& fieldset': {
-                        borderColor: '#393a41',
-                      },
-                      '&:hover fieldset': {
-                        borderColor: '#5865f2',
-                      },
-                      '&.Mui-focused fieldset': {
-                        borderColor: '#5865f2',
-                      },
-                      '&.Mui-error fieldset': {
-                        borderColor: '#da3e44',
-                      },
-                    },
-                    '& .MuiInputBase-input': {
-                      padding: '12px 16px',
-                    },
-                    '& .MuiFormHelperText-root': {
-                      color: '#da3e44',
-                      marginLeft: 0,
-                      marginTop: '8px',
-                    },
-                  }}
-                />
-              </div>
-
-              {!inviteError && (
-                <div className="bg-[#2c2d32] p-4 rounded-lg">
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 bg-[#5865f2] rounded-full flex items-center justify-center text-white font-semibold">
-                      ?
-                    </div>
-                    <div>
-                      <h4 className="text-white font-medium text-sm mb-1">Как пригласить пользователя</h4>
-                      <p className="text-[#999aa1] text-xs leading-relaxed">
-                        Введите точное имя пользователя. После приглашения пользователь получит уведомление 
-                        и сможет присоединиться к серверу.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="flex gap-3 justify-end mt-6 pt-6 border-t border-[#393a3f]">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setIsInviteModalOpen(false)
-                  setInviteError('')
-                  setInviteUsername('')
-                }}
-                disabled={isInviting}
-                className="bg-transparent border-[#4e5058] text-white hover:bg-[#4e5058] hover:border-[#4e5058] px-6"
-              >
-                Отмена
-              </Button>
-              <Button
-                onClick={handleInviteUser}
-                disabled={!inviteUsername.trim() || isInviting}
-                className="bg-[#5865f2] hover:bg-[#4752c4] text-white px-6"
-              >
-                {isInviting ? 'Приглашение...' : 'Пригласить'}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
       {/* Context Menu */}
       {contextMenuOpen && (
         <>
@@ -576,19 +460,18 @@ export function ServerList() {
           >
             <div className="py-1">
               <button
-                onClick={handleInviteToServer}
-                className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition flex items-center gap-2"
-              >
-                <UserPlus className="w-4 h-4" />
-                Пригласить людей
-              </button>
-              <div className="border-t border-border my-1" />
-              <button
                 onClick={handleServerSettings}
                 className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition flex items-center gap-2"
               >
                 <Settings className="w-4 h-4" />
                 Настройки сервера
+              </button>
+              <button
+                onClick={handleNotificationSettings}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition flex items-center gap-2"
+              >
+                <Bell className="w-4 h-4" />
+                Настройки уведомлений
               </button>
               <div className="border-t border-border my-1" />
               <button
@@ -610,6 +493,14 @@ export function ServerList() {
           onClose={() => setIsSettingsModalOpen(false)}
           server={selectedServer}
           onServerUpdate={handleServerUpdate}
+        />
+      )}
+
+      {selectedServer && (
+        <ServerNotificationSettingsModal
+          isOpen={isNotificationSettingsOpen}
+          onClose={() => setIsNotificationSettingsOpen(false)}
+          server={selectedServer}
         />
       )}
     </>

@@ -8,9 +8,7 @@ import { UserAvatar } from './ui/user-avatar';
 import { X, Upload, Trash2, User, Mic, Volume2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import authService from '../services/authService';
-import { VoiceInputSettings } from './VoiceInputSettings';
-import { NoiseSuppressionSettings } from './NoiseSuppressionSettings';
-import { AudioDeviceSettings } from './AudioDeviceSettings';
+import { VoiceVideoSettings } from './VoiceVideoSettings';
 import { applyUserProfileUpdate } from '../lib/userProfileSync';
 
 const SIDEBAR_ITEMS = [
@@ -29,16 +27,28 @@ const SIDEBAR_ITEMS = [
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Какую вкладку открыть при показе модалки */
+  initialTab?: 'profile' | 'voice';
 }
 
-export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
+export default function SettingsModal({
+  isOpen,
+  onClose,
+  initialTab = 'profile',
+}: SettingsModalProps) {
   const { user } = useAuthStore();
-  const [activeTab, setActiveTab] = useState('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'voice'>(initialTab);
   const [displayName, setDisplayName] = useState('');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setActiveTab(initialTab);
+    }
+  }, [isOpen, initialTab]);
 
   useEffect(() => {
     if (user && isOpen) {
@@ -167,7 +177,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       />
 
       {/* Модальное окно */}
-      <div className="relative bg-background border border-border rounded-lg shadow-xl w-full max-w-4xl h-[600px] max-h-[90vh] overflow-hidden">
+      <div className="relative bg-background border border-border rounded-lg shadow-xl w-full max-w-[84rem] h-[min(900px,92vh)] max-h-[92vh] overflow-hidden">
         {/* Header */}
         <div className="h-14 bg-background border-b border-border flex items-center justify-between px-6">
           <h1 className="text-lg font-semibold text-foreground">Настройки пользователя</h1>
@@ -190,7 +200,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 return (
                   <button
                     key={item.id}
-                    onClick={() => setActiveTab(item.id)}
+                    onClick={() => setActiveTab(item.id as 'profile' | 'voice')}
                     className={cn(
                       "w-full flex items-center gap-3 px-3 py-2 text-left rounded-md transition-colors",
                       activeTab === item.id
@@ -332,26 +342,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             )}
 
             {activeTab === 'voice' && (
-              <div className="max-w-4xl">
-                <h2 className="text-xl font-semibold text-foreground mb-6">Голос и видео</h2>
-
-                {/* Устройства ввода/вывода */}
-                <div className="mb-8">
-                  <h3 className="text-lg font-medium text-foreground mb-4">Устройства аудио</h3>
-                  <AudioDeviceSettings />
-                </div>
-
-                {/* Настройки ввода голоса */}
-                <div className="mb-8">
-                  <h3 className="text-lg font-medium text-foreground mb-4">Ввод голоса</h3>
-                  <VoiceInputSettings />
-                </div>
-
-                {/* Шумоподавление */}
-                <div className="mb-8">
-                  <h3 className="text-lg font-medium text-foreground mb-4">Шумоподавление</h3>
-                  <NoiseSuppressionSettings />
-                </div>
+              <div>
+                <h2 className="mb-6 text-2xl font-semibold text-[#f2f3f5]">Голос и видео</h2>
+                <VoiceVideoSettings />
               </div>
             )}
           </div>

@@ -50,6 +50,22 @@ class InviteCreate(BaseModel):
     target_text_channel_id: Optional[int] = None
 
 
+# --- Уведомления ---
+
+class NotificationSettingsUpdate(BaseModel):
+    muted: Optional[bool] = None
+    notification_level: Optional[str] = Field(default=None, pattern="^(all|mentions|nothing)$")
+    suppress_everyone: Optional[bool] = None
+    suppress_roles: Optional[bool] = None
+    suppress_highlights: Optional[bool] = None
+    mute_events: Optional[bool] = None
+    mobile_push: Optional[bool] = None
+
+
+class ChannelNotificationOverrideUpdate(BaseModel):
+    level: str = Field(pattern="^(all|mentions|nothing|muted)$")
+
+
 class InvitePreview(BaseModel):
     code: str
     server_id: int

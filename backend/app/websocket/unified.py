@@ -21,6 +21,11 @@ from app.core.security import decode_access_token
 from app.websocket.connection_manager import manager
 from app.services import direct_message_service
 from app.services.user_activity_service import user_activity_service
+from app.services.text_channel_visibility import get_visible_text_channel
+from app.services.slow_mode import check_slow_mode
+from app.services.rate_limit import enforce_message_antispam, rate_limit_payload
+from app.services.mentions import notify_message_mentions
+from app.services.message_notifications import notify_channel_message_activity
 from app.core.config import settings
 
 
@@ -264,10 +269,49 @@ async def handle_chat_message(
     if not text_channel_id:
         return
 
+    text_channel = await get_visible_text_channel(db, text_channel_id)
+    if not text_channel:
+        return
+
+    from app.services.channel_access import user_can_access_text_channel
+    if not await user_can_access_text_channel(db, user, text_channel, need_send=True):
+        await manager.send_to_user(user.id, {
+            "type": "error",
+            "message": "Нет доступа к этому каналу",
+            "text_channel_id": text_channel_id,
+        })
+        return
+
     # Валидация
     if not content and not attachments:
         return
     if len(content) > 5000 or len(attachments) > 3:
+        return
+
+    allowed, retry_after, limit_message = enforce_message_antispam(
+        user.id,
+        dest_key=f"channel:{text_channel_id}",
+        content=content,
+    )
+    if not allowed:
+        await manager.send_to_user(
+            user.id,
+            rate_limit_payload(
+                message=limit_message,
+                retry_after_seconds=retry_after,
+                scope="channel",
+                text_channel_id=text_channel_id,
+            ),
+        )
+        return
+
+    allowed, retry_after = await check_slow_mode(db, text_channel, user)
+    if not allowed:
+        await manager.send_to_user(user.id, {
+            "type": "slow_mode",
+            "text_channel_id": text_channel_id,
+            "retry_after_seconds": retry_after,
+        })
         return
 
     # Создаем сообщение
@@ -310,7 +354,7 @@ async def handle_chat_message(
         "author": {
             "id": full_message.author.id,
             "username": full_message.author.display_name or full_message.author.username,
-            "email": full_message.author.email,
+            "email": "",
             "display_name": full_message.author.display_name,
             "avatar_url": getattr(full_message.author, 'avatar_url', None)
         },
@@ -329,7 +373,7 @@ async def handle_chat_message(
             "author": {
                 "id": full_message.reply_to.author.id,
                 "username": full_message.reply_to.author.display_name or full_message.reply_to.author.username,
-                "email": full_message.reply_to.author.email,
+                "email": "",
                 "display_name": full_message.reply_to.author.display_name,
                 "avatar_url": getattr(full_message.reply_to.author, 'avatar_url', None)
             }
@@ -341,6 +385,23 @@ async def handle_chat_message(
         "type": "new_message",
         "data": message_dict
     })
+
+    await notify_message_mentions(
+        db,
+        manager,
+        content=content,
+        author=user,
+        text_channel=text_channel,
+        message_id=full_message.id,
+    )
+    await notify_channel_message_activity(
+        db,
+        manager,
+        content=content,
+        author=user,
+        text_channel=text_channel,
+        message_id=full_message.id,
+    )
 
     # Обновляем активность
     await user_activity_service.update_user_activity(user.id, db)
@@ -382,13 +443,24 @@ async def handle_join_voice(
     if not voice_channel:
         return None
 
+    from app.services.channel_access import user_can_access_voice_channel
+    if not await user_can_access_voice_channel(db, user, voice_channel):
+        await websocket.send_text(json.dumps({
+            "type": "error",
+            "message": "Нет доступа к голосовому каналу",
+        }))
+        return None
+
     # Проверяем лимит
     active_users = await db.execute(
         select(VoiceChannelUser).where(
             VoiceChannelUser.voice_channel_id == voice_channel_id
         )
     )
-    if len(active_users.scalars().all()) >= voice_channel.max_users:
+    # 0 = без лимита (∞)
+    active_count = len(active_users.scalars().all())
+    max_users = int(voice_channel.max_users or 0)
+    if max_users > 0 and active_count >= max_users:
         await websocket.send_text(json.dumps({
             "type": "error",
             "message": "Voice channel is full"
@@ -801,6 +873,23 @@ async def handle_dm_message(user: User, message_data: dict, db: AsyncSession, ma
     if len(content) > 5000 or len(attachments) > 3:
         return
 
+    allowed, retry_after, limit_message = enforce_message_antispam(
+        user.id,
+        dest_key=f"dm:{min(user.id, int(recipient_id))}:{max(user.id, int(recipient_id))}",
+        content=content,
+    )
+    if not allowed:
+        await manager.send_to_user(
+            user.id,
+            rate_limit_payload(
+                message=limit_message,
+                retry_after_seconds=retry_after,
+                scope="dm",
+                recipient_id=int(recipient_id),
+            ),
+        )
+        return
+
     db_message = await direct_message_service.create_message(
         db, 
         sender_id=user.id, 
@@ -821,7 +910,7 @@ async def handle_dm_message(user: User, message_data: dict, db: AsyncSession, ma
         "author": {
             "id": author.id,
             "username": author.username,
-            "email": author.email,
+            "email": "",
             "display_name": author.display_name,
             "avatar_url": author.avatar_url,
             "is_active": author.is_active,

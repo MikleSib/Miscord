@@ -10,12 +10,17 @@ declare global {
       platform?: string;
 
       // Desktop capture helpers (Electron only)
-      getDesktopSources?: (options?: any) => Promise<Array<{
+      getDesktopSources?: (options?: {
+        types?: Array<'screen' | 'window'>;
+        thumbnailSize?: { width: number; height: number };
+        fetchWindowIcons?: boolean;
+      }) => Promise<Array<{
         id: string;
         name: string;
         type: string;
         display_id?: string | number;
         thumbnailDataURL?: string | null;
+        appIconDataURL?: string | null;
       }>>;
       getDesktopStream?: (
         sourceId: string,

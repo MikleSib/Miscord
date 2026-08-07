@@ -8,6 +8,7 @@ from app.core.dependencies import get_db, get_current_user
 from app.models import User, Message, Reaction
 from app.schemas.reaction import ReactionToggleRequest, ReactionResponse
 from app.schemas.user import User as UserResponse
+from app.services.channel_access import require_text_channel_access
 from app.websocket.connection_manager import manager
 
 router = APIRouter()
@@ -21,7 +22,6 @@ async def toggle_reaction(
 ):
     """Добавить или убрать реакцию на сообщение"""
     
-    # Проверяем, существует ли сообщение
     result = await db.execute(
         select(Message).filter(Message.id == message_id)
     )
@@ -31,6 +31,8 @@ async def toggle_reaction(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Сообщение не найдено"
         )
+
+    await require_text_channel_access(db, current_user, message.text_channel_id)
     
     # Проверяем, есть ли уже такая реакция от этого пользователя
     result = await db.execute(
@@ -114,7 +116,6 @@ async def get_message_reactions(
 ):
     """Получить все реакции на сообщение"""
     
-    # Проверяем, существует ли сообщение
     result = await db.execute(select(Message).filter(Message.id == message_id))
     message = result.scalar_one_or_none()
     if not message:
@@ -122,6 +123,8 @@ async def get_message_reactions(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Сообщение не найдено"
         )
+
+    await require_text_channel_access(db, current_user, message.text_channel_id)
     
     # Получаем все уникальные эмодзи для этого сообщения
     result = await db.execute(

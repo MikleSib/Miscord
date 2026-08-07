@@ -11,10 +11,20 @@ from app.models.direct_message import DirectMessage
 from app.models.reaction import Reaction
 from app.schemas.message import Message as MessageSchema, MessageCreate, DirectMessageSchema
 from app.schemas.reaction import ReactionToggleRequest, ReactionResponse
+from app.schemas.user import User as UserSchema
 from app.services import direct_message_service
 from app.websocket.connection_manager import manager
 
 router = APIRouter()
+
+
+@router.get("/conversations", response_model=List[UserSchema])
+async def get_dm_conversations(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await direct_message_service.get_conversations(db, current_user.id)
+
 
 @router.get("/{recipient_id}", response_model=List[DirectMessageSchema])
 async def get_direct_messages(
@@ -92,7 +102,6 @@ async def toggle_dm_reaction(
 ):
     """Добавить или убрать реакцию на DM сообщение"""
     
-    # Проверяем, существует ли сообщение
     result = await db.execute(
         select(DirectMessage).filter(DirectMessage.id == message_id)
     )
@@ -101,6 +110,12 @@ async def toggle_dm_reaction(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Сообщение не найдено"
+        )
+
+    if current_user.id not in (message.sender_id, message.recipient_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Нет доступа к этому сообщению",
         )
     
     # Проверяем, есть ли уже такая реакция от этого пользователя

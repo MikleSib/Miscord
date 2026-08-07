@@ -7,7 +7,7 @@ from sqlalchemy import delete
 
 from app.core.config import settings
 from app.db.database import engine, Base
-from app.api import auth, channels, servers, uploads, reactions, friends, direct_messages
+from app.api import auth, channels, channel_permissions, servers, uploads, reactions, friends, direct_messages, embeds
 from app.websocket import chat, voice
 from app.websocket.connection_manager import manager
 from app.websocket.chat import websocket_chat_endpoint, websocket_notifications_endpoint
@@ -41,11 +41,15 @@ async def lifespan(app: FastAPI):
         await manager.redis_client.close()
 
 # Создание приложения
+_is_prod = (settings.ENVIRONMENT or "").lower() in {"production", "prod"}
 app = FastAPI(
     title="Miscord API",
     description="Discord-like chat application API",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url=None if _is_prod else "/docs",
+    redoc_url=None if _is_prod else "/redoc",
+    openapi_url=None if _is_prod else "/openapi.json",
 )
 
 # Настройка CORS
@@ -60,11 +64,13 @@ app.add_middleware(
 # Подключение роутеров
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(channels.router, prefix="/api/channels", tags=["channels"])
+app.include_router(channel_permissions.router, prefix="/api/channels", tags=["channel-permissions"])
 app.include_router(servers.router, prefix="/api/servers", tags=["server-management"])
 app.include_router(uploads.router, prefix="/api", tags=["uploads"])
 app.include_router(reactions.router, prefix="/api", tags=["reactions"])
 app.include_router(friends.router, prefix="/api/friends", tags=["friends"])
 app.include_router(direct_messages.router, prefix="/api/dms", tags=["dms"])
+app.include_router(embeds.router, prefix="/api", tags=["embeds"])
 
 # WebSocket эндпоинты
 

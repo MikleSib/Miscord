@@ -1,7 +1,17 @@
 from pydantic_settings import BaseSettings
 from typing import List
 import json
+import logging
 import os
+
+logger = logging.getLogger(__name__)
+
+_INSECURE_SECRET_DEFAULTS = {
+    "your-secret-key-here-change-in-production",
+    "miscord-prod-secret-change-me-please-9f3a2c",
+    "secret",
+    "changeme",
+}
 
 class Settings(BaseSettings):
     # База данных
@@ -13,7 +23,8 @@ class Settings(BaseSettings):
     # Безопасность
     SECRET_KEY: str = "your-secret-key-here-change-in-production"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 дней
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 2  # 2 дня
+    ENVIRONMENT: str = "development"
     
     # CORS
     CORS_ORIGINS: List[str] = [
@@ -37,17 +48,21 @@ class Settings(BaseSettings):
             except json.JSONDecodeError:
                 # Если не JSON, то разделяем по запятой
                 self.CORS_ORIGINS = [origin.strip() for origin in cors_origins_env.split(",")]
+
+        env = (self.ENVIRONMENT or os.getenv("ENVIRONMENT") or "development").lower()
+        if self.SECRET_KEY in _INSECURE_SECRET_DEFAULTS or len(self.SECRET_KEY) < 32:
+            msg = (
+                "SECRET_KEY слабый или дефолтный. Задайте длинный случайный SECRET_KEY в env."
+            )
+            if env in {"production", "prod"}:
+                raise RuntimeError(msg)
+            logger.warning(msg)
     
-    # WebRTC
+    # WebRTC. TURN обязателен для абонентов за разными или строгими NAT.
+    # Production передаёт полный список через JSON-переменную ICE_SERVERS.
     ICE_SERVERS: List[dict] = [
         {"urls": ["stun:stun.l.google.com:19302"]},
         {"urls": ["stun:stun1.l.google.com:19302"]},
-        {
-            "urls": ["turn:147.45.158.183:3478"],
-            "username": "stream-cash",
-            "credential": "CHANGE_ME_LONG_RANDOM_SECRET_12345",
-            "credentialType": "password"
-        }
     ]
     
     class Config:

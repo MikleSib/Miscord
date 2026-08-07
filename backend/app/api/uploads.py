@@ -1,96 +1,51 @@
 import logging
 import os
-import shutil
 from pathlib import Path
-from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 
-from app.core.config import settings
 from app.core.dependencies import get_current_active_user
+from app.core.media import to_public_media_path
 from app.models.user import User
+from app.services.image_upload import read_and_validate_image, save_image_bytes
+from app.services.rate_limit import rate_limit_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Создаем директорию для загрузок, если она не существует
-# Используем абсолютный путь относительно текущей рабочей директории
 UPLOADS_DIR = Path.cwd() / "static" / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-# nginx в Docker читает эти файлы напрямую — папки должны быть доступны «всем на чтение»
 os.chmod(UPLOADS_DIR.parent, 0o755)
 os.chmod(UPLOADS_DIR, 0o755)
-logger.info(f"[UPLOAD] Папка загрузок: {UPLOADS_DIR.absolute()}")
+logger.info("[UPLOAD] Папка загрузок: %s", UPLOADS_DIR.absolute())
+
 
 @router.post("/upload")
 async def upload_file(
+    request: Request,
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
 ):
-    """
-    Загрузка файла (изображения) на сервер.
-    """
+    """Загрузка изображения: только реальные PNG/JPEG/GIF/WEBP."""
+    rate_limit_user(current_user.id, "upload", limit=30, window=60, request=request)
     try:
-        logger.info(f"[UPLOAD] Пользователь {current_user.username} загружает файл: {file.filename}")
-        logger.info(f"[UPLOAD] Тип файла: {file.content_type}, размер: {file.size}")
-        
-        # Проверка имени файла
-        if not file.filename:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Имя файла не может быть пустым."
-            )
-        
-        # Проверка типа файла
-        if not file.content_type or not file.content_type.startswith("image/"):
-            logger.warning(f"[UPLOAD] Неподдерживаемый тип файла: {file.content_type}")
-            raise HTTPException(
-                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-                detail="Поддерживаются только изображения."
-            )
-
-        # Проверка размера файла (например, 5MB) - если размер доступен
-        if file.size is not None and file.size > 5 * 1024 * 1024:
-            logger.warning(f"[UPLOAD] Файл слишком большой: {file.size} байт")
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail="Размер файла не должен превышать 5MB."
-            )
-            
-        # Генерируем уникальное имя файла
-        file_extension = Path(file.filename).suffix
-        unique_filename = f"{uuid4()}{file_extension}"
-        file_path = UPLOADS_DIR / unique_filename
-        
-        logger.info(f"[UPLOAD] Сохраняем файл как: {unique_filename}")
-
-        # Сохраняем файл
-        try:
-            with file_path.open("wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
-            os.chmod(file_path, 0o644)
-            logger.info(f"[UPLOAD] Файл успешно сохранен: {file_path}")
-        except Exception as e:
-            logger.error(f"[UPLOAD] Ошибка сохранения файла: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Ошибка сохранения файла на сервере."
-            )
-        finally:
-            file.file.close()
-
-        # Возвращаем URL файла
-        file_url = f"{settings.SERVER_HOST}/static/uploads/{unique_filename}"
-        logger.info(f"[UPLOAD] Файл доступен по URL: {file_url}")
-        
+        data, extension, _ctype = await read_and_validate_image(file)
+        unique_filename = save_image_bytes(data, UPLOADS_DIR, extension)
+        file_url = to_public_media_path(f"/static/uploads/{unique_filename}")
+        logger.info(
+            "[UPLOAD] user=%s file=%s",
+            current_user.id,
+            unique_filename,
+        )
         return {"file_url": file_url}
-        
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"[UPLOAD] Неожиданная ошибка: {e}")
+    except Exception as exc:
+        logger.error("[UPLOAD] Ошибка: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Внутренняя ошибка сервера при загрузке файла."
-        ) 
+            detail="Внутренняя ошибка сервера при загрузке файла.",
+        ) from exc
+    finally:
+        await file.close()

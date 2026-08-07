@@ -10,8 +10,16 @@ async def get_user(db: AsyncSession, user_id: int):
     result = await db.execute(select(User).filter(User.id == user_id))
     return result.scalar_one_or_none()
 
+def normalize_login(value: str) -> str:
+    return value.strip().lstrip("@")
+
 async def get_user_by_username(db: AsyncSession, username: str):
-    result = await db.execute(select(User).filter(User.username == username))
+    login = normalize_login(username)
+    if not login:
+        return None
+    result = await db.execute(
+        select(User).filter(func.lower(User.username) == login.lower())
+    )
     return result.scalar_one_or_none()
 
 async def create_friend_request(db: AsyncSession, user_from_id: int, user_to_id: int):

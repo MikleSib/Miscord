@@ -562,6 +562,23 @@ class UnifiedWebSocketService {
     this.on('message_edited', handler);
   }
 
+  public onRateLimit(handler: (data: {
+    message?: string;
+    retry_after_seconds: number;
+    scope?: string;
+    text_channel_id?: number;
+    recipient_id?: number;
+  }) => void): void {
+    this.on('rate_limit', handler);
+  }
+
+  public onSlowMode(handler: (data: {
+    text_channel_id: number;
+    retry_after_seconds: number;
+  }) => void): void {
+    this.on('slow_mode', handler);
+  }
+
   // Голосовые события
   public onVoiceParticipants(handler: (data: { participants: any[]; ice_servers: any[] }) => void): void {
     this.on('voice_participants', handler);

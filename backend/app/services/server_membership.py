@@ -6,6 +6,7 @@ from sqlalchemy import and_, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.permissions import ensure_default_role
 from app.models import (
     Channel,
     ChannelMember,
@@ -18,13 +19,12 @@ from app.services.server_events import notify_server, notify_users
 
 
 def serialize_member_user(user: User, *, nickname: Optional[str] = None) -> dict:
-    """Формат участника сервера — совпадает с GET /api/channels/{id}."""
+    """Формат участника сервера — без email (PII)."""
     return {
         "id": user.id,
-        "username": user.display_name or user.username,
+        "username": user.username,
         "display_name": user.display_name,
         "nickname": nickname,
-        "email": user.email,
         "is_active": user.is_active,
         "is_online": user.is_online,
         "avatar_url": user.avatar_url,
@@ -75,9 +75,10 @@ async def build_server_payload(db: AsyncSession, server_id: int) -> Optional[dic
                 "id": tc.id,
                 "name": tc.name,
                 "position": tc.position,
+                "slow_mode_seconds": tc.slow_mode_seconds,
                 "created_at": tc.created_at.isoformat() if tc.created_at else None,
             }
-            for tc in sorted(server.text_channels, key=lambda item: item.position)
+            for tc in sorted(filter_visible_text_channels(server.text_channels), key=lambda item: item.position)
         ],
         "voice_channels": [
             {
@@ -111,6 +112,14 @@ async def add_member_and_notify(
     )
     if existing.scalar_one_or_none() is None:
         db.add(ChannelMember(channel_id=server_id, user_id=user.id))
+        default_role = await ensure_default_role(db, server_id)
+        db.add(
+            MemberRole(
+                server_id=server_id,
+                role_id=default_role.id,
+                user_id=user.id,
+            )
+        )
         await db.commit()
 
     server_payload = await build_server_payload(db, server_id)
@@ -131,7 +140,7 @@ async def add_member_and_notify(
             "type": "user_joined_channel",
             "channel_id": server_id,
             "user_id": user.id,
-            "username": user.display_name or user.username,
+            "username": user.username,
             "display_name": user.display_name,
             "avatar_url": user.avatar_url,
             "user": serialize_member_user(user),

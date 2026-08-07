@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-export type NoiseSuppressionEngine = 'miscord-ai' | 'browser';
+export type NoiseSuppressionEngine = 'miscord-ai' | 'deepfilternet3' | 'browser';
 export type NoiseSuppressionRuntimeStatus =
   | 'idle'
   | 'loading'
@@ -43,19 +43,34 @@ export const useNoiseSuppressionStore = create<NoiseSuppressionState>()(
     }),
     {
       name: 'miscord-noise-suppression',
-      version: 1,
+      // v4: Miscord AI всегда дефолт для новых / после миграции без engine
+      version: 4,
       partialize: (state) => ({
         enabled: state.enabled,
         engine: state.engine,
         autoFallback: state.autoFallback,
       }),
-      migrate: (persistedState: any) => ({
-        ...persistedState,
-        engine:
-          persistedState?.engine === 'browser'
-            ? 'browser'
-            : 'miscord-ai',
-      }),
+      migrate: (persistedState: any) => {
+        const engine =
+          persistedState?.engine === 'gtcrn'
+            ? 'deepfilternet3'
+            : persistedState?.engine === 'browser' ||
+                persistedState?.engine === 'deepfilternet3' ||
+                persistedState?.engine === 'miscord-ai'
+              ? persistedState.engine
+              : 'miscord-ai'
+
+        return {
+          ...persistedState,
+          // Если настройки ещё не задавались — включаем Miscord AI
+          enabled: typeof persistedState?.enabled === 'boolean' ? persistedState.enabled : true,
+          engine,
+          autoFallback:
+            typeof persistedState?.autoFallback === 'boolean'
+              ? persistedState.autoFallback
+              : true,
+        }
+      },
     }
   )
 );

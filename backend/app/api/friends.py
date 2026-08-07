@@ -7,6 +7,7 @@ from app.core.dependencies import get_db
 from app.models.user import User
 from app.schemas.user import User as UserSchema
 from app.services import friend_service
+from app.services.friend_service import normalize_login
 from app.websocket.connection_manager import manager
 from app.core.dependencies import get_current_user
 
@@ -19,14 +20,21 @@ async def send_friend_request(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Send a friend request to another user by username.
+    Отправить запрос в друзья по логину (@username), не по отображаемому имени.
     """
-    if current_user.username == username:
-        raise HTTPException(status_code=400, detail="You cannot send a friend request to yourself.")
+    login = normalize_login(username)
+    if not login:
+        raise HTTPException(status_code=400, detail="Укажите логин пользователя.")
+
+    if current_user.username.lower() == login.lower():
+        raise HTTPException(status_code=400, detail="Нельзя отправить запрос самому себе.")
     
-    friend = await friend_service.get_user_by_username(db, username=username)
+    friend = await friend_service.get_user_by_username(db, username=login)
     if not friend:
-        raise HTTPException(status_code=404, detail="User not found.")
+        raise HTTPException(
+            status_code=404,
+            detail="Пользователь не найден. Укажите логин (@username), а не отображаемое имя.",
+        )
 
     friend_request = await friend_service.create_friend_request(db, user_from_id=current_user.id, user_to_id=friend.id)
     if not friend_request:

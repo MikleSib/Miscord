@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Loader,
   Phone,
@@ -6,7 +6,6 @@ import {
   ScreenShare,
   ScreenShareOff,
   Shapes,
-  SunMedium,
   VideoOff,
   X,
 } from 'lucide-react';
@@ -15,6 +14,9 @@ import { useStore } from '../lib/store';
 import voiceService from '../services/voiceService';
 import { audioProcessingService } from '../services/audioProcessingService';
 import { useNoiseSuppressionStore } from '../store/noiseSuppressionStore';
+import { useScreenSharePickerStore } from '../store/screenSharePickerStore';
+import { Switch } from './ui/switch';
+import { Tooltip } from './ui/tooltip';
 
 export function VoiceConnectionPanel() {
   const {
@@ -28,12 +30,18 @@ export function VoiceConnectionPanel() {
   const { currentServer } = useStore();
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [screenShareError, setScreenShareError] = useState<string | null>(null);
+  const [isNoisePanelOpen, setIsNoisePanelOpen] = useState(false);
   const [isNoiseSuppressionToggling, setIsNoiseSuppressionToggling] = useState(false);
+  const noisePanelRef = useRef<HTMLDivElement>(null);
   const noiseSuppressionEnabled = useNoiseSuppressionStore((state) => state.enabled);
   const noiseSuppressionEngine = useNoiseSuppressionStore((state) => state.engine);
   const noiseSuppressionStatus = useNoiseSuppressionStore((state) => state.runtimeStatus);
   const setNoiseSuppressionEnabled = useNoiseSuppressionStore((state) => state.setEnabled);
   const setNoiseSuppressionEngine = useNoiseSuppressionStore((state) => state.setEngine);
+
+  const isNoiseOn = noiseSuppressionEnabled;
+  const isMiscordAI =
+    noiseSuppressionEnabled && noiseSuppressionEngine === 'miscord-ai';
 
   const currentChannel = useMemo(
     () =>
@@ -57,29 +65,52 @@ export function VoiceConnectionPanel() {
     };
   }, []);
 
-  const handleToggleScreenShare = async () => {
+  useEffect(() => {
+    if (!isNoisePanelOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!noisePanelRef.current?.contains(event.target as Node)) {
+        setIsNoisePanelOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsNoisePanelOpen(false);
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isNoisePanelOpen]);
+
+  useEffect(() => {
+    if (!currentVoiceChannelId) setIsNoisePanelOpen(false);
+  }, [currentVoiceChannelId]);
+
+  const handleToggleScreenShare = () => {
     setScreenShareError(null);
     if (isScreenSharing) {
       voiceService.stopScreenShare();
       return;
     }
 
-    const started = await voiceService.startScreenShare();
-    if (!started) {
-      setScreenShareError('Не удалось начать демонстрацию. Проверьте разрешение на захват экрана.');
-    }
+    useScreenSharePickerStore.getState().open();
   };
 
-  const handleToggleNoiseSuppression = async () => {
-    const isMiscordAISelected =
-      noiseSuppressionEnabled && noiseSuppressionEngine === 'miscord-ai';
-    const nextEnabled = !isMiscordAISelected;
-
+  const handleNoiseEnabledChange = async (nextEnabled: boolean) => {
     setIsNoiseSuppressionToggling(true);
-    setNoiseSuppressionEngine('miscord-ai');
+    // По умолчанию включаем Miscord AI — как основной шумодав
+    if (nextEnabled && noiseSuppressionEngine !== 'miscord-ai') {
+      setNoiseSuppressionEngine('miscord-ai');
+    }
     setNoiseSuppressionEnabled(nextEnabled);
     try {
-      await audioProcessingService.setNoiseSuppression(nextEnabled, 'miscord-ai');
+      await audioProcessingService.setNoiseSuppression(
+        nextEnabled,
+        nextEnabled ? 'miscord-ai' : noiseSuppressionEngine
+      );
     } finally {
       setIsNoiseSuppressionToggling(false);
     }
@@ -115,6 +146,13 @@ export function VoiceConnectionPanel() {
   const channelLabel = currentChannel?.name || `Канал ${currentVoiceChannelId}`;
   const serverLabel = currentServer?.name || 'Сервер';
 
+  const noiseButtonTitle =
+    noiseSuppressionStatus === 'fallback'
+      ? 'Шумоподавление: временно резервный режим'
+      : isNoiseOn
+        ? 'Шумоподавление включено'
+        : 'Шумоподавление';
+
   return (
     <section className="user-dock__voice" aria-label="Управление голосовым каналом">
       <header className="user-dock__voice-header">
@@ -131,23 +169,77 @@ export function VoiceConnectionPanel() {
             </p>
           </div>
         </div>
-        <div className="user-dock__voice-utilities">
-          <span className="user-dock__voice-levels" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-            <i />
-            <i />
-          </span>
-          <button
-          type="button"
-          onClick={disconnectFromVoiceChannel}
-          className="voice-icon-button user-dock__disconnect"
-          aria-label="Отключиться от голосового канала"
-          title="Отключиться"
-        >
-            <Phone className="h-[18px] w-[18px]" />
-          </button>
+        <div className="user-dock__voice-utilities" ref={noisePanelRef}>
+          <div className="relative">
+            <Tooltip content={noiseButtonTitle} disabled={isNoisePanelOpen}>
+              <button
+                type="button"
+                onClick={() => setIsNoisePanelOpen((open) => !open)}
+                className={`user-dock__voice-levels voice-icon-button ${isNoiseOn ? 'is-active' : ''} ${
+                  isNoisePanelOpen ? 'is-open' : ''
+                }`}
+                disabled={!isConnected || isNoiseSuppressionToggling}
+                aria-label="Шумоподавление"
+                aria-pressed={isNoiseOn}
+                aria-expanded={isNoisePanelOpen}
+              >
+                {isNoiseSuppressionToggling || noiseSuppressionStatus === 'loading' ? (
+                  <Loader className="h-4 w-4 animate-spin" />
+                ) : (
+                  <>
+                    <i />
+                    <i />
+                    <i />
+                    <i />
+                    <i />
+                  </>
+                )}
+              </button>
+            </Tooltip>
+
+            {isNoisePanelOpen && (
+              <div
+                className="user-dock__noise-popover"
+                role="dialog"
+                aria-label="Шумоподавление"
+              >
+                <div className="user-dock__noise-popover-header">
+                  <h3>Шумоподавление</h3>
+                  <Switch
+                    variant="brand"
+                    checked={isNoiseOn}
+                    disabled={!isConnected || isNoiseSuppressionToggling}
+                    aria-label="Включить шумоподавление"
+                    onCheckedChange={(checked) => {
+                      void handleNoiseEnabledChange(checked);
+                    }}
+                  />
+                </div>
+                <p className="user-dock__noise-popover-text">
+                  Miscord AI убирает клавиатуру, вентилятор и фоновый шум — друзья слышат только ваш голос.
+                </p>
+                {noiseSuppressionStatus === 'fallback' && (
+                  <p className="user-dock__noise-popover-hint">
+                    Сейчас временно используется резервный режим.
+                  </p>
+                )}
+                <p className="user-dock__noise-popover-footer">
+                  {isMiscordAI ? 'С помощью Miscord AI' : isNoiseOn ? 'Шумоподавление включено' : 'Выключено'}
+                </p>
+              </div>
+            )}
+          </div>
+
+          <Tooltip content="Отключиться">
+            <button
+              type="button"
+              onClick={disconnectFromVoiceChannel}
+              className="voice-icon-button user-dock__disconnect"
+              aria-label="Отключиться от голосового канала"
+            >
+              <Phone className="h-[18px] w-[18px]" />
+            </button>
+          </Tooltip>
         </div>
       </header>
 
@@ -158,48 +250,32 @@ export function VoiceConnectionPanel() {
       )}
 
       <div className="user-dock__voice-actions">
-        <button type="button" className="voice-control h-9 flex-1" disabled aria-label="Камера пока недоступна" title="Камера скоро">
-          <VideoOff className="h-[18px] w-[18px]" />
-        </button>
-        <button
-          type="button"
-          onClick={handleToggleScreenShare}
-          className={`voice-control h-9 flex-1 ${isScreenSharing ? 'is-active' : ''}`}
-          aria-label={isScreenSharing ? 'Остановить демонстрацию экрана' : 'Начать демонстрацию экрана'}
-          aria-pressed={isScreenSharing}
-          disabled={!isConnected}
-          title={isScreenSharing ? 'Остановить демонстрацию' : 'Демонстрация экрана'}
-        >
-          {isScreenSharing ? <ScreenShareOff className="h-[18px] w-[18px]" /> : <ScreenShare className="h-[18px] w-[18px]" />}
-        </button>
-        <button type="button" className="voice-control h-9 flex-1" disabled aria-label="Активности пока недоступны" title="Активности скоро">
-          <Shapes className="h-[18px] w-[18px]" />
-        </button>
-        <button
-          type="button"
-          onClick={handleToggleNoiseSuppression}
-          className={`voice-control ${
-            noiseSuppressionEnabled && noiseSuppressionEngine === 'miscord-ai' ? 'is-active' : ''
-          }`}
-          disabled={!isConnected || isNoiseSuppressionToggling}
-          aria-label={
-            noiseSuppressionEnabled && noiseSuppressionEngine === 'miscord-ai'
-              ? 'Выключить Miscord AI'
-              : 'Включить Miscord AI'
-          }
-          aria-pressed={noiseSuppressionEnabled && noiseSuppressionEngine === 'miscord-ai'}
-          title={
-            noiseSuppressionStatus === 'fallback'
-              ? 'Miscord AI: временно используется резервный режим'
-              : 'Miscord AI: шумоподавление'
-          }
-        >
-          {isNoiseSuppressionToggling || noiseSuppressionStatus === 'loading' ? (
-            <Loader className="h-[18px] w-[18px] animate-spin" />
-          ) : (
-            <SunMedium className="h-[19px] w-[19px]" />
-          )}
-        </button>
+        <Tooltip content="Камера скоро">
+          <span className="inline-flex flex-1">
+            <button type="button" className="voice-control h-9 w-full" disabled aria-label="Камера пока недоступна">
+              <VideoOff className="h-[18px] w-[18px]" />
+            </button>
+          </span>
+        </Tooltip>
+        <Tooltip content={isScreenSharing ? 'Остановить демонстрацию' : 'Демонстрация экрана'}>
+          <button
+            type="button"
+            onClick={handleToggleScreenShare}
+            className={`voice-control h-9 flex-[1.4] ${isScreenSharing ? 'is-active' : ''}`}
+            aria-label={isScreenSharing ? 'Остановить демонстрацию экрана' : 'Начать демонстрацию экрана'}
+            aria-pressed={isScreenSharing}
+            disabled={!isConnected}
+          >
+            {isScreenSharing ? <ScreenShareOff className="h-[18px] w-[18px]" /> : <ScreenShare className="h-[18px] w-[18px]" />}
+          </button>
+        </Tooltip>
+        <Tooltip content="Активности скоро">
+          <span className="inline-flex flex-1">
+            <button type="button" className="voice-control h-9 w-full" disabled aria-label="Активности пока недоступны">
+              <Shapes className="h-[18px] w-[18px]" />
+            </button>
+          </span>
+        </Tooltip>
       </div>
     </section>
   );
