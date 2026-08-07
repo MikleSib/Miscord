@@ -72,7 +72,7 @@ function persistSoon(clientNonce: string) {
   if (persistTimer !== null) return
   persistTimer = window.setTimeout(async () => {
     persistTimer = null
-    const nonces = [...dirtyRecords]
+    const nonces = Array.from(dirtyRecords)
     dirtyRecords.clear()
     for (const nonce of nonces) {
       const record = useOutgoingMessageStore.getState().messages.find((item) => item.clientNonce === nonce)
