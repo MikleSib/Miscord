@@ -1,0 +1,4 @@
+﻿interface:
+  display_name: "Miscord Safe Deploy"
+  short_description: "Safe validation and deployment for Miscord"
+  default_prompt: "Use $miscord-safe-deploy to validate and safely deploy the current Miscord changes."
