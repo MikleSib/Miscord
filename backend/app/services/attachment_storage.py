@@ -19,6 +19,7 @@ from app.core.config import settings
 from app.services.object_storage import (
     attachment_object_key,
     delete_object,
+    is_public_object_key,
     object_storage_enabled,
     put_file,
 )
@@ -126,7 +127,8 @@ async def remove_storage_key(storage_key: str | None) -> None:
     if not storage_key:
         return
     if object_storage_enabled():
-        await delete_object(attachment_object_key(storage_key))
+        object_key = storage_key if is_public_object_key(storage_key) else attachment_object_key(storage_key)
+        await delete_object(object_key)
         return
     root = Path(settings.ATTACHMENT_STORAGE_DIR).resolve()
     target = (root / storage_key).resolve()

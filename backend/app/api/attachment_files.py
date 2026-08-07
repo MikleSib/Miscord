@@ -55,4 +55,9 @@ async def download_attachment(
     if not attachment or not attachment.storage_key:
         raise HTTPException(status_code=404, detail="Attachment not found")
     safe_filename(attachment.original_filename or filename)
-    return _redirect(attachment_object_key(attachment.storage_key), max(60, expires - int(time.time())))
+    object_key = (
+        attachment.storage_key
+        if is_public_object_key(attachment.storage_key)
+        else attachment_object_key(attachment.storage_key)
+    )
+    return _redirect(object_key, max(60, expires - int(time.time())))
