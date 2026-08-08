@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 
 import { useStore } from '../lib/store';
@@ -79,27 +79,44 @@ export function ServerUserSidebar() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selected, setSelected] = useState<SelectedMemberState | null>(null);
+  const loadRequestId = useRef(0);
 
   const loadMembers = useCallback(async () => {
-    if (!currentServer?.id) return;
+    const serverId = currentServer?.id;
+    if (!serverId) return;
 
+    const requestId = ++loadRequestId.current;
     setIsLoading(true);
     try {
       const [membersResponse, rolesResponse] = await Promise.all([
-        serverService.getMembers(currentServer.id),
-        serverService.getRoles(currentServer.id),
+        serverService.getMembers(serverId),
+        serverService.getRoles(serverId),
       ]);
+      if (requestId !== loadRequestId.current) return;
       setMembers(membersResponse.members);
       setRoles(rolesResponse);
     } catch (error) {
+      if (requestId !== loadRequestId.current) return;
       console.error('Ошибка загрузки участников сервера:', error);
     } finally {
-      setIsLoading(false);
+      if (requestId === loadRequestId.current) {
+        setIsLoading(false);
+      }
     }
   }, [currentServer?.id]);
 
   useEffect(() => {
     void loadMembers();
+  }, [loadMembers]);
+
+  useEffect(() => {
+    let wasConnected = websocketService.isConnected();
+    return websocketService.onConnectionStatusChange(({ isConnected }) => {
+      if (isConnected && !wasConnected) {
+        void loadMembers();
+      }
+      wasConnected = isConnected;
+    });
   }, [loadMembers]);
 
   useEffect(() => {
