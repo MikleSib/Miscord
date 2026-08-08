@@ -482,32 +482,39 @@ class MiscordMusicBot:
             self.gateway_url, max_size=4 * 1024 * 1024, ping_interval=None
         ) as websocket:
             self.websocket = websocket
-            async for raw in websocket:
-                payload = json.loads(raw)
-                if payload.get("s") is not None:
-                    self.sequence = int(payload["s"])
-                op = payload.get("op")
-                if op == 10:
-                    interval = int(payload["d"]["heartbeat_interval"])
-                    self._heartbeat_task = asyncio.create_task(self._heartbeat(interval))
-                    await self._send(
-                        {
-                            "op": 2,
-                            "d": {
-                                "token": self.token,
-                                "intents": GATEWAY_INTENTS,
-                                "properties": {
-                                    "os": os.name,
-                                    "browser": "miscord-music-bot",
-                                    "device": "miscord-music-bot",
+            try:
+                async for raw in websocket:
+                    payload = json.loads(raw)
+                    if payload.get("s") is not None:
+                        self.sequence = int(payload["s"])
+                    op = payload.get("op")
+                    if op == 10:
+                        interval = int(payload["d"]["heartbeat_interval"])
+                        self._heartbeat_task = asyncio.create_task(self._heartbeat(interval))
+                        await self._send(
+                            {
+                                "op": 2,
+                                "d": {
+                                    "token": self.token,
+                                    "intents": GATEWAY_INTENTS,
+                                    "properties": {
+                                        "os": os.name,
+                                        "browser": "miscord-music-bot",
+                                        "device": "miscord-music-bot",
+                                    },
                                 },
-                            },
-                        }
-                    )
-                elif op == 0:
-                    await self._dispatch(payload.get("t"), payload.get("d") or {})
-            if self._heartbeat_task is not None:
-                self._heartbeat_task.cancel()
+                            }
+                        )
+                    elif op == 0:
+                        await self._dispatch(payload.get("t"), payload.get("d") or {})
+            finally:
+                if self._heartbeat_task is not None:
+                    self._heartbeat_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await self._heartbeat_task
+                    self._heartbeat_task = None
+                if self.websocket is websocket:
+                    self.websocket = None
 
     async def _send(self, payload: dict) -> None:
         if self.websocket is None:
@@ -526,6 +533,13 @@ class MiscordMusicBot:
             print(f"music bot ready as {data['user']['username']}")
             return
         if event == "GUILD_CREATE":
+            guild_id = int(data.get("id") or 0)
+            if guild_id > 0:
+                self.voice_states = {
+                    key: channel_id
+                    for key, channel_id in self.voice_states.items()
+                    if key[0] != guild_id
+                }
             states = data.get("voice_states") or []
             for state in states:
                 self._remember_voice_state(state)
