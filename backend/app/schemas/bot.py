@@ -6,6 +6,7 @@ import re
 
 
 _COMMAND_NAME_RE = re.compile(r"^[\w-]{1,32}$")
+_SUPPORTED_COMMAND_TYPES = {1, 2, 3}
 
 
 class BotApplicationCreate(BaseModel):
@@ -103,6 +104,24 @@ class BotCommandDefinition(BaseModel):
             raise ValueError("command name must contain only a-z, 0-9, underscore and hyphen")
         return value
 
+    @field_validator("type")
+    @classmethod
+    def validate_type(cls, value: int) -> int:
+        if value not in _SUPPORTED_COMMAND_TYPES:
+            raise ValueError("command type must be 1 (CHAT_INPUT), 2 (USER) or 3 (MESSAGE)")
+        return value
+
+    @field_validator("definition")
+    @classmethod
+    def validate_definition(cls, value: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise ValueError("command definition must be an object")
+        if "response" in value and not isinstance(value["response"], dict):
+            raise ValueError("command definition.response must be an object")
+        if "options" in value and not isinstance(value["options"], list):
+            raise ValueError("command definition.options must be an array")
+        return value
+
     @field_validator("allowed_user_ids", "allowed_role_ids")
     @classmethod
     def validate_id_list(cls, value: list[int]) -> list[int]:
@@ -112,6 +131,10 @@ class BotCommandDefinition(BaseModel):
 
 
 class BotCommandCreate(BotCommandDefinition):
+    pass
+
+
+class BotCommandReplace(BotCommandDefinition):
     pass
 
 
@@ -136,6 +159,28 @@ class BotCommandUpdate(BaseModel):
         value = value.strip().lower()
         if not _COMMAND_NAME_RE.fullmatch(value):
             raise ValueError("command name must contain only a-z, 0-9, underscore and hyphen")
+        return value
+
+    @field_validator("type")
+    @classmethod
+    def validate_type(cls, value: int | None) -> int | None:
+        if value is None:
+            return None
+        if value not in _SUPPORTED_COMMAND_TYPES:
+            raise ValueError("command type must be 1 (CHAT_INPUT), 2 (USER) or 3 (MESSAGE)")
+        return value
+
+    @field_validator("definition")
+    @classmethod
+    def validate_definition(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            raise ValueError("command definition must be an object")
+        if "response" in value and not isinstance(value["response"], dict):
+            raise ValueError("command definition.response must be an object")
+        if "options" in value and not isinstance(value["options"], list):
+            raise ValueError("command definition.options must be an array")
         return value
 
     @field_validator("allowed_user_ids", "allowed_role_ids")

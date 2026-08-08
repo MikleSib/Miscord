@@ -84,6 +84,18 @@ export interface BotCommandPayload {
   allowed_role_ids?: number[];
 }
 
+export interface BotCommandReplacePayload {
+  name: string;
+  description: string;
+  type: number;
+  definition?: Record<string, unknown>;
+  server_id?: number | null;
+  default_member_permissions?: number | null;
+  dm_permission?: boolean;
+  allowed_user_ids?: number[];
+  allowed_role_ids?: number[];
+}
+
 export interface BotCommandUpdatePayload {
   name?: string;
   description?: string | null;

@@ -7,6 +7,7 @@ import type {
   InstalledBot,
   BotCommand,
   BotCommandPayload,
+  BotCommandReplacePayload,
   BotCommandUpdatePayload,
   BotCommandSyncResult,
   BotCommandDispatchPayload,
@@ -89,6 +90,11 @@ const botService = {
     return response.data;
   },
 
+  async getCommand(applicationId: number, commandId: number): Promise<BotCommand> {
+    const response = await api.get<BotCommand>(`/api/bot-apps/${applicationId}/commands/${commandId}`);
+    return response.data;
+  },
+
   async createCommand(applicationId: number, payload: BotCommandPayload): Promise<BotCommand[]> {
     const response = await api.post<BotCommand[]>(`/api/bot-apps/${applicationId}/commands`, payload);
     return response.data;
@@ -100,6 +106,15 @@ const botService = {
     payload: BotCommandUpdatePayload,
   ): Promise<BotCommand> {
     const response = await api.patch<BotCommand>(`/api/bot-apps/${applicationId}/commands/${commandId}`, payload);
+    return response.data;
+  },
+
+  async replaceCommand(
+    applicationId: number,
+    commandId: number,
+    payload: BotCommandReplacePayload,
+  ): Promise<BotCommand> {
+    const response = await api.put<BotCommand>(`/api/bot-apps/${applicationId}/commands/${commandId}`, payload);
     return response.data;
   },
 

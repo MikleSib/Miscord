@@ -23,6 +23,7 @@ from app.models.user import User
 from app.schemas.bot_install import BotInstallRequest, BotMessageCreate, BotMessageUpdate
 from app.schemas.bot import (
     BotCommandCreate,
+    BotCommandReplace,
     BotCommandUpdate,
     BotCommandDispatchRequest,
     BotCommandDispatchResponse,
@@ -104,6 +105,27 @@ def _serialize_command(command: BotCommand) -> dict[str, Any]:
         "created_at": command.created_at,
         "updated_at": command.updated_at,
     }
+
+
+async def _ensure_command_name_available(
+    db: AsyncSession,
+    application_id: int,
+    server_id: int | None,
+    name: str,
+    *,
+    ignore_id: int | None = None,
+) -> None:
+    query = select(BotCommand.id).where(
+        BotCommand.application_id == application_id,
+        BotCommand.server_id == server_id,
+        BotCommand.name == name,
+    )
+    if ignore_id is not None:
+        query = query.where(BotCommand.id != ignore_id)
+    result = await db.execute(query)
+    if result.scalar_one_or_none() is not None:
+        scope = "server-scoped" if server_id else "global"
+        raise HTTPException(status_code=409, detail=f"A {scope} command with this name already exists")
 
 
 def _coerce_interaction_number(value: Any) -> int | None:
@@ -626,6 +648,24 @@ async def list_bot_commands(
     return [_serialize_command(item) for item in result.scalars().all()]
 
 
+@router.get("/bot-apps/{application_id}/commands/{command_id}")
+async def get_bot_command(
+    application_id: int,
+    command_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _ensure_enabled()
+    application = await _application_by_id(db, application_id, owner_id=current_user.id)
+    result = await db.execute(
+        select(BotCommand).where(BotCommand.id == command_id, BotCommand.application_id == application.id)
+    )
+    command = result.scalar_one_or_none()
+    if not command:
+        raise HTTPException(status_code=404, detail="Command not found")
+    return _serialize_command(command)
+
+
 @router.post("/bot-apps/{application_id}/commands", response_model=list[dict[str, Any]])
 async def create_bot_command(
     application_id: int,
@@ -639,16 +679,7 @@ async def create_bot_command(
     if server_id is not None:
         await require_permission(db, server_id, current_user, Permission.MANAGE_SERVER)
     command_name = _normalized_command_name(payload.name)
-    duplicate_result = await db.execute(
-        select(BotCommand.id).where(
-            BotCommand.application_id == application.id,
-            BotCommand.server_id == server_id,
-            BotCommand.name == command_name,
-        )
-    )
-    if duplicate_result.scalar_one_or_none() is not None:
-        scope = "server-scoped" if server_id else "global"
-        raise HTTPException(status_code=409, detail=f"A {scope} command with this name already exists")
+    await _ensure_command_name_available(db, application.id, server_id, command_name)
     db.add(
         BotCommand(
             application_id=application.id,
@@ -667,6 +698,52 @@ async def create_bot_command(
     )
     await db.commit()
     return await list_bot_commands(application_id, server_id=server_id, current_user=current_user, db=db)
+
+
+@router.put("/bot-apps/{application_id}/commands/{command_id}")
+async def replace_bot_command(
+    application_id: int,
+    command_id: int,
+    payload: BotCommandReplace,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _ensure_enabled()
+    application = await _application_by_id(db, application_id, owner_id=current_user.id)
+    result = await db.execute(select(BotCommand).where(BotCommand.id == command_id, BotCommand.application_id == application.id))
+    command = result.scalar_one_or_none()
+    if not command:
+        raise HTTPException(status_code=404, detail="Command not found")
+
+    if payload.server_id != command.server_id:
+        if payload.server_id is not None:
+            await require_permission(db, payload.server_id, current_user, Permission.MANAGE_SERVER)
+        if command.server_id is not None:
+            await require_permission(db, command.server_id, current_user, Permission.MANAGE_SERVER)
+
+    target_name = _normalized_command_name(payload.name)
+    await _ensure_command_name_available(
+        db,
+        application.id,
+        payload.server_id,
+        target_name,
+        ignore_id=command.id,
+    )
+
+    command.server_id = payload.server_id
+    command.name = target_name
+    command.description = payload.description
+    command.command_type = payload.type
+    command.definition = payload.definition or {}
+    command.default_member_permissions = payload.default_member_permissions
+    command.dm_permission = payload.dm_permission
+    command.allowed_user_ids = payload.allowed_user_ids
+    command.allowed_role_ids = payload.allowed_role_ids
+    command.is_enabled = True
+    command.version += 1
+    command.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    return _serialize_command(command)
 
 
 @router.patch("/bot-apps/{application_id}/commands/{command_id}")
@@ -691,16 +768,13 @@ async def update_bot_command(
         command.server_id = payload.server_id
     if payload.name is not None:
         target_name = _normalized_command_name(payload.name)
-        duplicate_result = await db.execute(
-            select(BotCommand.id).where(
-                BotCommand.application_id == application.id,
-                BotCommand.server_id == command.server_id,
-                BotCommand.name == target_name,
-                BotCommand.id != command.id,
-            )
+        await _ensure_command_name_available(
+            db,
+            application.id,
+            command.server_id,
+            target_name,
+            ignore_id=command.id,
         )
-        if duplicate_result.scalar_one_or_none() is not None:
-            raise HTTPException(status_code=409, detail="A command with this name already exists")
         command.name = target_name
     if payload.description is not None:
         command.description = payload.description
