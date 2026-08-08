@@ -417,9 +417,9 @@ class BotEventDispatcher:
                 BotApplication.status == "active",
             )
         )
-        # Discord-style Gateway intents belong to the active Gateway session,
-        # not to the OAuth installation. _dispatch_to_application applies the
-        # requested intent for every connected session.
+        # Gateway intents belong to the active session, not to the OAuth
+        # installation. _dispatch_to_application applies the requested intent
+        # for every connected session.
         return [int(app_id) for (app_id,) in result.all()]
 
     async def dispatch_message_create(self, db: AsyncSession, message) -> None:
