@@ -6,7 +6,7 @@ from app.core.permissions import (
     miscord_permissions_to_legacy,
     legacy_permissions_to_miscord,
 )
-from app.api.bot_client import router as bot_client_router
+from app.api.bot_client import _command_supports, _focused_option, router as bot_client_router
 from app.schemas.miscord import MiscordApplicationCommandPayload, MiscordInteractionCallback, MiscordMessageCreate
 from app.services.miscord_snowflake import generate_snowflake
 
@@ -114,3 +114,28 @@ def test_modal_callback_rejects_duplicate_text_input_ids():
 
 def test_client_modal_submit_route_is_registered():
     assert "/channels/{channel_id}/modal-interactions" in {route.path for route in bot_client_router.routes}
+
+
+def test_command_contexts_are_enforced_for_guild_and_user_installs():
+    guild_command = type("Command", (), {"integration_types": [0], "contexts": [0], "server_id": None})()
+    user_command = type("Command", (), {"integration_types": [1], "contexts": [0, 1, 2], "server_id": None})()
+
+    assert _command_supports(guild_command, 0, 0)
+    assert not _command_supports(guild_command, 1, 0)
+    assert _command_supports(user_command, 1, 2)
+
+
+def test_autocomplete_route_and_nested_focus_are_supported():
+    assert "/channels/{channel_id}/autocomplete-interactions" in {route.path for route in bot_client_router.routes}
+    focused = _focused_option([{
+        "name": "group",
+        "options": [{"name": "query", "type": 3, "value": "mis", "focused": True}],
+    }])
+    assert focused and focused["name"] == "query"
+
+
+def test_message_contract_accepts_multipart_attachment_metadata():
+    payload = MiscordMessageCreate(
+        attachments=[{"id": 0, "filename": "report.txt", "description": "Report"}],
+    )
+    assert payload.attachments[0]["filename"] == "report.txt"

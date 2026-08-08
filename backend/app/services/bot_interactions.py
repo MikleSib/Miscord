@@ -21,6 +21,7 @@ from app.websocket.connection_manager import manager
 INITIAL_RESPONSE_SECONDS = 3
 INTERACTION_TOKEN_MINUTES = 15
 EPHEMERAL_FLAG = 1 << 6
+USE_EXTERNAL_APPS = 1 << 50
 
 
 def utcnow() -> datetime:
@@ -31,6 +32,22 @@ def aware(value: datetime | None) -> datetime | None:
     if value is None:
         return None
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def _apply_user_install_visibility(interaction: BotInteraction, data: dict[str, Any]) -> dict[str, Any]:
+    request_payload = interaction.request_payload if isinstance(interaction.request_payload, dict) else {}
+    owners = request_payload.get("authorizing_integration_owners")
+    if not isinstance(owners, dict) or "1" not in owners:
+        return data
+    try:
+        app_permissions = int(request_payload.get("app_permissions") or 0)
+    except (TypeError, ValueError):
+        app_permissions = 0
+    if app_permissions & USE_EXTERNAL_APPS:
+        return data
+    output = dict(data)
+    output["flags"] = int(output.get("flags") or 0) | EPHEMERAL_FLAG
+    return output
 
 
 async def load_interaction(
@@ -203,6 +220,8 @@ async def apply_initial_callback(
         raise UNKNOWN_INTERACTION()
     application = await _application(db, interaction)
     data = callback.data or {}
+    if callback.type in {4, 5}:
+        data = _apply_user_install_visibility(interaction, data)
     interaction.responded = True
     interaction.response_type = callback.type
     interaction.response_payload = {"type": callback.type, "data": data}
@@ -254,7 +273,13 @@ async def create_followup(
 ) -> Message:
     if not interaction.responded:
         raise UNKNOWN_INTERACTION()
-    return await _create_response_message(db, interaction, application, data, original=False)
+    return await _create_response_message(
+        db,
+        interaction,
+        application,
+        _apply_user_install_visibility(interaction, data),
+        original=False,
+    )
 
 
 async def get_original_response(db: AsyncSession, interaction: BotInteraction) -> Message:

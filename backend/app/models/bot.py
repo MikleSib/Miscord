@@ -98,6 +98,22 @@ class BotInstall(Base):
     installed_by = relationship("User")
 
 
+class BotUserInstall(Base):
+    __tablename__ = "bot_user_installs"
+    __table_args__ = (UniqueConstraint("application_id", "user_id", name="uq_bot_user_install_application_user"),)
+
+    id = Column(Integer, primary_key=True)
+    application_id = Column(Integer, ForeignKey("bot_applications.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    scopes = Column(JSON, nullable=False, default=list)
+    status = Column(String(20), nullable=False, default="active", server_default="active", index=True)
+    installed_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    application = relationship("BotApplication")
+    user = relationship("User")
+
+
 class BotSession(Base):
     __tablename__ = "bot_sessions"
 

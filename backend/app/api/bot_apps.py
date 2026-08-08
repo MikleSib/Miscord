@@ -37,7 +37,11 @@ from app.services.bot_security import (
     hash_client_secret,
 )
 from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
-from app.services.interaction_delivery import InteractionEndpointError, verify_interactions_endpoint
+from app.services.interaction_delivery import (
+    InteractionEndpointError,
+    verify_event_webhooks_endpoint,
+    verify_interactions_endpoint,
+)
 from app.services.image_upload import read_and_validate_image
 from app.services.object_storage import ObjectStorageError, delete_public_media, store_public_image
 from app.services.rate_limit import rate_limit_user
@@ -176,6 +180,15 @@ async def create_bot_application(
             )
         except InteractionEndpointError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if payload.event_webhooks_url:
+        try:
+            application.event_webhooks_url = await verify_event_webhooks_endpoint(
+                payload.event_webhooks_url,
+                application,
+                encrypted_private_key,
+            )
+        except InteractionEndpointError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     db.add_all([
         BotApplicationSecret(
             application_id=application.id,
@@ -226,6 +239,15 @@ async def update_bot_application(
         try:
             changes["interactions_endpoint_url"] = await verify_interactions_endpoint(
                 changes["interactions_endpoint_url"],
+                application,
+                application.secret.signing_private_key_ciphertext,
+            )
+        except InteractionEndpointError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if changes.get("event_webhooks_url"):
+        try:
+            changes["event_webhooks_url"] = await verify_event_webhooks_endpoint(
+                changes["event_webhooks_url"],
                 application,
                 application.secret.signing_private_key_ciphertext,
             )

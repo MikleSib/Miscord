@@ -15,6 +15,7 @@ import type {
   BotCommandDispatchResponse,
   ChannelApplicationCommands,
   ClientInteractionResult,
+  ApplicationCommandAutocompleteResult,
 } from '../types/bot';
 import { Permissions } from '../lib/permissions';
 
@@ -108,6 +109,19 @@ const botService = {
       command_id: commandId,
       data,
     });
+    return response.data;
+  },
+
+  async autocompleteCommand(
+    channelId: number,
+    applicationId: string,
+    commandId: string,
+    data: Record<string, unknown>,
+  ): Promise<ApplicationCommandAutocompleteResult> {
+    const response = await api.post<ApplicationCommandAutocompleteResult>(
+      `/api/channels/${channelId}/autocomplete-interactions`,
+      { application_id: applicationId, command_id: commandId, data },
+    );
     return response.data;
   },
 

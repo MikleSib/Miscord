@@ -31,6 +31,8 @@ from app.schemas.bot import (
 from app.services.bot_security import BotPrincipal, get_current_bot, verify_interaction_signature
 from app.services.bot_links import build_bot_authorize_url
 from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
+from app.services.event_webhook_delivery import queue_event_webhook
+from app.services.miscord_serializers import miscord_user
 from app.services.channel_access import user_can_access_text_channel
 from app.services.message_serializer import serialize_channel_message
 from app.websocket.connection_manager import manager
@@ -40,8 +42,9 @@ SUPPORTED_SCOPES = {"bot", "applications.commands"}
 ALLOWED_MESSAGE_FLAGS = 4 | 4096
 
 
-def _normalized_command_name(value: str) -> str:
-    return value.strip().lower()
+def _normalized_command_name(value: str, command_type: int = 1) -> str:
+    cleaned = value.strip()
+    return cleaned.lower() if command_type == 1 else cleaned
 
 
 def _ensure_enabled() -> None:
@@ -113,6 +116,11 @@ def _serialize_command(command: BotCommand) -> dict[str, Any]:
         "dm_permission": command.dm_permission,
         "allowed_user_ids": command.allowed_user_ids or [],
         "allowed_role_ids": command.allowed_role_ids or [],
+        "name_localizations": command.name_localizations,
+        "description_localizations": command.description_localizations,
+        "contexts": command.contexts,
+        "integration_types": command.integration_types,
+        "nsfw": bool(command.nsfw),
         "version": command.version,
         "is_enabled": command.is_enabled,
         "created_at": command.created_at,
@@ -125,6 +133,7 @@ async def _ensure_command_name_available(
     application_id: int,
     server_id: int | None,
     name: str,
+    command_type: int,
     *,
     ignore_id: int | None = None,
 ) -> None:
@@ -132,6 +141,7 @@ async def _ensure_command_name_available(
         BotCommand.application_id == application_id,
         BotCommand.server_id == server_id,
         BotCommand.name == name,
+        BotCommand.command_type == command_type,
     )
     if ignore_id is not None:
         query = query.where(BotCommand.id != ignore_id)
@@ -254,7 +264,7 @@ def _coerce_list_of_ints(values: Any) -> list[int]:
 async def _application_by_client_id(db: AsyncSession, client_id: str) -> BotApplication:
     result = await db.execute(
         select(BotApplication)
-        .options(selectinload(BotApplication.bot_user))
+        .options(selectinload(BotApplication.bot_user), selectinload(BotApplication.secret))
         .where(BotApplication.client_id == client_id, BotApplication.status == "active")
     )
     application = result.scalar_one_or_none()
@@ -399,6 +409,16 @@ async def get_bot_invite_link(
     if not application:
         raise HTTPException(status_code=404, detail="Bot application not found")
 
+    if application.custom_install_url:
+        return {"invite_url": application.custom_install_url}
+    if isinstance(application.integration_types_config, dict) and application.integration_types_config:
+        return {
+            "invite_url": build_bot_authorize_url(
+                settings.SERVER_HOST,
+                application.client_id,
+            )
+        }
+
     permissions = _resolve_invite_permissions(application, permissions)
 
     return {
@@ -508,6 +528,7 @@ async def authorize_bot_install(
     )
     install = install_result.scalar_one_or_none()
     was_existing = install is not None
+    was_active = bool(install is not None and install.status == "active")
     previous_permissions = int(install.permissions or 0) if was_existing else int(requested)
     previous_intents = int(install.intents or 0) if was_existing else int(payload.intents)
     previous_scopes = list(install.scopes) if was_existing and isinstance(install.scopes, list) else None
@@ -563,7 +584,7 @@ async def authorize_bot_install(
     install.legacy_permissions = miscord_permissions_to_legacy(requested)
     install.status = "active"
     await db.commit()
-    if not was_existing:
+    if not was_active:
         await bot_event_dispatcher.dispatch_install_create(
             application.id,
             server.id,
@@ -571,6 +592,12 @@ async def authorize_bot_install(
             intents=payload.intents,
             scopes=scopes,
         )
+        queue_event_webhook(application, "APPLICATION_AUTHORIZED", {
+            "integration_type": 0,
+            "user": miscord_user(current_user),
+            "scopes": scopes,
+            "guild": {"id": str(server.id), "name": server.name, "icon": server.icon},
+        })
     elif (
         previous_permissions != requested
         or previous_intents != payload.intents
@@ -629,7 +656,10 @@ async def uninstall_bot(
     await require_permission(db, server_id, current_user, Permission.MANAGE_SERVER)
     result = await db.execute(
         select(BotInstall)
-        .options(selectinload(BotInstall.application))
+        .options(
+            selectinload(BotInstall.application).selectinload(BotApplication.secret),
+            selectinload(BotInstall.application).selectinload(BotApplication.bot_user),
+        )
         .where(
             BotInstall.server_id == server_id,
             BotInstall.application_id == application_id,
@@ -654,6 +684,9 @@ async def uninstall_bot(
         server_id,
         reason="revoked",
     )
+    queue_event_webhook(install.application, "APPLICATION_DEAUTHORIZED", {
+        "user": miscord_user(current_user),
+    })
 
 
 @router.get("/bot-apps/{application_id}/commands")
@@ -708,8 +741,8 @@ async def create_bot_command(
     server_id = payload.server_id
     if server_id is not None:
         await require_permission(db, server_id, current_user, Permission.MANAGE_SERVER)
-    command_name = _normalized_command_name(payload.name)
-    await _ensure_command_name_available(db, application.id, server_id, command_name)
+    command_name = _normalized_command_name(payload.name, payload.type)
+    await _ensure_command_name_available(db, application.id, server_id, command_name, payload.type)
     db.add(
         BotCommand(
             application_id=application.id,
@@ -727,6 +760,11 @@ async def create_bot_command(
             dm_permission=payload.dm_permission,
             allowed_user_ids=payload.allowed_user_ids,
             allowed_role_ids=payload.allowed_role_ids,
+            name_localizations=payload.name_localizations,
+            description_localizations=payload.description_localizations,
+            contexts=payload.contexts,
+            integration_types=payload.integration_types,
+            nsfw=payload.nsfw,
             is_enabled=True,
             version=1,
         )
@@ -756,12 +794,13 @@ async def replace_bot_command(
         if command.server_id is not None:
             await require_permission(db, command.server_id, current_user, Permission.MANAGE_SERVER)
 
-    target_name = _normalized_command_name(payload.name)
+    target_name = _normalized_command_name(payload.name, payload.type)
     await _ensure_command_name_available(
         db,
         application.id,
         payload.server_id,
         target_name,
+        payload.type,
         ignore_id=command.id,
     )
 
@@ -783,6 +822,11 @@ async def replace_bot_command(
     command.dm_permission = payload.dm_permission
     command.allowed_user_ids = payload.allowed_user_ids
     command.allowed_role_ids = payload.allowed_role_ids
+    command.name_localizations = payload.name_localizations
+    command.description_localizations = payload.description_localizations
+    command.contexts = payload.contexts
+    command.integration_types = payload.integration_types
+    command.nsfw = payload.nsfw
     command.is_enabled = True
     command.version += 1
     command.updated_at = datetime.now(timezone.utc)
@@ -811,12 +855,13 @@ async def update_bot_command(
             await require_permission(db, command.server_id, current_user, Permission.MANAGE_SERVER)
         command.server_id = payload.server_id
     if payload.name is not None:
-        target_name = _normalized_command_name(payload.name)
+        target_name = _normalized_command_name(payload.name, payload.type or int(command.command_type or 1))
         await _ensure_command_name_available(
             db,
             application.id,
             command.server_id,
             target_name,
+            payload.type or int(command.command_type or 1),
             ignore_id=command.id,
         )
         command.name = target_name
@@ -843,6 +888,16 @@ async def update_bot_command(
         command.allowed_user_ids = payload.allowed_user_ids
     if payload.allowed_role_ids is not None:
         command.allowed_role_ids = payload.allowed_role_ids
+    if "name_localizations" in payload.model_fields_set:
+        command.name_localizations = payload.name_localizations
+    if "description_localizations" in payload.model_fields_set:
+        command.description_localizations = payload.description_localizations
+    if "contexts" in payload.model_fields_set:
+        command.contexts = payload.contexts
+    if "integration_types" in payload.model_fields_set:
+        command.integration_types = payload.integration_types
+    if payload.nsfw is not None:
+        command.nsfw = payload.nsfw
     if payload.is_enabled is not None:
         command.is_enabled = payload.is_enabled
     command.updated_at = datetime.now(timezone.utc)

@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.models import BotApplication, BotInstall, TextChannel
+from app.models import BotApplication, BotInstall, BotUserInstall, TextChannel
 from app.schemas.bot_protocol import GatewayOpCode, GATEWAY_API_VERSION
 from app.services.miscord_serializers import miscord_message, miscord_user
 from app.services.message_serializer import serialize_channel_message
@@ -512,7 +512,13 @@ class BotEventDispatcher:
                 BotInstall.status == "active",
             ))
             if install is None:
-                return 0
+                user_install = await db.scalar(select(BotUserInstall.id).where(
+                    BotUserInstall.application_id == interaction.application_id,
+                    BotUserInstall.user_id == interaction.author_user_id,
+                    BotUserInstall.status == "active",
+                ))
+                if user_install is None:
+                    return 0
         payload = dict(interaction.request_payload or {})
         if not payload:
             payload = {

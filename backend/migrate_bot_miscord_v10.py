@@ -147,6 +147,21 @@ SCHEMA_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS ix_bot_oauth_tokens_user_id ON bot_oauth_tokens(user_id)",
     "CREATE INDEX IF NOT EXISTS ix_bot_oauth_tokens_expires_at ON bot_oauth_tokens(expires_at)",
     "CREATE INDEX IF NOT EXISTS ix_bot_oauth_tokens_revoked_at ON bot_oauth_tokens(revoked_at)",
+    """
+    CREATE TABLE IF NOT EXISTS bot_user_installs (
+        id SERIAL PRIMARY KEY,
+        application_id INTEGER NOT NULL REFERENCES bot_applications(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
+        status VARCHAR(20) NOT NULL DEFAULT 'active',
+        installed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT uq_bot_user_install_application_user UNIQUE (application_id, user_id)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_bot_user_installs_application_id ON bot_user_installs(application_id)",
+    "CREATE INDEX IF NOT EXISTS ix_bot_user_installs_user_id ON bot_user_installs(user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_bot_user_installs_status ON bot_user_installs(status)",
     "DROP INDEX IF EXISTS uq_bot_commands_scope_name",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_bot_commands_scope_name_type ON bot_commands(application_id, COALESCE(server_id, 0), name, command_type)",
 )

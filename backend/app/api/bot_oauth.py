@@ -9,13 +9,22 @@ from typing import Any
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Body, Depends, Form, Header, HTTPException, Query, Request
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.dependencies import get_current_active_user
 from app.db.database import get_db
-from app.models import BotApplication, BotOAuthAuthorizationCode, BotOAuthToken, Channel, User
+from app.core.permissions import Permission, get_member_permissions
+from app.models import (
+    BotApplication,
+    BotOAuthAuthorizationCode,
+    BotOAuthToken,
+    BotUserInstall,
+    Channel,
+    ChannelMember,
+    User,
+)
 from app.schemas.bot_install import BotInstallRequest
 from app.services.bot_oauth import (
     ACCESS_TOKEN_SECONDS,
@@ -25,6 +34,8 @@ from app.services.bot_oauth import (
     token_hash,
 )
 from app.services.bot_security import hash_client_secret
+from app.services.event_webhook_delivery import queue_event_webhook
+from app.services.miscord_serializers import miscord_user
 
 
 router = APIRouter()
@@ -71,6 +82,57 @@ def _parse_scopes(value: str) -> list[str]:
     if unsupported:
         raise _oauth_error("invalid_scope", f"Unsupported scopes: {', '.join(unsupported)}")
     return scopes
+
+
+def _supported_installation_types(application: BotApplication) -> list[int]:
+    config = application.integration_types_config if isinstance(application.integration_types_config, dict) else {}
+    supported = [item for item in (0, 1) if str(item) in config or item in config]
+    return supported or [0]
+
+
+def _install_params(application: BotApplication, integration_type: int) -> dict[str, Any]:
+    config = application.integration_types_config if isinstance(application.integration_types_config, dict) else {}
+    raw_config = config.get(str(integration_type), config.get(integration_type, {}))
+    typed = raw_config if isinstance(raw_config, dict) else {}
+    params = typed.get("oauth2_install_params")
+    if not isinstance(params, dict) and integration_type == 0:
+        params = application.install_params
+    if not isinstance(params, dict):
+        params = {
+            "scopes": ["bot", "applications.commands"] if integration_type == 0 else ["applications.commands"],
+            "permissions": "0",
+        }
+    return params
+
+
+def _resolve_install_request(
+    application: BotApplication,
+    integration_type: int,
+    raw_scope: str | None,
+    permissions: int | None,
+) -> tuple[list[str], int]:
+    if integration_type not in {0, 1}:
+        raise _oauth_error("invalid_request", "integration_type must be 0 or 1")
+    if integration_type not in _supported_installation_types(application):
+        raise _oauth_error("unsupported_installation_context", "This installation context is not enabled")
+    defaults = _install_params(application, integration_type)
+    scope_value = raw_scope if raw_scope is not None else " ".join(defaults.get("scopes") or [])
+    scopes = _parse_scopes(scope_value)
+    resolved_permissions = permissions
+    if resolved_permissions is None:
+        try:
+            resolved_permissions = int(defaults.get("permissions") or 0)
+        except (TypeError, ValueError) as exc:
+            raise _oauth_error("invalid_request", "Default install permissions are invalid") from exc
+    if resolved_permissions < 0:
+        raise _oauth_error("invalid_request", "permissions must not be negative")
+    if integration_type == 1:
+        if "bot" in scopes:
+            raise _oauth_error("invalid_scope", "User installs cannot request the bot scope")
+        if "applications.commands" not in scopes:
+            raise _oauth_error("invalid_scope", "User installs require applications.commands")
+        resolved_permissions = 0
+    return scopes, resolved_permissions
 
 
 async def _application(db: AsyncSession, client_id: str) -> BotApplication:
@@ -150,9 +212,9 @@ async def authorization_preview(
     client_id: str,
     response_type: str | None = None,
     redirect_uri: str | None = None,
-    scope: str = "identify",
+    scope: str | None = None,
     state: str | None = None,
-    permissions: int = 0,
+    permissions: int | None = None,
     guild_id: int | None = None,
     disable_guild_select: bool = False,
     integration_type: int = 0,
@@ -162,7 +224,7 @@ async def authorization_preview(
     db: AsyncSession = Depends(get_db),
 ):
     application = await _application(db, client_id)
-    scopes = _parse_scopes(scope)
+    scopes, resolved_permissions = _resolve_install_request(application, integration_type, scope, permissions)
     if response_type in {"code", "token"}:
         _registered_redirect(application, redirect_uri)
     if code_challenge_method and code_challenge_method not in {"plain", "S256"}:
@@ -172,8 +234,24 @@ async def authorization_preview(
     if "bot" in scopes and not application.bot_public and application.owner_id != current_user.id:
         raise _oauth_error("access_denied", "This bot is private", 403)
     servers_result = await db.execute(
-        select(Channel).where(Channel.owner_id == current_user.id).order_by(Channel.name)
+        select(Channel)
+        .outerjoin(
+            ChannelMember,
+            (ChannelMember.channel_id == Channel.id) & (ChannelMember.user_id == current_user.id),
+        )
+        .where(or_(Channel.owner_id == current_user.id, ChannelMember.user_id == current_user.id))
+        .order_by(Channel.name)
     )
+    servers = []
+    for server in servers_result.scalars().unique().all():
+        effective = await get_member_permissions(db, server.id, current_user.id, owner_id=server.owner_id)
+        if current_user.id == server.owner_id or effective & int(Permission.MANAGE_GUILD):
+            servers.append({"id": str(server.id), "name": server.name, "icon": server.icon})
+    user_install = await db.scalar(select(BotUserInstall.id).where(
+        BotUserInstall.application_id == application.id,
+        BotUserInstall.user_id == current_user.id,
+        BotUserInstall.status == "active",
+    ))
     return {
         "application": {
             "id": application.client_id,
@@ -187,13 +265,15 @@ async def authorization_preview(
         "response_type": response_type,
         "redirect_uri": redirect_uri,
         "state": state,
-        "permissions": str(permissions),
+        "permissions": str(resolved_permissions),
         "guild_id": str(guild_id) if guild_id else None,
         "disable_guild_select": disable_guild_select,
         "integration_type": integration_type,
+        "installation_types": _supported_installation_types(application),
+        "already_user_installed": user_install is not None,
         "code_challenge": code_challenge,
         "code_challenge_method": code_challenge_method,
-        "servers": [{"id": str(item.id), "name": item.name, "icon": item.icon} for item in servers_result.scalars().all()],
+        "servers": servers,
     }
 
 
@@ -205,7 +285,21 @@ async def authorize(
 ):
     client_id = str(payload.get("client_id") or "")
     application = await _application(db, client_id)
-    scopes = _parse_scopes(str(payload.get("scope") or "identify"))
+    try:
+        integration_type = int(payload.get("integration_type", 0))
+    except (TypeError, ValueError) as exc:
+        raise _oauth_error("invalid_request", "integration_type must be 0 or 1") from exc
+    raw_permissions = payload.get("permissions")
+    try:
+        parsed_permissions = int(raw_permissions) if raw_permissions is not None else None
+    except (TypeError, ValueError) as exc:
+        raise _oauth_error("invalid_request", "permissions must be an integer") from exc
+    scopes, resolved_permissions = _resolve_install_request(
+        application,
+        integration_type,
+        str(payload["scope"]) if payload.get("scope") is not None else None,
+        parsed_permissions,
+    )
     response_type = str(payload.get("response_type") or "") or None
     redirect_uri = payload.get("redirect_uri")
     state = str(payload.get("state") or "")
@@ -217,7 +311,7 @@ async def authorize(
         raise _oauth_error("invalid_request", "code_challenge is required with code_challenge_method")
     if application.bot_require_code_grant and "bot" in scopes and response_type != "code":
         raise _oauth_error("unsupported_response_type", "This bot requires the authorization code grant")
-    if "bot" in scopes:
+    if integration_type == 0 and "bot" in scopes:
         if not application.bot_public and application.owner_id != current_user.id:
             raise _oauth_error("access_denied", "This bot is private", 403)
         guild_id = payload.get("guild_id") or payload.get("server_id")
@@ -229,11 +323,28 @@ async def authorize(
                 client_id=client_id,
                 server_id=int(guild_id),
                 scope=" ".join(item for item in scopes if item in {"bot", "applications.commands"}),
-                permissions=int(payload.get("permissions") or 0),
+                permissions=resolved_permissions,
             ),
             current_user=current_user,
             db=db,
         )
+    user_install_created = False
+    if integration_type == 1:
+        install = await db.scalar(
+            select(BotUserInstall).where(
+                BotUserInstall.application_id == application.id,
+                BotUserInstall.user_id == current_user.id,
+            ).with_for_update()
+        )
+        if install is None:
+            install = BotUserInstall(application_id=application.id, user_id=current_user.id)
+            db.add(install)
+            user_install_created = True
+        elif install.status != "active":
+            user_install_created = True
+        install.scopes = scopes
+        install.status = "active"
+        await db.flush()
     if response_type == "code":
         redirect = _registered_redirect(application, str(redirect_uri or ""))
         code = secrets.token_urlsafe(32)
@@ -243,21 +354,61 @@ async def authorize(
             user_id=current_user.id,
             redirect_uri=redirect,
             scopes=scopes,
-            guild_id=int(payload["guild_id"]) if payload.get("guild_id") else None,
-            permissions=int(payload.get("permissions") or 0),
+            guild_id=int(payload["guild_id"]) if integration_type == 0 and payload.get("guild_id") else None,
+            permissions=resolved_permissions,
             code_challenge=code_challenge,
             code_challenge_method=code_challenge_method,
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
         ))
         await db.commit()
+        if user_install_created:
+            queue_event_webhook(application, "APPLICATION_AUTHORIZED", {
+                "integration_type": 1,
+                "user": miscord_user(current_user),
+                "scopes": scopes,
+            })
         separator = "&" if "?" in redirect else "?"
         return {"location": f"{redirect}{separator}{urlencode({'code': code, **({'state': state} if state else {})})}"}
     if response_type == "token":
         redirect = _registered_redirect(application, str(redirect_uri or ""))
         token = await _issue_token(db, application, scopes, user_id=current_user.id, grant_type="implicit", with_refresh=False)
+        if user_install_created:
+            queue_event_webhook(application, "APPLICATION_AUTHORIZED", {
+                "integration_type": 1,
+                "user": miscord_user(current_user),
+                "scopes": scopes,
+            })
         fragment = urlencode({**token, **({"state": state} if state else {})})
         return {"location": f"{redirect}#{fragment}"}
+    await db.commit()
+    if user_install_created:
+        queue_event_webhook(application, "APPLICATION_AUTHORIZED", {
+            "integration_type": 1,
+            "user": miscord_user(current_user),
+            "scopes": scopes,
+        })
     return {"authorized": True, "location": None}
+
+
+@router.delete("/users/@me/applications/{application_id}", status_code=204)
+async def deauthorize_user_install(
+    application_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    application = await _application(db, application_id)
+    install = await db.scalar(select(BotUserInstall).where(
+        BotUserInstall.application_id == application.id,
+        BotUserInstall.user_id == current_user.id,
+        BotUserInstall.status == "active",
+    ).with_for_update())
+    if install is None:
+        raise HTTPException(status_code=404, detail="Application installation not found")
+    install.status = "revoked"
+    await db.commit()
+    queue_event_webhook(application, "APPLICATION_DEAUTHORIZED", {
+        "user": miscord_user(current_user),
+    })
 
 
 @router.post("/token")

@@ -211,6 +211,7 @@ class MiscordMessageCreate(BaseModel):
     sticker_ids: list[str] = Field(default_factory=list, max_length=3)
     flags: int = 0
     poll: dict[str, Any] | None = None
+    attachments: list[dict[str, Any]] = Field(default_factory=list, max_length=10)
     enforce_nonce: bool = False
     model_config = ConfigDict(extra="forbid")
 
@@ -221,8 +222,8 @@ class MiscordMessageCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_content(self):
-        if not (self.content and self.content.strip()) and not self.embeds and not self.components and not self.poll and not self.sticker_ids:
-            raise ValueError("message must contain content, embeds, components, stickers, or a poll")
+        if not (self.content and self.content.strip()) and not self.embeds and not self.components and not self.poll and not self.sticker_ids and not self.attachments:
+            raise ValueError("message must contain content, embeds, components, stickers, attachments, or a poll")
         return self
 
 

@@ -87,6 +87,32 @@ async def verify_interactions_endpoint(url: str, application, ciphertext: str) -
     return safe_url
 
 
+async def verify_event_webhooks_endpoint(url: str, application, ciphertext: str) -> str:
+    safe_url = await validate_endpoint_url(url)
+    ping = {
+        "version": 1,
+        "application_id": application.client_id,
+        "type": 0,
+    }
+    try:
+        response = await _post_signed(safe_url, ping, ciphertext)
+    except Exception as exc:
+        raise InteractionEndpointError("Event Webhooks endpoint did not answer the verification PING") from exc
+    if response.status_code != 204 or response.content:
+        raise InteractionEndpointError("Event Webhooks endpoint must answer PING with an empty HTTP 204 response")
+    return safe_url
+
+
+async def deliver_event_webhook(
+    url: str,
+    payload: dict[str, Any],
+    ciphertext: str,
+) -> bool:
+    safe_url = await validate_endpoint_url(url)
+    response = await _post_signed(safe_url, payload, ciphertext)
+    return response.status_code == 204
+
+
 async def deliver_interaction_http(application, ciphertext: str, payload: dict[str, Any]) -> dict[str, Any]:
     if not application.interactions_endpoint_url:
         raise InteractionEndpointError("Interaction endpoint is not configured")

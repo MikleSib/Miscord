@@ -8,23 +8,63 @@ from app.core.permissions import ALL_PERMISSIONS, Permission
 
 
 _COMMAND_NAME_RE = re.compile(r"^[\w-]{1,32}$")
-_SUPPORTED_COMMAND_TYPES = {1, 2, 3}
+_SUPPORTED_COMMAND_TYPES = {1, 2, 3, 4}
+_INSTALL_SCOPES = {"bot", "applications.commands"}
+_EVENT_WEBHOOK_TYPES = {
+    "APPLICATION_AUTHORIZED",
+    "APPLICATION_DEAUTHORIZED",
+    "ENTITLEMENT_CREATE",
+    "ENTITLEMENT_UPDATE",
+    "ENTITLEMENT_DELETE",
+    "QUEST_USER_ENROLLMENT",
+    "LOBBY_MESSAGE_CREATE",
+    "LOBBY_MESSAGE_UPDATE",
+    "LOBBY_MESSAGE_DELETE",
+    "GAME_DIRECT_MESSAGE_CREATE",
+    "GAME_DIRECT_MESSAGE_UPDATE",
+    "GAME_DIRECT_MESSAGE_DELETE",
+}
 
 
 def _normalize_install_params(value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
-    if value is None or "permissions" not in value:
+    if value is None:
         return value
     normalized = dict(value)
-    try:
-        permissions = int(normalized["permissions"])
-    except (TypeError, ValueError) as exc:
-        raise ValueError("install_params.permissions must be a decimal bitfield") from exc
-    if permissions < 0 or permissions & ~int(ALL_PERMISSIONS):
-        raise ValueError("install_params.permissions contains unsupported permission bits")
-    if permissions & int(Permission.ADMINISTRATOR):
-        permissions = int(Permission.ADMINISTRATOR)
-    normalized["permissions"] = str(permissions)
+    if "permissions" in normalized:
+        try:
+            permissions = int(normalized["permissions"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("install_params.permissions must be a decimal bitfield") from exc
+        if permissions < 0 or permissions & ~int(ALL_PERMISSIONS):
+            raise ValueError("install_params.permissions contains unsupported permission bits")
+        if permissions & int(Permission.ADMINISTRATOR):
+            permissions = int(Permission.ADMINISTRATOR)
+        normalized["permissions"] = str(permissions)
+    if "scopes" in normalized:
+        scopes = normalized["scopes"]
+        if not isinstance(scopes, list) or any(item not in _INSTALL_SCOPES for item in scopes):
+            raise ValueError("install_params.scopes contains unsupported install scopes")
+        normalized["scopes"] = list(dict.fromkeys(scopes))
     return normalized
+
+
+def _normalize_integration_types_config(value: dict[str, Any]) -> dict[str, Any]:
+    output: dict[str, Any] = {}
+    for raw_key, raw_config in value.items():
+        key = str(raw_key)
+        if key not in {"0", "1"} or not isinstance(raw_config, dict):
+            raise ValueError("integration_types_config keys must be 0 or 1")
+        config = dict(raw_config)
+        params = config.get("oauth2_install_params")
+        if params is not None:
+            normalized = _normalize_install_params(params)
+            if key == "1" and normalized is not None:
+                if normalized.get("scopes", ["applications.commands"]) != ["applications.commands"]:
+                    raise ValueError("user installs only support applications.commands")
+                normalized["permissions"] = "0"
+            config["oauth2_install_params"] = normalized
+        output[key] = config
+    return output
 
 
 class BotApplicationCreate(BaseModel):
@@ -90,10 +130,23 @@ class BotApplicationCreate(BaseModel):
                 output.append(cleaned[:20])
         return output[:5]
 
+    @field_validator("event_webhooks_types")
+    @classmethod
+    def clean_event_webhooks_types(cls, value: list[str]) -> list[str]:
+        normalized = list(dict.fromkeys(item.strip().upper() for item in value if item.strip()))
+        if any(item not in _EVENT_WEBHOOK_TYPES for item in normalized):
+            raise ValueError("event_webhooks_types contains an unsupported event")
+        return normalized
+
     @field_validator("install_params")
     @classmethod
     def normalize_install_params(cls, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
         return _normalize_install_params(value)
+
+    @field_validator("integration_types_config")
+    @classmethod
+    def normalize_integration_types_config(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return _normalize_integration_types_config(value)
 
 
 class BotApplicationUpdate(BaseModel):
@@ -155,10 +208,25 @@ class BotApplicationUpdate(BaseModel):
             return None
         return list(dict.fromkeys(item.strip().lower()[:20] for item in value if item.strip()))[:5]
 
+    @field_validator("event_webhooks_types")
+    @classmethod
+    def clean_event_webhooks_types(cls, value: Optional[list[str]]) -> Optional[list[str]]:
+        if value is None:
+            return None
+        normalized = list(dict.fromkeys(item.strip().upper() for item in value if item.strip()))
+        if any(item not in _EVENT_WEBHOOK_TYPES for item in normalized):
+            raise ValueError("event_webhooks_types contains an unsupported event")
+        return normalized
+
     @field_validator("install_params")
     @classmethod
     def normalize_install_params(cls, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
         return _normalize_install_params(value)
+
+    @field_validator("integration_types_config")
+    @classmethod
+    def normalize_integration_types_config(cls, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+        return _normalize_integration_types_config(value) if value is not None else None
 
 
 class BotIdentityResponse(BaseModel):
@@ -221,7 +289,7 @@ class BotPrincipalResponse(BaseModel):
 
 class BotCommandDefinition(BaseModel):
     name: str = Field(min_length=1, max_length=32)
-    description: str = Field(min_length=1, max_length=100)
+    description: str = Field(default="", max_length=100)
     type: int = 1
     definition: dict[str, Any] = Field(default_factory=dict)
     server_id: int | None = None
@@ -229,21 +297,26 @@ class BotCommandDefinition(BaseModel):
     dm_permission: bool = True
     allowed_user_ids: list[int] = Field(default_factory=list)
     allowed_role_ids: list[int] = Field(default_factory=list)
+    name_localizations: dict[str, str] | None = None
+    description_localizations: dict[str, str] | None = None
+    contexts: list[int] | None = None
+    integration_types: list[int] | None = None
+    nsfw: bool = False
     model_config = ConfigDict(extra="forbid")
 
     @field_validator("name")
     @classmethod
     def validate_name(cls, value: str) -> str:
-        value = value.strip().lower()
-        if not _COMMAND_NAME_RE.fullmatch(value):
-            raise ValueError("command name must contain only a-z, 0-9, underscore and hyphen")
+        value = value.strip()
+        if not value:
+            raise ValueError("command name cannot be empty")
         return value
 
     @field_validator("type")
     @classmethod
     def validate_type(cls, value: int) -> int:
         if value not in _SUPPORTED_COMMAND_TYPES:
-            raise ValueError("command type must be 1 (CHAT_INPUT), 2 (USER) or 3 (MESSAGE)")
+            raise ValueError("command type must be between 1 and 4")
         return value
 
     @field_validator("definition")
@@ -263,6 +336,30 @@ class BotCommandDefinition(BaseModel):
         if len(value) != len(set(value)):
             value = list(dict.fromkeys(value))
         return [item for item in value if isinstance(item, int) and item > 0]
+
+    @field_validator("contexts")
+    @classmethod
+    def validate_contexts(cls, value: list[int] | None) -> list[int] | None:
+        if value is not None and any(item not in {0, 1, 2} for item in value):
+            raise ValueError("contexts can only contain 0, 1 or 2")
+        return list(dict.fromkeys(value)) if value is not None else None
+
+    @field_validator("integration_types")
+    @classmethod
+    def validate_integration_types(cls, value: list[int] | None) -> list[int] | None:
+        if value is not None and any(item not in {0, 1} for item in value):
+            raise ValueError("integration_types can only contain 0 or 1")
+        return list(dict.fromkeys(value)) if value is not None else None
+
+    @model_validator(mode="after")
+    def validate_shape(self):
+        if self.type == 1:
+            self.name = self.name.lower()
+            if not _COMMAND_NAME_RE.fullmatch(self.name) or not self.description:
+                raise ValueError("CHAT_INPUT commands require a lowercase name and description")
+        elif self.type in {2, 3} and self.description:
+            raise ValueError("USER and MESSAGE command descriptions must be empty")
+        return self
 
 
 class BotCommandCreate(BotCommandDefinition):
@@ -284,6 +381,11 @@ class BotCommandUpdate(BaseModel):
     allowed_user_ids: list[int] | None = None
     allowed_role_ids: list[int] | None = None
     is_enabled: bool | None = None
+    name_localizations: dict[str, str] | None = None
+    description_localizations: dict[str, str] | None = None
+    contexts: list[int] | None = None
+    integration_types: list[int] | None = None
+    nsfw: bool | None = None
     model_config = ConfigDict(extra="forbid")
 
     @field_validator("name")
@@ -291,10 +393,7 @@ class BotCommandUpdate(BaseModel):
     def validate_name(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        value = value.strip().lower()
-        if not _COMMAND_NAME_RE.fullmatch(value):
-            raise ValueError("command name must contain only a-z, 0-9, underscore and hyphen")
-        return value
+        return value.strip()
 
     @field_validator("type")
     @classmethod
@@ -302,7 +401,7 @@ class BotCommandUpdate(BaseModel):
         if value is None:
             return None
         if value not in _SUPPORTED_COMMAND_TYPES:
-            raise ValueError("command type must be 1 (CHAT_INPUT), 2 (USER) or 3 (MESSAGE)")
+            raise ValueError("command type must be between 1 and 4")
         return value
 
     @field_validator("definition")
@@ -326,6 +425,20 @@ class BotCommandUpdate(BaseModel):
         if len(value) != len(set(value)):
             value = list(dict.fromkeys(value))
         return [item for item in value if isinstance(item, int) and item > 0]
+
+    @field_validator("contexts")
+    @classmethod
+    def validate_contexts(cls, value: list[int] | None) -> list[int] | None:
+        if value is not None and any(item not in {0, 1, 2} for item in value):
+            raise ValueError("contexts can only contain 0, 1 or 2")
+        return list(dict.fromkeys(value)) if value is not None else None
+
+    @field_validator("integration_types")
+    @classmethod
+    def validate_integration_types(cls, value: list[int] | None) -> list[int] | None:
+        if value is not None and any(item not in {0, 1} for item in value):
+            raise ValueError("integration_types can only contain 0 or 1")
+        return list(dict.fromkeys(value)) if value is not None else None
 
     @model_validator(mode="after")
     def ensure_payload(self):

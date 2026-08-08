@@ -27,7 +27,7 @@ import { useOutgoingMessageStore } from '../store/outgoingMessageStore'
 import reactionService from '../services/reactionService'
 import serverService from '../services/serverService'
 import botService from '../services/botService'
-import type { ChannelApplicationCommands, MiscordApplicationCommand, MiscordApplicationCommandOption } from '../types/bot'
+import type { ApplicationCommandChoice, ChannelApplicationCommands, MiscordApplicationCommand, MiscordApplicationCommandOption } from '../types/bot'
 import { formatSlowModeLabel } from '../lib/slowMode'
 import {
   filterMentionCandidates,
@@ -51,6 +51,8 @@ import {
   useNotificationSettingsStore,
 } from '../store/notificationSettingsStore'
 import { useResponsiveLayout } from '../hooks/useResponsiveLayout'
+
+const localizedCommandName = (command: MiscordApplicationCommand) => command.name_localizations?.ru || command.name
 
 export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSidebar: boolean, setShowUserSidebar: (v: boolean) => void }) {
   const { currentChannel, currentServer } = useStore()
@@ -106,6 +108,8 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   const [applicationCommands, setApplicationCommands] = useState<ChannelApplicationCommands>({ applications: [], commands: [] })
   const [slashIndex, setSlashIndex] = useState(0)
   const [selectedSlashCommand, setSelectedSlashCommand] = useState<MiscordApplicationCommand | null>(null)
+  const [autocompleteChoices, setAutocompleteChoices] = useState<ApplicationCommandChoice[]>([])
+  const [autocompleteIndex, setAutocompleteIndex] = useState(0)
   const [profilePopover, setProfilePopover] = useState<{
     member: ServerMember
     anchorRect: DOMRect
@@ -149,7 +153,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   )
 
   const slashQuery = useMemo(() => {
-    if (!messageInput.startsWith('/') || messageInput.includes('\n')) return null
+    if (!messageInput.startsWith('/') || messageInput.includes('\n') || /^\/[^\s]+\s/.test(messageInput)) return null
     const match = messageInput.match(/^\/([^\s]*)/)
     return match ? match[1].toLocaleLowerCase() : null
   }, [messageInput])
@@ -157,7 +161,10 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   const filteredSlashCommands = useMemo(() => {
     if (slashQuery === null) return []
     return applicationCommands.commands
-      .filter((command) => command.type === 1 && command.name.toLocaleLowerCase().includes(slashQuery))
+      .filter((command) => command.type === 1 && (
+        command.name.toLocaleLowerCase().includes(slashQuery)
+        || localizedCommandName(command).toLocaleLowerCase().includes(slashQuery)
+      ))
       .slice(0, 25)
   }, [applicationCommands.commands, slashQuery])
 
@@ -165,6 +172,26 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     () => Object.fromEntries(applicationCommands.applications.map((application) => [application.id, application.name])),
     [applicationCommands.applications],
   )
+
+  const autocompleteRequest = useMemo(() => {
+    if (!selectedSlashCommand) return null
+    const visibleName = localizedCommandName(selectedSlashCommand)
+    if (!messageInput.startsWith(`/${visibleName} `)) return null
+    const source = messageInput.slice(visibleName.length + 2)
+    const rawTokens = source.match(/"[^"]*"|'[^']*'|\S+/g) || []
+    const optionIndex = source.endsWith(' ') ? rawTokens.length : Math.max(0, rawTokens.length - 1)
+    const option = (selectedSlashCommand.options || [])[optionIndex]
+    if (!option?.autocomplete) return null
+    const tokens = rawTokens.map((token) => token.replace(/^("|')|("|')$/g, ''))
+    const value = source.endsWith(' ') ? '' : (tokens[optionIndex] || '')
+    const options = (selectedSlashCommand.options || []).slice(0, optionIndex + 1).map((definition, index) => ({
+      name: definition.name,
+      type: definition.type,
+      value: index === optionIndex ? value : tokens[index] || '',
+      ...(index === optionIndex ? { focused: true } : {}),
+    }))
+    return { command: selectedSlashCommand, optionIndex, tokens, options }
+  }, [messageInput, selectedSlashCommand])
 
   useEffect(() => {
     if (currentChannel?.type !== 'text') {
@@ -177,6 +204,37 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
       .catch(() => { if (!cancelled) setApplicationCommands({ applications: [], commands: [] }) })
     return () => { cancelled = true }
   }, [currentChannel?.id, currentChannel?.type])
+
+  useEffect(() => {
+    if (!autocompleteRequest || currentChannel?.type !== 'text') {
+      setAutocompleteChoices([])
+      setAutocompleteIndex(0)
+      return
+    }
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      botService.autocompleteCommand(
+        currentChannel.id,
+        autocompleteRequest.command.application_id,
+        autocompleteRequest.command.id,
+        {
+          name: autocompleteRequest.command.name,
+          type: autocompleteRequest.command.type,
+          options: autocompleteRequest.options,
+        },
+      ).then((result) => {
+        if (cancelled) return
+        setAutocompleteChoices(result.choices)
+        setAutocompleteIndex(0)
+      }).catch(() => {
+        if (!cancelled) setAutocompleteChoices([])
+      })
+    }, 250)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [autocompleteRequest, currentChannel?.id, currentChannel?.type])
 
   const mentionNameById = useMemo(() => {
     const map = new Map<number, string>()
@@ -610,7 +668,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
 
   const applySlashCommand = (command: MiscordApplicationCommand) => {
     setSelectedSlashCommand(command)
-    setMessageInput(`/${command.name}${command.options?.length ? ' ' : ''}`)
+    setMessageInput(`/${localizedCommandName(command)}${command.options?.length ? ' ' : ''}`)
     setSlashIndex(0)
     setMentionQuery(null)
     requestAnimationFrame(() => {
@@ -618,6 +676,25 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
       if (!input) return
       input.focus()
       input.setSelectionRange(input.value.length, input.value.length)
+      resizeChatComposer(input)
+    })
+  }
+
+  const applyAutocompleteChoice = (choice: ApplicationCommandChoice) => {
+    if (!autocompleteRequest) return
+    const value = String(choice.value)
+    const serialized = /\s/.test(value) ? `"${value.replace(/"/g, '\\"')}"` : value
+    const tokens = [...autocompleteRequest.tokens]
+    tokens[autocompleteRequest.optionIndex] = serialized
+    const next = `/${localizedCommandName(autocompleteRequest.command)} ${tokens.join(' ')} `
+    setMessageInput(next)
+    setAutocompleteChoices([])
+    setAutocompleteIndex(0)
+    requestAnimationFrame(() => {
+      const input = messageInputRef.current
+      if (!input) return
+      input.focus()
+      input.setSelectionRange(next.length, next.length)
       resizeChatComposer(input)
     })
   }
@@ -642,9 +719,9 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
 
     if (content.startsWith('/') && files.length === 0 && currentChannel.type === 'text') {
       const [commandName, ...argumentParts] = content.slice(1).trim().split(/\s+/)
-      const command = selectedSlashCommand?.name === commandName
+      const command = selectedSlashCommand && localizedCommandName(selectedSlashCommand) === commandName
         ? selectedSlashCommand
-        : applicationCommands.commands.find((item) => item.type === 1 && item.name === commandName)
+        : applicationCommands.commands.find((item) => item.type === 1 && (item.name === commandName || localizedCommandName(item) === commandName))
       if (command) {
         const required = (command.options || []).filter((option) => option.required).length
         if (argumentParts.length < required) {
@@ -702,7 +779,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     if (value.startsWith('/')) {
       setMentionQuery(null)
       setSlashIndex(0)
-      if (selectedSlashCommand && !value.startsWith(`/${selectedSlashCommand.name}`)) setSelectedSlashCommand(null)
+      if (selectedSlashCommand && !value.startsWith(`/${localizedCommandName(selectedSlashCommand)}`)) setSelectedSlashCommand(null)
     } else {
       setSelectedSlashCommand(null)
       updateMentionState(value, caret)
@@ -713,6 +790,28 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   }
 
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (autocompleteChoices.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setAutocompleteIndex((previous) => (previous + 1) % autocompleteChoices.length)
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setAutocompleteIndex((previous) => (previous - 1 + autocompleteChoices.length) % autocompleteChoices.length)
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setAutocompleteChoices([])
+        return
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing)) {
+        e.preventDefault()
+        applyAutocompleteChoice(autocompleteChoices[autocompleteIndex] || autocompleteChoices[0])
+        return
+      }
+    }
     if (slashQuery !== null && filteredSlashCommands.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault()
@@ -767,6 +866,25 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
 
   const handleReply = (message: Message) => {
     setReplyingTo(message);
+  }
+
+  const handleContextApplicationCommand = async (command: MiscordApplicationCommand, targetMessage: Message) => {
+    if (!currentChannel || currentChannel.type !== 'text') return
+    setAttachmentError(null)
+    try {
+      const targetId = command.type === 2 ? targetMessage.author.id : targetMessage.id
+      const result = await botService.invokeCommand(currentChannel.id, command.application_id, command.id, {
+        name: command.name,
+        type: command.type,
+        target_id: String(targetId),
+      })
+      if (result.status === 'offline' || result.status === 'failed') {
+        setAttachmentError('Приложение сейчас недоступно и не получило команду.')
+      }
+    } catch (requestError) {
+      const detail = (requestError as { response?: { data?: { detail?: string } } }).response?.data?.detail
+      setAttachmentError(typeof detail === 'string' ? detail : 'Не удалось выполнить команду приложения.')
+    }
   }
 
   const handleCancelReply = () => {
@@ -923,6 +1041,8 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
                     onMentionClick={handleMentionClick}
                     authorColor={getMemberColor(msg.author?.id)}
                     replyAuthorColor={getMemberColor(msg.reply_to?.author?.id)}
+                    applicationCommands={applicationCommands.commands.filter((command) => command.type === 2 || command.type === 3)}
+                    onApplicationCommand={handleContextApplicationCommand}
                   />
                 </React.Fragment>
               )
@@ -996,6 +1116,23 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
                 onSelect={applySlashCommand}
                 onHover={setSlashIndex}
               />
+            )}
+            {autocompleteChoices.length > 0 && !mentionQuery && (
+              <div className="absolute bottom-[calc(100%+8px)] left-0 right-0 z-40 max-h-80 overflow-y-auto rounded-xl border border-white/10 bg-[#2b2d31] p-2 shadow-2xl shadow-black/40">
+                <div className="px-2 pb-2 pt-1 text-[11px] font-bold uppercase tracking-wider text-[#949ba4]">Варианты параметра</div>
+                {autocompleteChoices.map((choice, index) => (
+                  <button
+                    key={`${choice.name}-${String(choice.value)}-${index}`}
+                    type="button"
+                    onMouseDown={(event) => { event.preventDefault(); applyAutocompleteChoice(choice) }}
+                    onMouseEnter={() => setAutocompleteIndex(index)}
+                    className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left transition ${index === autocompleteIndex ? 'bg-[#5865f2] text-white' : 'text-[#dbdee1] hover:bg-[#35373c]'}`}
+                  >
+                    <span className="min-w-0 truncate font-medium">{choice.name}</span>
+                    <span className={`max-w-[45%] truncate text-xs ${index === autocompleteIndex ? 'text-white/75' : 'text-[#949ba4]'}`}>{String(choice.value)}</span>
+                  </button>
+                ))}
+              </div>
             )}
             
             {/* File Previews */}

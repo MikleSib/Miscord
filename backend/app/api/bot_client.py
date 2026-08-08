@@ -9,11 +9,11 @@ from sqlalchemy.orm import selectinload
 
 from app.core.dependencies import get_current_active_user
 from app.core.permissions import Permission, get_member_permissions, has_permission
-from app.db.database import get_db
-from app.models import BotApplication, BotCommand, BotInstall, BotInteraction, ChannelMember, MemberRole, Message, TextChannel, User
+from app.db.database import AsyncSessionLocal, get_db
+from app.models import BotApplication, BotCommand, BotInstall, BotInteraction, BotUserInstall, ChannelMember, MemberRole, Message, TextChannel, User
 from app.schemas.miscord import ClientInteractionCreate
 from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
-from app.services.bot_interactions import apply_initial_callback, aware, new_interaction, utcnow
+from app.services.bot_interactions import apply_initial_callback, aware, new_interaction, utcnow, wait_for_callback
 from app.services.channel_access import require_text_channel_access
 from app.services.miscord_serializers import miscord_command, miscord_message, miscord_user
 from app.services.interaction_delivery import InteractionEndpointError, deliver_interaction_http
@@ -27,6 +27,43 @@ def _as_int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _command_supports(command: BotCommand, integration_type: int, context: int) -> bool:
+    integration_types = command.integration_types if isinstance(command.integration_types, list) else [0]
+    contexts = command.contexts if isinstance(command.contexts, list) else [0, 1, 2]
+    if command.server_id is not None:
+        integration_types = [0]
+        contexts = [0]
+    return integration_type in integration_types and context in contexts
+
+
+def _focused_option(options: Any) -> dict[str, Any] | None:
+    if not isinstance(options, list):
+        return None
+    for option in options:
+        if not isinstance(option, dict):
+            continue
+        if option.get("focused") is True:
+            return option
+        nested = _focused_option(option.get("options"))
+        if nested is not None:
+            return nested
+    return None
+
+
+def _option_definition(options: Any, name: str) -> dict[str, Any] | None:
+    if not isinstance(options, list):
+        return None
+    for option in options:
+        if not isinstance(option, dict):
+            continue
+        if str(option.get("name") or "") == name:
+            return option
+        nested = _option_definition(option.get("options"), name)
+        if nested is not None:
+            return nested
+    return None
 
 
 async def _member_roles(db: AsyncSession, guild_id: int, user_id: int) -> list[int]:
@@ -94,7 +131,7 @@ async def list_channel_application_commands(
     if not has_permission(permissions, Permission.USE_APPLICATION_COMMANDS):
         return {"applications": [], "commands": []}
     role_ids = await _member_roles(db, channel.channel_id, current_user.id)
-    result = await db.execute(
+    server_result = await db.execute(
         select(BotCommand, BotApplication)
         .join(BotApplication, BotApplication.id == BotCommand.application_id)
         .join(BotInstall, and_(
@@ -110,9 +147,35 @@ async def list_channel_application_commands(
         .order_by(BotCommand.server_id.desc().nullslast(), BotCommand.name, BotCommand.command_type)
     )
     selected: dict[tuple[int, str, int], tuple[BotCommand, BotApplication]] = {}
-    for command, application in result.all():
+    for command, application in server_result.all():
         key = (application.id, command.name, int(command.command_type))
-        if key not in selected and _command_allowed(
+        if key not in selected and _command_supports(command, 0, 0) and _command_allowed(
+            command,
+            permissions,
+            current_user.id,
+            role_ids,
+            channel.channel_id,
+            channel.id,
+        ):
+            selected[key] = (command, application)
+    user_result = await db.execute(
+        select(BotCommand, BotApplication)
+        .join(BotApplication, BotApplication.id == BotCommand.application_id)
+        .join(BotUserInstall, and_(
+            BotUserInstall.application_id == BotApplication.id,
+            BotUserInstall.user_id == current_user.id,
+            BotUserInstall.status == "active",
+        ))
+        .where(
+            BotApplication.status == "active",
+            BotCommand.is_enabled.is_(True),
+            BotCommand.server_id.is_(None),
+        )
+        .order_by(BotCommand.name, BotCommand.command_type)
+    )
+    for command, application in user_result.all():
+        key = (application.id, command.name, int(command.command_type))
+        if key not in selected and _command_supports(command, 1, 0) and _command_allowed(
             command,
             permissions,
             current_user.id,
@@ -146,13 +209,8 @@ async def _command_context(
     if not has_permission(permissions, Permission.USE_APPLICATION_COMMANDS):
         raise HTTPException(status_code=403, detail="You cannot use application commands in this channel")
     result = await db.execute(
-        select(BotCommand, BotApplication, BotInstall)
+        select(BotCommand, BotApplication)
         .join(BotApplication, BotApplication.id == BotCommand.application_id)
-        .join(BotInstall, and_(
-            BotInstall.application_id == BotApplication.id,
-            BotInstall.server_id == channel.channel_id,
-            BotInstall.status == "active",
-        ))
         .options(selectinload(BotApplication.bot_user), selectinload(BotApplication.secret))
         .where(
             BotApplication.client_id == application_client_id,
@@ -165,7 +223,24 @@ async def _command_context(
     row = result.first()
     if row is None:
         raise HTTPException(status_code=404, detail="Application command not found")
-    command, application, install = row
+    command, application = row
+    server_install = await db.scalar(select(BotInstall).where(
+        BotInstall.application_id == application.id,
+        BotInstall.server_id == channel.channel_id,
+        BotInstall.status == "active",
+    ))
+    user_install = await db.scalar(select(BotUserInstall).where(
+        BotUserInstall.application_id == application.id,
+        BotUserInstall.user_id == current_user.id,
+        BotUserInstall.status == "active",
+    ))
+    integration_type: int
+    if server_install is not None and _command_supports(command, 0, 0):
+        integration_type = 0
+    elif user_install is not None and command.server_id is None and _command_supports(command, 1, 0):
+        integration_type = 1
+    else:
+        raise HTTPException(status_code=404, detail="Application command is not available in this context")
     role_ids = await _member_roles(db, channel.channel_id, current_user.id)
     if not _command_allowed(
         command,
@@ -176,7 +251,11 @@ async def _command_context(
         channel.id,
     ):
         raise HTTPException(status_code=403, detail="You do not have permission to use this command")
-    return channel, command, application, install, permissions, role_ids
+    app_permissions = int(server_install.permissions or 0) if server_install is not None and integration_type == 0 else permissions
+    authorizing_owners = (
+        {"0": str(channel.channel_id)} if integration_type == 0 else {"1": str(current_user.id)}
+    )
+    return channel, command, application, app_permissions, permissions, role_ids, authorizing_owners
 
 
 async def _deliver(db: AsyncSession, interaction: BotInteraction, application: BotApplication) -> tuple[str, int]:
@@ -259,7 +338,7 @@ async def create_channel_interaction(
         command_id = int(payload.command_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid command id") from exc
-    channel, command, application, install, permissions, role_ids = await _command_context(
+    channel, command, application, app_permissions, permissions, role_ids, authorizing_owners = await _command_context(
         db, channel_id, payload.application_id, command_id, current_user
     )
     membership = await db.scalar(select(ChannelMember).where(
@@ -268,6 +347,47 @@ async def create_channel_interaction(
     ))
     data = dict(payload.data)
     data.update({"id": str(command.id), "name": command.name, "type": int(command.command_type)})
+    command_type = int(command.command_type or 1)
+    if command_type in {2, 3}:
+        try:
+            target_id = int(data.get("target_id"))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Context menu commands require a valid target_id") from exc
+        if command_type == 2:
+            target_member = await db.scalar(select(ChannelMember).where(
+                ChannelMember.channel_id == channel.channel_id,
+                ChannelMember.user_id == target_id,
+            ))
+            target_user = await db.get(User, target_id) if target_member is not None else None
+            if target_user is None:
+                raise HTTPException(status_code=404, detail="Target user not found")
+            target_roles = await _member_roles(db, channel.channel_id, target_id)
+            data["target_id"] = str(target_id)
+            data["resolved"] = {
+                "users": {str(target_id): miscord_user(target_user)},
+                "members": {str(target_id): {"roles": [str(item) for item in target_roles]}},
+            }
+        else:
+            target_message = await db.scalar(
+                select(Message)
+                .options(
+                    selectinload(Message.author),
+                    selectinload(Message.attachments),
+                    selectinload(Message.reactions),
+                    selectinload(Message.reply_to).selectinload(Message.author),
+                    selectinload(Message.reply_to).selectinload(Message.attachments),
+                    selectinload(Message.reply_to).selectinload(Message.reactions),
+                )
+                .where(
+                    Message.id == target_id,
+                    Message.text_channel_id == channel.id,
+                    Message.is_deleted.is_(False),
+                )
+            )
+            if target_message is None:
+                raise HTTPException(status_code=404, detail="Target message not found")
+            data["target_id"] = str(target_id)
+            data["resolved"] = {"messages": {str(target_id): miscord_message(target_message, guild_id=channel.channel_id)}}
     interaction_payload = {
         "id": "",
         "application_id": application.client_id,
@@ -288,11 +408,11 @@ async def create_channel_interaction(
         },
         "token": "",
         "version": 1,
-        "app_permissions": str(int(install.permissions or 0)),
+        "app_permissions": str(app_permissions),
         "locale": "ru",
         "guild_locale": "ru",
         "entitlements": [],
-        "authorizing_integration_owners": {"0": str(channel.channel_id)},
+        "authorizing_integration_owners": authorizing_owners,
         "context": 0,
         "attachment_size_limit": 10 * 1024 * 1024,
     }
@@ -317,6 +437,88 @@ async def create_channel_interaction(
         "status": status,
         "delivered_sessions": delivered,
     }
+
+
+@router.post("/channels/{channel_id}/autocomplete-interactions")
+async def create_autocomplete_interaction(
+    channel_id: int,
+    payload: ClientInteractionCreate,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        command_id = int(payload.command_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid command id") from exc
+    channel, command, application, app_permissions, permissions, role_ids, authorizing_owners = await _command_context(
+        db, channel_id, payload.application_id, command_id, current_user
+    )
+    if int(command.command_type or 1) != 1:
+        raise HTTPException(status_code=400, detail="Only chat input commands support autocomplete")
+    data = dict(payload.data)
+    focused = _focused_option(data.get("options"))
+    definition = command.definition if isinstance(command.definition, dict) else {}
+    option_definition = _option_definition(definition.get("options"), str((focused or {}).get("name") or ""))
+    if focused is None or not option_definition or option_definition.get("autocomplete") is not True:
+        raise HTTPException(status_code=400, detail="A valid autocomplete option must be focused")
+    membership = await db.scalar(select(ChannelMember).where(
+        ChannelMember.channel_id == channel.channel_id,
+        ChannelMember.user_id == current_user.id,
+    ))
+    data.update({"id": str(command.id), "name": command.name, "type": 1})
+    interaction_payload = {
+        "id": "",
+        "application_id": application.client_id,
+        "type": 4,
+        "data": data,
+        "guild_id": str(channel.channel_id),
+        "guild": {"id": str(channel.channel_id), "locale": "ru"},
+        "channel_id": str(channel.id),
+        "channel": {"id": str(channel.id), "type": 0, "guild_id": str(channel.channel_id), "name": channel.name},
+        "member": {
+            "user": miscord_user(current_user),
+            "roles": [str(item) for item in role_ids],
+            "joined_at": membership.joined_at.isoformat() if membership and membership.joined_at else None,
+            "deaf": False,
+            "mute": False,
+            "flags": 0,
+            "permissions": str(permissions),
+        },
+        "token": "",
+        "version": 1,
+        "app_permissions": str(app_permissions),
+        "locale": "ru",
+        "guild_locale": "ru",
+        "entitlements": [],
+        "authorizing_integration_owners": authorizing_owners,
+        "context": 0,
+        "attachment_size_limit": 10 * 1024 * 1024,
+    }
+    interaction = new_interaction(
+        application,
+        interaction_type=4,
+        guild_id=channel.channel_id,
+        channel_id=channel.id,
+        author_user_id=current_user.id,
+        command_id=command.id,
+        payload=interaction_payload,
+    )
+    interaction_payload["id"] = interaction.interaction_id
+    interaction_payload["token"] = interaction.interaction_token
+    db.add(interaction)
+    await db.commit()
+    status, _ = await _deliver(db, interaction, application)
+    response = interaction.response_payload if interaction.responded else None
+    if response is None and status == "pending":
+        response = await wait_for_callback(
+            AsyncSessionLocal,
+            interaction.interaction_id,
+            interaction.interaction_token,
+        )
+    if not isinstance(response, dict) or _as_int(response.get("type")) != 8:
+        return {"choices": [], "status": status}
+    response_data = response.get("data") if isinstance(response.get("data"), dict) else {}
+    return {"choices": list(response_data.get("choices") or [])[:25], "status": "responded"}
 
 
 @router.post("/channels/{channel_id}/component-interactions")
@@ -348,19 +550,25 @@ async def create_component_interaction(
     if message is None or not message.application_id:
         raise HTTPException(status_code=404, detail="Interactive message not found")
     app_result = await db.execute(
-        select(BotApplication, BotInstall)
-        .join(BotInstall, and_(
-            BotInstall.application_id == BotApplication.id,
-            BotInstall.server_id == channel.channel_id,
-            BotInstall.status == "active",
-        ))
+        select(BotApplication)
         .options(selectinload(BotApplication.bot_user), selectinload(BotApplication.secret))
         .where(BotApplication.client_id == str(message.application_id), BotApplication.status == "active")
     )
-    row = app_result.first()
-    if row is None:
+    application = app_result.scalar_one_or_none()
+    if application is None:
         raise HTTPException(status_code=404, detail="Application not found")
-    application, install = row
+    server_install = await db.scalar(select(BotInstall).where(
+        BotInstall.application_id == application.id,
+        BotInstall.server_id == channel.channel_id,
+        BotInstall.status == "active",
+    ))
+    user_install = await db.scalar(select(BotUserInstall).where(
+        BotUserInstall.application_id == application.id,
+        BotUserInstall.user_id == current_user.id,
+        BotUserInstall.status == "active",
+    ))
+    if server_install is None and user_install is None:
+        raise HTTPException(status_code=404, detail="Application is not installed for this context")
     permissions = await get_member_permissions(db, channel.channel_id, current_user.id)
     role_ids = await _member_roles(db, channel.channel_id, current_user.id)
     custom_id = str(raw_payload.get("custom_id") or "")[:100]
@@ -381,11 +589,13 @@ async def create_component_interaction(
         "message": miscord_message(message, guild_id=channel.channel_id),
         "token": "",
         "version": 1,
-        "app_permissions": str(int(install.permissions or 0)),
+        "app_permissions": str(int(server_install.permissions or 0) if server_install is not None else permissions),
         "locale": "ru",
         "guild_locale": "ru",
         "entitlements": [],
-        "authorizing_integration_owners": {"0": str(channel.channel_id)},
+        "authorizing_integration_owners": (
+            {"0": str(channel.channel_id)} if server_install is not None else {"1": str(current_user.id)}
+        ),
         "context": 0,
     }
     interaction = new_interaction(
@@ -418,13 +628,8 @@ async def create_modal_interaction(
     if not source_interaction_id or not custom_id:
         raise HTTPException(status_code=400, detail="source_interaction_id and custom_id are required")
     result = await db.execute(
-        select(BotInteraction, BotApplication, BotInstall)
+        select(BotInteraction, BotApplication)
         .join(BotApplication, BotApplication.id == BotInteraction.application_id)
-        .join(BotInstall, and_(
-            BotInstall.application_id == BotApplication.id,
-            BotInstall.server_id == channel.channel_id,
-            BotInstall.status == "active",
-        ))
         .options(selectinload(BotApplication.bot_user), selectinload(BotApplication.secret))
         .where(
             BotInteraction.interaction_id == source_interaction_id,
@@ -437,7 +642,19 @@ async def create_modal_interaction(
     row = result.first()
     if row is None:
         raise HTTPException(status_code=404, detail="Modal interaction not found")
-    source, application, install = row
+    source, application = row
+    server_install = await db.scalar(select(BotInstall).where(
+        BotInstall.application_id == application.id,
+        BotInstall.server_id == channel.channel_id,
+        BotInstall.status == "active",
+    ))
+    user_install = await db.scalar(select(BotUserInstall).where(
+        BotUserInstall.application_id == application.id,
+        BotUserInstall.user_id == current_user.id,
+        BotUserInstall.status == "active",
+    ))
+    if server_install is None and user_install is None:
+        raise HTTPException(status_code=404, detail="Application is not installed for this context")
     if aware(source.expires_at) and aware(source.expires_at) <= utcnow():
         raise HTTPException(status_code=404, detail="Modal interaction expired")
     components = _validate_modal_submission(source, raw_payload.get("components"), custom_id)
@@ -467,11 +684,13 @@ async def create_modal_interaction(
         },
         "token": "",
         "version": 1,
-        "app_permissions": str(int(install.permissions or 0)),
+        "app_permissions": str(int(server_install.permissions or 0) if server_install is not None else permissions),
         "locale": "ru",
         "guild_locale": "ru",
         "entitlements": [],
-        "authorizing_integration_owners": {"0": str(channel.channel_id)},
+        "authorizing_integration_owners": (
+            {"0": str(channel.channel_id)} if server_install is not None else {"1": str(current_user.id)}
+        ),
         "context": 0,
     }
     interaction = new_interaction(

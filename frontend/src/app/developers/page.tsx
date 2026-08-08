@@ -70,8 +70,13 @@ export default function DeveloperPortalPage() {
   const [oneTimeClientSecret, setOneTimeClientSecret] = useState<string | null>(null);
   const [editBotPublic, setEditBotPublic] = useState(true);
   const [editRequireCodeGrant, setEditRequireCodeGrant] = useState(false);
+  const [editGuildInstall, setEditGuildInstall] = useState(true);
+  const [editUserInstall, setEditUserInstall] = useState(false);
   const [editRedirectUris, setEditRedirectUris] = useState('');
   const [editInteractionsEndpoint, setEditInteractionsEndpoint] = useState('');
+  const [editEventWebhooksEndpoint, setEditEventWebhooksEndpoint] = useState('');
+  const [editEventWebhooksEnabled, setEditEventWebhooksEnabled] = useState(false);
+  const [editEventWebhookTypes, setEditEventWebhookTypes] = useState<string[]>([]);
   const [editTermsUrl, setEditTermsUrl] = useState('');
   const [editPrivacyUrl, setEditPrivacyUrl] = useState('');
   const [editFlags, setEditFlags] = useState(0);
@@ -104,6 +109,13 @@ export default function DeveloperPortalPage() {
   const [commandDmPermission, setCommandDmPermission] = useState(true);
   const [commandAllowedUsers, setCommandAllowedUsers] = useState('');
   const [commandAllowedRoles, setCommandAllowedRoles] = useState('');
+  const [commandOptionsJson, setCommandOptionsJson] = useState('[]');
+  const [commandNameLocalizationsJson, setCommandNameLocalizationsJson] = useState('{}');
+  const [commandDescriptionLocalizationsJson, setCommandDescriptionLocalizationsJson] = useState('{}');
+  const [commandContexts, setCommandContexts] = useState<number[]>([0]);
+  const [commandIntegrationTypes, setCommandIntegrationTypes] = useState<number[]>([0]);
+  const [commandNsfw, setCommandNsfw] = useState(false);
+  const [commandHandler, setCommandHandler] = useState('1');
 
   const selected = useMemo(
     () => applications.find((application) => application.id === selectedId) ?? null,
@@ -147,6 +159,13 @@ export default function DeveloperPortalPage() {
     setCommandDmPermission(true);
     setCommandAllowedUsers('');
     setCommandAllowedRoles('');
+    setCommandOptionsJson('[]');
+    setCommandNameLocalizationsJson('{}');
+    setCommandDescriptionLocalizationsJson('{}');
+    setCommandContexts([0]);
+    setCommandIntegrationTypes([0]);
+    setCommandNsfw(false);
+    setCommandHandler('1');
   };
 
   useEffect(() => setMounted(true), []);
@@ -207,8 +226,14 @@ export default function DeveloperPortalPage() {
     setEditDescription(selected.description ?? '');
     setEditBotPublic(selected.bot_public);
     setEditRequireCodeGrant(selected.bot_require_code_grant);
+    const configuredInstallationTypes = Object.keys(selected.integration_types_config || {});
+    setEditGuildInstall(configuredInstallationTypes.length === 0 || configuredInstallationTypes.includes('0'));
+    setEditUserInstall(configuredInstallationTypes.includes('1'));
     setEditRedirectUris(selected.redirect_uris.join('\n'));
     setEditInteractionsEndpoint(selected.interactions_endpoint_url ?? '');
+    setEditEventWebhooksEndpoint(selected.event_webhooks_url ?? '');
+    setEditEventWebhooksEnabled(selected.event_webhooks_status === 1 && selected.event_webhooks_types.length > 0);
+    setEditEventWebhookTypes(selected.event_webhooks_types);
     setEditTermsUrl(selected.terms_of_service_url ?? '');
     setEditPrivacyUrl(selected.privacy_policy_url ?? '');
     setEditFlags(selected.flags || 0);
@@ -289,6 +314,8 @@ export default function DeveloperPortalPage() {
         bot_require_code_grant: editRequireCodeGrant,
         redirect_uris: editRedirectUris.split(/\r?\n/).map((item) => item.trim()).filter(Boolean),
         interactions_endpoint_url: editInteractionsEndpoint.trim() || null,
+        event_webhooks_url: editEventWebhooksEndpoint.trim() || null,
+        event_webhooks_types: editEventWebhooksEnabled ? editEventWebhookTypes : [],
         terms_of_service_url: editTermsUrl.trim() || null,
         privacy_policy_url: editPrivacyUrl.trim() || null,
         flags: editFlags,
@@ -296,6 +323,26 @@ export default function DeveloperPortalPage() {
           ...(selected.install_params ?? {}),
           scopes: ['bot', 'applications.commands'],
           permissions: editInstallPermissions,
+        },
+        integration_types_config: {
+          ...(editGuildInstall ? {
+            0: {
+              ...((selected.integration_types_config?.['0'] as Record<string, unknown> | undefined) ?? {}),
+              oauth2_install_params: {
+                scopes: ['bot', 'applications.commands'],
+                permissions: editInstallPermissions,
+              },
+            },
+          } : {}),
+          ...(editUserInstall ? {
+            1: {
+              ...((selected.integration_types_config?.['1'] as Record<string, unknown> | undefined) ?? {}),
+              oauth2_install_params: {
+                scopes: ['applications.commands'],
+                permissions: '0',
+              },
+            },
+          } : {}),
         },
       });
       setApplications((current) => current.map((item) => item.id === updated.id ? updated : item));
@@ -418,24 +465,51 @@ export default function DeveloperPortalPage() {
     setCommandDmPermission(command.dm_permission);
     setCommandAllowedUsers(command.allowed_user_ids.join(','));
     setCommandAllowedRoles(command.allowed_role_ids.join(','));
+    setCommandOptionsJson(JSON.stringify((command.definition?.options as unknown[]) || [], null, 2));
+    setCommandNameLocalizationsJson(JSON.stringify(command.name_localizations || {}, null, 2));
+    setCommandDescriptionLocalizationsJson(JSON.stringify(command.description_localizations || {}, null, 2));
+    setCommandContexts(command.contexts || [0]);
+    setCommandIntegrationTypes(command.integration_types || [0]);
+    setCommandNsfw(Boolean(command.nsfw));
+    setCommandHandler(String((command.definition?.handler as number | undefined) || 1));
   };
 
   const submitCommand = async () => {
     if (!selected || !commandName.trim()) return;
+    let options: unknown[];
+    let nameLocalizations: Record<string, string>;
+    let descriptionLocalizations: Record<string, string>;
+    try {
+      options = JSON.parse(commandOptionsJson || '[]') as unknown[];
+      nameLocalizations = JSON.parse(commandNameLocalizationsJson || '{}') as Record<string, string>;
+      descriptionLocalizations = JSON.parse(commandDescriptionLocalizationsJson || '{}') as Record<string, string>;
+      if (!Array.isArray(options) || !nameLocalizations || Array.isArray(nameLocalizations) || !descriptionLocalizations || Array.isArray(descriptionLocalizations)) throw new Error();
+    } catch {
+      setCommandsError('Options должны быть JSON-массивом, а локализации — JSON-объектами.');
+      return;
+    }
+    const resolvedCommandType = Number(commandType) || 1;
     const payload = {
       name: commandName,
-      description: commandDescription.trim() || commandName.trim(),
-      type: Number(commandType) || 1,
+      description: resolvedCommandType === 2 || resolvedCommandType === 3 ? '' : (commandDescription.trim() || commandName.trim()),
+      type: resolvedCommandType,
       server_id: commandServerId ? Number(commandServerId) : null,
-      definition: commandResponseContent
-        ? { response: { type: 4, data: { content: commandResponseContent, allowed_mentions: { parse: [] } } } }
-        : {},
+      definition: {
+        options,
+        ...(resolvedCommandType === 4 ? { handler: Number(commandHandler) || 1 } : {}),
+        ...(commandResponseContent ? { response: { type: 4, data: { content: commandResponseContent, allowed_mentions: { parse: [] } } } } : {}),
+      },
       default_member_permissions: commandDefaultMemberPermissions.trim()
         ? Number(commandDefaultMemberPermissions)
         : null,
       dm_permission: commandDmPermission,
       allowed_user_ids: normalizeIdList(commandAllowedUsers),
       allowed_role_ids: normalizeIdList(commandAllowedRoles),
+      name_localizations: Object.keys(nameLocalizations).length ? nameLocalizations : null,
+      description_localizations: Object.keys(descriptionLocalizations).length ? descriptionLocalizations : null,
+      contexts: commandContexts,
+      integration_types: commandIntegrationTypes,
+      nsfw: commandNsfw,
     } as BotCommandPayload;
     setCreatingCommand(false);
     setSaving(true);
@@ -700,12 +774,26 @@ export default function DeveloperPortalPage() {
                     <input value={editInteractionsEndpoint} onChange={(event) => setEditInteractionsEndpoint(event.target.value)} className="min-h-11 rounded-xl border border-white/10 bg-[#1e1f22] px-3.5 font-mono text-sm outline-none focus:border-[#5865f2]" placeholder="https://example.com/interactions" />
                     <span className="text-xs text-[#949ba4]">При сохранении Miscord отправит подписанный PING и примет URL только после валидного PONG.</span>
                   </label>
+                  <label className="grid gap-2 lg:col-span-2">
+                    <span className="text-xs font-bold uppercase tracking-wide text-[#b5bac1]">Event Webhooks URL</span>
+                    <input value={editEventWebhooksEndpoint} onChange={(event) => setEditEventWebhooksEndpoint(event.target.value)} className="min-h-11 rounded-xl border border-white/10 bg-[#1e1f22] px-3.5 font-mono text-sm outline-none focus:border-[#5865f2]" placeholder="https://example.com/events" />
+                    <span className="text-xs text-[#949ba4]">При сохранении Miscord отправит подписанный PING. Endpoint должен ответить пустым HTTP 204.</span>
+                  </label>
                   <label className="grid gap-2"><span className="text-xs font-bold uppercase tracking-wide text-[#b5bac1]">Terms of Service URL</span><input value={editTermsUrl} onChange={(event) => setEditTermsUrl(event.target.value)} className="min-h-11 rounded-xl border border-white/10 bg-[#1e1f22] px-3.5 text-sm outline-none focus:border-[#5865f2]" /></label>
                   <label className="grid gap-2"><span className="text-xs font-bold uppercase tracking-wide text-[#b5bac1]">Privacy Policy URL</span><input value={editPrivacyUrl} onChange={(event) => setEditPrivacyUrl(event.target.value)} className="min-h-11 rounded-xl border border-white/10 bg-[#1e1f22] px-3.5 text-sm outline-none focus:border-[#5865f2]" /></label>
                 </div>
                 <div className="mt-5 grid gap-3 lg:grid-cols-2">
+                  <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-[#1e1f22] p-4 lg:col-span-2"><input type="checkbox" className="mt-1" checked={editEventWebhooksEnabled} onChange={(event) => setEditEventWebhooksEnabled(event.target.checked)} disabled={!editEventWebhooksEndpoint.trim()} /><span><strong className="block text-sm">Включить события по HTTP</strong><span className="text-xs text-[#949ba4]">Подписанные события повторно доставляются до 10 минут, если endpoint не отвечает HTTP 204.</span></span></label>
+                  {[
+                    ['APPLICATION_AUTHORIZED', 'Приложение авторизовано'],
+                    ['APPLICATION_DEAUTHORIZED', 'Приложение деавторизовано'],
+                  ].map(([eventType, title]) => (
+                    <label key={eventType} className="flex items-start gap-3 rounded-xl border border-white/10 bg-[#1e1f22] p-4"><input type="checkbox" className="mt-1" checked={editEventWebhookTypes.includes(eventType)} disabled={!editEventWebhooksEnabled} onChange={(event) => setEditEventWebhookTypes((current) => event.target.checked ? (current.includes(eventType) ? current : [...current, eventType]) : current.filter((item) => item !== eventType))} /><span><strong className="block text-sm">{title}</strong><span className="font-mono text-[11px] text-[#949ba4]">{eventType}</span></span></label>
+                  ))}
                   <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-[#1e1f22] p-4"><input type="checkbox" className="mt-1" checked={editBotPublic} onChange={(event) => setEditBotPublic(event.target.checked)} /><span><strong className="block text-sm">Public Bot</strong><span className="text-xs text-[#949ba4]">Другие пользователи могут устанавливать бота.</span></span></label>
                   <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-[#1e1f22] p-4"><input type="checkbox" className="mt-1" checked={editRequireCodeGrant} onChange={(event) => setEditRequireCodeGrant(event.target.checked)} /><span><strong className="block text-sm">Requires OAuth2 Code Grant</strong><span className="text-xs text-[#949ba4]">Установка требует authorization code flow.</span></span></label>
+                  <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-[#1e1f22] p-4"><input type="checkbox" className="mt-1" checked={editGuildInstall} onChange={(event) => setEditGuildInstall(event.target.checked)} disabled={!editUserInstall} /><span><strong className="block text-sm">Установка на сервер</strong><span className="text-xs text-[#949ba4]">Приложение можно добавить на сервер с выбранными правами.</span></span></label>
+                  <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-[#1e1f22] p-4"><input type="checkbox" className="mt-1" checked={editUserInstall} onChange={(event) => setEditUserInstall(event.target.checked)} disabled={!editGuildInstall} /><span><strong className="block text-sm">Установка пользователю</strong><span className="text-xs text-[#949ba4]">Команды приложения будут доступны установившему пользователю.</span></span></label>
                   {[
                     [1 << 12, 'Presence Intent', 'Получать presence updates участников.'],
                     [1 << 14, 'Server Members Intent', 'Получать список и события участников.'],
@@ -855,8 +943,16 @@ export default function DeveloperPortalPage() {
                       </div>
                       <div className="grid gap-2">
                         <label className="text-xs font-bold uppercase tracking-wide text-[#b5bac1]">Command type</label>
-                        <input value={commandType} onChange={(event) => setCommandType(event.target.value)} className="min-h-11 rounded-xl border border-white/10 bg-[#1e1f22] px-3.5 text-base outline-none focus:border-[#5865f2]" placeholder="1" />
+                        <select value={commandType} onChange={(event) => setCommandType(event.target.value)} className="min-h-11 rounded-xl border border-white/10 bg-[#1e1f22] px-3.5 text-base outline-none focus:border-[#5865f2]">
+                          <option value="1">Chat Input / slash (1)</option>
+                          <option value="2">User context menu (2)</option>
+                          <option value="3">Message context menu (3)</option>
+                          <option value="4">Primary Entry Point (4)</option>
+                        </select>
                       </div>
+                      {commandType === '4' && (
+                        <label className="grid gap-2"><span className="text-xs font-bold uppercase tracking-wide text-[#b5bac1]">Entry Point handler</span><select value={commandHandler} onChange={(event) => setCommandHandler(event.target.value)} className="min-h-11 rounded-xl border border-white/10 bg-[#1e1f22] px-3.5"><option value="1">Приложение отвечает само (1)</option><option value="2">Miscord запускает Activity (2)</option></select></label>
+                      )}
                       <label className="grid gap-2">
                         <span className="text-xs font-bold uppercase tracking-wide text-[#b5bac1]">Server ID (optional)</span>
                         <input value={commandServerId} onChange={(event) => setCommandServerId(event.target.value)} className="min-h-11 rounded-xl border border-white/10 bg-[#1e1f22] px-3.5 text-base outline-none focus:border-[#5865f2]" />
@@ -865,6 +961,19 @@ export default function DeveloperPortalPage() {
                         <span className="text-xs font-bold uppercase tracking-wide text-[#b5bac1]">Default response</span>
                         <textarea value={commandResponseContent} rows={3} onChange={(event) => setCommandResponseContent(event.target.value)} className="rounded-xl border border-white/10 bg-[#1e1f22] p-3.5 text-base outline-none focus:border-[#5865f2]" />
                       </label>
+                      <label className="grid gap-2">
+                        <span className="text-xs font-bold uppercase tracking-wide text-[#b5bac1]">Options JSON</span>
+                        <textarea value={commandOptionsJson} rows={7} onChange={(event) => setCommandOptionsJson(event.target.value)} disabled={commandType !== '1'} className="rounded-xl border border-white/10 bg-[#1e1f22] p-3.5 font-mono text-sm outline-none focus:border-[#5865f2] disabled:opacity-50" />
+                        <span className="text-xs text-[#949ba4]">Поддерживаются choices, autocomplete, min/max, channel_types, subcommands и attachment.</span>
+                      </label>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <label className="grid gap-2"><span className="text-xs font-bold uppercase tracking-wide text-[#b5bac1]">Name localizations JSON</span><textarea value={commandNameLocalizationsJson} rows={4} onChange={(event) => setCommandNameLocalizationsJson(event.target.value)} className="rounded-xl border border-white/10 bg-[#1e1f22] p-3.5 font-mono text-sm outline-none focus:border-[#5865f2]" /></label>
+                        <label className="grid gap-2"><span className="text-xs font-bold uppercase tracking-wide text-[#b5bac1]">Description localizations JSON</span><textarea value={commandDescriptionLocalizationsJson} rows={4} onChange={(event) => setCommandDescriptionLocalizationsJson(event.target.value)} disabled={commandType === '2' || commandType === '3'} className="rounded-xl border border-white/10 bg-[#1e1f22] p-3.5 font-mono text-sm outline-none focus:border-[#5865f2] disabled:opacity-50" /></label>
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <fieldset className="rounded-xl border border-white/10 bg-[#1e1f22] p-4"><legend className="px-1 text-xs font-bold uppercase tracking-wide text-[#b5bac1]">Installation contexts</legend>{[[0, 'Сервер'], [1, 'Пользователь']].map(([value, label]) => <label key={value} className="mt-2 flex items-center gap-2 text-sm"><input type="checkbox" checked={commandIntegrationTypes.includes(Number(value))} onChange={(event) => setCommandIntegrationTypes((current) => event.target.checked ? (current.includes(Number(value)) ? current : [...current, Number(value)]) : current.filter((item) => item !== Number(value)))} />{label}</label>)}</fieldset>
+                        <fieldset className="rounded-xl border border-white/10 bg-[#1e1f22] p-4"><legend className="px-1 text-xs font-bold uppercase tracking-wide text-[#b5bac1]">Interaction contexts</legend>{[[0, 'Сервер'], [1, 'ЛС с ботом'], [2, 'Личный канал']].map(([value, label]) => <label key={value} className="mt-2 flex items-center gap-2 text-sm"><input type="checkbox" checked={commandContexts.includes(Number(value))} onChange={(event) => setCommandContexts((current) => event.target.checked ? (current.includes(Number(value)) ? current : [...current, Number(value)]) : current.filter((item) => item !== Number(value)))} />{label}</label>)}</fieldset>
+                      </div>
                       <div className="grid gap-2 md:grid-cols-3">
                         <label className="grid gap-2">
                           <span className="text-xs font-bold uppercase tracking-wide text-[#b5bac1]">default_member_permissions</span>
@@ -883,6 +992,7 @@ export default function DeveloperPortalPage() {
                         <input type="checkbox" checked={commandDmPermission} onChange={(event) => setCommandDmPermission(event.target.checked)} />
                         allow in DMs
                       </label>
+                      <label className="inline-flex cursor-pointer items-center gap-2 text-sm"><input type="checkbox" checked={commandNsfw} onChange={(event) => setCommandNsfw(event.target.checked)} />NSFW command</label>
                       <div className="flex gap-2">
                         <button
                           disabled={saving || !commandName.trim()}

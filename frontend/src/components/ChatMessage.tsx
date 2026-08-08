@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useEffect, useRef, useState } from 'react'
-import { Reply, Smile, Trash2, Edit3 } from 'lucide-react'
+import { Reply, Smile, Trash2, Edit3, Puzzle } from 'lucide-react'
 import { Message, User } from '../types'
 import { UserAvatar } from './ui/user-avatar'
 import { Button } from './ui/button'
@@ -20,6 +20,7 @@ import { contentMentionsUser } from '../lib/mentions'
 import { useMentionNotificationStore } from '../store/mentionNotificationStore'
 import { cn } from '../lib/utils'
 import { ApplicationMessageComponents } from './ApplicationMessageComponents'
+import type { MiscordApplicationCommand } from '../types/bot'
 
 interface ChatMessageProps {
   message: Message;
@@ -33,6 +34,8 @@ interface ChatMessageProps {
   authorColor?: string | null;
   /** Цвет ника автора ответа */
   replyAuthorColor?: string | null;
+  applicationCommands?: MiscordApplicationCommand[];
+  onApplicationCommand?: (command: MiscordApplicationCommand, message: Message) => void;
 }
 
 // Список доступных эмодзи для реакций
@@ -48,6 +51,8 @@ export function ChatMessage({
   onMentionClick,
   authorColor,
   replyAuthorColor,
+  applicationCommands = [],
+  onApplicationCommand,
 }: ChatMessageProps) {
   const [isHovered, setIsHovered] = useState(false)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
@@ -216,6 +221,25 @@ export function ChatMessage({
               </Tooltip>
             </>
           )}
+        </div>
+      )}
+
+      {showMoreMenu && applicationCommands.length > 0 && !isEditing && (
+        <div className="absolute right-2 top-11 z-30 min-w-64 rounded-xl border border-white/10 bg-[#111214] p-2 shadow-2xl shadow-black/50">
+          <div className="flex items-center gap-2 px-2 pb-2 pt-1 text-[11px] font-bold uppercase tracking-wider text-[#949ba4]"><Puzzle className="h-3.5 w-3.5" />Приложения</div>
+          {applicationCommands.map((command) => (
+            <button
+              key={`${command.application_id}-${command.id}`}
+              type="button"
+              className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm font-medium text-[#dbdee1] hover:bg-[#5865f2] hover:text-white"
+              onClick={() => {
+                setShowMoreMenu(false)
+                onApplicationCommand?.(command, message)
+              }}
+            >
+              {command.name}
+            </button>
+          ))}
         </div>
       )}
 

@@ -173,6 +173,6 @@ def miscord_command(command, *, application_client_id: str) -> dict[str, Any]:
     }
     if command.server_id is not None:
         payload["guild_id"] = str(command.server_id)
-    if definition.get("handler") is not None:
-        payload["handler"] = definition["handler"]
+    if int(command.command_type or 1) == 4 and definition.get("handler") is not None:
+        payload["handler"] = int(definition["handler"])
     return payload

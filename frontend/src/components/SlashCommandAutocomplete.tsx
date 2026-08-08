@@ -27,8 +27,8 @@ export function SlashCommandAutocomplete({
           onMouseEnter={() => onHover(index)}
           className={`flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left transition ${index === selectedIndex ? 'bg-[#5865f2] text-white' : 'text-[#dbdee1] hover:bg-[#35373c]'}`}
         >
-          <span className="font-semibold">/{command.name}</span>
-          <span className={`min-w-0 flex-1 truncate text-sm ${index === selectedIndex ? 'text-white/80' : 'text-[#b5bac1]'}`}>{command.description}</span>
+          <span className="font-semibold">/{command.name_localizations?.ru || command.name}</span>
+          <span className={`min-w-0 flex-1 truncate text-sm ${index === selectedIndex ? 'text-white/80' : 'text-[#b5bac1]'}`}>{command.description_localizations?.ru || command.description}</span>
           <span className={`max-w-36 truncate text-xs ${index === selectedIndex ? 'text-white/70' : 'text-[#949ba4]'}`}>{applicationNames[command.application_id]}</span>
         </button>
       ))}

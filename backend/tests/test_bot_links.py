@@ -3,6 +3,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from app.api.bot_platform import _resolve_invite_permissions
 from app.api.bot_apps import router as bot_apps_router
@@ -34,6 +35,33 @@ def test_build_bot_authorize_url_removes_trailing_host_slash():
     url = build_bot_authorize_url("https://miscord.ru///", "1234567890123456", ["bot"], 0)
 
     assert url.startswith("https://miscord.ru/oauth2/authorize?")
+
+
+def test_build_bot_authorize_url_supports_install_context_parameters():
+    url = build_bot_authorize_url(
+        "https://miscord.ru",
+        "1234567890123456",
+        ["bot", "applications.commands"],
+        8,
+        guild_id="42",
+        disable_guild_select=True,
+        integration_type=0,
+    )
+
+    assert parse_qs(urlparse(url).query) == {
+        "client_id": ["1234567890123456"],
+        "scope": ["bot applications.commands"],
+        "permissions": ["8"],
+        "guild_id": ["42"],
+        "disable_guild_select": ["true"],
+        "integration_type": ["0"],
+    }
+
+
+def test_build_default_install_url_only_requires_client_id():
+    url = build_bot_authorize_url("https://miscord.ru", "1234567890123456")
+
+    assert parse_qs(urlparse(url).query) == {"client_id": ["1234567890123456"]}
 
 
 def test_invite_permissions_use_saved_application_rules():
@@ -87,3 +115,21 @@ def test_bot_application_update_normalizes_administrator_install_permissions():
     )
 
     assert payload.install_params == {"permissions": str(int(Permission.ADMINISTRATOR))}
+
+
+def test_bot_application_update_normalizes_installation_contexts():
+    payload = BotApplicationUpdate(integration_types_config={
+        "0": {"oauth2_install_params": {"scopes": ["bot", "applications.commands"], "permissions": "8"}},
+        "1": {"oauth2_install_params": {"scopes": ["applications.commands"], "permissions": "123"}},
+    })
+
+    assert payload.integration_types_config["0"]["oauth2_install_params"]["permissions"] == "8"
+    assert payload.integration_types_config["1"]["oauth2_install_params"]["permissions"] == "0"
+
+
+def test_bot_application_update_validates_event_webhook_subscriptions():
+    payload = BotApplicationUpdate(event_webhooks_types=["application_authorized", "APPLICATION_AUTHORIZED"])
+    assert payload.event_webhooks_types == ["APPLICATION_AUTHORIZED"]
+
+    with pytest.raises(ValidationError):
+        BotApplicationUpdate(event_webhooks_types=["MESSAGE_CREATE"])

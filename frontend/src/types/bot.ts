@@ -96,6 +96,17 @@ export interface ClientInteractionResult {
   delivered_sessions: number;
 }
 
+export interface ApplicationCommandChoice {
+  name: string;
+  name_localizations?: Record<string, string> | null;
+  value: string | number;
+}
+
+export interface ApplicationCommandAutocompleteResult {
+  choices: ApplicationCommandChoice[];
+  status: 'responded' | 'pending' | 'offline' | 'failed';
+}
+
 export interface BotAuthorizationServer {
   id: number;
   name: string;
@@ -133,6 +144,11 @@ export interface BotCommand {
   dm_permission: boolean;
   allowed_user_ids: number[];
   allowed_role_ids: number[];
+  name_localizations?: Record<string, string> | null;
+  description_localizations?: Record<string, string> | null;
+  contexts?: number[] | null;
+  integration_types?: number[] | null;
+  nsfw?: boolean;
   version: number;
   is_enabled: boolean;
   created_at: string;
@@ -149,6 +165,11 @@ export interface BotCommandPayload {
   dm_permission?: boolean;
   allowed_user_ids?: number[];
   allowed_role_ids?: number[];
+  name_localizations?: Record<string, string> | null;
+  description_localizations?: Record<string, string> | null;
+  contexts?: number[] | null;
+  integration_types?: number[] | null;
+  nsfw?: boolean;
 }
 
 export interface BotCommandReplacePayload {
@@ -161,6 +182,11 @@ export interface BotCommandReplacePayload {
   dm_permission?: boolean;
   allowed_user_ids?: number[];
   allowed_role_ids?: number[];
+  name_localizations?: Record<string, string> | null;
+  description_localizations?: Record<string, string> | null;
+  contexts?: number[] | null;
+  integration_types?: number[] | null;
+  nsfw?: boolean;
 }
 
 export interface BotCommandUpdatePayload {
@@ -174,6 +200,11 @@ export interface BotCommandUpdatePayload {
   allowed_user_ids?: number[] | null;
   allowed_role_ids?: number[] | null;
   is_enabled?: boolean;
+  name_localizations?: Record<string, string> | null;
+  description_localizations?: Record<string, string> | null;
+  contexts?: number[] | null;
+  integration_types?: number[] | null;
+  nsfw?: boolean | null;
 }
 
 export interface BotCommandSyncResult {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
 import secrets
 from typing import Any
 
@@ -9,6 +10,7 @@ from pydantic import ValidationError
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from app.core.config import settings
 from app.core.miscord_errors import (
@@ -31,6 +33,7 @@ from app.core.permissions import (
 from app.db.database import get_db
 from app.models import (
     BotApplication,
+    Attachment,
     BotCommand,
     BotInstall,
     BotInteractionMessage,
@@ -53,6 +56,8 @@ from app.models import (
 from app.schemas.miscord import MiscordApplicationCommandPayload, MiscordMessageCreate, MiscordMessageUpdate
 from app.schemas.webhook import WebhookTokenUpdate
 from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
+from app.services.attachment_storage import finalize_staged_file, remove_storage_key, stage_upload
+from app.services.clamav import ClamAVUnavailable, MalwareDetected, scan_file
 from app.services.bot_security import BotPrincipal, get_bot_principal_by_token
 from app.services.bot_oauth import OAuthPrincipal, oauth_principal_from_token
 from app.services.bot_interactions import (
@@ -114,6 +119,22 @@ async def get_miscord_identity(
         if principal is not None and principal.user is not None and "identify" in principal.scopes:
             return principal.user, principal
     raise MiscordAPIError(401, 0, "401: Unauthorized", headers={"WWW-Authenticate": "Bearer"})
+
+
+async def get_command_permissions_oauth(
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> OAuthPrincipal:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise MiscordAPIError(401, 0, "401: Unauthorized", headers={"WWW-Authenticate": "Bearer"})
+    principal = await oauth_principal_from_token(authorization[7:].strip(), db)
+    if (
+        principal is None
+        or principal.user is None
+        or "applications.commands.permissions.update" not in principal.scopes
+    ):
+        raise MISSING_ACCESS()
+    return principal
 
 
 def _require_application(principal: BotPrincipal, application_id: str) -> None:
@@ -1598,14 +1619,40 @@ async def get_channel_message(
 @router.post("/channels/{channel_id}/messages", status_code=200)
 async def create_message(
     channel_id: int,
-    raw_payload: dict[str, Any] = Body(...),
+    request: Request,
     principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
+    files: list[StarletteUploadFile] = []
     try:
+        content_type = request.headers.get("content-type", "").lower()
+        if content_type.startswith("multipart/form-data"):
+            if not settings.WEBHOOK_FILES_ENABLED:
+                raise MiscordAPIError(503, 0, "File uploads are disabled")
+            form = await request.form()
+            payload_json = form.get("payload_json")
+            if not isinstance(payload_json, str):
+                raise MiscordAPIError(400, 50035, "multipart requests require payload_json")
+            raw_payload = json.loads(payload_json)
+            for key, value in form.multi_items():
+                if key == "payload_json":
+                    continue
+                if not key.startswith("files[") or not isinstance(value, StarletteUploadFile):
+                    raise MiscordAPIError(400, 50035, f"Unsupported multipart field: {key}")
+                files.append(value)
+        elif content_type.startswith("application/json"):
+            raw_payload = await request.json()
+        else:
+            raise MiscordAPIError(415, 50035, "Use application/json or multipart/form-data")
         payload = MiscordMessageCreate.model_validate(raw_payload)
-    except ValidationError as exc:
+    except (ValidationError, ValueError, json.JSONDecodeError) as exc:
+        if not isinstance(exc, ValidationError):
+            raise MiscordAPIError(400, 50035, "Invalid request body") from exc
         raise _validation_error(exc) from exc
+    if len(files) > 10:
+        raise MiscordAPIError(413, 30015, "A maximum of 10 files is allowed")
+    if not payload.content and not payload.embeds and not payload.components and not payload.poll and not files:
+        raise MiscordAPIError(400, 50006, "Cannot send an empty message")
     channel, _, _ = await _require_bot_text_channel(db, principal, channel_id, permission=Permission.SEND_MESSAGES)
     nonce = str(payload.nonce)[:36] if payload.nonce is not None else None
     if nonce:
@@ -1626,21 +1673,61 @@ async def create_message(
         referenced = await _message(db, reply_to_id)
         if referenced.text_channel_id != channel_id:
             raise UNKNOWN_MESSAGE()
-    message = Message(
-        author_id=principal.bot_user.id,
-        text_channel_id=channel_id,
-        content=payload.content.strip() if payload.content else None,
-        embeds=payload.embeds,
-        components=payload.components,
-        poll=payload.poll,
-        flags=payload.flags,
-        tts=payload.tts,
-        client_nonce=nonce,
-        reply_to_id=reply_to_id,
-        application_id=principal.application.client_id,
-    )
-    db.add(message)
-    await db.commit()
+    staged = []
+    finalized: list[str] = []
+    try:
+        consumed = 0
+        for upload in files:
+            item = await stage_upload(upload, consumed)
+            consumed += item.size_bytes
+            staged.append(item)
+        for item in staged:
+            try:
+                await scan_file(item.path)
+            except MalwareDetected as exc:
+                raise MiscordAPIError(422, 50035, "An attachment was rejected by malware scanning") from exc
+            except ClamAVUnavailable as exc:
+                raise MiscordAPIError(503, 0, "Malware scanner is unavailable") from exc
+        message = Message(
+            author_id=principal.bot_user.id,
+            text_channel_id=channel_id,
+            content=payload.content.strip() if payload.content else None,
+            embeds=payload.embeds,
+            components=payload.components,
+            poll=payload.poll,
+            flags=payload.flags,
+            tts=payload.tts,
+            client_nonce=nonce,
+            reply_to_id=reply_to_id,
+            application_id=principal.application.client_id,
+        )
+        metadata = {
+            int(item.get("id")): item
+            for item in payload.attachments
+            if isinstance(item, dict) and str(item.get("id", "")).isdigit()
+        }
+        for index, item in enumerate(staged):
+            storage_key, _ = await finalize_staged_file(item)
+            finalized.append(storage_key)
+            request_meta = metadata.get(index, {})
+            message.attachments.append(Attachment(
+                file_url=None,
+                original_filename=str(request_meta.get("filename") or item.filename)[:255],
+                content_type=item.content_type,
+                size_bytes=item.size_bytes,
+                storage_key=storage_key,
+                sha256=item.sha256,
+                description=str(request_meta.get("description") or "")[:1024] or None,
+            ))
+        db.add(message)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        for item in staged:
+            item.path.unlink(missing_ok=True)
+        for storage_key in finalized:
+            await remove_storage_key(storage_key)
+        raise
     loaded = await _message(db, message.id)
     internal = bot_event_dispatcher.internal_message_payload(loaded)
     await manager.send_to_channel(channel_id, {"type": "new_message", "data": internal})
@@ -1992,11 +2079,20 @@ def _command_permissions_payload(command: BotCommand, application_id: str, guild
 async def get_guild_application_command_permissions(
     application_id: str,
     guild_id: int,
-    principal: BotPrincipal = Depends(get_miscord_bot),
+    principal: OAuthPrincipal = Depends(get_command_permissions_oauth),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_application(principal, application_id)
-    await _active_install(db, principal, guild_id)
+    if principal.application.client_id != application_id:
+        raise MISSING_ACCESS()
+    if not has_permission(await get_member_permissions(db, guild_id, principal.user.id), Permission.MANAGE_GUILD):
+        raise MISSING_PERMISSIONS()
+    install = await db.scalar(select(BotInstall.id).where(
+        BotInstall.application_id == principal.application.id,
+        BotInstall.server_id == guild_id,
+        BotInstall.status == "active",
+    ))
+    if install is None:
+        raise MISSING_ACCESS()
     result = await db.execute(select(BotCommand).where(
         BotCommand.application_id == principal.application.id,
         BotCommand.is_enabled.is_(True),
@@ -2007,12 +2103,12 @@ async def get_guild_application_command_permissions(
 
 async def _guild_permission_command(
     db: AsyncSession,
-    principal: BotPrincipal,
+    application_id: int,
     guild_id: int,
     command_id: int,
 ) -> BotCommand:
     command = await db.scalar(select(BotCommand).where(
-        BotCommand.application_id == principal.application.id,
+        BotCommand.application_id == application_id,
         BotCommand.id == command_id,
         BotCommand.is_enabled.is_(True),
         or_(BotCommand.server_id == guild_id, BotCommand.server_id.is_(None)),
@@ -2027,12 +2123,14 @@ async def get_application_command_permissions(
     application_id: str,
     guild_id: int,
     command_id: int,
-    principal: BotPrincipal = Depends(get_miscord_bot),
+    principal: OAuthPrincipal = Depends(get_command_permissions_oauth),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_application(principal, application_id)
-    await _active_install(db, principal, guild_id)
-    command = await _guild_permission_command(db, principal, guild_id, command_id)
+    if principal.application.client_id != application_id:
+        raise MISSING_ACCESS()
+    if not has_permission(await get_member_permissions(db, guild_id, principal.user.id), Permission.MANAGE_GUILD):
+        raise MISSING_PERMISSIONS()
+    command = await _guild_permission_command(db, principal.application.id, guild_id, command_id)
     return _command_permissions_payload(command, application_id, guild_id)
 
 
@@ -2042,12 +2140,15 @@ async def edit_application_command_permissions(
     guild_id: int,
     command_id: int,
     payload: dict[str, Any] = Body(...),
-    principal: BotPrincipal = Depends(get_miscord_bot),
+    principal: OAuthPrincipal = Depends(get_command_permissions_oauth),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_application(principal, application_id)
-    await _require_guild_permission(db, principal, guild_id, Permission.MANAGE_GUILD)
-    command = await _guild_permission_command(db, principal, guild_id, command_id)
+    if principal.application.client_id != application_id or principal.user is None:
+        raise MISSING_ACCESS()
+    permissions = await get_member_permissions(db, guild_id, principal.user.id)
+    if not has_permission(permissions, Permission.MANAGE_GUILD):
+        raise MISSING_PERMISSIONS()
+    command = await _guild_permission_command(db, principal.application.id, guild_id, command_id)
     raw_permissions = payload.get("permissions")
     if not isinstance(raw_permissions, list) or len(raw_permissions) > 100:
         raise MiscordAPIError(400, 50035, "permissions must be an array with at most 100 entries")

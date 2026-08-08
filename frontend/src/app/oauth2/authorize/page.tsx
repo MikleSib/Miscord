@@ -23,6 +23,8 @@ type OAuthPreview = {
   guild_id: string | null
   disable_guild_select: boolean
   integration_type: number
+  installation_types: number[]
+  already_user_installed: boolean
   code_challenge: string | null
   code_challenge_method: string | null
   servers: Array<{ id: string; name: string; icon: string | null }>
@@ -45,6 +47,15 @@ function OAuthAuthorizationContent() {
   const [submitting, setSubmitting] = useState(false)
   const [authorized, setAuthorized] = useState(false)
   const [error, setError] = useState('')
+
+  const chooseInstallationType = (integrationType: number) => {
+    const next = new URLSearchParams(searchParams.toString())
+    next.set('integration_type', String(integrationType))
+    if (!searchParams.has('scope')) {
+      next.delete('permissions')
+    }
+    router.replace(`/oauth2/authorize?${next.toString()}`)
+  }
 
   useEffect(() => {
     if (!query.client_id) {
@@ -92,6 +103,7 @@ function OAuthAuthorizationContent() {
         state: preview.state,
         code_challenge: preview.code_challenge,
         code_challenge_method: preview.code_challenge_method,
+        integration_type: preview.integration_type,
       })
       if (data.location) {
         window.location.assign(data.location)
@@ -117,7 +129,8 @@ function OAuthAuthorizationContent() {
     router.push('/')
   }
 
-  const isBotInstall = preview?.scopes.includes('bot') ?? false
+  const isBotInstall = preview?.integration_type === 0 && (preview.scopes.includes('bot') ?? false)
+  const isUserInstall = preview?.integration_type === 1
 
   return (
     <main className="grid min-h-[100dvh] place-items-center bg-[#1e1f22] px-4 py-10 text-[#f2f3f5]">
@@ -138,7 +151,17 @@ function OAuthAuthorizationContent() {
           {!loading && !authorized && preview && (
             <div className="space-y-5">
               <div className="rounded-2xl bg-[#1e1f22] p-4"><h2 className="font-bold">{preview.application.name}</h2><p className="mt-1 text-sm text-[#949ba4]">{preview.application.description || 'Miscord Application'}</p></div>
+              {preview.installation_types.length > 1 && !searchParams.has('scope') && (
+                <div>
+                  <p className="mb-2 text-xs font-bold uppercase tracking-wider text-[#b5bac1]">Куда установить</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" onClick={() => chooseInstallationType(0)} className={`min-h-11 rounded-xl border px-3 text-sm font-bold ${preview.integration_type === 0 ? 'border-[#5865f2] bg-[#5865f2]/15 text-white' : 'border-white/10 bg-[#1e1f22] text-[#b5bac1]'}`}>На сервер</button>
+                    <button type="button" onClick={() => chooseInstallationType(1)} className={`min-h-11 rounded-xl border px-3 text-sm font-bold ${preview.integration_type === 1 ? 'border-[#5865f2] bg-[#5865f2]/15 text-white' : 'border-white/10 bg-[#1e1f22] text-[#b5bac1]'}`}>В мой аккаунт</button>
+                  </div>
+                </div>
+              )}
               {isBotInstall && <div><label className="mb-2 block text-xs font-bold uppercase tracking-wider text-[#b5bac1]">Добавить на сервер</label><select value={guildId} disabled={preview.disable_guild_select} onChange={(event) => setGuildId(event.target.value)} className="min-h-12 w-full rounded-xl border border-white/10 bg-[#1e1f22] px-3 outline-none focus:border-[#5865f2]"><option value="" disabled>Выберите сервер</option>{preview.servers.map((server) => <option key={server.id} value={server.id}>{server.name}</option>)}</select></div>}
+              {isUserInstall && <div className="rounded-2xl border border-white/10 bg-[#1e1f22] p-4 text-sm text-[#b5bac1]">Приложение будет доступно вашему аккаунту{preview.already_user_installed ? ' и обновит существующую установку' : ''}.</div>}
               <div className="rounded-2xl border border-white/10 p-4">
                 <div className="mb-3 flex items-center gap-2 font-bold"><ShieldCheck className="h-5 w-5 text-[#53d487]" /> Запрашиваемый доступ</div>
                 <ul className="space-y-2 text-sm text-[#b5bac1]">{preview.scopes.map((scope) => <li key={scope} className="flex items-center gap-2"><KeyRound className="h-3.5 w-3.5" /> {scope}</li>)}</ul>
