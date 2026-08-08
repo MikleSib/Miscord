@@ -144,7 +144,7 @@ export function HomePageContent() {
     soundService.stopAllSounds();
   };
   
-  // Р егистрация WebSocket обработчиков P2P происходит в конструкторе p2pVoiceService
+  // Регистрация WebSocket обработчиков P2P происходит в конструкторе p2pVoiceService
   // Не нужно регистрировать их снова здесь, чтобы избежать дублирования
 
   useEffect(() => {
@@ -506,7 +506,7 @@ export function HomePageContent() {
         <div className="ml-3">
           <p className="text-white">{getDisplayName(contact)}</p>
           <p className={`text-xs ${contact.is_online ? 'text-green-400' : 'text-[#999aa1]'}`}>
-            {contact.is_online ? 'Р’ сети' : contact.is_friend === false ? 'Личные сообщения' : 'Не в сети'}
+            {contact.is_online ? 'В сети' : contact.is_friend === false ? 'Личные сообщения' : 'Не в сети'}
           </p>
         </div>
       </div>
@@ -537,39 +537,43 @@ export function HomePageContent() {
     switch (activeTab) {
       case 'online':
         return (
-          <div>
-            <h3 className="text-xs font-bold uppercase text-[#999aa1] mb-2">
-              Р’ сети вЂ” {onlineContacts.length}
+          <div className="home-friends-section">
+            <h3 className="home-dm-heading text-xs font-bold uppercase text-[#999aa1] mb-2">
+              В сети — {onlineContacts.length}
             </h3>
             {onlineContacts.length > 0 ? (
               onlineContacts.map(renderContactRow)
             ) : (
-              <div className="text-center text-[#999aa1] mt-20">
-                <p>Никого нет в сети.</p>
+              <div className="home-friends-empty text-center text-[#b5bac1]" role="status">
+                <Users aria-hidden="true" />
+                <p className="home-friends-empty__title">Сейчас никого нет в сети</p>
+                <p className="home-friends-empty__description">Загляните сюда позже или начните новый диалог.</p>
               </div>
             )}
           </div>
         )
       case 'all':
         return (
-          <div>
-            <h3 className="text-xs font-bold uppercase text-[#999aa1] mb-2">
-              Личные сообщения вЂ” {sidebarContacts.length}
+          <div className="home-friends-section">
+            <h3 className="home-dm-heading text-xs font-bold uppercase text-[#999aa1] mb-2">
+              Личные сообщения — {sidebarContacts.length}
             </h3>
             {sidebarContacts.length > 0 ? (
               sidebarContacts.map(renderContactRow)
             ) : (
-              <div className="text-center text-[#999aa1] mt-20">
-                <p>Здесь пока никого нет. Напишите кому-нибудь или добавьте друзей.</p>
+              <div className="home-friends-empty text-center text-[#b5bac1]" role="status">
+                <Users aria-hidden="true" />
+                <p className="home-friends-empty__title">Здесь пока никого нет</p>
+                <p className="home-friends-empty__description">Добавьте друга или начните новый диалог.</p>
               </div>
             )}
           </div>
         )
       case 'pending':
         return (
-          <div>
-            <h3 className="text-xs font-bold uppercase text-[#999aa1] mb-2">
-              Входящие вЂ” {pendingRequests.length}
+          <div className="home-friends-section">
+            <h3 className="home-dm-heading text-xs font-bold uppercase text-[#999aa1] mb-2">
+              Входящие — {pendingRequests.length}
             </h3>
             {pendingRequests.length > 0 ? (
                pendingRequests.filter(Boolean).map(request => (
@@ -592,7 +596,11 @@ export function HomePageContent() {
                 </div>
               ))
             ) : (
-              <p className="text-center text-[#999aa1] mt-20">Нет ожидающих запросов в друзья.</p>
+              <div className="home-friends-empty text-center text-[#b5bac1]" role="status">
+                <Users aria-hidden="true" />
+                <p className="home-friends-empty__title">Нет ожидающих запросов</p>
+                <p className="home-friends-empty__description">Новые запросы в друзья появятся здесь.</p>
+              </div>
             )}
           </div>
         )
@@ -683,16 +691,16 @@ export function HomePageContent() {
       {/* Friends List and Controls Sidebar */}
       <div className="app-sidebar flex h-full flex-col border-r">
         {/* Top bar for friends page */}
-        <div className="flex h-12 flex-shrink-0 items-center border-b border-border px-4 shadow-md">
+        <div className="home-friends-header flex h-12 flex-shrink-0 items-center border-b border-border px-4">
           <div className="flex items-center">
             <Users className="w-6 h-6 text-[#999aa1] mr-2" />
             <h2 className="text-white font-semibold">Друзья</h2>
           </div>
         </div>
-        <nav className="flex items-center p-2 space-x-2">
-          <button onClick={() => setActiveTab('all')} className={`px-2 py-1 text-sm font-medium rounded ${activeTab === 'all' ? 'bg-[#414248] text-white' : 'text-[#999aa1] hover:bg-[#3e3f45] hover:text-white'}`}>Все</button>
+        <nav className="home-friends-tabs flex items-center p-2" aria-label="Разделы друзей">
+          <button aria-pressed={activeTab === 'all'} onClick={() => setActiveTab('all')} className={`home-friends-tab ${activeTab === 'all' ? 'is-active' : ''}`}>Все</button>
           <div className="relative">
-            <button onClick={() => setActiveTab('pending')} className={`px-2 py-1 text-sm font-medium rounded ${activeTab === 'pending' ? 'bg-[#414248] text-white' : 'text-[#999aa1] hover:bg-[#3e3f45] hover:text-white'}`}>Ожидание</button>
+            <button aria-pressed={activeTab === 'pending'} onClick={() => setActiveTab('pending')} className={`home-friends-tab ${activeTab === 'pending' ? 'is-active' : ''}`}>Ожидание</button>
             {pendingRequests.length > 0 && (
               <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center font-bold">
                 {pendingRequests.length}
@@ -700,9 +708,9 @@ export function HomePageContent() {
             )}
           </div>
          
-          <button onClick={() => setIsAddFriendModalOpen(true)} className="px-2 py-1 text-sm font-medium rounded bg-[#2d7d46] text-white hover:bg-green-600">Добавить</button>
+          <button onClick={() => setIsAddFriendModalOpen(true)} className="home-friends-tab home-friends-tab--add">Добавить</button>
         </nav>
-        <div className="p-2 overflow-y-auto">
+        <div className="home-friends-list flex-1 overflow-y-auto p-2">
           {renderContent()}
         </div>
       </div>
@@ -729,7 +737,7 @@ export function HomePageContent() {
           <div className="bg-[#323339] p-6 rounded-lg w-96">
             <h2 className="text-xl font-bold text-white mb-4">Добавить в друзья</h2>
             <p className="text-[#999aa1] text-sm mb-4">
-              Введите логин пользователя (@username), а не отображаемое имя. Р егистр букв не важен.
+              Введите логин пользователя (@username), а не отображаемое имя. Регистр букв не важен.
             </p>
             <input
               type="text"

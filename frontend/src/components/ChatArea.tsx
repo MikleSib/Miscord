@@ -50,10 +50,12 @@ import {
   shouldNotifyMentionClient,
   useNotificationSettingsStore,
 } from '../store/notificationSettingsStore'
+import { useResponsiveLayout } from '../hooks/useResponsiveLayout'
 
 export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSidebar: boolean, setShowUserSidebar: (v: boolean) => void }) {
   const { currentChannel, currentServer } = useStore()
   const { user, token } = useAuthStore()
+  const viewport = useResponsiveLayout()
   const { 
     messages, 
     isLoading: chatLoading,
@@ -189,7 +191,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     [mentionNameById]
   )
 
-  // Список участников и ролей вЂ” для @упоминаний и карточки профиля
+  // Список участников и ролей — для @упоминаний и карточки профиля
   useEffect(() => {
     if (!currentServer?.id || currentChannel?.type !== 'text') {
       setMentionMembers([])
@@ -254,7 +256,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     setSendLimitHint(null)
   }, [currentChannel?.id, currentChannel?.type])
 
-  // Зашли в канал вЂ” всегда начинаем с последних сообщений (низ)
+  // Зашли в канал — всегда начинаем с последних сообщений (низ)
   useEffect(() => {
     if (currentChannel?.type !== 'text') return
     stickToBottomRef.current = true
@@ -284,7 +286,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     if (behavior === 'smooth') {
       container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
     } else {
-      // Мгновенно вЂ” иначе при куче сообщений smooth «ломается» и остаёшься наверху
+      // Мгновенно — иначе при куче сообщений smooth «ломается» и остаёшься наверху
       container.scrollTop = container.scrollHeight
     }
     // На всякий случай якорь в конце списка
@@ -338,7 +340,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     }
   }, [hasMoreOlder, isLoadingOlder, chatLoading, loadOlderMessages])
 
-  // Пока «прилипли» к низу вЂ” любой рост высоты (превью, картинки) снова кидает вниз
+  // Пока «прилипли» к низу — любой рост высоты (превью, картинки) снова кидает вниз
   useEffect(() => {
     const content = messagesContentRef.current
     if (!content || typeof ResizeObserver === 'undefined') return
@@ -372,7 +374,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
           };
           addMessage(chatMessage);
 
-          // Если в сообщении пинг текущего пользователя вЂ” кладём в непрочитанные
+          // Если в сообщении пинг текущего пользователя — кладём в непрочитанные
           // (дедуп со звуком уже внутри store; событие mention тоже может прийти)
           if (
             currentServer?.id &&
@@ -429,7 +431,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
           if (data.text_channel_id !== currentChannel.id) return;
           setSlowModeUntil(Date.now() + data.retry_after_seconds * 1000);
           setSendLimitHint(
-            `Подождите ${data.retry_after_seconds} сек. вЂ” в этом канале включён медленный режим.`
+            `Подождите ${data.retry_after_seconds} сек. — в этом канале включён медленный режим.`
           );
         });
 
@@ -466,7 +468,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     addMentionNotification,
   ]);
 
-  // После загрузки/новых сообщений вЂ” прыгаем вниз (и при F5 / смене канала)
+  // После загрузки/новых сообщений — прыгаем вниз (и при F5 / смене канала)
   useEffect(() => {
     if (suppressAutoScrollRef.current) {
       suppressAutoScrollRef.current = false
@@ -514,13 +516,13 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     return true
   }, [])
 
-  /** Как в Telegram: каждый клик вЂ” к следующему непрочитанному пингу. */
+  /** Каждый клик ведёт к следующему непрочитанному упоминанию. */
   const handleJumpToMention = useCallback(() => {
     const target = channelMentions[0]
     if (!target) return
 
     if (!scrollToMention(target.messageId)) {
-      // Сообщения нет в загруженной истории вЂ” снимаем, чтобы не застревать
+      // Сообщения нет в загруженной истории — снимаем, чтобы не застревать
       markMentionRead(target.messageId)
     }
     // Прочитанным станет само сообщение, когда оно окажется на экране (и фон плавно погаснет)
@@ -779,7 +781,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
       // Не обновляем локальное состояние здесь - оно будет обновлено через WebSocket
       // WebSocket получит событие reaction_updated и обновит состояние автоматически
       
-      console.log('Р еакция обновлена:', emoji, 'на сообщение:', messageId, updatedReaction);
+      console.log('Реакция обновлена:', emoji, 'на сообщение:', messageId, updatedReaction);
     } catch (error) {
       console.error('Ошибка при изменении реакции:', error);
       
@@ -969,7 +971,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
           {isSlowModeActive && (
             <div className="mb-2 rounded-md border border-[#5865f2]/30 bg-[#5865f2]/10 px-3 py-2 text-sm text-[#dbdee1]">
               {sendLimitHint ||
-                `Подождите ${slowModeRemainingSeconds} сек. вЂ” в этом канале включён медленный режим.`}
+                `Подождите ${slowModeRemainingSeconds} сек. — в этом канале включён медленный режим.`}
             </div>
           )}
           <form onSubmit={handleSendMessage} className="chat-area-composer__surface relative flex flex-col rounded-xl border border-[#3e3f45] bg-[#393a41] p-2">
@@ -1048,9 +1050,11 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
                   }
                 }}
                 placeholder={
-                  replyingTo 
+                  replyingTo
                     ? `Ответ пользователю ${replyingTo.author.username}...`
-                    : `Написать в #${currentChannel.name} · / — команда · @ — упомянуть`
+                    : viewport === 'phone'
+                      ? `Написать в #${currentChannel.name}`
+                      : `Написать в #${currentChannel.name} · / — команда · @ — упомянуть`
                 }
                 className="chat-area-composer__input min-w-0 flex-1 bg-transparent text-sm outline-none"
                 disabled={isLoading || isSlowModeActive}

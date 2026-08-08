@@ -171,7 +171,7 @@ export function UserProfileBar({ onSettingsClick, embedded = false }: UserProfil
           />
         </div>
 
-        <Tooltip content="Настройки пользователя">
+        <Tooltip content="Настройки пользователя" className="user-dock__settings-trigger">
           <button
             type="button"
             onClick={onSettingsClick}
