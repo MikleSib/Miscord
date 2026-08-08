@@ -4,6 +4,7 @@ import React from 'react'
 import { Lock } from 'lucide-react'
 
 import { PermissionCatalog } from '../../types'
+import { hasRawPermission, togglePermission } from '../../lib/permissions'
 import { Switch } from '../ui/switch'
 
 interface RolePermissionEditorProps {
@@ -24,7 +25,7 @@ export function RolePermissionEditor({
   disabled = false,
   onChange,
 }: RolePermissionEditorProps) {
-  const isAdministrator = (ownPermissions & findAdministrator(catalog)) !== 0
+  const isAdministrator = hasRawPermission(ownPermissions, findAdministrator(catalog))
 
   return (
     <div className="space-y-6">
@@ -39,9 +40,9 @@ export function RolePermissionEditor({
             </h4>
             <div className="divide-y divide-border overflow-hidden rounded-lg border border-border">
               {items.map((item) => {
-                const enabled = (value & item.value) !== 0
+                const enabled = hasRawPermission(value, item.value)
                 // Право можно менять только если оно есть у самого пользователя
-                const locked = disabled || (!isAdministrator && (ownPermissions & item.value) === 0)
+                const locked = disabled || (!isAdministrator && !hasRawPermission(ownPermissions, item.value))
 
                 return (
                   <div
@@ -66,7 +67,7 @@ export function RolePermissionEditor({
                       disabled={locked}
                       aria-label={item.label}
                       onCheckedChange={(next) =>
-                        onChange(next ? value | item.value : value & ~item.value)
+                        onChange(togglePermission(value, item.value, next))
                       }
                     />
                   </div>

@@ -12,4 +12,4 @@ def build_bot_authorize_url(
         "scope": " ".join(scopes),
         "permissions": permissions,
     })
-    return f"{server_host.rstrip('/')}/bot/authorize?{query}"
+    return f"{server_host.rstrip('/')}/oauth2/authorize?{query}"

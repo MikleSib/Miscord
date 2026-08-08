@@ -55,8 +55,27 @@ def test_gateway_identify_schema_rejects_missing_token():
 
 
 def test_ready_payload_contract():
-    payload = dispatcher._ready_payload("session-1")
-    assert payload["op"] == GatewayOpCode.DISPATCH.value
-    assert payload["t"] == "READY"
-    assert payload["d"]["v"] == GATEWAY_API_VERSION
-    assert payload["d"]["session_id"] == "session-1"
+    application = type("Application", (), {"client_id": "123", "flags": 0})()
+    user = type("User", (), {
+        "id": 7,
+        "username": "bot",
+        "display_name": "Bot",
+        "avatar_url": None,
+        "is_bot": True,
+    })()
+    payload = dispatcher._ready_data(application, user, "session-1", [99])
+    assert payload["v"] == GATEWAY_API_VERSION
+    assert payload["session_id"] == "session-1"
+    assert payload["user"]["bot"] is True
+    assert payload["guilds"] == [{"id": "99", "unavailable": True}]
+    assert payload["application"] == {"id": "123", "flags": 0}
+
+
+def test_validate_gateway_query_supports_discord_zlib_stream():
+    version, encoding = validate_gateway_query(
+        GATEWAY_API_VERSION,
+        GATEWAY_DEFAULT_ENCODING,
+        "zlib-stream",
+    )
+    assert version == GATEWAY_API_VERSION
+    assert encoding == GATEWAY_DEFAULT_ENCODING

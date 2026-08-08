@@ -237,7 +237,7 @@ async def websocket_unified_endpoint(
                         await handle_chat_message(user, message_data, db, manager, current_text_channels)
 
                     elif msg_type == "typing":
-                        await handle_typing(user, message_data, manager, current_text_channels)
+                        await handle_typing(user, message_data, manager, current_text_channels, db)
 
                     elif msg_type == "join_voice":
                         current_voice_channel, current_voice_connection_id = await handle_join_voice(
@@ -583,7 +583,7 @@ async def handle_chat_message(
     await user_activity_service.update_user_activity(user.id, db)
 
 
-async def handle_typing(user: User, message_data: dict, manager, current_channels: set):
+async def handle_typing(user: User, message_data: dict, manager, current_channels: set, db: AsyncSession):
     text_channel_id = message_data.get("text_channel_id")
     if text_channel_id:
         await manager.send_to_channel(text_channel_id, {
@@ -591,6 +591,7 @@ async def handle_typing(user: User, message_data: dict, manager, current_channel
             "user": {"id": user.id, "username": user.display_name or user.username},
             "text_channel_id": text_channel_id,
         })
+        await bot_event_dispatcher.dispatch_typing_start(db, int(text_channel_id), user.id)
 
 
 async def handle_join_voice(

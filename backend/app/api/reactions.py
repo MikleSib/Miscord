@@ -10,6 +10,7 @@ from app.schemas.reaction import ReactionToggleRequest, ReactionResponse
 from app.schemas.user import User as UserResponse
 from app.services.channel_access import require_text_channel_access
 from app.websocket.connection_manager import manager
+from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
 
 router = APIRouter()
 
@@ -105,6 +106,10 @@ async def toggle_reaction(
             }
         }
     })
+    if was_removed:
+        await bot_event_dispatcher.dispatch_message_reaction_remove(db, message, current_user, reaction_data.emoji)
+    else:
+        await bot_event_dispatcher.dispatch_message_reaction_add(db, message, current_user, reaction_data.emoji)
     
     return reaction_summary
 

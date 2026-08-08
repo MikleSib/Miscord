@@ -2,6 +2,7 @@ import api from './api';
 import type {
   BotApplication,
   BotApplicationCreated,
+  BotClientSecretReset,
   BotAuthorizationPreview,
   BotTokenReset,
   InstalledBot,
@@ -12,12 +13,28 @@ import type {
   BotCommandSyncResult,
   BotCommandDispatchPayload,
   BotCommandDispatchResponse,
+  ChannelApplicationCommands,
+  ClientInteractionResult,
 } from '../types/bot';
+import { Permissions } from '../lib/permissions';
 
 export interface BotApplicationPayload {
   name: string;
   description?: string | null;
   avatar_url?: string | null;
+  bot_public?: boolean;
+  bot_require_code_grant?: boolean;
+  terms_of_service_url?: string | null;
+  privacy_policy_url?: string | null;
+  redirect_uris?: string[];
+  interactions_endpoint_url?: string | null;
+  event_webhooks_url?: string | null;
+  event_webhooks_types?: string[];
+  tags?: string[];
+  install_params?: Record<string, unknown> | null;
+  integration_types_config?: Record<string, unknown>;
+  custom_install_url?: string | null;
+  flags?: number;
 }
 
 const botService = {
@@ -41,15 +58,58 @@ const botService = {
     return response.data;
   },
 
+  async resetClientSecret(applicationId: number): Promise<BotClientSecretReset> {
+    const response = await api.post<BotClientSecretReset>(`/api/bot-apps/${applicationId}/reset-client-secret`);
+    return response.data;
+  },
+
   async disable(applicationId: number): Promise<void> {
     await api.delete(`/api/bot-apps/${applicationId}`);
   },
 
-  async getInviteLink(applicationId: number, permissions = 3): Promise<string> {
+  async getInviteLink(
+    applicationId: number,
+    permissions = Permissions.VIEW_CHANNELS + Permissions.SEND_MESSAGES,
+  ): Promise<string> {
     const response = await api.get<{ invite_url: string }>(`/api/bot-apps/${applicationId}/invite-link`, {
       params: { permissions, scope: 'bot applications.commands' },
     });
     return response.data.invite_url;
+  },
+
+  async listChannelCommands(channelId: number): Promise<ChannelApplicationCommands> {
+    const response = await api.get<ChannelApplicationCommands>(`/api/channels/${channelId}/application-commands`);
+    return response.data;
+  },
+
+  async invokeCommand(
+    channelId: number,
+    applicationId: string,
+    commandId: string,
+    data: Record<string, unknown>,
+  ): Promise<ClientInteractionResult> {
+    const response = await api.post<ClientInteractionResult>(`/api/channels/${channelId}/interactions`, {
+      application_id: applicationId,
+      command_id: commandId,
+      data,
+    });
+    return response.data;
+  },
+
+  async interactComponent(
+    channelId: number,
+    payload: { message_id: number; custom_id: string; component_type: number; values?: string[] },
+  ): Promise<ClientInteractionResult> {
+    const response = await api.post<ClientInteractionResult>(`/api/channels/${channelId}/component-interactions`, payload);
+    return response.data;
+  },
+
+  async submitModal(
+    channelId: number,
+    payload: { source_interaction_id: string; custom_id: string; components: Array<Record<string, unknown>> },
+  ): Promise<ClientInteractionResult> {
+    const response = await api.post<ClientInteractionResult>(`/api/channels/${channelId}/modal-interactions`, payload);
+    return response.data;
   },
 
   async getAuthorization(clientId: string, scope: string, permissions: number): Promise<BotAuthorizationPreview> {

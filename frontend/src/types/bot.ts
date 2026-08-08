@@ -13,6 +13,20 @@ export interface BotApplication {
   description: string | null;
   avatar_url: string | null;
   public_key: string;
+  bot_public: boolean;
+  bot_require_code_grant: boolean;
+  terms_of_service_url: string | null;
+  privacy_policy_url: string | null;
+  redirect_uris: string[];
+  interactions_endpoint_url: string | null;
+  event_webhooks_url: string | null;
+  event_webhooks_status: number;
+  event_webhooks_types: string[];
+  tags: string[];
+  install_params: Record<string, unknown> | null;
+  integration_types_config: Record<string, unknown>;
+  custom_install_url: string | null;
+  flags: number;
   status: 'active' | 'disabled';
   created_at: string;
   updated_at: string;
@@ -22,11 +36,63 @@ export interface BotApplication {
 export interface BotApplicationCreated {
   application: BotApplication;
   bot_token: string;
+  client_secret: string;
 }
 
 export interface BotTokenReset {
   bot_token: string;
   rotation_id: number;
+}
+
+export interface BotClientSecretReset {
+  client_secret: string;
+  rotation_id: number;
+}
+
+export interface DiscordApplicationCommand {
+  id: string;
+  application_id: string;
+  guild_id?: string;
+  type: number;
+  name: string;
+  name_localizations?: Record<string, string> | null;
+  description: string;
+  description_localizations?: Record<string, string> | null;
+  options?: DiscordApplicationCommandOption[];
+  default_member_permissions?: string | null;
+  dm_permission?: boolean;
+  contexts?: number[];
+  integration_types?: number[];
+  nsfw?: boolean;
+  version: string;
+}
+
+export interface DiscordApplicationCommandOption {
+  type: number;
+  name: string;
+  description: string;
+  required?: boolean;
+  choices?: Array<{ name: string; value: string | number }>;
+  options?: DiscordApplicationCommandOption[];
+  min_value?: number;
+  max_value?: number;
+  min_length?: number;
+  max_length?: number;
+  autocomplete?: boolean;
+  channel_types?: number[];
+}
+
+export interface ChannelApplicationCommands {
+  applications: Array<{ id: string; name: string; icon: string | null; description: string }>;
+  commands: DiscordApplicationCommand[];
+}
+
+export interface ClientInteractionResult {
+  id: string;
+  application_id?: string;
+  token?: string;
+  status: 'responded' | 'pending' | 'offline' | 'failed';
+  delivered_sessions: number;
 }
 
 export interface BotAuthorizationServer {

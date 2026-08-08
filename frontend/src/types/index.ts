@@ -258,6 +258,13 @@ export interface Message {
   sender_id?: number; // Для личных сообщений
   recipient_id?: number; // Для личных сообщений
   embeds?: LinkEmbed[];
+  flags?: number;
+  components?: Array<Record<string, any>>;
+  poll?: Record<string, any> | null;
+  message_type?: number;
+  application_id?: string | null;
+  interaction_metadata?: Record<string, any> | null;
+  ephemeral?: boolean;
 }
 
 export interface DirectMessage {

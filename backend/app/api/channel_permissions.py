@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.dependencies import get_current_active_user
-from app.core.permissions import Permission, require_permission
+from app.core.permissions import Permission, discord_permissions_to_legacy, require_permission
 from app.db.database import get_db
 from app.models import (
     Channel,
@@ -321,6 +321,8 @@ async def _upsert_overwrite(
     if existing:
         existing.allow = payload.allow
         existing.deny = payload.deny
+        existing.legacy_allow = discord_permissions_to_legacy(payload.allow)
+        existing.legacy_deny = discord_permissions_to_legacy(payload.deny)
         overwrite = existing
     else:
         overwrite = ChannelPermissionOverwrite(
@@ -331,6 +333,8 @@ async def _upsert_overwrite(
             target_id=payload.target_id,
             allow=payload.allow,
             deny=payload.deny,
+            legacy_allow=discord_permissions_to_legacy(payload.allow),
+            legacy_deny=discord_permissions_to_legacy(payload.deny),
         )
         db.add(overwrite)
 

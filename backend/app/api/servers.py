@@ -22,6 +22,7 @@ from app.core.permissions import (
     PERMISSION_CATALOG,
     PERMISSION_GROUPS,
     Permission,
+    discord_permissions_to_legacy,
     ensure_default_role,
     get_default_role,
     get_member_permissions,
@@ -63,6 +64,13 @@ from app.services.notification_settings import (
     upsert_settings as upsert_notification_settings,
 )
 from app.services.audit_service import AuditAction, log_audit
+from app.services.bot_event_dispatcher import (
+    INTENT_GUILD_INVITES,
+    INTENT_GUILD_MEMBERS,
+    INTENT_GUILD_MODERATION,
+    dispatcher as bot_event_dispatcher,
+)
+from app.services.discord_serializers import discord_role, discord_user
 from app.services.server_events import notify_server, notify_users
 from app.services.server_membership import (
     add_member_and_notify,
@@ -104,6 +112,31 @@ async def _load_member_roles_map(db: AsyncSession, server_id: int) -> dict[int, 
     for user_id, role in result.all():
         mapping.setdefault(user_id, []).append(role)
     return mapping
+
+
+async def _discord_member_update(db: AsyncSession, server_id: int, user_id: int) -> dict:
+    user = await _get_user_or_404(db, user_id)
+    membership = await db.scalar(select(ChannelMember).where(
+        ChannelMember.channel_id == server_id,
+        ChannelMember.user_id == user_id,
+    ))
+    role_ids = (await db.execute(select(MemberRole.role_id).where(
+        MemberRole.server_id == server_id,
+        MemberRole.user_id == user_id,
+    ))).scalars().all()
+    return {
+        "guild_id": str(server_id),
+        "roles": [str(role_id) for role_id in role_ids],
+        "user": discord_user(user),
+        "nick": membership.nickname if membership else None,
+        "avatar": None,
+        "joined_at": membership.joined_at.isoformat() if membership and membership.joined_at else None,
+        "deaf": False,
+        "mute": False,
+        "flags": 0,
+        "pending": False,
+        "communication_disabled_until": None,
+    }
 
 
 async def _serialize_members(db: AsyncSession, server: Channel) -> list[dict]:
@@ -231,6 +264,26 @@ def _serialize_invite(invite: Invite, *, inviter: Optional[User] = None) -> dict
         "expires_at": invite.expires_at.isoformat() if invite.expires_at else None,
         "created_at": invite.created_at.isoformat() if invite.created_at else None,
         "is_expired": _invite_is_expired(invite),
+    }
+
+
+def _discord_invite(invite: Invite, *, inviter: Optional[User] = None) -> dict:
+    max_age = 0
+    if invite.expires_at and invite.created_at:
+        expires_at = invite.expires_at if invite.expires_at.tzinfo else invite.expires_at.replace(tzinfo=timezone.utc)
+        created_at = invite.created_at if invite.created_at.tzinfo else invite.created_at.replace(tzinfo=timezone.utc)
+        max_age = max(0, int((expires_at - created_at).total_seconds()))
+    return {
+        "channel_id": str(invite.target_text_channel_id) if invite.target_text_channel_id else None,
+        "code": invite.code,
+        "created_at": invite.created_at.isoformat() if invite.created_at else None,
+        "guild_id": str(invite.server_id),
+        "inviter": discord_user(inviter) if inviter else None,
+        "max_age": max_age,
+        "max_uses": int(invite.max_uses or 0),
+        "target_type": 0,
+        "temporary": False,
+        "uses": int(invite.uses or 0),
     }
 
 
@@ -462,6 +515,11 @@ async def delete_invite(
             detail="Недостаточно прав, чтобы отозвать это приглашение",
         )
 
+    event_inviter = (
+        current_user
+        if invite.inviter_id == current_user.id
+        else (await db.get(User, invite.inviter_id) if invite.inviter_id is not None else None)
+    )
     await db.execute(delete(Invite).where(Invite.id == invite.id))
     await db.commit()
 
@@ -479,6 +537,13 @@ async def delete_invite(
         db,
         server.id,
         {"type": "server_invite_deleted", "data": {"server_id": server.id, "code": invite.code}},
+    )
+    await bot_event_dispatcher.dispatch_guild_event(
+        db,
+        server.id,
+        "INVITE_DELETE",
+        _discord_invite(invite, inviter=event_inviter),
+        required_intent=INTENT_GUILD_INVITES,
     )
 
     return {"detail": "Приглашение отозвано", "code": invite.code}
@@ -678,6 +743,13 @@ async def update_server_member(
                 "nickname": membership.nickname,
             },
         },
+    )
+    await bot_event_dispatcher.dispatch_guild_event(
+        db,
+        server_id,
+        "GUILD_MEMBER_UPDATE",
+        await _discord_member_update(db, server_id, user_id),
+        required_intent=INTENT_GUILD_MEMBERS,
     )
 
     return {
@@ -925,6 +997,13 @@ async def create_server_ban(
             server_id,
             {"type": "user_left_channel", "channel_id": server_id, "user_id": target.id},
         )
+    await bot_event_dispatcher.dispatch_guild_event(
+        db,
+        server_id,
+        "GUILD_BAN_ADD",
+        {"guild_id": str(server_id), "user": discord_user(target)},
+        required_intent=INTENT_GUILD_MODERATION,
+    )
 
     return {"detail": "Пользователь заблокирован", "user_id": target.id}
 
@@ -962,6 +1041,13 @@ async def delete_server_ban(
         target_type="member",
         target_id=user_id,
         target_name=target.display_name or target.username,
+    )
+    await bot_event_dispatcher.dispatch_guild_event(
+        db,
+        server_id,
+        "GUILD_BAN_REMOVE",
+        {"guild_id": str(server_id), "user": discord_user(target)},
+        required_intent=INTENT_GUILD_MODERATION,
     )
 
     return {"detail": "Блокировка снята", "user_id": user_id}
@@ -1047,6 +1133,7 @@ async def create_server_role(
         color=payload.color,
         position=next_position,
         permissions=int(payload.permissions),
+        legacy_permissions=discord_permissions_to_legacy(int(payload.permissions)),
         is_default=False,
     )
     db.add(role)
@@ -1069,6 +1156,12 @@ async def create_server_role(
         db,
         server_id,
         {"type": "server_role_created", "data": {"server_id": server_id, "role": payload_role}},
+    )
+    await bot_event_dispatcher.dispatch_guild_event(
+        db,
+        server_id,
+        "GUILD_ROLE_CREATE",
+        {"guild_id": str(server_id), "role": discord_role(role, guild_id=server_id)},
     )
 
     return payload_role
@@ -1118,6 +1211,13 @@ async def reorder_server_roles(
         server_id,
         {"type": "server_roles_reordered", "data": {"server_id": server_id, "order": ordered_ids}},
     )
+    for updated_role in roles.values():
+        await bot_event_dispatcher.dispatch_guild_event(
+            db,
+            server_id,
+            "GUILD_ROLE_UPDATE",
+            {"guild_id": str(server_id), "role": discord_role(updated_role, guild_id=server_id)},
+        )
 
     return {"detail": "Порядок ролей обновлён", "order": ordered_ids}
 
@@ -1162,6 +1262,7 @@ async def update_server_role(
                 detail="Нельзя выдать роли права, которых у вас нет",
             )
         role.permissions = new_permissions
+        role.legacy_permissions = discord_permissions_to_legacy(new_permissions)
 
     if "name" in updates and updates["name"]:
         if role.is_default:
@@ -1198,6 +1299,12 @@ async def update_server_role(
         db,
         server_id,
         {"type": "server_role_updated", "data": {"server_id": server_id, "role": role_payload}},
+    )
+    await bot_event_dispatcher.dispatch_guild_event(
+        db,
+        server_id,
+        "GUILD_ROLE_UPDATE",
+        {"guild_id": str(server_id), "role": discord_role(role, guild_id=server_id)},
     )
 
     return role_payload
@@ -1254,6 +1361,12 @@ async def delete_server_role(
         db,
         server_id,
         {"type": "server_role_deleted", "data": {"server_id": server_id, "role_id": role_id}},
+    )
+    await bot_event_dispatcher.dispatch_guild_event(
+        db,
+        server_id,
+        "GUILD_ROLE_DELETE",
+        {"guild_id": str(server_id), "role_id": str(role_id)},
     )
 
     return {"detail": "Роль удалена", "role_id": role_id}
@@ -1396,6 +1509,13 @@ async def _member_roles_response(db: AsyncSession, server_id: int, user_id: int)
     }
 
     await notify_server(db, server_id, {"type": "server_member_roles_updated", "data": payload})
+    await bot_event_dispatcher.dispatch_guild_event(
+        db,
+        server_id,
+        "GUILD_MEMBER_UPDATE",
+        await _discord_member_update(db, server_id, user_id),
+        required_intent=INTENT_GUILD_MEMBERS,
+    )
     return payload
 
 
@@ -1499,6 +1619,13 @@ async def create_server_invite(
         server_id,
         {"type": "server_invite_created", "data": {"server_id": server_id, "invite": invite_payload}},
         exclude_user_id=current_user.id,
+    )
+    await bot_event_dispatcher.dispatch_guild_event(
+        db,
+        server_id,
+        "INVITE_CREATE",
+        _discord_invite(invite, inviter=current_user),
+        required_intent=INTENT_GUILD_INVITES,
     )
 
     return invite_payload

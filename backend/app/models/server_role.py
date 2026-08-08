@@ -14,7 +14,8 @@ class Role(Base):
     name = Column(String, nullable=False)
     color = Column(String, nullable=True)  # HEX, например "#5865f2"
     position = Column(Integer, default=0, nullable=False)
-    permissions = Column(BigInteger, default=0, nullable=False)
+    legacy_permissions = Column("permissions", BigInteger, default=0, nullable=False)
+    permissions = Column("permissions_v10", BigInteger, default=0, nullable=False)
     is_default = Column(Boolean, default=False, nullable=False)  # роль @everyone
     managed_by_bot_application_id = Column(
         Integer,

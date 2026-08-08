@@ -22,6 +22,9 @@ from .bot import (
     BotInstall,
     BotCommand,
     BotInteraction,
+    BotInteractionMessage,
+    BotOAuthAuthorizationCode,
+    BotOAuthToken,
     BotAuditLog,
 )
 
@@ -58,5 +61,8 @@ __all__ = [
     "BotSession",
     "BotCommand",
     "BotInteraction",
+    "BotInteractionMessage",
+    "BotOAuthAuthorizationCode",
+    "BotOAuthToken",
     "BotAuditLog",
 ]

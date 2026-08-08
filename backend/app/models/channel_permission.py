@@ -36,7 +36,9 @@ class ChannelPermissionOverwrite(Base):
     channel_id = Column(Integer, nullable=False, index=True)
     target_type = Column(Enum(OverwriteTargetType, name="overwrite_target_type"), nullable=False)
     target_id = Column(Integer, nullable=False)
-    allow = Column(BigInteger, default=0, nullable=False)
-    deny = Column(BigInteger, default=0, nullable=False)
+    legacy_allow = Column("allow", BigInteger, default=0, nullable=False)
+    legacy_deny = Column("deny", BigInteger, default=0, nullable=False)
+    allow = Column("allow_v10", BigInteger, default=0, nullable=False)
+    deny = Column("deny_v10", BigInteger, default=0, nullable=False)
 
     server = relationship("Channel")

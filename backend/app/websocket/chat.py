@@ -259,6 +259,7 @@ async def websocket_chat_endpoint(
                             },
                             "text_channel_id": text_channel_id
                         })
+                        await bot_event_dispatcher.dispatch_typing_start(db, text_channel_id, user.id)
                         
                 elif message_data.get("type") == "heartbeat":
                     # Heartbeat для поддержания активности

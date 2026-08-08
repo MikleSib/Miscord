@@ -2,160 +2,231 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass
-from datetime import datetime, timezone
+import time
+import zlib
+from collections import defaultdict, deque
 from copy import deepcopy
-from typing import Any, Optional
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import WebSocket
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models import BotApplication, BotInstall, TextChannel
 from app.schemas.bot_protocol import GatewayOpCode, GATEWAY_API_VERSION
+from app.services.discord_serializers import discord_message, discord_user
 from app.services.message_serializer import serialize_channel_message
 
 
+INTENT_GUILDS = 1 << 0
+INTENT_GUILD_MEMBERS = 1 << 1
+INTENT_GUILD_MODERATION = 1 << 2
+INTENT_GUILD_EXPRESSIONS = 1 << 3
+INTENT_GUILD_INTEGRATIONS = 1 << 4
+INTENT_GUILD_WEBHOOKS = 1 << 5
+INTENT_GUILD_INVITES = 1 << 6
+INTENT_GUILD_VOICE_STATES = 1 << 7
+INTENT_GUILD_PRESENCES = 1 << 8
 INTENT_GUILD_MESSAGES = 1 << 9
+INTENT_GUILD_MESSAGE_REACTIONS = 1 << 10
+INTENT_GUILD_MESSAGE_TYPING = 1 << 11
+INTENT_DIRECT_MESSAGES = 1 << 12
+INTENT_DIRECT_MESSAGE_REACTIONS = 1 << 13
+INTENT_DIRECT_MESSAGE_TYPING = 1 << 14
 INTENT_MESSAGE_CONTENT = 1 << 15
-INTENT_DEFAULTS = INTENT_GUILD_MESSAGES | INTENT_MESSAGE_CONTENT
+INTENT_GUILD_SCHEDULED_EVENTS = 1 << 16
+INTENT_AUTO_MODERATION_CONFIGURATION = 1 << 20
+INTENT_AUTO_MODERATION_EXECUTION = 1 << 21
+INTENT_GUILD_MESSAGE_POLLS = 1 << 24
+INTENT_DIRECT_MESSAGE_POLLS = 1 << 25
+INTENT_DEFAULTS = INTENT_GUILDS | INTENT_GUILD_MESSAGES
+VALID_INTENTS_MASK = (
+    INTENT_GUILDS
+    | INTENT_GUILD_MEMBERS
+    | INTENT_GUILD_MODERATION
+    | INTENT_GUILD_EXPRESSIONS
+    | INTENT_GUILD_INTEGRATIONS
+    | INTENT_GUILD_WEBHOOKS
+    | INTENT_GUILD_INVITES
+    | INTENT_GUILD_VOICE_STATES
+    | INTENT_GUILD_PRESENCES
+    | INTENT_GUILD_MESSAGES
+    | INTENT_GUILD_MESSAGE_REACTIONS
+    | INTENT_GUILD_MESSAGE_TYPING
+    | INTENT_DIRECT_MESSAGES
+    | INTENT_DIRECT_MESSAGE_REACTIONS
+    | INTENT_DIRECT_MESSAGE_TYPING
+    | INTENT_MESSAGE_CONTENT
+    | INTENT_GUILD_SCHEDULED_EVENTS
+    | INTENT_AUTO_MODERATION_CONFIGURATION
+    | INTENT_AUTO_MODERATION_EXECUTION
+    | INTENT_GUILD_MESSAGE_POLLS
+    | INTENT_DIRECT_MESSAGE_POLLS
+)
 
 OP_DISPATCH = GatewayOpCode.DISPATCH
 OP_HELLO = GatewayOpCode.HELLO
 OP_HEARTBEAT_ACK = GatewayOpCode.HEARTBEAT_ACK
-OP_HELLO_PAYLOAD = {"v": GATEWAY_API_VERSION, "properties": {}}
+HEARTBEAT_INTERVAL_MS = 45_000
+RESUME_TTL_SECONDS = 120
+EVENT_BUFFER_SIZE = 100
+IDENTIFY_LIMIT = 1000
+IDENTIFY_WINDOW_SECONDS = 60
 
 
 @dataclass
 class _GatewaySessionState:
     application_id: int
+    application_client_id: str
     session_id: str
     websocket: WebSocket
-    intents: int = INTENT_DEFAULTS
+    intents: int
     sequence: int = 0
-    last_heartbeat: datetime | None = None
+    last_heartbeat: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    buffer: deque[dict[str, Any]] = field(default_factory=lambda: deque(maxlen=EVENT_BUFFER_SIZE))
+
+
+@dataclass
+class _ResumeState:
+    application_id: int
+    intents: int
+    sequence: int
+    buffer: deque[dict[str, Any]]
+    expires_at: datetime
 
 
 class BotEventDispatcher:
     def __init__(self) -> None:
         self._sessions_by_app: dict[int, set[str]] = {}
         self._sessions: dict[str, _GatewaySessionState] = {}
+        self._resume_states: dict[str, _ResumeState] = {}
+        self._identify_hits: dict[int, deque[float]] = defaultdict(deque)
         self._lock = asyncio.Lock()
 
     @staticmethod
     def _coerce_id(value: Any) -> str | None:
-        if value is None:
-            return None
-        if isinstance(value, str):
-            return value
-        return str(value)
+        return None if value is None else str(value)
 
     @staticmethod
-    def _coerce_payload_ids(payload: dict[str, Any], *, keys: tuple[str, ...]) -> dict[str, Any]:
-        for key in keys:
-            if key in payload:
-                payload[key] = BotEventDispatcher._coerce_id(payload[key])
-        return payload
+    def internal_message_payload(message) -> dict[str, Any]:
+        return serialize_channel_message(message)
 
     @staticmethod
-    def _coerce_message_payload(message) -> dict[str, Any]:
-        payload = serialize_channel_message(message)
-        payload["id"] = BotEventDispatcher._coerce_id(payload.get("id"))
-        payload["author_id"] = BotEventDispatcher._coerce_id(payload.get("author_id"))
-        payload["webhook_id"] = BotEventDispatcher._coerce_id(payload.get("webhook_id"))
-        payload["text_channel_id"] = BotEventDispatcher._coerce_id(payload.get("text_channel_id"))
-        payload["channelId"] = BotEventDispatcher._coerce_id(payload.get("channelId"))
-        payload["reply_to_id"] = BotEventDispatcher._coerce_id(payload.get("reply_to_id"))
-        author = payload.get("author")
-        if isinstance(author, dict) and author.get("id") is not None:
-            author["id"] = BotEventDispatcher._coerce_id(author["id"])
-        for attachment in payload.get("attachments", []):
-            if attachment.get("id") is not None:
-                attachment["id"] = BotEventDispatcher._coerce_id(attachment["id"])
-        return payload
-
-    @staticmethod
-    def _coerce_delete_payload(payload: dict[str, Any]) -> dict[str, Any]:
-        return {key: BotEventDispatcher._coerce_id(value) if isinstance(value, int) else value for key, value in payload.items()}
-
-    @staticmethod
-    def _mask_message_payload_for_intent(payload: dict[str, Any], intents: int) -> dict[str, Any]:
-        if intents & INTENT_MESSAGE_CONTENT:
+    def _mask_message_payload_for_intent(
+        payload: dict[str, Any],
+        intents: int,
+        application_client_id: str,
+    ) -> dict[str, Any]:
+        if intents & INTENT_MESSAGE_CONTENT or str(payload.get("application_id") or "") == application_client_id:
             return payload
         output = deepcopy(payload)
-        output["content"] = None
-        if "embeds" in output:
-            output["embeds"] = []
-        if output.get("reply_to") and isinstance(output["reply_to"], dict):
-            output["reply_to"] = {
-                "id": output["reply_to"].get("id"),
-                "content": None,
-                "is_deleted": output["reply_to"].get("is_deleted"),
-                "author": output["reply_to"].get("author"),
-            }
+        output["content"] = ""
+        output["embeds"] = []
+        output["attachments"] = []
+        output["components"] = []
+        output["poll"] = None
         return output
 
     @staticmethod
-    def _ready_payload(session_id: str) -> dict[str, Any]:
+    def _dispatch_payload(event_name: str, data: dict[str, Any], sequence: int) -> dict[str, Any]:
+        return {"op": int(OP_DISPATCH), "t": event_name, "s": sequence, "d": data}
+
+    @staticmethod
+    def _ready_data(application: BotApplication, bot_user, session_id: str, guild_ids: list[int]) -> dict[str, Any]:
+        gateway_host = settings.SERVER_HOST.rstrip("/")
+        gateway_host = gateway_host.replace("https://", "wss://", 1).replace("http://", "ws://", 1)
         return {
-            "op": OP_DISPATCH,
-            "t": "READY",
-            "s": None,
-            "d": {
-                "v": 10,
-                "session_id": session_id,
-                "resume_gateway_url": "/gateway",
+            "v": GATEWAY_API_VERSION,
+            "user": discord_user(bot_user),
+            "guilds": [{"id": str(guild_id), "unavailable": True} for guild_id in guild_ids],
+            "session_id": session_id,
+            "resume_gateway_url": f"{gateway_host}/gateway",
+            "shard": [0, 1],
+            "application": {
+                "id": application.client_id,
+                "flags": int(application.flags or 0),
             },
         }
 
-    @staticmethod
-    def _resumed_payload() -> dict[str, Any]:
-        return {
-            "op": OP_DISPATCH,
-            "t": "RESUMED",
-            "s": None,
-            "d": {"status": "resumed"},
-        }
-
-    @staticmethod
-    def _dispatch_payload(event_name: str, data: dict[str, Any], sequence: int) -> dict[str, Any]:
-        return {
-            "op": OP_DISPATCH,
-            "t": event_name,
-            "s": sequence,
-            "d": data,
-        }
-
-    async def _send(self, ws: WebSocket, payload: dict[str, Any]) -> bool:
+    async def _send(self, websocket: WebSocket, payload: dict[str, Any]) -> bool:
         try:
-            await ws.send_text(json.dumps(payload))
+            encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+            if websocket.scope.get("gateway_compress") == "zlib-stream":
+                compressor = websocket.scope.get("gateway_compressor")
+                if compressor is None:
+                    compressor = zlib.compressobj()
+                    websocket.scope["gateway_compressor"] = compressor
+                await websocket.send_bytes(compressor.compress(encoded) + compressor.flush(zlib.Z_SYNC_FLUSH))
+            else:
+                await websocket.send_text(encoded.decode("utf-8"))
             return True
         except Exception:
             return False
 
+    async def consume_identify(self, application_id: int) -> bool:
+        now = time.monotonic()
+        async with self._lock:
+            hits = self._identify_hits[application_id]
+            cutoff = now - IDENTIFY_WINDOW_SECONDS
+            while hits and hits[0] < cutoff:
+                hits.popleft()
+            if len(hits) >= IDENTIFY_LIMIT:
+                return False
+            hits.append(now)
+            return True
+
+    async def identify_remaining(self, application_id: int) -> int:
+        now = time.monotonic()
+        async with self._lock:
+            hits = self._identify_hits[application_id]
+            cutoff = now - IDENTIFY_WINDOW_SECONDS
+            while hits and hits[0] < cutoff:
+                hits.popleft()
+            return max(0, IDENTIFY_LIMIT - len(hits))
+
     async def register(
         self,
         application_id: int,
+        application_client_id: str,
         websocket: WebSocket,
         *,
         session_id: str,
         intents: int,
         sequence: int = 0,
-    ) -> _GatewaySessionState:
-        state = _GatewaySessionState(
-            application_id=application_id,
-            session_id=session_id,
-            websocket=websocket,
-            intents=intents,
-            sequence=sequence,
-            last_heartbeat=datetime.now(timezone.utc),
-        )
+        resume_after: int | None = None,
+    ) -> tuple[_GatewaySessionState, list[dict[str, Any]]]:
+        now = datetime.now(timezone.utc)
         async with self._lock:
+            self._prune_resume_states(now)
+            previous = self._resume_states.pop(session_id, None) if resume_after is not None else None
+            buffer = deque(maxlen=EVENT_BUFFER_SIZE)
+            replay: list[dict[str, Any]] = []
+            if previous and previous.application_id == application_id:
+                buffer.extend(previous.buffer)
+                sequence = max(sequence, previous.sequence)
+                replay = [dict(item) for item in previous.buffer if int(item.get("s") or 0) > resume_after]
+            state = _GatewaySessionState(
+                application_id=application_id,
+                application_client_id=application_client_id,
+                session_id=session_id,
+                websocket=websocket,
+                intents=intents,
+                sequence=sequence,
+                buffer=buffer,
+            )
             self._sessions[session_id] = state
             self._sessions_by_app.setdefault(application_id, set()).add(session_id)
-        return state
+            return state, replay
 
-    async def unregister(self, session_id: str) -> None:
+    def _prune_resume_states(self, now: datetime) -> None:
+        expired = [session_id for session_id, state in self._resume_states.items() if state.expires_at <= now]
+        for session_id in expired:
+            self._resume_states.pop(session_id, None)
+
+    async def unregister(self, session_id: str, *, resumable: bool = True) -> None:
         async with self._lock:
             state = self._sessions.pop(session_id, None)
             if state is None:
@@ -164,6 +235,29 @@ class BotEventDispatcher:
             app_sessions.discard(session_id)
             if not app_sessions:
                 self._sessions_by_app.pop(state.application_id, None)
+            if resumable:
+                self._resume_states[session_id] = _ResumeState(
+                    application_id=state.application_id,
+                    intents=state.intents,
+                    sequence=state.sequence,
+                    buffer=deque(state.buffer, maxlen=EVENT_BUFFER_SIZE),
+                    expires_at=datetime.now(timezone.utc) + timedelta(seconds=RESUME_TTL_SECONDS),
+                )
+            else:
+                self._resume_states.pop(session_id, None)
+
+    async def disconnect_application(self, application_id: int, *, code: int = 4004) -> None:
+        async with self._lock:
+            session_ids = list(self._sessions_by_app.get(application_id, set()))
+            states = [self._sessions.get(item) for item in session_ids]
+        for state in states:
+            if state is None:
+                continue
+            try:
+                await state.websocket.close(code=code)
+            except Exception:
+                pass
+            await self.unregister(state.session_id, resumable=False)
 
     async def touch(self, session_id: str) -> None:
         async with self._lock:
@@ -172,15 +266,53 @@ class BotEventDispatcher:
                 state.last_heartbeat = datetime.now(timezone.utc)
 
     async def hello(self, websocket: WebSocket) -> None:
-        await websocket.send_text(
-            json.dumps({
-                "op": OP_HELLO,
-                "d": {**OP_HELLO_PAYLOAD, "heartbeat_interval": 45000},
-            })
-        )
+        await self._send(websocket, {
+            "op": int(OP_HELLO),
+            "d": {"heartbeat_interval": HEARTBEAT_INTERVAL_MS, "_trace": ["miscord-gateway-v10"]},
+        })
 
     async def heartbeat_ack(self, websocket: WebSocket) -> None:
-        await websocket.send_text(json.dumps({"op": OP_HEARTBEAT_ACK, "d": None}))
+        await self._send(websocket, {"op": int(OP_HEARTBEAT_ACK), "d": None})
+
+    async def send_ready(
+        self,
+        state: _GatewaySessionState,
+        application: BotApplication,
+        bot_user,
+        guild_ids: list[int],
+    ) -> bool:
+        return await self._send_event_to_state(
+            state,
+            "READY",
+            self._ready_data(application, bot_user, state.session_id, guild_ids),
+        )
+
+    async def send_resumed(self, state: _GatewaySessionState, replay: list[dict[str, Any]]) -> bool:
+        for payload in replay:
+            if not await self._send(state.websocket, payload):
+                return False
+        return await self._send_event_to_state(state, "RESUMED", {})
+
+    async def send_to_session(self, state: _GatewaySessionState, event_name: str, data: dict[str, Any]) -> bool:
+        return await self._send_event_to_state(state, event_name, data)
+
+    async def _send_event_to_state(
+        self,
+        state: _GatewaySessionState,
+        event_name: str,
+        data: dict[str, Any],
+        *,
+        message_payload_filter: bool = False,
+    ) -> bool:
+        if message_payload_filter:
+            data = self._mask_message_payload_for_intent(data, state.intents, state.application_client_id)
+        state.sequence += 1
+        payload = self._dispatch_payload(event_name, data, state.sequence)
+        state.buffer.append(deepcopy(payload))
+        ok = await self._send(state.websocket, payload)
+        if not ok:
+            await self.unregister(state.session_id)
+        return ok
 
     async def _iter_session_states(self, application_id: int):
         async with self._lock:
@@ -195,29 +327,22 @@ class BotEventDispatcher:
         application_id: int,
         data: dict[str, Any],
         *,
-        required_intent: int,
+        required_intent: int = 0,
         event_name: str,
         message_payload_filter: bool = False,
-    ) -> None:
-        if not data:
-            return
-        payload = None
+    ) -> int:
+        delivered = 0
         async for state in self._iter_session_states(application_id):
             if required_intent and not (state.intents & required_intent):
                 continue
-            state.sequence += 1
-            session_payload = data
-            if message_payload_filter:
-                session_payload = self._mask_message_payload_for_intent(dict(data), state.intents)
-            if payload is None:
-                payload = self._dispatch_payload(event_name, session_payload, state.sequence)
-            else:
-                payload = dict(payload)
-                payload["s"] = state.sequence
-                payload["d"] = session_payload
-            ok = await self._send(state.websocket, payload)
-            if not ok:
-                await self.unregister(state.session_id)
+            if await self._send_event_to_state(
+                state,
+                event_name,
+                dict(data),
+                message_payload_filter=message_payload_filter,
+            ):
+                delivered += 1
+        return delivered
 
     async def dispatch_install_create(
         self,
@@ -228,73 +353,34 @@ class BotEventDispatcher:
         intents: int,
         scopes: list[str] | None = None,
     ) -> None:
-        event_data = {
-            "application_id": str(application_id),
-            "guild_id": str(server_id),
-            "permissions": str(int(permissions)),
-            "intents": str(int(intents)),
-            "scopes": scopes or [],
-            "status": "active",
-        }
         await self._dispatch_to_application(
             application_id,
-            event_data,
-            required_intent=0,
-            event_name="APP_INSTALL_CREATE",
+            {"id": str(server_id), "unavailable": True},
+            required_intent=INTENT_GUILDS,
+            event_name="GUILD_CREATE",
         )
 
-    async def dispatch_install_update(
-        self,
-        application_id: int,
-        server_id: int,
-        *,
-        permissions: int,
-        intents: int,
-        scopes: list[str] | None = None,
-        status: str = "active",
-    ) -> None:
-        event_data = {
-            "application_id": str(application_id),
-            "guild_id": str(server_id),
-            "permissions": str(int(permissions)),
-            "intents": str(int(intents)),
-            "scopes": scopes or [],
-            "status": status,
-        }
+    async def dispatch_install_update(self, application_id: int, server_id: int, **_: Any) -> None:
         await self._dispatch_to_application(
             application_id,
-            event_data,
-            required_intent=0,
-            event_name="APP_INSTALL_UPDATE",
+            {"id": str(server_id), "unavailable": False},
+            required_intent=INTENT_GUILDS,
+            event_name="GUILD_UPDATE",
         )
 
-    async def dispatch_install_delete(
-        self,
-        application_id: int,
-        server_id: int,
-        *,
-        reason: str | None = None,
-    ) -> None:
-        event_data = {
-            "application_id": str(application_id),
-            "guild_id": str(server_id),
-            "status": "removed",
-            "reason": reason,
-        }
+    async def dispatch_install_delete(self, application_id: int, server_id: int, **_: Any) -> None:
         await self._dispatch_to_application(
             application_id,
-            event_data,
-            required_intent=0,
-            event_name="APP_INSTALL_DELETE",
+            {"id": str(server_id), "unavailable": False},
+            required_intent=INTENT_GUILDS,
+            event_name="GUILD_DELETE",
         )
 
-    async def dispatch_message_create(self, db: AsyncSession, message) -> None:
-        serialized = self._coerce_message_payload(message)
-        channel = await db.get(TextChannel, message.text_channel_id)
-        if not channel:
-            return
-
-        installs = await db.execute(
+    async def _installed_apps_for_channel(self, db: AsyncSession, channel_id: int, required_intent: int) -> list[int]:
+        channel = await db.get(TextChannel, channel_id)
+        if channel is None:
+            return []
+        result = await db.execute(
             select(BotInstall.application_id, BotInstall.intents)
             .join(BotApplication, BotApplication.id == BotInstall.application_id)
             .where(
@@ -303,132 +389,146 @@ class BotEventDispatcher:
                 BotApplication.status == "active",
             )
         )
-        rows = installs.all()
-        for application_id, install_intents in rows:
-            if not install_intents:
-                continue
-            if not (int(install_intents) & INTENT_GUILD_MESSAGES):
-                continue
-            event_data = dict(serialized)
-            event_data["guild_id"] = str(channel.channel_id)
+        return [int(app_id) for app_id, intents in result.all() if int(intents or 0) & required_intent]
+
+    async def dispatch_message_create(self, db: AsyncSession, message) -> None:
+        channel = await db.get(TextChannel, message.text_channel_id)
+        if channel is None:
+            return
+        payload = discord_message(message, guild_id=channel.channel_id)
+        for application_id in await self._installed_apps_for_channel(db, message.text_channel_id, INTENT_GUILD_MESSAGES):
             await self._dispatch_to_application(
                 application_id,
-                event_data,
+                payload,
                 required_intent=INTENT_GUILD_MESSAGES,
                 event_name="MESSAGE_CREATE",
                 message_payload_filter=True,
             )
 
     async def dispatch_message_update(self, db: AsyncSession, message) -> None:
-        serialized = self._coerce_message_payload(message)
         channel = await db.get(TextChannel, message.text_channel_id)
-        if not channel:
+        if channel is None:
             return
-
-        installs = await db.execute(
-            select(BotInstall.application_id, BotInstall.intents)
-            .join(BotApplication, BotApplication.id == BotInstall.application_id)
-            .where(
-                BotInstall.server_id == channel.channel_id,
-                BotInstall.status == "active",
-                BotApplication.status == "active",
-            )
-        )
-        rows = installs.all()
-        for application_id, install_intents in rows:
-            if not install_intents:
-                continue
-            if not (int(install_intents) & INTENT_GUILD_MESSAGES):
-                continue
-            event_data = dict(serialized)
-            event_data["guild_id"] = str(channel.channel_id)
+        payload = discord_message(message, guild_id=channel.channel_id)
+        for application_id in await self._installed_apps_for_channel(db, message.text_channel_id, INTENT_GUILD_MESSAGES):
             await self._dispatch_to_application(
                 application_id,
-                event_data,
+                payload,
                 required_intent=INTENT_GUILD_MESSAGES,
                 event_name="MESSAGE_UPDATE",
                 message_payload_filter=True,
             )
 
-    async def dispatch_message_delete(
-        self,
-        db: AsyncSession,
-        message_id: int,
-        channel_id: int,
-    ) -> None:
+    async def dispatch_message_delete(self, db: AsyncSession, message_id: int, channel_id: int) -> None:
         channel = await db.get(TextChannel, channel_id)
-        if not channel:
+        if channel is None:
             return
-
-        installs = await db.execute(
-            select(BotInstall.application_id, BotInstall.intents)
-            .join(BotApplication, BotApplication.id == BotInstall.application_id)
-            .where(
-                BotInstall.server_id == channel.channel_id,
-                BotInstall.status == "active",
-                BotApplication.status == "active",
-            )
-        )
-        rows = installs.all()
-        for application_id, install_intents in rows:
-            if not install_intents:
-                continue
-            if not (int(install_intents) & INTENT_GUILD_MESSAGES):
-                continue
-            event_data = self._coerce_delete_payload({
-                "id": message_id,
-                "guild_id": str(channel.channel_id),
-                "channel_id": str(channel_id),
-            })
+        payload = {"id": str(message_id), "channel_id": str(channel_id), "guild_id": str(channel.channel_id)}
+        for application_id in await self._installed_apps_for_channel(db, channel_id, INTENT_GUILD_MESSAGES):
             await self._dispatch_to_application(
                 application_id,
-                event_data,
+                payload,
                 required_intent=INTENT_GUILD_MESSAGES,
                 event_name="MESSAGE_DELETE",
             )
 
-    async def dispatch_interaction_create(self, db: AsyncSession, interaction) -> None:
-        # No dedicated intent for interactions in this phase.
-        # Keep payload minimal and deliver to installations that enabled basic message intents.
-        application_id = interaction.application_id
-        install_clause = [
-            BotInstall.application_id == application_id,
-            BotInstall.status == "active",
-            BotApplication.status == "active",
-        ]
-        if interaction.guild_id:
-            install_clause.append(BotInstall.server_id == int(interaction.guild_id))
-
-        installs = await db.execute(
-            select(BotInstall.intents)
-            .join(BotApplication, BotApplication.id == BotInstall.application_id)
-            .where(*install_clause)
-        )
-        rows = installs.all()
-        if not rows:
+    async def dispatch_message_reaction_add(self, db: AsyncSession, message, user, emoji: str) -> None:
+        channel = await db.get(TextChannel, message.text_channel_id)
+        if channel is None:
             return
-        install_intents = max(int(item[0] or 0) for item in rows)
-        if not (install_intents & INTENT_GUILD_MESSAGES):
-            return
-        event_data = {
-            "id": self._coerce_id(interaction.id if interaction.id else None),
-            "application_id": self._coerce_id(interaction.application_id),
-            "type": self._coerce_id(interaction.type) if hasattr(interaction, "type") else None,
-            "command_id": self._coerce_id(interaction.command_id),
-            "channel_id": self._coerce_id(interaction.channel_id) if interaction.channel_id else None,
-            "guild_id": self._coerce_id(interaction.guild_id) if interaction.guild_id else None,
-            "data": {
-                "id": self._coerce_id(interaction.id),
-                "application_id": str(application_id),
-                "token": self._coerce_id(interaction.interaction_token),
-                "version": 1,
-                "command_id": self._coerce_id(interaction.command_id),
-            },
+        payload = {
+            "user_id": str(user.id),
+            "channel_id": str(message.text_channel_id),
+            "message_id": str(message.id),
+            "guild_id": str(channel.channel_id),
+            "member": None,
+            "emoji": {"id": None, "name": emoji},
+            "message_author_id": str(message.author_id) if message.author_id else None,
+            "burst": False,
+            "burst_colors": [],
+            "type": 0,
         }
-        await self._dispatch_to_application(
-            int(application_id),
-            event_data,
-            required_intent=INTENT_GUILD_MESSAGES,
+        for application_id in await self._installed_apps_for_channel(db, message.text_channel_id, INTENT_GUILD_MESSAGE_REACTIONS):
+            await self._dispatch_to_application(application_id, payload, required_intent=INTENT_GUILD_MESSAGE_REACTIONS, event_name="MESSAGE_REACTION_ADD")
+
+    async def dispatch_message_reaction_remove(self, db: AsyncSession, message, user, emoji: str) -> None:
+        channel = await db.get(TextChannel, message.text_channel_id)
+        if channel is None:
+            return
+        payload = {
+            "user_id": str(user.id),
+            "channel_id": str(message.text_channel_id),
+            "message_id": str(message.id),
+            "guild_id": str(channel.channel_id),
+            "emoji": {"id": None, "name": emoji},
+            "burst": False,
+            "type": 0,
+        }
+        for application_id in await self._installed_apps_for_channel(db, message.text_channel_id, INTENT_GUILD_MESSAGE_REACTIONS):
+            await self._dispatch_to_application(application_id, payload, required_intent=INTENT_GUILD_MESSAGE_REACTIONS, event_name="MESSAGE_REACTION_REMOVE")
+
+    async def dispatch_typing_start(self, db: AsyncSession, channel_id: int, user_id: int) -> None:
+        channel = await db.get(TextChannel, channel_id)
+        if channel is None:
+            return
+        payload = {
+            "channel_id": str(channel_id),
+            "guild_id": str(channel.channel_id),
+            "user_id": str(user_id),
+            "timestamp": int(time.time()),
+            "member": None,
+        }
+        for application_id in await self._installed_apps_for_channel(db, channel_id, INTENT_GUILD_MESSAGE_TYPING):
+            await self._dispatch_to_application(application_id, payload, required_intent=INTENT_GUILD_MESSAGE_TYPING, event_name="TYPING_START")
+
+    async def dispatch_guild_event(
+        self,
+        db: AsyncSession,
+        guild_id: int,
+        event_name: str,
+        payload: dict[str, Any],
+        *,
+        required_intent: int = INTENT_GUILDS,
+    ) -> None:
+        result = await db.execute(
+            select(BotInstall.application_id, BotInstall.intents).where(
+                BotInstall.server_id == guild_id,
+                BotInstall.status == "active",
+            )
+        )
+        for application_id, intents in result.all():
+            if required_intent and not (int(intents or 0) & required_intent):
+                continue
+            await self._dispatch_to_application(int(application_id), payload, required_intent=required_intent, event_name=event_name)
+
+    async def dispatch_interaction_create(self, db: AsyncSession, interaction) -> int:
+        application = await db.get(BotApplication, interaction.application_id)
+        if application is None or application.status != "active":
+            return 0
+        if interaction.guild_id is not None:
+            install = await db.scalar(select(BotInstall.id).where(
+                BotInstall.application_id == interaction.application_id,
+                BotInstall.server_id == int(interaction.guild_id),
+                BotInstall.status == "active",
+            ))
+            if install is None:
+                return 0
+        payload = dict(interaction.request_payload or {})
+        if not payload:
+            payload = {
+                "id": interaction.interaction_id,
+                "application_id": application.client_id,
+                "type": int(interaction.interaction_type or 2),
+                "token": interaction.interaction_token,
+                "version": 1,
+                "guild_id": str(interaction.guild_id) if interaction.guild_id else None,
+                "channel_id": str(interaction.channel_id) if interaction.channel_id else None,
+                "data": {"id": str(interaction.command_id)} if interaction.command_id else {},
+            }
+        return await self._dispatch_to_application(
+            int(interaction.application_id),
+            payload,
+            required_intent=0,
             event_name="INTERACTION_CREATE",
         )
 

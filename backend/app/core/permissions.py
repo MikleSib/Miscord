@@ -16,28 +16,92 @@ from app.models import Channel, ChannelMember, MemberRole, Role, User
 # Позиция роли владельца — выше любой реальной роли
 OWNER_POSITION = 1 << 30
 
+LEGACY_TO_DISCORD_PERMISSION_BITS = {
+    0: 10, 1: 11, 2: 13, 3: 4, 4: 5, 5: 28, 6: 1, 7: 2,
+    8: 0, 9: 5, 10: 7, 11: 27, 12: 22, 13: 23, 14: 24,
+    15: 3, 16: 28, 17: 29, 18: 38,
+}
+
+
+def legacy_permissions_to_discord(value: int | None) -> int:
+    source = int(value or 0)
+    output = 0
+    for old_bit, discord_bit in LEGACY_TO_DISCORD_PERMISSION_BITS.items():
+        if source & (1 << old_bit):
+            output |= 1 << discord_bit
+    return output
+
+
+def discord_permissions_to_legacy(value: int | None) -> int:
+    source = int(value or 0)
+    output = 0
+    for old_bit, discord_bit in LEGACY_TO_DISCORD_PERMISSION_BITS.items():
+        if source & (1 << discord_bit):
+            output |= 1 << old_bit
+    return output
+
 
 class Permission(IntFlag):
-    VIEW_CHANNELS = 1 << 0
-    SEND_MESSAGES = 1 << 1
-    MANAGE_MESSAGES = 1 << 2
-    MANAGE_CHANNELS = 1 << 3
-    MANAGE_SERVER = 1 << 4
-    MANAGE_ROLES = 1 << 5
-    KICK_MEMBERS = 1 << 6
-    BAN_MEMBERS = 1 << 7
-    CREATE_INVITE = 1 << 8
-    MANAGE_INVITES = 1 << 9
-    VIEW_AUDIT_LOG = 1 << 10
-    MANAGE_NICKNAMES = 1 << 11
-    MUTE_MEMBERS = 1 << 12
-    DEAFEN_MEMBERS = 1 << 13
-    MOVE_MEMBERS = 1 << 14
-    ADMINISTRATOR = 1 << 15
+    # Discord API v10 permission values. Aliases at the bottom preserve the
+    # existing Miscord names while public APIs use canonical Discord names.
+    CREATE_INSTANT_INVITE = 1 << 0
+    KICK_MEMBERS = 1 << 1
+    BAN_MEMBERS = 1 << 2
+    ADMINISTRATOR = 1 << 3
+    MANAGE_CHANNELS = 1 << 4
+    MANAGE_GUILD = 1 << 5
+    ADD_REACTIONS = 1 << 6
+    VIEW_AUDIT_LOG = 1 << 7
+    PRIORITY_SPEAKER = 1 << 8
+    STREAM = 1 << 9
+    VIEW_CHANNEL = 1 << 10
+    SEND_MESSAGES = 1 << 11
+    SEND_TTS_MESSAGES = 1 << 12
+    MANAGE_MESSAGES = 1 << 13
+    EMBED_LINKS = 1 << 14
+    ATTACH_FILES = 1 << 15
+    READ_MESSAGE_HISTORY = 1 << 16
+    MENTION_EVERYONE = 1 << 17
+    USE_EXTERNAL_EMOJIS = 1 << 18
+    VIEW_GUILD_INSIGHTS = 1 << 19
+    CONNECT = 1 << 20
+    SPEAK = 1 << 21
+    MUTE_MEMBERS = 1 << 22
+    DEAFEN_MEMBERS = 1 << 23
+    MOVE_MEMBERS = 1 << 24
+    USE_VAD = 1 << 25
+    CHANGE_NICKNAME = 1 << 26
+    MANAGE_NICKNAMES = 1 << 27
+    MANAGE_ROLES = 1 << 28
+    MANAGE_WEBHOOKS = 1 << 29
+    MANAGE_GUILD_EXPRESSIONS = 1 << 30
+    USE_APPLICATION_COMMANDS = 1 << 31
+    REQUEST_TO_SPEAK = 1 << 32
+    MANAGE_EVENTS = 1 << 33
+    MANAGE_THREADS = 1 << 34
+    CREATE_PUBLIC_THREADS = 1 << 35
+    CREATE_PRIVATE_THREADS = 1 << 36
+    USE_EXTERNAL_STICKERS = 1 << 37
+    SEND_MESSAGES_IN_THREADS = 1 << 38
+    USE_EMBEDDED_ACTIVITIES = 1 << 39
+    MODERATE_MEMBERS = 1 << 40
+    VIEW_CREATOR_MONETIZATION_ANALYTICS = 1 << 41
+    USE_SOUNDBOARD = 1 << 42
+    CREATE_GUILD_EXPRESSIONS = 1 << 43
+    CREATE_EVENTS = 1 << 44
+    USE_EXTERNAL_SOUNDS = 1 << 45
+    SEND_VOICE_MESSAGES = 1 << 46
+    SET_VOICE_CHANNEL_STATUS = 1 << 48
+    SEND_POLLS = 1 << 49
+    USE_EXTERNAL_APPS = 1 << 50
+    PIN_MESSAGES = 1 << 51
+    BYPASS_SLOWMODE = 1 << 52
     # Права уровня канала (overwrites), как в Discord
-    MANAGE_PERMISSIONS = 1 << 16
-    MANAGE_WEBHOOKS = 1 << 17
-    SEND_MESSAGES_IN_THREADS = 1 << 18
+    CREATE_INVITE = CREATE_INSTANT_INVITE
+    VIEW_CHANNELS = VIEW_CHANNEL
+    MANAGE_SERVER = MANAGE_GUILD
+    MANAGE_PERMISSIONS = MANAGE_ROLES
+    MANAGE_INVITES = MANAGE_GUILD
 
 
 ALL_PERMISSIONS = 0
@@ -46,9 +110,14 @@ for _perm in Permission:
 
 # Права роли @everyone по умолчанию
 DEFAULT_PERMISSIONS = int(
-    Permission.VIEW_CHANNELS
+    Permission.VIEW_CHANNEL
     | Permission.SEND_MESSAGES
-    | Permission.CREATE_INVITE
+    | Permission.CREATE_INSTANT_INVITE
+    | Permission.READ_MESSAGE_HISTORY
+    | Permission.ADD_REACTIONS
+    | Permission.EMBED_LINKS
+    | Permission.ATTACH_FILES
+    | Permission.USE_APPLICATION_COMMANDS
 )
 
 # Метаданные для фронтенда: ключ, подпись, описание, группа
@@ -252,6 +321,7 @@ async def ensure_default_role(db: AsyncSession, server_id: int) -> Role:
         color=None,
         position=0,
         permissions=DEFAULT_PERMISSIONS,
+        legacy_permissions=discord_permissions_to_legacy(DEFAULT_PERMISSIONS),
         is_default=True,
     )
     db.add(role)

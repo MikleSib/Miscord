@@ -16,6 +16,8 @@ from app.models import (
     VoiceChannelUser,
 )
 from app.services.server_events import notify_server, notify_users
+from app.services.bot_event_dispatcher import INTENT_GUILD_MEMBERS, dispatcher as bot_event_dispatcher
+from app.services.discord_serializers import discord_user
 
 
 def serialize_member_user(user: User, *, nickname: Optional[str] = None) -> dict:
@@ -147,10 +149,38 @@ async def add_member_and_notify(
         },
         exclude_user_id=user.id,
     )
+    membership = await db.scalar(select(ChannelMember).where(
+        ChannelMember.channel_id == server_id,
+        ChannelMember.user_id == user.id,
+    ))
+    role_ids = (await db.execute(select(MemberRole.role_id).where(
+        MemberRole.server_id == server_id,
+        MemberRole.user_id == user.id,
+    ))).scalars().all()
+    await bot_event_dispatcher.dispatch_guild_event(
+        db,
+        server_id,
+        "GUILD_MEMBER_ADD",
+        {
+            "guild_id": str(server_id),
+            "user": discord_user(user),
+            "nick": membership.nickname if membership else None,
+            "avatar": None,
+            "roles": [str(role_id) for role_id in role_ids],
+            "joined_at": membership.joined_at.isoformat() if membership and membership.joined_at else None,
+            "deaf": False,
+            "mute": False,
+            "flags": 0,
+            "pending": False,
+            "communication_disabled_until": None,
+        },
+        required_intent=INTENT_GUILD_MEMBERS,
+    )
 
 
 async def remove_member_rows(db: AsyncSession, server_id: int, user_id: int) -> None:
     """Удаляет участника сервера: голосовое присутствие, роли, членство."""
+    user = await db.get(User, user_id)
     voice_channel_ids_result = await db.execute(
         select(VoiceChannel.id).where(VoiceChannel.channel_id == server_id)
     )
@@ -179,3 +209,11 @@ async def remove_member_rows(db: AsyncSession, server_id: int, user_id: int) -> 
         )
     )
     await db.commit()
+    if user is not None:
+        await bot_event_dispatcher.dispatch_guild_event(
+            db,
+            server_id,
+            "GUILD_MEMBER_REMOVE",
+            {"guild_id": str(server_id), "user": discord_user(user)},
+            required_intent=INTENT_GUILD_MEMBERS,
+        )

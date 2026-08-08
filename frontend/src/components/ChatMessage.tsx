@@ -19,6 +19,7 @@ import { RichWebhookEmbed } from '../types/webhook'
 import { contentMentionsUser } from '../lib/mentions'
 import { useMentionNotificationStore } from '../store/mentionNotificationStore'
 import { cn } from '../lib/utils'
+import { ApplicationMessageComponents } from './ApplicationMessageComponents'
 
 interface ChatMessageProps {
   message: Message;
@@ -334,6 +335,7 @@ export function ChatMessage({
               })}
             />
             <ManagedMessageAttachments attachments={message.attachments || []} />
+            <ApplicationMessageComponents message={message} />
           </>
         )}
 

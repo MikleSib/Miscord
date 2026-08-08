@@ -10,8 +10,11 @@ class GatewayOpCode(IntEnum):
     DISPATCH = 0
     HEARTBEAT = 1
     IDENTIFY = 2
+    PRESENCE_UPDATE = 3
+    VOICE_STATE_UPDATE = 4
     RESUME = 6
     RECONNECT = 7
+    REQUEST_GUILD_MEMBERS = 8
     INVALID_SESSION = 9
     HELLO = 10
     HEARTBEAT_ACK = 11
@@ -60,11 +63,10 @@ def validate_gateway_query(
             "Only json encoding is supported",
         )
 
-    if compress is not None and compress.strip().lower() not in {"", GATEWAY_DEFAULT_ENCODING}:
-        # Compression is not enabled in this implementation.
+    if compress is not None and compress.strip().lower() not in {"", "zlib-stream"}:
         raise BotProtocolError(
             "invalid_gateway_compress",
-            "Gateway compression is not supported",
+            "Only zlib-stream Gateway compression is supported",
             status_code=400,
         )
 
@@ -115,7 +117,7 @@ class BotGatewayHeartbeat(BaseModel):
 
 class BotGatewayInvalidSession(BaseModel):
     op: Literal[GatewayOpCode.INVALID_SESSION.value] = GatewayOpCode.INVALID_SESSION.value
-    d: dict[str, Any]
+    d: bool
 
 
 class BotGatewayReadyData(BaseModel):

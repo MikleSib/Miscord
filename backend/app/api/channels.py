@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, delete, update
+from sqlalchemy import select, func, and_, delete, or_, update
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from app.db.database import get_db
@@ -18,7 +18,7 @@ from app.schemas.channel import (
 from app.schemas.user import User as UserResponse
 from app.core.dependencies import get_current_active_user, get_current_user
 from app.core.permissions import (
-    DEFAULT_PERMISSIONS, Permission, ensure_default_role, get_default_role,
+    DEFAULT_PERMISSIONS, Permission, discord_permissions_to_legacy, ensure_default_role, get_default_role,
     get_member_permissions, has_permission, is_member as is_server_member,
     require_membership, require_permission
 )
@@ -43,6 +43,7 @@ from app.services.channel_access import (
     user_can_manage_messages,
 )
 from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
+from app.services.discord_serializers import discord_channel
 import secrets as secrets_mod
 
 router = APIRouter()
@@ -252,6 +253,7 @@ async def create_channel(
         color=None,
         position=0,
         permissions=DEFAULT_PERMISSIONS,
+        legacy_permissions=discord_permissions_to_legacy(DEFAULT_PERMISSIONS),
         is_default=True,
     ))
     
@@ -502,6 +504,21 @@ async def update_channel(
                 }
             }
         })
+    await bot_event_dispatcher.dispatch_guild_event(
+        db,
+        channel_id,
+        "GUILD_UPDATE",
+        {
+            "id": str(channel.id),
+            "name": channel.name,
+            "description": channel.description,
+            "icon": channel.icon,
+            "banner": channel.banner,
+            "owner_id": str(channel.owner_id),
+            "preferred_locale": "ru",
+            "features": [],
+        },
+    )
     
     return {
         "id": channel.id,
@@ -835,6 +852,9 @@ async def create_text_channel(
         target_name=new_text_channel.name,
         changes={"kind": "text"},
     )
+    await bot_event_dispatcher.dispatch_guild_event(
+        db, channel_id, "CHANNEL_CREATE", discord_channel(new_text_channel, guild_id=channel_id, overwrites=[])
+    )
     
     return new_text_channel
 
@@ -893,6 +913,9 @@ async def create_voice_channel(
         target_id=new_voice_channel.id,
         target_name=new_voice_channel.name,
         changes={"kind": "voice"},
+    )
+    await bot_event_dispatcher.dispatch_guild_event(
+        db, channel_id, "CHANNEL_CREATE", discord_channel(new_voice_channel, guild_id=channel_id, overwrites=[])
     )
     
     return new_voice_channel
@@ -966,6 +989,13 @@ async def update_text_channel(
             }
         })
 
+    await bot_event_dispatcher.dispatch_guild_event(
+        db,
+        text_channel.channel_id,
+        "CHANNEL_UPDATE",
+        discord_channel(text_channel, guild_id=text_channel.channel_id, overwrites=[]),
+    )
+
     return text_channel
 
 @router.put("/voice/{voice_channel_id}", response_model=VoiceChannelSchema)
@@ -1036,6 +1066,13 @@ async def update_voice_channel(
             }
         })
 
+    await bot_event_dispatcher.dispatch_guild_event(
+        db,
+        voice_channel.channel_id,
+        "CHANNEL_UPDATE",
+        discord_channel(voice_channel, guild_id=voice_channel.channel_id, overwrites=[]),
+    )
+
     return voice_channel
 
 @router.delete("/text/{text_channel_id}")
@@ -1092,6 +1129,13 @@ async def delete_text_channel(
         target_id=text_channel_id,
         target_name=deleted_channel_name,
         changes={"kind": "text", "soft_hide": True},
+    )
+
+    await bot_event_dispatcher.dispatch_guild_event(
+        db,
+        server_id,
+        "CHANNEL_DELETE",
+        discord_channel(text_channel, guild_id=server_id, overwrites=[]),
     )
 
     return {"detail": "Текстовый канал скрыт"}
@@ -1152,6 +1196,13 @@ async def restore_text_channel(
         changes={"kind": "text", "restored": True},
     )
 
+    await bot_event_dispatcher.dispatch_guild_event(
+        db,
+        server_id,
+        "CHANNEL_CREATE",
+        discord_channel(text_channel, guild_id=server_id, overwrites=[]),
+    )
+
     return text_channel
 
 @router.delete("/voice/{voice_channel_id}")
@@ -1183,6 +1234,7 @@ async def delete_voice_channel(
     # Получаем сервер для уведомления
     server_id = voice_channel.channel_id
     deleted_channel_name = voice_channel.name
+    deleted_channel_payload = discord_channel(voice_channel, guild_id=server_id, overwrites=[])
 
     # Получаем всех участников сервера для уведомления
     members_stmt = select(ChannelMember.user_id).where(ChannelMember.channel_id == server_id)
@@ -1229,6 +1281,10 @@ async def delete_voice_channel(
         target_id=voice_channel_id,
         target_name=deleted_channel_name,
         changes={"kind": "voice"},
+    )
+
+    await bot_event_dispatcher.dispatch_guild_event(
+        db, server_id, "CHANNEL_DELETE", deleted_channel_payload
     )
 
     return {"detail": "Голосовой канал успешно удален"}
@@ -1417,7 +1473,8 @@ async def get_channel_messages(
 
     query = select(Message).where(
         Message.text_channel_id == channel_id,
-        Message.is_deleted == False
+        Message.is_deleted == False,
+        or_(Message.ephemeral_user_id.is_(None), Message.ephemeral_user_id == current_user.id),
     )
     
     if before:
@@ -1748,6 +1805,12 @@ async def delete_channel(
     members_stmt = select(ChannelMember.user_id).where(ChannelMember.channel_id == channel_id)
     members_result = await db.execute(members_stmt)
     member_ids = [row[0] for row in members_result.fetchall()]
+    await bot_event_dispatcher.dispatch_guild_event(
+        db,
+        channel_id,
+        "GUILD_DELETE",
+        {"id": str(channel_id), "unavailable": False},
+    )
     
     # Удаляем все связанные данные
     await _delete_server_text_messages(db, channel_id)

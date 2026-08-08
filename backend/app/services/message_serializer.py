@@ -73,4 +73,10 @@ def serialize_channel_message(message, *, include_reply: bool = True) -> dict[st
         "reply_to": reply,
         "embeds": embeds,
         "flags": message.flags or 0,
+        "components": list(getattr(message, "components", None) or []),
+        "poll": getattr(message, "poll", None),
+        "message_type": int(getattr(message, "message_type", 0) or 0),
+        "application_id": str(message.application_id) if getattr(message, "application_id", None) else None,
+        "interaction_metadata": getattr(message, "interaction_metadata", None),
+        "ephemeral": bool(getattr(message, "ephemeral_user_id", None)),
     }

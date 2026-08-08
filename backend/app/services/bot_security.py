@@ -72,12 +72,42 @@ def generate_bot_token(client_id: str) -> str:
     return f"mcb_{client_id}.{secrets.token_urlsafe(32)}"
 
 
+def generate_client_secret() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def hash_client_secret(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
 def hash_bot_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def bot_token_hint(token: str) -> str:
     return token[-6:]
+
+
+def decrypt_signing_private_key(ciphertext: str) -> Ed25519PrivateKey:
+    if not ciphertext.startswith("v1."):
+        raise RuntimeError("Unsupported bot signing key format")
+    try:
+        encoded = ciphertext[3:]
+        raw = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+        nonce, encrypted = raw[:12], raw[12:]
+        private_bytes = AESGCM(_secret_encryption_key()).decrypt(
+            nonce,
+            encrypted,
+            b"miscord-bot-signing-v1",
+        )
+        return Ed25519PrivateKey.from_private_bytes(private_bytes)
+    except Exception as exc:
+        raise RuntimeError("Invalid encrypted bot signing key") from exc
+
+
+def sign_interaction_request(ciphertext: str, timestamp: str, body: bytes) -> str:
+    private_key = decrypt_signing_private_key(ciphertext)
+    return private_key.sign(timestamp.encode("ascii") + body).hex()
 
 
 def _invalid_interaction_signature() -> HTTPException:

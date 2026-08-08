@@ -1,15 +1,21 @@
 from fastapi import FastAPI, HTTPException, Request, WebSocket
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import asyncio
 import logging
 import re
+import hashlib
+import time
 from sqlalchemy import delete, text
 
 from app.core.config import settings
 from app.db.database import engine, Base
-from app.api import auth, channels, channel_permissions, servers, uploads, reactions, friends, direct_messages, embeds, webhooks, attachment_files, bot_apps, bot_platform
+from app.api import auth, channels, channel_permissions, servers, uploads, reactions, friends, direct_messages, embeds, webhooks, attachment_files, bot_apps, bot_platform, bot_client, bot_oauth, discord_api, discord_interactions
+from app.core.discord_errors import DiscordAPIError
+from app.services.webhook_rate_limit import Bucket, consume, rate_headers
 from app.websocket import chat, voice
 from app.websocket.connection_manager import manager
 from app.websocket.chat import websocket_chat_endpoint, websocket_notifications_endpoint
@@ -134,6 +140,89 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.exception_handler(RequestValidationError)
+async def protocol_validation_error_handler(request: Request, exc: RequestValidationError):
+    from fastapi.encoders import jsonable_encoder
+    from fastapi.responses import JSONResponse
+
+    if request.url.path.startswith("/api/v10/"):
+        errors = {}
+        for item in exc.errors():
+            location = ".".join(str(part) for part in item.get("loc", ()) if part != "body") or "_errors"
+            errors[location] = {"_errors": [{"code": item.get("type", "BASE_TYPE_INVALID"), "message": item.get("msg", "Invalid value")}]}
+        return JSONResponse(
+            status_code=400,
+            content={"message": "Invalid Form Body", "code": 50035, "errors": errors},
+        )
+    if request.url.path.startswith("/api/oauth2/"):
+        return JSONResponse(
+            status_code=400,
+            content={"error": "invalid_request", "error_description": "The request body is invalid"},
+        )
+    return JSONResponse(status_code=422, content=jsonable_encoder({"detail": exc.errors()}))
+
+
+@app.exception_handler(DiscordAPIError)
+async def discord_api_error_handler(_request: Request, exc: DiscordAPIError):
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=exc.payload(),
+        headers=exc.headers,
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def oauth_http_error_handler(request: Request, exc: StarletteHTTPException):
+    from fastapi.responses import JSONResponse
+
+    if request.url.path.startswith("/api/oauth2/") and isinstance(exc.detail, dict) and "error" in exc.detail:
+        return JSONResponse(status_code=exc.status_code, content=exc.detail, headers=exc.headers)
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail}, headers=exc.headers)
+
+
+@app.middleware("http")
+async def discord_api_rate_limit_middleware(request: Request, call_next):
+    is_discord_api = request.url.path.startswith("/api/v10/")
+    is_oauth_api = request.url.path.startswith("/api/oauth2/")
+    if not is_discord_api and not is_oauth_api:
+        return await call_next(request)
+
+    authorization = request.headers.get("authorization", "")
+    if authorization:
+        identity = hashlib.sha256(authorization.encode("utf-8")).hexdigest()[:24]
+    else:
+        forwarded = request.headers.get("x-forwarded-for", "")
+        identity = (forwarded.split(",", 1)[0].strip() if forwarded else (request.client.host if request.client else "unknown"))
+    route = re.sub(r"(?<=/)\d{1,20}(?=/|$)", ":id", request.url.path)
+    route = re.sub(r"(/webhooks/:id/)[^/]+", r"\1:token", route)
+    bucket_id = hashlib.sha256(f"{request.method}:{route}".encode("utf-8")).hexdigest()[:16]
+    namespace = "discord" if is_discord_api else "oauth"
+    route_limit = 10 if is_discord_api else 5
+    global_limit = 50 if is_discord_api else 20
+    result = await consume([
+        Bucket(key=f"{namespace}:route:{identity}:{bucket_id}", limit=route_limit, window_seconds=1, scope="shared"),
+        Bucket(key=f"{namespace}:global:{identity}", limit=global_limit, window_seconds=1, scope="global"),
+    ])
+    headers = rate_headers(result)
+    headers["X-RateLimit-Bucket"] = bucket_id
+    headers["X-RateLimit-Reset"] = f"{time.time() + result.retry_after:.3f}"
+    if not result.allowed:
+        from fastapi.responses import JSONResponse
+
+        headers["Retry-After"] = f"{result.retry_after:.3f}"
+        return JSONResponse(
+            status_code=429,
+            content={"message": "You are being rate limited.", "retry_after": result.retry_after, "global": result.scope == "global"},
+            headers=headers,
+        )
+    response = await call_next(request)
+    for name, value in headers.items():
+        response.headers[name] = value
+    return response
+
 # Подключение роутеров
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(channels.router, prefix="/api/channels", tags=["channels"])
@@ -148,6 +237,10 @@ app.include_router(webhooks.router, prefix="/api", tags=["webhooks"])
 app.include_router(attachment_files.router, prefix="/api", tags=["attachments"])
 app.include_router(bot_apps.router, prefix="/api", tags=["bot-platform"])
 app.include_router(bot_platform.router, prefix="/api", tags=["bot-platform"])
+app.include_router(bot_client.router, prefix="/api", tags=["bot-client"])
+app.include_router(bot_oauth.router, prefix="/api/oauth2", tags=["oauth2"])
+app.include_router(discord_api.router, prefix="/api/v10", tags=["discord-api-v10"])
+app.include_router(discord_interactions.router, prefix="/api/v10", tags=["discord-interactions-v10"])
 
 # WebSocket эндпоинты
 

@@ -4,6 +4,7 @@ import React, { useMemo } from 'react'
 import { Check, Slash, X } from 'lucide-react'
 
 import { cn } from '../../lib/utils'
+import { hasRawPermission, permissionBitfield } from '../../lib/permissions'
 import { ChannelPermissionCatalogItem } from '../../types'
 
 export type OverwritePermissionState = 'inherit' | 'allow' | 'deny'
@@ -13,8 +14,8 @@ export function getOverwritePermissionState(
   deny: number,
   bit: number
 ): OverwritePermissionState {
-  if (allow & bit) return 'allow'
-  if (deny & bit) return 'deny'
+  if (hasRawPermission(allow, bit)) return 'allow'
+  if (hasRawPermission(deny, bit)) return 'deny'
   return 'inherit'
 }
 
@@ -25,12 +26,21 @@ export function setOverwritePermissionState(
   state: OverwritePermissionState
 ): { allow: number; deny: number } {
   if (state === 'allow') {
-    return { allow: allow | bit, deny: deny & ~bit }
+    return {
+      allow: Number(permissionBitfield(allow) | permissionBitfield(bit)),
+      deny: Number(permissionBitfield(deny) & ~permissionBitfield(bit)),
+    }
   }
   if (state === 'deny') {
-    return { allow: allow & ~bit, deny: deny | bit }
+    return {
+      allow: Number(permissionBitfield(allow) & ~permissionBitfield(bit)),
+      deny: Number(permissionBitfield(deny) | permissionBitfield(bit)),
+    }
   }
-  return { allow: allow & ~bit, deny: deny & ~bit }
+  return {
+    allow: Number(permissionBitfield(allow) & ~permissionBitfield(bit)),
+    deny: Number(permissionBitfield(deny) & ~permissionBitfield(bit)),
+  }
 }
 
 const GROUP_LABELS: Record<string, string> = {

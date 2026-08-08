@@ -13,6 +13,8 @@ import { ChatMessage } from './ChatMessage'
 import { Tooltip } from './ui/tooltip'
 import { ReplyInput } from './ReplyInput'
 import { MentionAutocomplete } from './MentionAutocomplete'
+import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
+import { InteractionModalHost } from './InteractionModalHost'
 import { MemberProfilePopover } from './MemberProfilePopover'
 import { Message, Role, ServerMember } from '../types'
 import { formatDateDivider } from '../lib/utils'
@@ -24,6 +26,8 @@ import { OutgoingMessageCard } from './OutgoingMessageCard'
 import { useOutgoingMessageStore } from '../store/outgoingMessageStore'
 import reactionService from '../services/reactionService'
 import serverService from '../services/serverService'
+import botService from '../services/botService'
+import type { ChannelApplicationCommands, DiscordApplicationCommand, DiscordApplicationCommandOption } from '../types/bot'
 import { formatSlowModeLabel } from '../lib/slowMode'
 import {
   filterMentionCandidates,
@@ -97,6 +101,9 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   const [serverRoles, setServerRoles] = useState<Role[]>([])
   const [mentionQuery, setMentionQuery] = useState<{ start: number; query: string } | null>(null)
   const [mentionIndex, setMentionIndex] = useState(0)
+  const [applicationCommands, setApplicationCommands] = useState<ChannelApplicationCommands>({ applications: [], commands: [] })
+  const [slashIndex, setSlashIndex] = useState(0)
+  const [selectedSlashCommand, setSelectedSlashCommand] = useState<DiscordApplicationCommand | null>(null)
   const [profilePopover, setProfilePopover] = useState<{
     member: ServerMember
     anchorRect: DOMRect
@@ -138,6 +145,36 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     () => (mentionQuery ? filterMentionCandidates(mentionCandidates, mentionQuery.query) : []),
     [mentionCandidates, mentionQuery]
   )
+
+  const slashQuery = useMemo(() => {
+    if (!messageInput.startsWith('/') || messageInput.includes('\n')) return null
+    const match = messageInput.match(/^\/([^\s]*)/)
+    return match ? match[1].toLocaleLowerCase() : null
+  }, [messageInput])
+
+  const filteredSlashCommands = useMemo(() => {
+    if (slashQuery === null) return []
+    return applicationCommands.commands
+      .filter((command) => command.type === 1 && command.name.toLocaleLowerCase().includes(slashQuery))
+      .slice(0, 25)
+  }, [applicationCommands.commands, slashQuery])
+
+  const applicationNames = useMemo(
+    () => Object.fromEntries(applicationCommands.applications.map((application) => [application.id, application.name])),
+    [applicationCommands.applications],
+  )
+
+  useEffect(() => {
+    if (currentChannel?.type !== 'text') {
+      setApplicationCommands({ applications: [], commands: [] })
+      return
+    }
+    let cancelled = false
+    botService.listChannelCommands(currentChannel.id)
+      .then((result) => { if (!cancelled) setApplicationCommands(result) })
+      .catch(() => { if (!cancelled) setApplicationCommands({ applications: [], commands: [] }) })
+    return () => { cancelled = true }
+  }, [currentChannel?.id, currentChannel?.type])
 
   const mentionNameById = useMemo(() => {
     const map = new Map<number, string>()
@@ -569,10 +606,73 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     })
   }
 
+  const applySlashCommand = (command: DiscordApplicationCommand) => {
+    setSelectedSlashCommand(command)
+    setMessageInput(`/${command.name}${command.options?.length ? ' ' : ''}`)
+    setSlashIndex(0)
+    setMentionQuery(null)
+    requestAnimationFrame(() => {
+      const input = messageInputRef.current
+      if (!input) return
+      input.focus()
+      input.setSelectionRange(input.value.length, input.value.length)
+      resizeChatComposer(input)
+    })
+  }
+
+  const parseCommandOptions = (command: DiscordApplicationCommand, source: string) => {
+    const tokens = source.match(/"[^"]*"|'[^']*'|\S+/g)?.map((token) => token.replace(/^("|')|("|')$/g, '')) || []
+    const definitions = command.options || []
+    return definitions.slice(0, tokens.length).map((option: DiscordApplicationCommandOption, index) => {
+      const raw = tokens[index]
+      let value: string | number | boolean = raw
+      if (option.type === 4) value = Number.parseInt(raw, 10)
+      if (option.type === 10) value = Number.parseFloat(raw)
+      if (option.type === 5) value = ['true', '1', 'yes', 'да'].includes(raw.toLocaleLowerCase())
+      return { name: option.name, type: option.type, value }
+    })
+  }
+
   const handleSendMessage = async (event: React.FormEvent) => {
     event.preventDefault()
     const content = messageInput.trim()
     if ((!content && files.length === 0) || !user || !currentChannel) return
+
+    if (content.startsWith('/') && files.length === 0 && currentChannel.type === 'text') {
+      const [commandName, ...argumentParts] = content.slice(1).trim().split(/\s+/)
+      const command = selectedSlashCommand?.name === commandName
+        ? selectedSlashCommand
+        : applicationCommands.commands.find((item) => item.type === 1 && item.name === commandName)
+      if (command) {
+        const required = (command.options || []).filter((option) => option.required).length
+        if (argumentParts.length < required) {
+          setAttachmentError(`Для /${command.name} нужно указать обязательные параметры.`)
+          return
+        }
+        setIsLoading(true)
+        setAttachmentError(null)
+        try {
+          const result = await botService.invokeCommand(currentChannel.id, command.application_id, command.id, {
+            name: command.name,
+            type: command.type,
+            options: parseCommandOptions(command, argumentParts.join(' ')),
+          })
+          if (result.status === 'offline' || result.status === 'failed') {
+            setAttachmentError('Приложение сейчас недоступно и не получило команду.')
+            return
+          }
+          setMessageInput('')
+          setSelectedSlashCommand(null)
+          requestAnimationFrame(() => resetChatComposer(messageInputRef.current))
+        } catch (requestError) {
+          const detail = (requestError as { response?: { data?: { detail?: string } } }).response?.data?.detail
+          setAttachmentError(typeof detail === 'string' ? detail : 'Не удалось выполнить команду приложения.')
+        } finally {
+          setIsLoading(false)
+        }
+        return
+      }
+    }
 
     const queuedFiles = [...files]
     const replyToId = replyingTo?.id
@@ -597,13 +697,43 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     const value = e.target.value
     const caret = e.target.selectionStart ?? value.length
     setMessageInput(value)
-    updateMentionState(value, caret)
+    if (value.startsWith('/')) {
+      setMentionQuery(null)
+      setSlashIndex(0)
+      if (selectedSlashCommand && !value.startsWith(`/${selectedSlashCommand.name}`)) setSelectedSlashCommand(null)
+    } else {
+      setSelectedSlashCommand(null)
+      updateMentionState(value, caret)
+    }
     if (currentChannel?.type === 'text') {
       chatService.sendTyping();
     }
   }
 
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (slashQuery !== null && filteredSlashCommands.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSlashIndex((previous) => (previous + 1) % filteredSlashCommands.length)
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSlashIndex((previous) => (previous - 1 + filteredSlashCommands.length) % filteredSlashCommands.length)
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setMessageInput('')
+        setSelectedSlashCommand(null)
+        return
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !messageInput.includes(' '))) {
+        e.preventDefault()
+        applySlashCommand(filteredSlashCommands[slashIndex] || filteredSlashCommands[0])
+        return
+      }
+    }
     if (!mentionQuery || filteredMentions.length === 0) {
       if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
         e.preventDefault()
@@ -855,6 +985,15 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
                 onHover={setMentionIndex}
               />
             )}
+            {slashQuery !== null && !mentionQuery && (
+              <SlashCommandAutocomplete
+                commands={filteredSlashCommands}
+                selectedIndex={slashIndex}
+                applicationNames={applicationNames}
+                onSelect={applySlashCommand}
+                onHover={setSlashIndex}
+              />
+            )}
             
             {/* File Previews */}
             {files.length > 0 && (
@@ -910,7 +1049,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
                 placeholder={
                   replyingTo 
                     ? `Ответ пользователю ${replyingTo.author.username}...`
-                    : `Написать в #${currentChannel.name} · @ — упомянуть`
+                    : `Написать в #${currentChannel.name} · / — команда · @ — упомянуть`
                 }
                 className="flex-1 bg-transparent outline-none text-sm"
                 disabled={isLoading || isSlowModeActive}
@@ -947,6 +1086,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
           onMemberUpdated={handleProfileMemberUpdated}
         />
       )}
+      <InteractionModalHost />
     </div>
   )
 }

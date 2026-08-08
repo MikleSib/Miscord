@@ -54,6 +54,14 @@ export default function DeveloperPortalPage() {
   const [editName, setEditName] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [oneTimeToken, setOneTimeToken] = useState<string | null>(null);
+  const [oneTimeClientSecret, setOneTimeClientSecret] = useState<string | null>(null);
+  const [editBotPublic, setEditBotPublic] = useState(true);
+  const [editRequireCodeGrant, setEditRequireCodeGrant] = useState(false);
+  const [editRedirectUris, setEditRedirectUris] = useState('');
+  const [editInteractionsEndpoint, setEditInteractionsEndpoint] = useState('');
+  const [editTermsUrl, setEditTermsUrl] = useState('');
+  const [editPrivacyUrl, setEditPrivacyUrl] = useState('');
+  const [editFlags, setEditFlags] = useState(0);
   const [copied, setCopied] = useState(false);
   const [dispatchToken, setDispatchToken] = useState('');
   const [dispatchPayload, setDispatchPayload] = useState(
@@ -87,6 +95,13 @@ export default function DeveloperPortalPage() {
     .split(',')
     .map((entry) => Number(entry.trim()))
     .filter((entry) => Number.isInteger(entry) && entry > 0);
+
+  const appFlagEnabled = (flag: number) => Math.floor(editFlags / flag) % 2 === 1;
+  const toggleAppFlag = (flag: number, enabled: boolean) => {
+    const active = appFlagEnabled(flag);
+    if (active === enabled) return;
+    setEditFlags((current) => current + (enabled ? flag : -flag));
+  };
 
   const resetCommandForm = () => {
     setEditingCommandId(null);
@@ -155,6 +170,13 @@ export default function DeveloperPortalPage() {
     if (!selected) return;
     setEditName(selected.name);
     setEditDescription(selected.description ?? '');
+    setEditBotPublic(selected.bot_public);
+    setEditRequireCodeGrant(selected.bot_require_code_grant);
+    setEditRedirectUris(selected.redirect_uris.join('\n'));
+    setEditInteractionsEndpoint(selected.interactions_endpoint_url ?? '');
+    setEditTermsUrl(selected.terms_of_service_url ?? '');
+    setEditPrivacyUrl(selected.privacy_policy_url ?? '');
+    setEditFlags(selected.flags || 0);
     setCommandsError(null);
     resetCommandForm();
     setCreatingCommand(false);
@@ -208,6 +230,7 @@ export default function DeveloperPortalPage() {
       setCreateDescription('');
       setCreateOpen(false);
       setOneTimeToken(result.bot_token);
+      setOneTimeClientSecret(result.client_secret);
     } catch (requestError) {
       setError(errorMessage(requestError));
     } finally {
@@ -223,6 +246,13 @@ export default function DeveloperPortalPage() {
       const updated = await botService.update(selected.id, {
         name: editName.trim(),
         description: editDescription.trim() || null,
+        bot_public: editBotPublic,
+        bot_require_code_grant: editRequireCodeGrant,
+        redirect_uris: editRedirectUris.split(/\r?\n/).map((item) => item.trim()).filter(Boolean),
+        interactions_endpoint_url: editInteractionsEndpoint.trim() || null,
+        terms_of_service_url: editTermsUrl.trim() || null,
+        privacy_policy_url: editPrivacyUrl.trim() || null,
+        flags: editFlags,
       });
       setApplications((current) => current.map((item) => item.id === updated.id ? updated : item));
     } catch (requestError) {
@@ -239,6 +269,7 @@ export default function DeveloperPortalPage() {
     try {
       const result = await botService.resetToken(selected.id);
       setOneTimeToken(result.bot_token);
+      setOneTimeClientSecret(null);
     } catch (requestError) {
       setError(errorMessage(requestError));
     } finally {
@@ -273,8 +304,12 @@ export default function DeveloperPortalPage() {
   };
 
   const copyToken = async () => {
-    if (!oneTimeToken) return;
-    await navigator.clipboard.writeText(oneTimeToken);
+    const values = [
+      oneTimeToken ? `Bot Token: ${oneTimeToken}` : null,
+      oneTimeClientSecret ? `Client Secret: ${oneTimeClientSecret}` : null,
+    ].filter(Boolean).join('\n');
+    if (!values) return;
+    await navigator.clipboard.writeText(values);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
   };
@@ -365,6 +400,21 @@ export default function DeveloperPortalPage() {
       setCommands(updated);
     } catch (requestError) {
       setCommandsError(errorMessage(requestError));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const resetClientSecret = async () => {
+    if (!selected || !window.confirm('Старый client secret сразу перестанет работать. Создать новый?')) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const result = await botService.resetClientSecret(selected.id);
+      setOneTimeToken(null);
+      setOneTimeClientSecret(result.client_secret);
+    } catch (requestError) {
+      setError(errorMessage(requestError));
     } finally {
       setSaving(false);
     }
@@ -501,6 +551,38 @@ export default function DeveloperPortalPage() {
                 </div>
               </div>
 
+              <div className="rounded-2xl border border-white/10 bg-[#2b2d31] p-5 md:p-8">
+                <div className="mb-5">
+                  <h3 className="text-lg font-bold">OAuth2 и Bot</h3>
+                  <p className="mt-1 text-sm text-[#949ba4]">Redirect URI, Interactions Endpoint URL и привилегированные Gateway Intents работают по модели Discord API v10.</p>
+                </div>
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <label className="grid gap-2 lg:col-span-2">
+                    <span className="text-xs font-bold uppercase tracking-wide text-[#b5bac1]">Redirect URIs — по одному в строке</span>
+                    <textarea value={editRedirectUris} rows={3} onChange={(event) => setEditRedirectUris(event.target.value)} className="rounded-xl border border-white/10 bg-[#1e1f22] p-3.5 font-mono text-sm outline-none focus:border-[#5865f2]" placeholder="https://example.com/oauth/callback" />
+                  </label>
+                  <label className="grid gap-2 lg:col-span-2">
+                    <span className="text-xs font-bold uppercase tracking-wide text-[#b5bac1]">Interactions Endpoint URL</span>
+                    <input value={editInteractionsEndpoint} onChange={(event) => setEditInteractionsEndpoint(event.target.value)} className="min-h-11 rounded-xl border border-white/10 bg-[#1e1f22] px-3.5 font-mono text-sm outline-none focus:border-[#5865f2]" placeholder="https://example.com/interactions" />
+                    <span className="text-xs text-[#949ba4]">При сохранении Miscord отправит подписанный PING и примет URL только после валидного PONG.</span>
+                  </label>
+                  <label className="grid gap-2"><span className="text-xs font-bold uppercase tracking-wide text-[#b5bac1]">Terms of Service URL</span><input value={editTermsUrl} onChange={(event) => setEditTermsUrl(event.target.value)} className="min-h-11 rounded-xl border border-white/10 bg-[#1e1f22] px-3.5 text-sm outline-none focus:border-[#5865f2]" /></label>
+                  <label className="grid gap-2"><span className="text-xs font-bold uppercase tracking-wide text-[#b5bac1]">Privacy Policy URL</span><input value={editPrivacyUrl} onChange={(event) => setEditPrivacyUrl(event.target.value)} className="min-h-11 rounded-xl border border-white/10 bg-[#1e1f22] px-3.5 text-sm outline-none focus:border-[#5865f2]" /></label>
+                </div>
+                <div className="mt-5 grid gap-3 lg:grid-cols-2">
+                  <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-[#1e1f22] p-4"><input type="checkbox" className="mt-1" checked={editBotPublic} onChange={(event) => setEditBotPublic(event.target.checked)} /><span><strong className="block text-sm">Public Bot</strong><span className="text-xs text-[#949ba4]">Другие пользователи могут устанавливать бота.</span></span></label>
+                  <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-[#1e1f22] p-4"><input type="checkbox" className="mt-1" checked={editRequireCodeGrant} onChange={(event) => setEditRequireCodeGrant(event.target.checked)} /><span><strong className="block text-sm">Requires OAuth2 Code Grant</strong><span className="text-xs text-[#949ba4]">Установка требует authorization code flow.</span></span></label>
+                  {[
+                    [1 << 12, 'Presence Intent', 'Получать presence updates участников.'],
+                    [1 << 14, 'Server Members Intent', 'Получать список и события участников.'],
+                    [1 << 18, 'Message Content Intent', 'Получать содержимое сообщений.'],
+                  ].map(([flag, title, description]) => (
+                    <label key={String(flag)} className="flex items-start gap-3 rounded-xl border border-white/10 bg-[#1e1f22] p-4"><input type="checkbox" className="mt-1" checked={appFlagEnabled(Number(flag))} onChange={(event) => toggleAppFlag(Number(flag), event.target.checked)} /><span><strong className="block text-sm">{title}</strong><span className="text-xs text-[#949ba4]">{description}</span></span></label>
+                  ))}
+                </div>
+                <div className="mt-5 flex justify-end"><button disabled={saving || !editName.trim()} onClick={saveApplication} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#5865f2] px-5 text-sm font-bold hover:bg-[#4752c4] disabled:opacity-50"><Save className="h-4 w-4" /> Сохранить настройки</button></div>
+              </div>
+
               <div className="grid gap-5 lg:grid-cols-2">
                 <div className="rounded-2xl border border-white/10 bg-[#2b2d31] p-5 md:p-6">
                   <div className="mb-4 flex items-center gap-3"><KeyRound className="h-5 w-5 text-[#f0b232]" /><h3 className="font-bold">Bot Token</h3></div>
@@ -571,6 +653,11 @@ export default function DeveloperPortalPage() {
                       </code>
                     </div>
                   )}
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-[#2b2d31] p-5 md:p-6">
+                  <div className="mb-4 flex items-center gap-3"><KeyRound className="h-5 w-5 text-[#53d487]" /><h3 className="font-bold">OAuth2 Client Secret</h3></div>
+                  <p className="mb-5 text-sm leading-6 text-[#b5bac1]">Client secret используется серверными OAuth2 flows и показывается только после создания или сброса.</p>
+                  <button disabled={saving || selected.status !== 'active'} onClick={resetClientSecret} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#4e5058] px-4 text-sm font-bold hover:bg-[#5d6069] disabled:opacity-50"><RefreshCw className="h-4 w-4" /> Сбросить client secret</button>
                 </div>
 
                 <div className="rounded-2xl border border-white/10 bg-[#2b2d31] p-5 md:p-6">
@@ -708,12 +795,12 @@ export default function DeveloperPortalPage() {
         </div>
       )}
 
-      {oneTimeToken && (
+      {(oneTimeToken || oneTimeClientSecret) && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/80 p-4" role="dialog" aria-modal="true" aria-labelledby="token-title">
           <div className="w-full max-w-2xl rounded-2xl border border-[#f0b232]/30 bg-[#2b2d31] p-5 shadow-2xl md:p-7">
-            <div className="mb-4 flex items-start gap-3"><div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#f0b232]/15 text-[#f0b232]"><KeyRound className="h-5 w-5" /></div><div><h2 id="token-title" className="text-xl font-black">Сохраните Bot Token</h2><p className="mt-1 text-sm text-[#b5bac1]">После закрытия это значение больше нельзя будет получить.</p></div></div>
-            <code className="block max-h-36 overflow-auto break-all rounded-xl border border-white/10 bg-[#111214] p-4 font-mono text-sm text-[#dbdee1]">{oneTimeToken}</code>
-            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><button onClick={() => { setOneTimeToken(null); setCopied(false); }} className="min-h-11 rounded-xl px-4 text-sm font-bold text-[#b5bac1] hover:bg-white/10">Я сохранил токен</button><button onClick={copyToken} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#5865f2] px-5 text-sm font-bold hover:bg-[#4752c4]">{copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}{copied ? 'Скопировано' : 'Копировать'}</button></div>
+            <div className="mb-4 flex items-start gap-3"><div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#f0b232]/15 text-[#f0b232]"><KeyRound className="h-5 w-5" /></div><div><h2 id="token-title" className="text-xl font-black">Сохраните секреты</h2><p className="mt-1 text-sm text-[#b5bac1]">После закрытия эти значения больше нельзя будет получить.</p></div></div>
+            <div className="space-y-3">{oneTimeToken && <div><span className="mb-1 block text-xs font-bold uppercase text-[#b5bac1]">Bot Token</span><code className="block max-h-36 overflow-auto break-all rounded-xl border border-white/10 bg-[#111214] p-4 font-mono text-sm text-[#dbdee1]">{oneTimeToken}</code></div>}{oneTimeClientSecret && <div><span className="mb-1 block text-xs font-bold uppercase text-[#b5bac1]">Client Secret</span><code className="block max-h-36 overflow-auto break-all rounded-xl border border-white/10 bg-[#111214] p-4 font-mono text-sm text-[#dbdee1]">{oneTimeClientSecret}</code></div>}</div>
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><button onClick={() => { setOneTimeToken(null); setOneTimeClientSecret(null); setCopied(false); }} className="min-h-11 rounded-xl px-4 text-sm font-bold text-[#b5bac1] hover:bg-white/10">Я сохранил секреты</button><button onClick={copyToken} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#5865f2] px-5 text-sm font-bold hover:bg-[#4752c4]">{copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}{copied ? 'Скопировано' : 'Копировать'}</button></div>
           </div>
         </div>
       )}

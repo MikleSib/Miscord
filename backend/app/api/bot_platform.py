@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.core.dependencies import get_current_active_user
-from app.core.permissions import ALL_PERMISSIONS, Permission, get_member_permissions, require_permission
+from app.core.permissions import ALL_PERMISSIONS, Permission, discord_permissions_to_legacy, get_member_permissions, require_permission
 from app.db.database import get_db
 from app.models.bot import BotApplication, BotInstall, BotCommand, BotInteraction
 from app.models.channel import Channel, ChannelMember, TextChannel
@@ -513,6 +513,7 @@ async def authorize_bot_install(
             color="#5865f2",
             position=int(position_result.scalar() or 0) + 1,
             permissions=requested,
+            legacy_permissions=discord_permissions_to_legacy(requested),
             is_default=False,
             managed_by_bot_application_id=application.id,
         )
@@ -521,6 +522,7 @@ async def authorize_bot_install(
     else:
         role.name = application.name
         role.permissions = requested
+        role.legacy_permissions = discord_permissions_to_legacy(requested)
 
     membership_result = await db.execute(
         select(ChannelMember).where(
@@ -543,6 +545,7 @@ async def authorize_bot_install(
     install.role_id = role.id
     install.scopes = scopes
     install.permissions = requested
+    install.legacy_permissions = discord_permissions_to_legacy(requested)
     install.status = "active"
     await db.commit()
     if not was_existing:
@@ -701,6 +704,11 @@ async def create_bot_command(
             command_type=payload.type,
             definition=payload.definition or {},
             default_member_permissions=payload.default_member_permissions,
+            legacy_default_member_permissions=(
+                discord_permissions_to_legacy(payload.default_member_permissions)
+                if payload.default_member_permissions is not None
+                else None
+            ),
             dm_permission=payload.dm_permission,
             allowed_user_ids=payload.allowed_user_ids,
             allowed_role_ids=payload.allowed_role_ids,
@@ -746,8 +754,17 @@ async def replace_bot_command(
     command.name = target_name
     command.description = payload.description
     command.command_type = payload.type
-    command.definition = payload.definition or {}
+    previous_definition = command.definition if isinstance(command.definition, dict) else {}
+    command.definition = {
+        **(payload.definition or {}),
+        **({"guild_permissions": previous_definition["guild_permissions"]} if "guild_permissions" in previous_definition else {}),
+    }
     command.default_member_permissions = payload.default_member_permissions
+    command.legacy_default_member_permissions = (
+        discord_permissions_to_legacy(payload.default_member_permissions)
+        if payload.default_member_permissions is not None
+        else None
+    )
     command.dm_permission = payload.dm_permission
     command.allowed_user_ids = payload.allowed_user_ids
     command.allowed_role_ids = payload.allowed_role_ids
@@ -793,9 +810,18 @@ async def update_bot_command(
     if payload.type is not None:
         command.command_type = payload.type
     if payload.definition is not None:
-        command.definition = payload.definition
-    if payload.default_member_permissions is not None:
+        previous_definition = command.definition if isinstance(command.definition, dict) else {}
+        command.definition = {
+            **payload.definition,
+            **({"guild_permissions": previous_definition["guild_permissions"]} if "guild_permissions" in previous_definition else {}),
+        }
+    if "default_member_permissions" in payload.model_fields_set:
         command.default_member_permissions = payload.default_member_permissions
+        command.legacy_default_member_permissions = (
+            discord_permissions_to_legacy(payload.default_member_permissions)
+            if payload.default_member_permissions is not None
+            else None
+        )
     if payload.dm_permission is not None:
         command.dm_permission = payload.dm_permission
     if payload.allowed_user_ids is not None:

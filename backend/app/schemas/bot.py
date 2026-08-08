@@ -13,6 +13,18 @@ class BotApplicationCreate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     description: Optional[str] = Field(default=None, max_length=400)
     avatar_url: Optional[str] = Field(default=None, max_length=2048)
+    bot_public: bool = True
+    bot_require_code_grant: bool = False
+    terms_of_service_url: Optional[str] = Field(default=None, max_length=2048)
+    privacy_policy_url: Optional[str] = Field(default=None, max_length=2048)
+    redirect_uris: list[str] = Field(default_factory=list, max_length=10)
+    interactions_endpoint_url: Optional[str] = Field(default=None, max_length=2048)
+    event_webhooks_url: Optional[str] = Field(default=None, max_length=2048)
+    event_webhooks_types: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list, max_length=5)
+    custom_install_url: Optional[str] = Field(default=None, max_length=2048)
+    install_params: Optional[dict[str, Any]] = None
+    integration_types_config: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("name")
     @classmethod
@@ -22,7 +34,15 @@ class BotApplicationCreate(BaseModel):
             raise ValueError("Application name cannot be empty")
         return value
 
-    @field_validator("description", "avatar_url")
+    @field_validator(
+        "description",
+        "avatar_url",
+        "terms_of_service_url",
+        "privacy_policy_url",
+        "interactions_endpoint_url",
+        "event_webhooks_url",
+        "custom_install_url",
+    )
     @classmethod
     def clean_optional(cls, value: Optional[str]) -> Optional[str]:
         if value is None:
@@ -30,11 +50,44 @@ class BotApplicationCreate(BaseModel):
         value = value.strip()
         return value or None
 
+    @field_validator("redirect_uris")
+    @classmethod
+    def clean_redirect_uris(cls, value: list[str]) -> list[str]:
+        output = []
+        for item in value:
+            cleaned = item.strip()
+            if cleaned and cleaned not in output:
+                output.append(cleaned)
+        return output
+
+    @field_validator("tags")
+    @classmethod
+    def clean_tags(cls, value: list[str]) -> list[str]:
+        output = []
+        for item in value:
+            cleaned = item.strip().lower()
+            if cleaned and cleaned not in output:
+                output.append(cleaned[:20])
+        return output[:5]
+
 
 class BotApplicationUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=80)
     description: Optional[str] = Field(default=None, max_length=400)
     avatar_url: Optional[str] = Field(default=None, max_length=2048)
+    bot_public: Optional[bool] = None
+    bot_require_code_grant: Optional[bool] = None
+    terms_of_service_url: Optional[str] = Field(default=None, max_length=2048)
+    privacy_policy_url: Optional[str] = Field(default=None, max_length=2048)
+    redirect_uris: Optional[list[str]] = Field(default=None, max_length=10)
+    interactions_endpoint_url: Optional[str] = Field(default=None, max_length=2048)
+    event_webhooks_url: Optional[str] = Field(default=None, max_length=2048)
+    event_webhooks_types: Optional[list[str]] = None
+    tags: Optional[list[str]] = Field(default=None, max_length=5)
+    custom_install_url: Optional[str] = Field(default=None, max_length=2048)
+    install_params: Optional[dict[str, Any]] = None
+    integration_types_config: Optional[dict[str, Any]] = None
+    flags: Optional[int] = Field(default=None, ge=0)
 
     @field_validator("name")
     @classmethod
@@ -45,6 +98,35 @@ class BotApplicationUpdate(BaseModel):
         if not value:
             raise ValueError("Application name cannot be empty")
         return value
+
+    @field_validator(
+        "description",
+        "avatar_url",
+        "terms_of_service_url",
+        "privacy_policy_url",
+        "interactions_endpoint_url",
+        "event_webhooks_url",
+        "custom_install_url",
+    )
+    @classmethod
+    def clean_optional_string(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        return value.strip() or None
+
+    @field_validator("redirect_uris")
+    @classmethod
+    def clean_redirect_uris(cls, value: Optional[list[str]]) -> Optional[list[str]]:
+        if value is None:
+            return None
+        return list(dict.fromkeys(item.strip() for item in value if item.strip()))
+
+    @field_validator("tags")
+    @classmethod
+    def clean_tags(cls, value: Optional[list[str]]) -> Optional[list[str]]:
+        if value is None:
+            return None
+        return list(dict.fromkeys(item.strip().lower()[:20] for item in value if item.strip()))[:5]
 
 
 class BotIdentityResponse(BaseModel):
@@ -64,6 +146,20 @@ class BotApplicationResponse(BaseModel):
     description: Optional[str]
     avatar_url: Optional[str]
     public_key: str
+    bot_public: bool
+    bot_require_code_grant: bool
+    terms_of_service_url: Optional[str]
+    privacy_policy_url: Optional[str]
+    redirect_uris: list[str]
+    interactions_endpoint_url: Optional[str]
+    event_webhooks_url: Optional[str]
+    event_webhooks_status: int
+    event_webhooks_types: list[str]
+    tags: list[str]
+    install_params: Optional[dict[str, Any]]
+    integration_types_config: dict[str, Any]
+    custom_install_url: Optional[str]
+    flags: int
     status: str
     created_at: datetime
     updated_at: datetime
@@ -73,10 +169,16 @@ class BotApplicationResponse(BaseModel):
 class BotApplicationCreatedResponse(BaseModel):
     application: BotApplicationResponse
     bot_token: str
+    client_secret: str
 
 
 class BotTokenResetResponse(BaseModel):
     bot_token: str
+    rotation_id: int
+
+
+class BotClientSecretResetResponse(BaseModel):
+    client_secret: str
     rotation_id: int
 
 
@@ -218,8 +320,15 @@ class BotCommandResponse(BaseModel):
 
 
 class BotInteractionCallbackRequest(BaseModel):
-    type: int = Field(ge=1, le=11)
+    type: int = Field(ge=1, le=12)
     data: dict[str, Any] | None = None
+
+    @field_validator("type")
+    @classmethod
+    def validate_callback_type(cls, value: int) -> int:
+        if value == 10 or value == 11:
+            raise ValueError("interaction callback type is deprecated or unsupported")
+        return value
 
 
 class BotCommandDispatchRequest(BaseModel):
