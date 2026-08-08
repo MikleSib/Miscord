@@ -6,10 +6,12 @@ import hmac
 import os
 import re
 import secrets
+import time
 from dataclasses import dataclass
 
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy import select
@@ -23,6 +25,7 @@ from app.models.user import User
 
 
 _TOKEN_PATTERN = re.compile(r"^mcb_([0-9]{16,20})\.([A-Za-z0-9_-]{43})$")
+_TIMESTAMP_TOLERANCE_SECONDS = 300
 
 
 @dataclass(frozen=True)
@@ -75,6 +78,55 @@ def hash_bot_token(token: str) -> str:
 
 def bot_token_hint(token: str) -> str:
     return token[-6:]
+
+
+def _invalid_interaction_signature() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail={"code": "invalid_interaction_signature", "message": "Invalid interaction signature"},
+    )
+
+
+def _ensure_interaction_timestamp(raw_timestamp: str | None) -> int:
+    if not raw_timestamp:
+        raise _invalid_interaction_signature()
+    try:
+        timestamp = int(raw_timestamp)
+    except ValueError as exc:
+        raise _invalid_interaction_signature() from exc
+    now = int(time.time())
+    if abs(now - timestamp) > _TIMESTAMP_TOLERANCE_SECONDS:
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "invalid_interaction_timestamp", "message": "Interaction timestamp outside tolerance"},
+        )
+    return timestamp
+
+
+def _load_public_key_hex(value: str) -> bytes:
+    try:
+        raw = bytes.fromhex(value)
+    except ValueError as exc:
+        raise RuntimeError("Application public key is invalid") from exc
+    if len(raw) != 32:
+        raise RuntimeError("Application public key is invalid")
+    return raw
+
+
+def verify_interaction_signature(
+    application: BotApplication,
+    signature: str | None,
+    timestamp: str | None,
+    body: bytes,
+) -> None:
+    if not signature:
+        raise _invalid_interaction_signature()
+    _ensure_interaction_timestamp(timestamp)
+    try:
+        public_key = Ed25519PublicKey.from_public_bytes(_load_public_key_hex(application.public_key))
+        public_key.verify(bytes.fromhex(signature), f"{timestamp}{body.decode('utf-8')}".encode("utf-8"))
+    except (ValueError, InvalidSignature, UnicodeError) as exc:
+        raise _invalid_interaction_signature() from exc
 
 
 def _invalid_token() -> HTTPException:

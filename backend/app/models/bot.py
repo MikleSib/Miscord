@@ -83,9 +83,14 @@ class BotCommand(Base):
     server_id = Column(Integer, ForeignKey("channels.id", ondelete="CASCADE"), nullable=True, index=True)
     name = Column(String(32), nullable=False)
     description = Column(String(100), nullable=False)
+    command_type = Column(Integer, nullable=False, default=1, server_default="1")
+    dm_permission = Column(Boolean, nullable=False, default=True, server_default="true")
+    default_member_permissions = Column(BigInteger, nullable=True)
     definition = Column(JSON, nullable=False, default=dict)
     version = Column(Integer, nullable=False, default=1, server_default="1")
     is_enabled = Column(Boolean, nullable=False, default=True, server_default="true")
+    allowed_user_ids = Column(JSON, nullable=False, default=list)
+    allowed_role_ids = Column(JSON, nullable=False, default=list)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
@@ -105,3 +110,24 @@ class BotAuditLog(Base):
 
     application = relationship("BotApplication")
     actor = relationship("User")
+
+
+class BotInteraction(Base):
+    __tablename__ = "bot_interactions"
+    __table_args__ = (UniqueConstraint("interaction_id", "interaction_token", name="uq_bot_interaction_id_token"),)
+
+    id = Column(Integer, primary_key=True)
+    application_id = Column(Integer, ForeignKey("bot_applications.id", ondelete="CASCADE"), nullable=False, index=True)
+    interaction_id = Column(String(64), nullable=False)
+    interaction_token = Column(String(255), nullable=False)
+    guild_id = Column(BigInteger, nullable=True)
+    channel_id = Column(BigInteger, nullable=True)
+    author_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    command_id = Column(Integer, ForeignKey("bot_commands.id", ondelete="SET NULL"), nullable=True)
+    response_type = Column(Integer, nullable=True)
+    response_payload = Column(JSON, nullable=True)
+    responded = Column(Boolean, nullable=False, default=False, server_default="false")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    application = relationship("BotApplication")

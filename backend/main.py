@@ -72,6 +72,11 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
         await conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS client_nonce VARCHAR(36)"))
         await conn.execute(text("ALTER TABLE direct_messages ADD COLUMN IF NOT EXISTS client_nonce VARCHAR(36)"))
+        await conn.execute(text("ALTER TABLE bot_commands ADD COLUMN IF NOT EXISTS command_type INTEGER NOT NULL DEFAULT 1"))
+        await conn.execute(text("ALTER TABLE bot_commands ADD COLUMN IF NOT EXISTS dm_permission BOOLEAN NOT NULL DEFAULT true"))
+        await conn.execute(text("ALTER TABLE bot_commands ADD COLUMN IF NOT EXISTS default_member_permissions BIGINT"))
+        await conn.execute(text("ALTER TABLE bot_commands ADD COLUMN IF NOT EXISTS allowed_user_ids JSON NOT NULL DEFAULT '[]'::json"))
+        await conn.execute(text("ALTER TABLE bot_commands ADD COLUMN IF NOT EXISTS allowed_role_ids JSON NOT NULL DEFAULT '[]'::json"))
         await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_messages_author_client_nonce ON messages(author_id, client_nonce) WHERE client_nonce IS NOT NULL"))
         await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_direct_messages_sender_client_nonce ON direct_messages(sender_id, client_nonce) WHERE client_nonce IS NOT NULL"))
         # Execution URLs are intentionally one-time. Existing encrypted copies

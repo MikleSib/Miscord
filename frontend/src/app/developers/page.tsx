@@ -18,7 +18,7 @@ import {
 
 import botService from '../../services/botService';
 import { useAuthStore } from '../../store/store';
-import type { BotApplication } from '../../types/bot';
+import type { BotApplication, BotCommand, BotCommandPayload } from '../../types/bot';
 
 
 function errorMessage(error: unknown): string {
@@ -46,11 +46,43 @@ export default function DeveloperPortalPage() {
   const [editDescription, setEditDescription] = useState('');
   const [oneTimeToken, setOneTimeToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [commands, setCommands] = useState<BotCommand[]>([]);
+  const [commandsLoading, setCommandsLoading] = useState(false);
+  const [commandsError, setCommandsError] = useState<string | null>(null);
+  const [creatingCommand, setCreatingCommand] = useState(false);
+  const [editingCommandId, setEditingCommandId] = useState<number | null>(null);
+  const [commandServerId, setCommandServerId] = useState('');
+  const [commandName, setCommandName] = useState('');
+  const [commandDescription, setCommandDescription] = useState('');
+  const [commandType, setCommandType] = useState('1');
+  const [commandResponseContent, setCommandResponseContent] = useState('');
+  const [commandDefaultMemberPermissions, setCommandDefaultMemberPermissions] = useState('');
+  const [commandDmPermission, setCommandDmPermission] = useState(true);
+  const [commandAllowedUsers, setCommandAllowedUsers] = useState('');
+  const [commandAllowedRoles, setCommandAllowedRoles] = useState('');
 
   const selected = useMemo(
     () => applications.find((application) => application.id === selectedId) ?? null,
     [applications, selectedId],
   );
+
+  const normalizeIdList = (value: string): number[] => value
+    .split(',')
+    .map((entry) => Number(entry.trim()))
+    .filter((entry) => Number.isInteger(entry) && entry > 0);
+
+  const resetCommandForm = () => {
+    setEditingCommandId(null);
+    setCommandServerId('');
+    setCommandName('');
+    setCommandDescription('');
+    setCommandType('1');
+    setCommandResponseContent('');
+    setCommandDefaultMemberPermissions('');
+    setCommandDmPermission(true);
+    setCommandAllowedUsers('');
+    setCommandAllowedRoles('');
+  };
 
   useEffect(() => setMounted(true), []);
 
@@ -76,6 +108,36 @@ export default function DeveloperPortalPage() {
     if (!selected) return;
     setEditName(selected.name);
     setEditDescription(selected.description ?? '');
+    setCommandsError(null);
+    resetCommandForm();
+    setCreatingCommand(false);
+  }, [selected]);
+
+  useEffect(() => {
+    if (!selected) {
+      setCommands([]);
+      return;
+    }
+    let active = true;
+    setCommandsLoading(true);
+    setCommandsError(null);
+    botService
+      .listCommands(selected.id, { includeDisabled: true })
+      .then((items) => {
+        if (!active) return;
+        setCommands(items);
+      })
+      .catch((requestError) => {
+        if (!active) return;
+        setCommandsError(errorMessage(requestError));
+        setCommands([]);
+      })
+      .finally(() => {
+        if (active) setCommandsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [selected]);
 
   const createApplication = async () => {
@@ -162,6 +224,97 @@ export default function DeveloperPortalPage() {
     await navigator.clipboard.writeText(oneTimeToken);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
+  };
+
+  const startCreateCommand = () => {
+    resetCommandForm();
+    setCreatingCommand(true);
+  };
+
+  const startEditCommand = (command: BotCommand) => {
+    setEditingCommandId(command.id);
+    setCreatingCommand(false);
+    setCommandServerId(command.server_id ? String(command.server_id) : '');
+    setCommandName(command.name);
+    setCommandDescription(command.description);
+    setCommandType(String(command.type));
+    const response = command.definition?.response as Record<string, unknown> | undefined;
+    const responseData = response?.data as Record<string, unknown> | undefined;
+    setCommandResponseContent(typeof responseData?.content === 'string' ? responseData.content : '');
+    const permissions = command.default_member_permissions;
+    setCommandDefaultMemberPermissions(permissions === null ? '' : String(permissions));
+    setCommandDmPermission(command.dm_permission);
+    setCommandAllowedUsers(command.allowed_user_ids.join(','));
+    setCommandAllowedRoles(command.allowed_role_ids.join(','));
+  };
+
+  const submitCommand = async () => {
+    if (!selected || !commandName.trim()) return;
+    const payload = {
+      name: commandName,
+      description: commandDescription.trim() || commandName.trim(),
+      type: Number(commandType) || 1,
+      server_id: commandServerId ? Number(commandServerId) : null,
+      definition: commandResponseContent
+        ? { response: { type: 4, data: { content: commandResponseContent, allowed_mentions: { parse: [] } } } }
+        : {},
+      default_member_permissions: commandDefaultMemberPermissions.trim()
+        ? Number(commandDefaultMemberPermissions)
+        : null,
+      dm_permission: commandDmPermission,
+      allowed_user_ids: normalizeIdList(commandAllowedUsers),
+      allowed_role_ids: normalizeIdList(commandAllowedRoles),
+    } as BotCommandPayload;
+    setCreatingCommand(false);
+    setSaving(true);
+    setError(null);
+    setCommandsError(null);
+    try {
+      if (editingCommandId === null) {
+        const updated = await botService.createCommand(selected.id, payload);
+        setCommands(updated);
+      } else {
+        const updated = await botService.updateCommand(selected.id, editingCommandId, payload);
+        setCommands((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      }
+      resetCommandForm();
+    } catch (requestError) {
+      setCommandsError(errorMessage(requestError));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteCommand = async (command: BotCommand) => {
+    if (!selected || !window.confirm(`Delete command /${command.name}?`)) return;
+    setSaving(true);
+    setCommandsError(null);
+    try {
+      await botService.deleteCommand(selected.id, command.id);
+      setCommands((current) => current.filter((item) => item.id !== command.id));
+      if (editingCommandId === command.id) {
+        resetCommandForm();
+      }
+    } catch (requestError) {
+      setCommandsError(errorMessage(requestError));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const syncCommands = async () => {
+    if (!selected) return;
+    setSaving(true);
+    setCommandsError(null);
+    try {
+      await botService.syncCommands(selected.id, { serverId: commandServerId ? Number(commandServerId) : null });
+      const updated = await botService.listCommands(selected.id, { includeDisabled: true, serverId: commandServerId ? Number(commandServerId) : null });
+      setCommands(updated);
+    } catch (requestError) {
+      setCommandsError(errorMessage(requestError));
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (!mounted || !user) return null;
@@ -269,7 +422,115 @@ export default function DeveloperPortalPage() {
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-[#da373c]/30 bg-[#da373c]/5 p-5 md:p-6">
+                <div className="rounded-2xl border border-white/10 bg-[#2b2d31] p-5 md:p-6">
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-3"><Bot className="h-5 w-5 text-[#5865f2]" /><h3 className="font-bold">Slash commands</h3></div>
+                    <div className="flex gap-2">
+                      <button onClick={startCreateCommand} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-[#5865f2] px-4 text-sm font-bold hover:bg-[#4752c4]">Create</button>
+                      <button onClick={syncCommands} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-[#5865f2]/40 px-4 text-sm font-bold text-[#b5bac1] hover:bg-white/10">Sync</button>
+                    </div>
+                  </div>
+
+                  {commandsError && (
+                    <div className="mb-4 rounded-xl border border-[#da373c]/40 bg-[#da373c]/12 px-4 py-3 text-sm text-[#ffb8bb]">
+                      {commandsError}
+                    </div>
+                  )}
+
+                  <div className="mb-5 flex flex-col gap-3">
+                    {commandsLoading ? (
+                      <div className="rounded-xl border border-white/10 bg-[#1e1f22] px-4 py-3 text-sm text-[#949ba4]">Loading commands...</div>
+                    ) : commands.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-white/10 bg-[#1e1f22] px-4 py-6 text-sm text-[#949ba4]">No commands yet.</div>
+                    ) : (
+                      commands.map((command) => (
+                        <button
+                          key={command.id}
+                          type="button"
+                          onClick={() => startEditCommand(command)}
+                          className={`rounded-xl border px-4 py-3 text-left ${editingCommandId === command.id ? 'border-[#5865f2] bg-[#1f2230]' : 'border-white/15 bg-[#1e1f22]'}`}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <div className="font-bold">/{command.name}</div>
+                              <div className="text-xs text-[#949ba4]">{command.description}</div>
+                            </div>
+                            <button
+                              type="button"
+                              className="rounded-lg border border-[#da373c]/40 px-3 py-1.5 text-xs font-bold text-[#ffb8bb]"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void deleteCommand(command);
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+
+                  {(creatingCommand || editingCommandId !== null) && (
+                    <div className="grid gap-3">
+                      <div className="grid gap-2">
+                        <label className="text-xs font-bold uppercase tracking-wide text-[#b5bac1]">Command name</label>
+                        <input value={commandName} onChange={(event) => setCommandName(event.target.value)} className="min-h-11 rounded-xl border border-white/10 bg-[#1e1f22] px-3.5 text-base outline-none focus:border-[#5865f2]" placeholder="ping" />
+                      </div>
+                      <div className="grid gap-2">
+                        <label className="text-xs font-bold uppercase tracking-wide text-[#b5bac1]">Description</label>
+                        <input value={commandDescription} maxLength={100} onChange={(event) => setCommandDescription(event.target.value)} className="min-h-11 rounded-xl border border-white/10 bg-[#1e1f22] px-3.5 text-base outline-none focus:border-[#5865f2]" placeholder="Pong!" />
+                      </div>
+                      <div className="grid gap-2">
+                        <label className="text-xs font-bold uppercase tracking-wide text-[#b5bac1]">Command type</label>
+                        <input value={commandType} onChange={(event) => setCommandType(event.target.value)} className="min-h-11 rounded-xl border border-white/10 bg-[#1e1f22] px-3.5 text-base outline-none focus:border-[#5865f2]" placeholder="1" />
+                      </div>
+                      <label className="grid gap-2">
+                        <span className="text-xs font-bold uppercase tracking-wide text-[#b5bac1]">Server ID (optional)</span>
+                        <input value={commandServerId} onChange={(event) => setCommandServerId(event.target.value)} className="min-h-11 rounded-xl border border-white/10 bg-[#1e1f22] px-3.5 text-base outline-none focus:border-[#5865f2]" />
+                      </label>
+                      <label className="grid gap-2">
+                        <span className="text-xs font-bold uppercase tracking-wide text-[#b5bac1]">Default response</span>
+                        <textarea value={commandResponseContent} rows={3} onChange={(event) => setCommandResponseContent(event.target.value)} className="rounded-xl border border-white/10 bg-[#1e1f22] p-3.5 text-base outline-none focus:border-[#5865f2]" />
+                      </label>
+                      <div className="grid gap-2 md:grid-cols-3">
+                        <label className="grid gap-2">
+                          <span className="text-xs font-bold uppercase tracking-wide text-[#b5bac1]">default_member_permissions</span>
+                          <input value={commandDefaultMemberPermissions} onChange={(event) => setCommandDefaultMemberPermissions(event.target.value)} className="min-h-11 rounded-xl border border-white/10 bg-[#1e1f22] px-3.5 text-base outline-none focus:border-[#5865f2]" />
+                        </label>
+                        <label className="grid gap-2">
+                          <span className="text-xs font-bold uppercase tracking-wide text-[#b5bac1]">allowed user ids</span>
+                          <input value={commandAllowedUsers} onChange={(event) => setCommandAllowedUsers(event.target.value)} className="min-h-11 rounded-xl border border-white/10 bg-[#1e1f22] px-3.5 text-base outline-none focus:border-[#5865f2]" placeholder="1,2,3" />
+                        </label>
+                        <label className="grid gap-2">
+                          <span className="text-xs font-bold uppercase tracking-wide text-[#b5bac1]">allowed role ids</span>
+                          <input value={commandAllowedRoles} onChange={(event) => setCommandAllowedRoles(event.target.value)} className="min-h-11 rounded-xl border border-white/10 bg-[#1e1f22] px-3.5 text-base outline-none focus:border-[#5865f2]" placeholder="4,5,6" />
+                        </label>
+                      </div>
+                      <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+                        <input type="checkbox" checked={commandDmPermission} onChange={(event) => setCommandDmPermission(event.target.checked)} />
+                        allow in DMs
+                      </label>
+                      <div className="flex gap-2">
+                        <button
+                          disabled={saving || !commandName.trim()}
+                          onClick={submitCommand}
+                          className="inline-flex min-h-11 items-center rounded-xl bg-[#5865f2] px-4 text-sm font-bold hover:bg-[#4752c4] disabled:opacity-50"
+                        >
+                          {editingCommandId === null ? 'Create command' : 'Save changes'}
+                        </button>
+                        <button
+                          onClick={resetCommandForm}
+                          className="inline-flex min-h-11 items-center rounded-xl bg-[#4e5058] px-4 text-sm font-bold hover:bg-[#5d6069]"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-[#da373c]/30 bg-[#da373c]/5 p-5 md:p-6">
                 <h3 className="font-bold text-[#ffb8bb]">Опасная зона</h3>
                 <p className="my-3 text-sm text-[#b5bac1]">Отключение отзывает все токены. Bot identity сохраняется для истории и аудита.</p>
                 <button disabled={saving} onClick={disableApplication} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#da373c]/50 px-4 text-sm font-bold text-[#ffb8bb] hover:bg-[#da373c]/15 disabled:opacity-50"><Trash2 className="h-4 w-4" /> Отключить приложение</button>

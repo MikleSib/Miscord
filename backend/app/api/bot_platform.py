@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -12,13 +14,18 @@ from app.core.config import settings
 from app.core.dependencies import get_current_active_user
 from app.core.permissions import ALL_PERMISSIONS, Permission, get_member_permissions, require_permission
 from app.db.database import get_db
-from app.models.bot import BotApplication, BotInstall
+from app.models.bot import BotApplication, BotInstall, BotCommand, BotInteraction
 from app.models.channel import Channel, ChannelMember, TextChannel
 from app.models.message import Message
 from app.models.server_role import MemberRole, Role
 from app.models.user import User
 from app.schemas.bot_install import BotInstallRequest, BotMessageCreate, BotMessageUpdate
-from app.services.bot_security import BotPrincipal, get_current_bot
+from app.schemas.bot import (
+    BotCommandCreate,
+    BotCommandUpdate,
+    BotInteractionCallbackRequest,
+)
+from app.services.bot_security import BotPrincipal, get_current_bot, verify_interaction_signature
 from app.services.channel_access import user_can_access_text_channel
 from app.services.message_serializer import serialize_channel_message
 from app.websocket.connection_manager import manager
@@ -26,6 +33,10 @@ from app.websocket.connection_manager import manager
 router = APIRouter()
 SUPPORTED_SCOPES = {"bot", "applications.commands"}
 ALLOWED_MESSAGE_FLAGS = 4 | 4096
+
+
+def _normalized_command_name(value: str) -> str:
+    return value.strip().lower()
 
 
 def _ensure_enabled() -> None:
@@ -71,12 +82,153 @@ def _serialize_application(application: BotApplication) -> dict[str, Any]:
     }
 
 
+def _serialize_command(command: BotCommand) -> dict[str, Any]:
+    return {
+        "id": command.id,
+        "application_id": command.application_id,
+        "server_id": command.server_id,
+        "name": command.name,
+        "description": command.description,
+        "type": command.command_type,
+        "definition": command.definition or {},
+        "default_member_permissions": command.default_member_permissions,
+        "dm_permission": command.dm_permission,
+        "allowed_user_ids": command.allowed_user_ids or [],
+        "allowed_role_ids": command.allowed_role_ids or [],
+        "version": command.version,
+        "is_enabled": command.is_enabled,
+        "created_at": command.created_at,
+        "updated_at": command.updated_at,
+    }
+
+
+def _coerce_interaction_number(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+async def _command_member_roles(
+    db: AsyncSession,
+    server_id: int,
+    user_id: int,
+) -> set[int]:
+    result = await db.execute(
+        select(MemberRole.role_id).where(
+            MemberRole.server_id == server_id,
+            MemberRole.user_id == user_id,
+        )
+    )
+    return {int(item) for item in result.scalars().all()}
+
+
+async def _resolve_command_for_interaction(
+    db: AsyncSession,
+    application: BotApplication,
+    guild_id: int | None,
+    name: str,
+) -> BotCommand | None:
+    normalized = name.lower()
+    scope_query = [
+        BotCommand.application_id == application.id,
+        BotCommand.name == normalized,
+        BotCommand.is_enabled.is_(True),
+    ]
+    if guild_id is not None:
+        result = await db.execute(
+            select(BotCommand).where(
+                *scope_query,
+                BotCommand.server_id == guild_id,
+            )
+        )
+        command = result.scalar_one_or_none()
+        if command:
+            return command
+    result = await db.execute(
+        select(BotCommand).where(*scope_query, BotCommand.server_id.is_(None))
+    )
+    return result.scalar_one_or_none()
+
+
+def _interaction_actor_user(payload: dict[str, Any]) -> tuple[int, Any] | tuple[None, None]:
+    if isinstance(payload.get("member"), dict) and isinstance(payload["member"].get("user"), dict):
+        user_data = payload["member"]["user"]
+    else:
+        user_data = payload.get("user")
+    if not isinstance(user_data, dict):
+        return None, None
+    return _coerce_interaction_number(user_data.get("id")), user_data
+
+
+def _build_default_command_response(command: BotCommand) -> dict[str, Any]:
+    if isinstance(command.definition, dict):
+        response = command.definition.get("response")
+        if isinstance(response, dict):
+            return response
+    return {
+        "type": 4,
+        "data": {
+            "content": f"/{command.name} executed.",
+            "allowed_mentions": {"parse": []},
+        },
+    }
+
+
+def _interaction_error(message: str, *, type_code: int = 4) -> dict[str, Any]:
+    return {"type": type_code, "data": {"content": message, "flags": 64}}
+
+
+async def _check_command_permissions(
+    db: AsyncSession,
+    command: BotCommand,
+    actor_id: int,
+    guild_id: int | None,
+) -> None:
+    allowed_users = set(_coerce_list_of_ints(command.allowed_user_ids))
+    allowed_roles = set(_coerce_list_of_ints(command.allowed_role_ids))
+    if not allowed_users and not allowed_roles:
+        return
+    if actor_id in allowed_users:
+        return
+    if not guild_id:
+        raise HTTPException(status_code=403, detail="You do not have permission to run this command")
+    role_ids = await _command_member_roles(db, guild_id, actor_id)
+    if role_ids & allowed_roles:
+        return
+    raise HTTPException(status_code=403, detail="You do not have permission to run this command")
+
+
+def _coerce_list_of_ints(values: Any) -> list[int]:
+    if not isinstance(values, list):
+        return []
+    output: list[int] = []
+    for item in values:
+        number = _coerce_interaction_number(item)
+        if number and number not in output:
+            output.append(number)
+    return output
+
+
 async def _application_by_client_id(db: AsyncSession, client_id: str) -> BotApplication:
     result = await db.execute(
         select(BotApplication)
         .options(selectinload(BotApplication.bot_user))
         .where(BotApplication.client_id == client_id, BotApplication.status == "active")
     )
+    application = result.scalar_one_or_none()
+    if not application:
+        raise HTTPException(status_code=404, detail="Bot application not found")
+    return application
+
+
+async def _application_by_id(db: AsyncSession, application_id: int, owner_id: int | None = None) -> BotApplication:
+    query = select(BotApplication).where(BotApplication.id == application_id, BotApplication.status == "active")
+    if owner_id is not None:
+        query = query.where(BotApplication.owner_id == owner_id)
+    result = await db.execute(query.options(selectinload(BotApplication.bot_user)))
     application = result.scalar_one_or_none()
     if not application:
         raise HTTPException(status_code=404, detail="Bot application not found")
@@ -94,6 +246,39 @@ async def _load_message(db: AsyncSession, message_id: int) -> Message | None:
         .where(Message.id == message_id)
     )
     return result.scalar_one_or_none()
+
+
+async def _load_or_create_interaction_record(
+    db: AsyncSession,
+    application: BotApplication,
+    interaction_id: str,
+    interaction_token: str,
+) -> BotInteraction:
+    result = await db.execute(
+        select(BotInteraction).where(
+            BotInteraction.interaction_id == interaction_id,
+            BotInteraction.interaction_token == interaction_token,
+        )
+    )
+    interaction = result.scalar_one_or_none()
+    if interaction is not None:
+        return interaction
+    interaction = BotInteraction(
+        application_id=application.id,
+        interaction_id=interaction_id,
+        interaction_token=interaction_token,
+    )
+    db.add(interaction)
+    await db.flush()
+    return interaction
+
+
+def _serialize_interaction_response(interaction: BotInteraction) -> dict[str, Any] | None:
+    if not interaction.responded or not interaction.response_payload or not interaction.response_type:
+        return None
+    payload = dict(interaction.response_payload)
+    payload["type"] = int(interaction.response_type)
+    return payload
 
 
 def _validate_message_data(content: str | None, embeds: list[dict[str, Any]], flags: int) -> None:
@@ -369,6 +554,171 @@ async def uninstall_bot(
     await db.commit()
 
 
+@router.get("/bot-apps/{application_id}/commands")
+async def list_bot_commands(
+    application_id: int,
+    server_id: int | None = Query(default=None),
+    include_disabled: bool = Query(default=False),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _ensure_enabled()
+    application = await _application_by_id(db, application_id, owner_id=current_user.id)
+    query = select(BotCommand).where(BotCommand.application_id == application.id)
+    if server_id is None:
+        query = query.where(BotCommand.server_id.is_(None))
+    else:
+        query = query.where(BotCommand.server_id == server_id)
+    if not include_disabled:
+        query = query.where(BotCommand.is_enabled.is_(True))
+    query = query.order_by(BotCommand.created_at.asc())
+    result = await db.execute(query)
+    return [_serialize_command(item) for item in result.scalars().all()]
+
+
+@router.post("/bot-apps/{application_id}/commands", response_model=list[dict[str, Any]])
+async def create_bot_command(
+    application_id: int,
+    payload: BotCommandCreate,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _ensure_enabled()
+    application = await _application_by_id(db, application_id, owner_id=current_user.id)
+    server_id = payload.server_id
+    if server_id is not None:
+        await require_permission(db, server_id, current_user, Permission.MANAGE_SERVER)
+    command_name = _normalized_command_name(payload.name)
+    duplicate_result = await db.execute(
+        select(BotCommand.id).where(
+            BotCommand.application_id == application.id,
+            BotCommand.server_id == server_id,
+            BotCommand.name == command_name,
+        )
+    )
+    if duplicate_result.scalar_one_or_none() is not None:
+        scope = "server-scoped" if server_id else "global"
+        raise HTTPException(status_code=409, detail=f"A {scope} command with this name already exists")
+    db.add(
+        BotCommand(
+            application_id=application.id,
+            server_id=server_id,
+            name=command_name,
+            description=payload.description,
+            command_type=payload.type,
+            definition=payload.definition or {},
+            default_member_permissions=payload.default_member_permissions,
+            dm_permission=payload.dm_permission,
+            allowed_user_ids=payload.allowed_user_ids,
+            allowed_role_ids=payload.allowed_role_ids,
+            is_enabled=True,
+            version=1,
+        )
+    )
+    await db.commit()
+    return await list_bot_commands(application_id, server_id=server_id, current_user=current_user, db=db)
+
+
+@router.patch("/bot-apps/{application_id}/commands/{command_id}")
+async def update_bot_command(
+    application_id: int,
+    command_id: int,
+    payload: BotCommandUpdate,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _ensure_enabled()
+    application = await _application_by_id(db, application_id, owner_id=current_user.id)
+    result = await db.execute(select(BotCommand).where(BotCommand.id == command_id, BotCommand.application_id == application.id))
+    command = result.scalar_one_or_none()
+    if not command:
+        raise HTTPException(status_code=404, detail="Command not found")
+    if "server_id" in payload.model_fields_set and payload.server_id != command.server_id:
+        if payload.server_id is not None:
+            await require_permission(db, payload.server_id, current_user, Permission.MANAGE_SERVER)
+        if command.server_id is not None:
+            await require_permission(db, command.server_id, current_user, Permission.MANAGE_SERVER)
+        command.server_id = payload.server_id
+    if payload.name is not None:
+        target_name = _normalized_command_name(payload.name)
+        duplicate_result = await db.execute(
+            select(BotCommand.id).where(
+                BotCommand.application_id == application.id,
+                BotCommand.server_id == command.server_id,
+                BotCommand.name == target_name,
+                BotCommand.id != command.id,
+            )
+        )
+        if duplicate_result.scalar_one_or_none() is not None:
+            raise HTTPException(status_code=409, detail="A command with this name already exists")
+        command.name = target_name
+    if payload.description is not None:
+        command.description = payload.description
+    if payload.type is not None:
+        command.command_type = payload.type
+    if payload.definition is not None:
+        command.definition = payload.definition
+    if payload.default_member_permissions is not None:
+        command.default_member_permissions = payload.default_member_permissions
+    if payload.dm_permission is not None:
+        command.dm_permission = payload.dm_permission
+    if payload.allowed_user_ids is not None:
+        command.allowed_user_ids = payload.allowed_user_ids
+    if payload.allowed_role_ids is not None:
+        command.allowed_role_ids = payload.allowed_role_ids
+    if payload.is_enabled is not None:
+        command.is_enabled = payload.is_enabled
+    command.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    return _serialize_command(command)
+
+
+@router.delete("/bot-apps/{application_id}/commands/{command_id}", status_code=204)
+async def delete_bot_command(
+    application_id: int,
+    command_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _ensure_enabled()
+    application = await _application_by_id(db, application_id, owner_id=current_user.id)
+    result = await db.execute(select(BotCommand.id).where(BotCommand.application_id == application.id, BotCommand.id == command_id))
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Command not found")
+    await db.execute(delete(BotCommand).where(BotCommand.id == command_id))
+    await db.commit()
+
+
+@router.post("/bot-apps/{application_id}/commands/sync")
+async def sync_bot_commands(
+    application_id: int,
+    server_id: int | None = Query(default=None),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _ensure_enabled()
+    application = await _application_by_id(db, application_id, owner_id=current_user.id)
+    if server_id is not None:
+        await require_permission(db, server_id, current_user, Permission.MANAGE_SERVER)
+    query = select(BotCommand).where(BotCommand.application_id == application.id)
+    if server_id is None:
+        query = query.where(BotCommand.server_id.is_(None))
+    else:
+        query = query.where(BotCommand.server_id == server_id)
+    query = query.where(BotCommand.is_enabled.is_(True))
+    result = await db.execute(query)
+    commands = result.scalars().all()
+    for command in commands:
+        command.version += 1
+    await db.commit()
+    return {
+        "application_id": application.id,
+        "server_id": server_id,
+        "synced_commands": len(commands),
+        "commands": [_serialize_command(item) for item in commands],
+    }
+
+
 @router.post("/v1/channels/{text_channel_id}/messages")
 async def create_bot_message(
     text_channel_id: int,
@@ -471,3 +821,132 @@ async def delete_bot_message(
         "type": "message_deleted",
         "data": {"message_id": message_id, "text_channel_id": text_channel_id},
     })
+
+
+@router.post("/v1/interactions/{interaction_id}/{interaction_token}/callback")
+async def create_interaction_callback(
+    interaction_id: str,
+    interaction_token: str,
+    payload: BotInteractionCallbackRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    _ensure_enabled()
+    result = await db.execute(
+        select(BotInteraction).where(
+            BotInteraction.interaction_id == interaction_id,
+            BotInteraction.interaction_token == interaction_token,
+        )
+    )
+    interaction = result.scalar_one_or_none()
+    if interaction is None:
+        raise HTTPException(status_code=404, detail="Interaction not found")
+    if interaction.responded:
+        return {"interaction_id": interaction_id, "status": "already_responded"}
+    interaction.response_type = int(payload.type)
+    interaction.response_payload = {"type": int(payload.type), "data": payload.data}
+    interaction.responded = True
+    interaction.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    return {"interaction_id": interaction_id, "status": "ok"}
+
+
+@router.post("/v1/interactions")
+async def create_interaction(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    _ensure_enabled()
+    raw_body = await request.body()
+    signature = request.headers.get("X-Signature-Ed25519")
+    timestamp = request.headers.get("X-Signature-Timestamp")
+    try:
+        payload = json.loads(raw_body.decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid interaction body") from exc
+
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Invalid interaction payload")
+
+    application_id = str(payload.get("application_id") or "").strip()
+    if not application_id:
+        raise HTTPException(status_code=400, detail="application_id is required")
+    application = await _application_by_client_id(db, application_id)
+    verify_interaction_signature(application, signature, timestamp, raw_body)
+
+    interaction_id = str(payload.get("id") or "")
+    interaction_token = str(payload.get("token") or "")
+    if not interaction_id or not interaction_token:
+        raise HTTPException(status_code=400, detail="interaction id and token are required")
+
+    interaction = await _load_or_create_interaction_record(db, application, interaction_id, interaction_token)
+    interaction.guild_id = _coerce_interaction_number(payload.get("guild_id"))
+    interaction.channel_id = _coerce_interaction_number(payload.get("channel_id"))
+    actor_user_id, _ = _interaction_actor_user(payload)
+    interaction.author_user_id = actor_user_id
+    await db.commit()
+    if interaction.responded:
+        cached = _serialize_interaction_response(interaction)
+        if cached:
+            return cached
+
+    interaction_type = _coerce_interaction_number(payload.get("type"))
+    if interaction_type == 1:
+        interaction.responded = True
+        interaction.response_type = 1
+        interaction.response_payload = {"type": 1}
+        interaction.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+        return {"type": 1}
+
+    if interaction_type == 2:
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        name = str(data.get("name") or "").strip().lower()
+        if not name:
+            response = _interaction_error("Command name is required.")
+            interaction.response_type = int(response["type"])
+            interaction.response_payload = response
+            interaction.responded = True
+            interaction.updated_at = datetime.now(timezone.utc)
+            await db.commit()
+            return response
+        guild_id = _coerce_interaction_number(payload.get("guild_id"))
+        command = await _resolve_command_for_interaction(db, application, guild_id, name)
+        if not command:
+            response = _interaction_error("Command not found.")
+            interaction.response_type = int(response["type"])
+            interaction.response_payload = response
+            interaction.responded = True
+            interaction.updated_at = datetime.now(timezone.utc)
+            await db.commit()
+            return response
+        if command.server_id is not None and actor_user_id is not None:
+            await _check_command_permissions(db, command, actor_user_id, guild_id)
+        elif command.server_id is not None and not actor_user_id:
+            response = _interaction_error("Permission denied.")
+            interaction.response_type = int(response["type"])
+            interaction.response_payload = response
+            interaction.responded = True
+            interaction.updated_at = datetime.now(timezone.utc)
+            await db.commit()
+            return response
+
+        command.definition = command.definition if isinstance(command.definition, dict) else {}
+        response = _build_default_command_response(command)
+        interaction.command_id = command.id
+        interaction.responded = True
+        interaction.response_type = int(response.get("type") or 4)
+        interaction.response_payload = response
+        interaction.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+        return response
+
+    if interaction_type in (3, 5):
+        response = _interaction_error("This interaction type is currently unsupported.")
+        interaction.response_type = int(response["type"])
+        interaction.response_payload = response
+        interaction.responded = True
+        interaction.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+        return response
+
+    raise HTTPException(status_code=400, detail="Unsupported interaction type")

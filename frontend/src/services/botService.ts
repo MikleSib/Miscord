@@ -1,5 +1,15 @@
 import api from './api';
-import type { BotApplication, BotApplicationCreated, BotAuthorizationPreview, BotTokenReset, InstalledBot } from '../types/bot';
+import type {
+  BotApplication,
+  BotApplicationCreated,
+  BotAuthorizationPreview,
+  BotTokenReset,
+  InstalledBot,
+  BotCommand,
+  BotCommandPayload,
+  BotCommandUpdatePayload,
+  BotCommandSyncResult,
+} from '../types/bot';
 
 export interface BotApplicationPayload {
   name: string;
@@ -62,6 +72,48 @@ const botService = {
 
   async uninstall(serverId: number, applicationId: number): Promise<void> {
     await api.delete(`/api/servers/${serverId}/bots/${applicationId}`);
+  },
+
+  async listCommands(applicationId: number, options?: { serverId?: number | null; includeDisabled?: boolean }): Promise<BotCommand[]> {
+    const params: Record<string, string | number | boolean> = {
+      include_disabled: options?.includeDisabled ?? false,
+    };
+    if (options?.serverId !== undefined && options?.serverId !== null) {
+      params.server_id = options.serverId;
+    }
+    const response = await api.get<BotCommand[]>(`/api/bot-apps/${applicationId}/commands`, {
+      params,
+    });
+    return response.data;
+  },
+
+  async createCommand(applicationId: number, payload: BotCommandPayload): Promise<BotCommand[]> {
+    const response = await api.post<BotCommand[]>(`/api/bot-apps/${applicationId}/commands`, payload);
+    return response.data;
+  },
+
+  async updateCommand(
+    applicationId: number,
+    commandId: number,
+    payload: BotCommandUpdatePayload,
+  ): Promise<BotCommand> {
+    const response = await api.patch<BotCommand>(`/api/bot-apps/${applicationId}/commands/${commandId}`, payload);
+    return response.data;
+  },
+
+  async deleteCommand(applicationId: number, commandId: number): Promise<void> {
+    await api.delete(`/api/bot-apps/${applicationId}/commands/${commandId}`);
+  },
+
+  async syncCommands(applicationId: number, options?: { serverId?: number | null }): Promise<BotCommandSyncResult> {
+    const params: Record<string, string | number> = {};
+    if (options?.serverId !== undefined && options?.serverId !== null) {
+      params.server_id = options.serverId;
+    }
+    const response = await api.post<BotCommandSyncResult>(`/api/bot-apps/${applicationId}/commands/sync`, null, {
+      params,
+    });
+    return response.data;
   },
 };
 

@@ -53,3 +53,53 @@ export interface InstalledBot {
   installed_at: string;
   installed_by_id: number;
 }
+
+export interface BotCommand {
+  id: number;
+  application_id: number;
+  server_id: number | null;
+  name: string;
+  description: string;
+  type: number;
+  definition: Record<string, unknown>;
+  default_member_permissions: number | null;
+  dm_permission: boolean;
+  allowed_user_ids: number[];
+  allowed_role_ids: number[];
+  version: number;
+  is_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BotCommandPayload {
+  name: string;
+  description: string;
+  type?: number;
+  definition?: Record<string, unknown>;
+  server_id?: number | null;
+  default_member_permissions?: number | null;
+  dm_permission?: boolean;
+  allowed_user_ids?: number[];
+  allowed_role_ids?: number[];
+}
+
+export interface BotCommandUpdatePayload {
+  name?: string;
+  description?: string | null;
+  type?: number | null;
+  definition?: Record<string, unknown> | null;
+  server_id?: number | null;
+  default_member_permissions?: number | null;
+  dm_permission?: boolean | null;
+  allowed_user_ids?: number[] | null;
+  allowed_role_ids?: number[] | null;
+  is_enabled?: boolean;
+}
+
+export interface BotCommandSyncResult {
+  application_id: number;
+  server_id: number | null;
+  synced_commands: number;
+  commands: BotCommand[];
+}
