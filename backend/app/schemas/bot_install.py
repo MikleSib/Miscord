@@ -3,7 +3,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.models import BOT_DEFAULT_INTENTS
 
 class BotInstallRequest(BaseModel):
-    client_id: str = Field(min_length=32, max_length=32)
+    client_id: str = Field(min_length=16, max_length=20, pattern=r"^\d{16,20}$")
     server_id: int = Field(gt=0)
     scope: str = "bot"
     permissions: int = Field(default=0, ge=0)

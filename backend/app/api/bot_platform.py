@@ -4,7 +4,6 @@ import json
 import secrets
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import delete, func, or_, select
@@ -30,6 +29,7 @@ from app.schemas.bot import (
     BotInteractionCallbackRequest,
 )
 from app.services.bot_security import BotPrincipal, get_current_bot, verify_interaction_signature
+from app.services.bot_links import build_bot_authorize_url
 from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
 from app.services.channel_access import user_can_access_text_channel
 from app.services.message_serializer import serialize_channel_message
@@ -386,8 +386,14 @@ async def get_bot_invite_link(
     application = result.scalar_one_or_none()
     if not application:
         raise HTTPException(status_code=404, detail="Bot application not found")
-    query = urlencode({"client_id": application.client_id, "scope": " ".join(scopes), "permissions": permissions})
-    return {"invite_url": f"{settings.SERVER_HOST.rstrip('/')}/bot/oauth/callback?{query}"}
+    return {
+        "invite_url": build_bot_authorize_url(
+            settings.SERVER_HOST,
+            application.client_id,
+            scopes,
+            permissions,
+        )
+    }
 
 
 @router.get("/bot/oauth/callback")
@@ -402,8 +408,14 @@ async def get_bot_oauth_callback(
     await _application_by_client_id(db, client_id)
     scopes = _parse_scopes(scope)
     permissions = _validate_permissions(permissions)
-    query = urlencode({"client_id": client_id, "scope": " ".join(scopes), "permissions": permissions})
-    return {"authorize_url": f"{settings.SERVER_HOST.rstrip('/')}/bot/authorize?{query}"}
+    return {
+        "authorize_url": build_bot_authorize_url(
+            settings.SERVER_HOST,
+            client_id,
+            scopes,
+            permissions,
+        )
+    }
 
 
 @router.get("/bot/oauth/authorize")

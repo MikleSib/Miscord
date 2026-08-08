@@ -10,6 +10,16 @@ const nextConfig = {
   images: {
     unoptimized: true
   },
+
+  async redirects() {
+    return [
+      {
+        source: '/bot/oauth/callback/',
+        destination: '/bot/authorize/',
+        permanent: false,
+      },
+    ];
+  },
   
   async rewrites() {
     return [
