@@ -5,6 +5,9 @@ from sqlalchemy.sql import func
 from app.db.database import Base
 
 
+BOT_DEFAULT_INTENTS = (1 << 9) | (1 << 15)
+
+
 class BotApplication(Base):
     __tablename__ = "bot_applications"
 
@@ -67,12 +70,30 @@ class BotInstall(Base):
     scopes = Column(JSON, nullable=False, default=list)
     permissions = Column(BigInteger, nullable=False, default=0, server_default="0")
     status = Column(String(20), nullable=False, default="active", server_default="active", index=True)
+    intents = Column(BigInteger, nullable=False, default=BOT_DEFAULT_INTENTS, server_default=str(BOT_DEFAULT_INTENTS))
     installed_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
     application = relationship("BotApplication", back_populates="installs")
     server = relationship("Channel")
     installed_by = relationship("User")
+
+
+class BotSession(Base):
+    __tablename__ = "bot_sessions"
+
+    id = Column(Integer, primary_key=True)
+    application_id = Column(Integer, ForeignKey("bot_applications.id", ondelete="CASCADE"), nullable=False, index=True)
+    session_id = Column(String(64), nullable=False, unique=True, index=True)
+    intents = Column(BigInteger, nullable=False, default=BOT_DEFAULT_INTENTS, server_default=str(BOT_DEFAULT_INTENTS))
+    sequence = Column(BigInteger, nullable=False, default=0, server_default="0")
+    is_active = Column(Boolean, nullable=False, default=True, server_default="true")
+    is_resumable = Column(Boolean, nullable=False, default=True, server_default="true")
+    last_heartbeat_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    application = relationship("BotApplication")
 
 
 class BotCommand(Base):

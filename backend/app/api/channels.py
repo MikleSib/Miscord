@@ -42,6 +42,7 @@ from app.services.channel_access import (
     require_voice_channel_access,
     user_can_manage_messages,
 )
+from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
 import secrets as secrets_mod
 
 router = APIRouter()
@@ -1596,6 +1597,7 @@ async def delete_message(
             "text_channel_id": message.text_channel_id
         }
     })
+    await bot_event_dispatcher.dispatch_message_delete(db, message_id, message.text_channel_id)
     
     return {"message": "Сообщение удалено"}
 
@@ -1713,6 +1715,7 @@ async def edit_message(
         "type": "message_edited", 
         "data": updated_message
     })
+    await bot_event_dispatcher.dispatch_message_update(db, message)
     
     return updated_message
 

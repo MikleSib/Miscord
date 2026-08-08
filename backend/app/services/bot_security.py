@@ -137,16 +137,7 @@ def _invalid_token() -> HTTPException:
     )
 
 
-async def get_current_bot(
-    authorization: str | None = Header(default=None),
-    db: AsyncSession = Depends(get_db),
-) -> BotPrincipal:
-    if not settings.BOT_PLATFORM_ENABLED:
-        raise HTTPException(status_code=404, detail="Not found")
-    if not authorization or not authorization.startswith("Bot "):
-        raise _invalid_token()
-
-    token = authorization[4:].strip()
+async def _load_bot_principal_from_token(token: str, db: AsyncSession) -> BotPrincipal:
     match = _TOKEN_PATTERN.fullmatch(token)
     if not match:
         raise _invalid_token()
@@ -160,7 +151,24 @@ async def get_current_bot(
     stored = result.scalar_one_or_none()
     if stored is None or not hmac.compare_digest(stored.token_hash, token_hash):
         raise _invalid_token()
+
     application = stored.application
     if application.client_id != match.group(1) or application.status != "active" or not application.bot_user.is_active:
         raise _invalid_token()
     return BotPrincipal(application=application, bot_user=application.bot_user)
+
+
+async def get_bot_principal_by_token(token: str, db: AsyncSession) -> BotPrincipal:
+    return await _load_bot_principal_from_token(token, db)
+
+
+async def get_current_bot(
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> BotPrincipal:
+    if not settings.BOT_PLATFORM_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    if not authorization or not authorization.startswith("Bot "):
+        raise _invalid_token()
+
+    return await _load_bot_principal_from_token(authorization[4:].strip(), db)

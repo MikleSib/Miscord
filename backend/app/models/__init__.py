@@ -13,7 +13,17 @@ from .channel_permission import ChannelPermissionOverwrite, ChannelKind, Overwri
 from .notification_settings import ChannelNotificationOverride, ServerNotificationSettings
 from .webhook import Webhook
 from .pending_chat_upload import PendingChatUpload
-from .bot import BotApplication, BotApplicationSecret, BotToken, BotInstall, BotCommand, BotInteraction, BotAuditLog
+from .bot import (
+    BOT_DEFAULT_INTENTS,
+    BotApplication,
+    BotApplicationSecret,
+    BotSession,
+    BotToken,
+    BotInstall,
+    BotCommand,
+    BotInteraction,
+    BotAuditLog,
+)
 
 __all__ = [
     "User",
@@ -42,8 +52,10 @@ __all__ = [
     "PendingChatUpload",
     "BotApplication",
     "BotApplicationSecret",
+    "BOT_DEFAULT_INTENTS",
     "BotToken",
     "BotInstall",
+    "BotSession",
     "BotCommand",
     "BotInteraction",
     "BotAuditLog",

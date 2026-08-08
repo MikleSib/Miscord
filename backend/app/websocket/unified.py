@@ -27,6 +27,7 @@ from app.services.slow_mode import check_slow_mode
 from app.services.rate_limit import enforce_message_antispam, rate_limit_payload
 from app.services.mentions import notify_message_mentions
 from app.services.message_notifications import notify_channel_message_activity
+from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
 from app.services.voice_session import (
     new_connection_id,
     is_active_connection,
@@ -557,6 +558,7 @@ async def handle_chat_message(
         "type": "new_message",
         "data": message_dict,
     })
+    await bot_event_dispatcher.dispatch_message_create(db, full_message)
     await manager.send_to_user(user.id, {
         "type": "message_ack",
         "data": {"id": full_message.id, "client_nonce": full_message.client_nonce},

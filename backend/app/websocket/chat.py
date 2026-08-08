@@ -16,6 +16,7 @@ from app.services.slow_mode import check_slow_mode
 from app.services.rate_limit import enforce_message_antispam, rate_limit_payload
 from app.services.mentions import notify_message_mentions
 from app.services.message_notifications import notify_channel_message_activity
+from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
 from fastapi.encoders import jsonable_encoder
 import asyncio
 from datetime import timezone
@@ -224,6 +225,7 @@ async def websocket_chat_endpoint(
                         "type": "new_message",
                         "data": message_dict
                     })
+                    await bot_event_dispatcher.dispatch_message_create(db, full_message)
 
                     await notify_message_mentions(
                         db,

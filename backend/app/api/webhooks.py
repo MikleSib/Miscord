@@ -35,6 +35,7 @@ from app.services.webhook_security import (
     verify_webhook_token,
     webhook_execution_url,
 )
+from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
 from app.services.webhook_notifications import enqueue_webhook_mentions
 from app.websocket.connection_manager import manager
 
@@ -497,7 +498,9 @@ async def reset_webhook_token(
 async def test_webhook(webhook_id: int, current_user: User = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
     webhook = await _managed_webhook(db, webhook_id, current_user.id)
     message = await _persist_message(db, webhook, WebhookExecute(content="Miscord webhook test", flags=4096), [])
-    return await _broadcast(message)
+    payload = await _broadcast(message)
+    await bot_event_dispatcher.dispatch_message_create(db, message)
+    return payload
 
 
 @router.get("/webhooks/{webhook_id}/{token}")
@@ -554,7 +557,8 @@ async def execute_webhook(request: Request, webhook_id: int, token: str, wait: b
         return _limited(result)
     payload, files = await _parse_execute_request(request, require_message=False)
     message = await _persist_message(db, webhook, payload, files)
-    internal = await _broadcast(message)
+    await _broadcast(message)
+    await bot_event_dispatcher.dispatch_message_create(db, message)
     if not payload.flags & 4096:
         channel = await _text_channel(db, webhook.text_channel_id)
         await enqueue_webhook_mentions(db, channel, message, payload.allowed_mentions)
@@ -649,6 +653,7 @@ async def edit_webhook_message(request: Request, webhook_id: int, token: str, me
         await remove_storage_key(storage_key)
     payload_out = serialize_channel_message(message)
     await manager.send_to_channel(message.text_channel_id, {"type": "message_updated", "data": payload_out})
+    await bot_event_dispatcher.dispatch_message_update(db, message)
     return _external_message_payload(message)
 
 
@@ -665,4 +670,5 @@ async def delete_webhook_message(webhook_id: int, token: str, message_id: int, d
     for storage_key in storage_keys:
         await remove_storage_key(storage_key)
     await manager.send_to_channel(message.text_channel_id, {"type": "message_deleted", "data": {"id": message.id, "text_channel_id": message.text_channel_id}})
+    await bot_event_dispatcher.dispatch_message_delete(db, message.id, message.text_channel_id)
     return Response(status_code=204)

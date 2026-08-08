@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
@@ -15,6 +15,7 @@ from app.websocket.connection_manager import manager
 from app.websocket.chat import websocket_chat_endpoint, websocket_notifications_endpoint
 from app.websocket.voice import websocket_voice_endpoint
 from app.websocket.unified import websocket_unified_endpoint
+from app.websocket.bot_gateway import websocket_gateway_endpoint
 from app.services.user_activity_service import user_activity_service
 from app.db.database import AsyncSessionLocal
 from app.models import VoiceChannelUser
@@ -160,6 +161,10 @@ async def websocket_chat_endpoint_route(websocket: WebSocket, text_channel_id: i
 async def websocket_notifications_endpoint_route(websocket: WebSocket, token: str):
     await websocket_notifications_endpoint(websocket, token)
 
+@app.websocket("/gateway")
+async def websocket_gateway_endpoint_route(websocket: WebSocket):
+    await websocket_gateway_endpoint(websocket)
+
 @app.websocket("/ws/voice/{channel_id}")
 async def websocket_voice_endpoint_route(websocket: WebSocket, channel_id: int, token: str):
     await websocket_voice_endpoint(websocket, channel_id, token)
@@ -176,8 +181,32 @@ async def root():
             "websocket_unified": "/ws/unified (RECOMMENDED)",
             "websocket_chat": "/ws/chat/{text_channel_id} (deprecated)",
             "websocket_voice": "/ws/voice/{channel_id} (deprecated)",
-            "websocket_notifications": "/ws/notifications (deprecated)"
+            "websocket_notifications": "/ws/notifications (deprecated)",
+            "gateway": "/api/gateway",
         }
+    }
+
+
+@app.get("/api/gateway")
+async def get_gateway_info(request: Request):
+    host = request.headers.get("host") or request.client.host
+    if request.url.scheme == "https":
+        ws_scheme = "wss"
+    elif request.url.scheme == "http":
+        ws_scheme = "ws"
+    else:
+        ws_scheme = "ws"
+    return {
+        "url": f"{ws_scheme}://{host}/gateway",
+        "v": 10,
+        "encoding": "json",
+        "shards": 1,
+        "session_start_limit": {
+            "total": 1000,
+            "remaining": 1000,
+            "reset_after": 0,
+            "max_concurrency": 1,
+        },
     }
 
 # Эндпоинт для проверки здоровья

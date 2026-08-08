@@ -1,11 +1,13 @@
 from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from app.models import BOT_DEFAULT_INTENTS
 
 class BotInstallRequest(BaseModel):
     client_id: str = Field(min_length=32, max_length=32)
     server_id: int = Field(gt=0)
     scope: str = "bot"
     permissions: int = Field(default=0, ge=0)
+    intents: int = Field(default=BOT_DEFAULT_INTENTS, ge=0)
     model_config = ConfigDict(extra="forbid")
 
 class BotMessageCreate(BaseModel):

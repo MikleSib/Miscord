@@ -26,6 +26,7 @@ from app.schemas.bot import (
     BotInteractionCallbackRequest,
 )
 from app.services.bot_security import BotPrincipal, get_current_bot, verify_interaction_signature
+from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
 from app.services.channel_access import user_can_access_text_channel
 from app.services.message_serializer import serialize_channel_message
 from app.websocket.connection_manager import manager
@@ -438,6 +439,10 @@ async def authorize_bot_install(
         .with_for_update()
     )
     install = install_result.scalar_one_or_none()
+    was_existing = install is not None
+    previous_permissions = int(install.permissions or 0) if was_existing else int(requested)
+    previous_intents = int(install.intents or 0) if was_existing else int(payload.intents)
+    previous_scopes = list(install.scopes) if was_existing and isinstance(install.scopes, list) else None
     role = await db.get(Role, install.role_id) if install and install.role_id else None
     if role is None:
         role_result = await db.execute(
@@ -480,12 +485,33 @@ async def authorize_bot_install(
     if install is None:
         install = BotInstall(application_id=application.id, server_id=server.id, installed_by_id=current_user.id)
         db.add(install)
+    install.intents = payload.intents
     install.installed_by_id = current_user.id
     install.role_id = role.id
     install.scopes = scopes
     install.permissions = requested
     install.status = "active"
     await db.commit()
+    if not was_existing:
+        await bot_event_dispatcher.dispatch_install_create(
+            application.id,
+            server.id,
+            permissions=requested,
+            intents=payload.intents,
+            scopes=scopes,
+        )
+    elif (
+        previous_permissions != requested
+        or previous_intents != payload.intents
+        or previous_scopes != scopes
+    ):
+        await bot_event_dispatcher.dispatch_install_update(
+            application.id,
+            server.id,
+            permissions=requested,
+            intents=payload.intents,
+            scopes=scopes,
+        )
     return {
         "installed": True,
         "application": _serialize_application(application),
@@ -552,6 +578,11 @@ async def uninstall_bot(
     install.role_id = None
     install.status = "revoked"
     await db.commit()
+    await bot_event_dispatcher.dispatch_install_delete(
+        application_id,
+        server_id,
+        reason="revoked",
+    )
 
 
 @router.get("/bot-apps/{application_id}/commands")
@@ -752,6 +783,7 @@ async def create_bot_message(
     loaded = await _load_message(db, message.id)
     serialized = serialize_channel_message(loaded)
     await manager.send_to_channel(text_channel_id, {"type": "new_message", "data": serialized})
+    await bot_event_dispatcher.dispatch_message_create(db, loaded)
     return _external_message(serialized)
 
 
@@ -795,6 +827,7 @@ async def update_bot_message(
     loaded = await _load_message(db, message.id)
     serialized = serialize_channel_message(loaded)
     await manager.send_to_channel(text_channel_id, {"type": "message_edited", "data": serialized})
+    await bot_event_dispatcher.dispatch_message_update(db, loaded)
     return _external_message(serialized)
 
 
@@ -821,6 +854,7 @@ async def delete_bot_message(
         "type": "message_deleted",
         "data": {"message_id": message_id, "text_channel_id": text_channel_id},
     })
+    await bot_event_dispatcher.dispatch_message_delete(db, message_id, text_channel_id)
 
 
 @router.post("/v1/interactions/{interaction_id}/{interaction_token}/callback")
@@ -896,6 +930,7 @@ async def create_interaction(
         interaction.response_payload = {"type": 1}
         interaction.updated_at = datetime.now(timezone.utc)
         await db.commit()
+        await bot_event_dispatcher.dispatch_interaction_create(db, interaction)
         return {"type": 1}
 
     if interaction_type == 2:
@@ -908,6 +943,7 @@ async def create_interaction(
             interaction.responded = True
             interaction.updated_at = datetime.now(timezone.utc)
             await db.commit()
+            await bot_event_dispatcher.dispatch_interaction_create(db, interaction)
             return response
         guild_id = _coerce_interaction_number(payload.get("guild_id"))
         command = await _resolve_command_for_interaction(db, application, guild_id, name)
@@ -918,6 +954,7 @@ async def create_interaction(
             interaction.responded = True
             interaction.updated_at = datetime.now(timezone.utc)
             await db.commit()
+            await bot_event_dispatcher.dispatch_interaction_create(db, interaction)
             return response
         if command.server_id is not None and actor_user_id is not None:
             await _check_command_permissions(db, command, actor_user_id, guild_id)
@@ -938,6 +975,7 @@ async def create_interaction(
         interaction.response_payload = response
         interaction.updated_at = datetime.now(timezone.utc)
         await db.commit()
+        await bot_event_dispatcher.dispatch_interaction_create(db, interaction)
         return response
 
     if interaction_type in (3, 5):
@@ -947,6 +985,7 @@ async def create_interaction(
         interaction.responded = True
         interaction.updated_at = datetime.now(timezone.utc)
         await db.commit()
+        await bot_event_dispatcher.dispatch_interaction_create(db, interaction)
         return response
 
     raise HTTPException(status_code=400, detail="Unsupported interaction type")
