@@ -17,6 +17,8 @@ import {
 import soundService from './soundService';
 import { advancedNoiseGate } from './advancedNoiseGate';
 import { useAudioDeviceStore } from '../store/audioDeviceStore';
+import { useAuthStore } from '../store/store';
+import { shouldCreateOffer } from './voicePeerUtils';
 
 interface PeerConnection {
   pc: RTCPeerConnection;
@@ -122,6 +124,10 @@ class OptimizedVoiceService {
       if (this.onParticipantJoinedCallback) {
         this.onParticipantJoinedCallback(data);
       }
+
+      // Presence alone is not enough: a participant that joins after us also
+      // needs a WebRTC peer, otherwise it is visible in the channel but silent.
+      await this.createPeerConnection(data.user_id, true);
 
       soundService.playJoinSound();
     });
@@ -309,7 +315,7 @@ class OptimizedVoiceService {
 
     pc.ontrack = (event) => {
       console.log('[OptimizedVoice] 🎵 Получен удаленный поток от:', userId);
-      const stream = event.streams[0];
+      const stream = event.streams[0] || new MediaStream([event.track]);
       
       const peerConn = this.peerConnections.get(userId);
       if (peerConn) {
@@ -333,7 +339,12 @@ class OptimizedVoiceService {
     this.peerConnections.set(userId, { pc, userId });
 
     // Создаем offer если нужно
-    if (createOffer && this.currentVoiceChannelId) {
+    const currentUserId = useAuthStore.getState().user?.id ?? null;
+    if (
+      createOffer &&
+      shouldCreateOffer(currentUserId, userId) &&
+      this.currentVoiceChannelId
+    ) {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       

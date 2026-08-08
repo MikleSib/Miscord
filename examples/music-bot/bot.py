@@ -604,7 +604,7 @@ class MiscordMusicBot:
                     "guild_id": str(guild_id),
                     "channel_id": str(channel_id),
                     "self_mute": False,
-                    "self_deaf": True,
+                    "self_deaf": False,
                 },
             }
         )
@@ -636,7 +636,7 @@ class MiscordMusicBot:
                     "guild_id": str(guild_id),
                     "channel_id": None,
                     "self_mute": False,
-                    "self_deaf": True,
+                    "self_deaf": False,
                 },
             }
         )
@@ -674,7 +674,10 @@ class MiscordMusicBot:
         if guild_id <= 0:
             await self._respond(interaction, "Музыкальные команды работают только на сервере.", ephemeral=True)
             return
-        player = self.players.setdefault(guild_id, GuildMusicPlayer())
+        player = self.players.get(guild_id)
+        if player is None:
+            player = GuildMusicPlayer()
+            self.players[guild_id] = player
         deferred = False
         try:
             if name == "play":
