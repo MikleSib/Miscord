@@ -402,10 +402,10 @@ export default function HomePage() {
   }
 
   return (
-    <div className="app-shell relative flex h-[100dvh] overflow-hidden">
-      <div className="relative z-50">
+    <div className="app-shell miscord-responsive-root relative flex h-[100dvh] overflow-hidden">
       <MobileExperience />
-      <ServerList />
+      <div className="app-mobile-servers relative z-50">
+        <ServerList />
       </div>
 
       {currentServer ? (
@@ -413,16 +413,22 @@ export default function HomePage() {
           <ScreenShareVideoPool />
           <ScreenShareViewerHost showMemberSidebar={showUserSidebar} />
           <ScreenSharePickerModal />
-          <div className="relative z-40">
+          <div className="app-mobile-channels relative z-40">
             <ChannelSidebar />
           </div>
-          <div className="flex min-w-0 flex-1 flex-col">
+          <div className="app-mobile-chat flex min-w-0 flex-1 flex-col">
             <ChatArea showUserSidebar={showUserSidebar} setShowUserSidebar={setShowUserSidebar} />
           </div>
-          {showUserSidebar && <ServerUserSidebar />}
+          {showUserSidebar && (
+            <div className="app-mobile-members flex h-full">
+              <ServerUserSidebar />
+            </div>
+          )}
         </>
       ) : (
-        <HomePageContent />
+        <div className="app-mobile-home flex min-w-0 flex-1">
+          <HomePageContent />
+        </div>
       )}
 
       {/* P2P Call UI Components */}

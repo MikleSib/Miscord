@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Hash, Volume2, ChevronDown, Settings, Plus, Mic, MicOff, Headphones, PhoneOff, VolumeX, Monitor, MonitorOff, UserX, UserCheck, Shield, Volume1, LogOut, Copy, UserPlus, Bell } from 'lucide-react'
+import { Hash, Volume2, ChevronDown, Settings, Plus, Mic, MicOff, Headphones, PhoneOff, VolumeX, Monitor, MonitorOff, UserX, UserCheck, Shield, Volume1, LogOut, Copy, UserPlus, Bell, Search } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { useVoiceStore } from '../store/slices/voiceSlice'
 import { useAuthStore } from '../store/store'
@@ -101,6 +101,7 @@ export function ChannelSidebar() {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false)
   const [isChannelSettingsModalOpen, setIsChannelSettingsModalOpen] = useState(false)
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false)
+  const [channelSearch, setChannelSearch] = useState('')
   const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false)
   const [selectedChannelForSettings, setSelectedChannelForSettings] = useState<Channel | null>(null)
   const [hoveredChannel, setHoveredChannel] = useState<number | null>(null)
@@ -109,6 +110,10 @@ export function ChannelSidebar() {
     roles: Role[];
     anchorRect: DOMRect;
   } | null>(null)
+
+  useEffect(() => {
+    setChannelSearch('')
+  }, [currentServer?.id])
   const voiceMemberProfileRequestRef = useRef(0)
 
   useEffect(() => {
@@ -729,14 +734,19 @@ export function ChannelSidebar() {
     )
   }
 
-  const textChannels = currentServer.channels.filter(c => c.type === 'text')
-  const voiceChannels = currentServer.channels.filter(c => c.type === 'voice')
+  const normalizedChannelSearch = channelSearch.trim().toLocaleLowerCase('ru')
+  const textChannels = currentServer.channels.filter(
+    (channel) => channel.type === 'text' && channel.name.toLocaleLowerCase('ru').includes(normalizedChannelSearch),
+  )
+  const voiceChannels = currentServer.channels.filter(
+    (channel) => channel.type === 'voice' && channel.name.toLocaleLowerCase('ru').includes(normalizedChannelSearch),
+  )
 
   return (
     <>
       <div className="app-sidebar flex h-full flex-col border-r">
         {/* Server Header */}
-        <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border/70 px-3 shadow-sm">
+        <div className="channel-sidebar-header flex h-12 shrink-0 items-center gap-1 border-b border-border/70 px-3 shadow-sm">
           <button
             type="button"
             onClick={handleServerHeaderContextMenu}
@@ -754,7 +764,7 @@ export function ChannelSidebar() {
                 type="button"
                 aria-label="Пригласить на сервер"
                 onClick={() => setIsInviteModalOpen(true)}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-secondary/80 text-muted-foreground transition hover:bg-secondary hover:text-foreground"
+                className="channel-header-invite flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-secondary/80 text-muted-foreground transition hover:bg-secondary hover:text-foreground"
               >
                 <UserPlus className="h-4 w-4" />
               </button>
@@ -762,8 +772,31 @@ export function ChannelSidebar() {
           )}
         </div>
 
+        <div className="mobile-channel-tools">
+          <label className="mobile-channel-search">
+            <Search aria-hidden="true" />
+            <span className="sr-only">Поиск каналов</span>
+            <input
+              type="search"
+              value={channelSearch}
+              onChange={(event) => setChannelSearch(event.target.value)}
+              placeholder="Поиск"
+              aria-label="Поиск каналов"
+            />
+          </label>
+          {canShowInviteButton && (
+            <button
+              type="button"
+              onClick={() => setIsInviteModalOpen(true)}
+              aria-label="Пригласить на сервер"
+            >
+              <UserPlus aria-hidden="true" />
+            </button>
+          )}
+        </div>
+
         {/* Channels List */}
-        <div className="flex-1 overflow-y-auto scrollbar-thin">
+        <div className="channel-sidebar-scroll flex-1 overflow-y-auto scrollbar-thin">
           {/* Text Channels */}
           <div className="pt-4">
             <div className="mb-1 px-3">

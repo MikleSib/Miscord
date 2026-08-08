@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useEffect, useRef, useState } from 'react'
-import { Reply, MoreHorizontal, Smile, Trash2, Edit3 } from 'lucide-react'
+import { Reply, Smile, Trash2, Edit3 } from 'lucide-react'
 import { Message, User } from '../types'
 import { UserAvatar } from './ui/user-avatar'
 import { Button } from './ui/button'
@@ -152,7 +152,7 @@ export function ChatMessage({
       data-message-id={message.id}
       style={{ transition: 'background-color 2s ease-out' }}
       className={cn(
-        'group relative flex items-start gap-3 py-1 px-2 rounded',
+        'chat-message-row group relative flex items-start gap-3 rounded px-2 py-1',
         showAuthor && 'mt-3',
         showMentionHighlight
           ? 'bg-[#5865f2]/20 hover:bg-[#5865f2]/25'
@@ -160,10 +160,14 @@ export function ChatMessage({
       )}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        setShowMoreMenu(true)
+      }}
     >
       {/* Hover menu */}
-      {isHovered && !isEditing && (
-        <div className="absolute top-1 right-2 bg-background border border-border rounded-lg shadow-lg flex items-center z-10">
+      {(isHovered || showMoreMenu) && !isEditing && (
+        <div className="chat-message-actions absolute right-2 top-1 z-20 flex items-center rounded-lg border border-border bg-background shadow-lg">
           <Tooltip content="Добавить реакцию">
             <Button
               size="sm"

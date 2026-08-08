@@ -2,17 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useRouter } from 'next/navigation'
 import {
   ChevronLeft,
   Headphones,
   Mic,
   MicOff,
-  MessagesSquare,
   Minimize2,
   PhoneOff,
-  Server,
-  User,
   Users,
   VolumeX,
 } from 'lucide-react'
@@ -39,21 +35,17 @@ function snapshotFromState(): MobileNavigationSnapshot {
 }
 
 export function MobileExperience() {
-  const markerRef = useRef<HTMLSpanElement>(null)
   const initializedRef = useRef(false)
   const previousServerRef = useRef<number | null>(null)
   const previousChannelRef = useRef<string | null>(null)
   const [mounted, setMounted] = useState(false)
   const [settingsDetailOpen, setSettingsDetailOpen] = useState(false)
-  const router = useRouter()
   const viewport = useResponsiveLayout()
   const isNarrow = viewport === 'phone' || viewport === 'tablet'
   useVisualViewportVariables()
 
-  const servers = useStore((state) => state.servers)
   const currentServer = useStore((state) => state.currentServer)
   const currentChannel = useStore((state) => state.currentChannel)
-  const selectServer = useStore((state) => state.selectServer)
 
   const navigation = useMobileNavigationStore()
   const voice = useOptimizedVoiceStore() as unknown as {
@@ -97,51 +89,6 @@ export function MobileExperience() {
       delete html.dataset.miscordHomeDetail
     }
   }, [currentServer, navigation.homeDetailOpen, navigation.memberDrawerOpen, navigation.pane, viewport])
-
-  useEffect(() => {
-    const marker = markerRef.current
-    const root = marker?.parentElement
-    if (!root) return
-
-    const decorate = () => {
-      root.classList.add('miscord-responsive-root')
-      const children = Array.from(root.children).filter((element) => element !== marker) as HTMLElement[]
-      children.forEach((element) => {
-        element.classList.remove(
-          'app-mobile-servers',
-          'app-mobile-channels',
-          'app-mobile-chat',
-          'app-mobile-members',
-          'app-mobile-home',
-        )
-      })
-
-      const rail = children.find((element) => element.classList.contains('app-rail'))
-      rail?.classList.add('app-mobile-servers')
-
-      if (currentServer) {
-        const channelSidebar = children.find((element) => element.classList.contains('app-sidebar'))
-        channelSidebar?.classList.add('app-mobile-channels')
-        const chat = channelSidebar?.nextElementSibling as HTMLElement | null
-        chat?.classList.add('app-mobile-chat')
-        const members = chat?.nextElementSibling as HTMLElement | null
-        if (members && (members.classList.contains('w-60') || members.getAttribute('data-sidebar') === 'members')) {
-          members.classList.add('app-mobile-members')
-        }
-      } else {
-        const home = rail?.nextElementSibling as HTMLElement | null
-        home?.classList.add('app-mobile-home')
-      }
-    }
-
-    decorate()
-    const observer = new MutationObserver(decorate)
-    observer.observe(root, { childList: true })
-    return () => {
-      observer.disconnect()
-      root.classList.remove('miscord-responsive-root')
-    }
-  }, [currentServer])
 
   useEffect(() => {
     const decorateModals = () => {
@@ -205,7 +152,8 @@ export function MobileExperience() {
     const nextServerId = currentServer?.id ?? null
     if (previousServerRef.current === nextServerId) return
     previousServerRef.current = nextServerId
-    previousChannelRef.current = null
+    const selectedChannel = useStore.getState().currentChannel
+    previousChannelRef.current = selectedChannel ? `${selectedChannel.type}:${selectedChannel.id}` : null
     commitNavigation(
       nextServerId
         ? { rootTab: 'servers', pane: 'channels', homeDetailOpen: false, memberDrawerOpen: false }
@@ -276,25 +224,6 @@ export function MobileExperience() {
     return () => window.removeEventListener('popstate', handlePopState)
   }, [isNarrow])
 
-  const openServers = () => {
-    commitNavigation({ rootTab: 'servers', pane: 'servers', homeDetailOpen: false, memberDrawerOpen: false })
-  }
-
-  const openMessages = () => {
-    void selectServer(0)
-    commitNavigation({ rootTab: 'messages', pane: 'root', homeDetailOpen: false, memberDrawerOpen: false })
-  }
-
-  const openProfile = () => {
-    const settingsButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find((button) => {
-      if (button.closest('.miscord-mobile-layer')) return false
-      const label = `${button.getAttribute('aria-label') ?? ''} ${button.title ?? ''}`.toLocaleLowerCase('ru')
-      return label.includes('настрой')
-    })
-    if (settingsButton) settingsButton.click()
-    else router.push('/settings')
-  }
-
   const goBack = () => {
     if (settingsDetailOpen) {
       document.querySelectorAll<HTMLElement>('.miscord-settings-dialog[data-mobile-detail="open"]').forEach((modal) => {
@@ -324,15 +253,50 @@ export function MobileExperience() {
     }
   }
 
-  const showBottomNavigation =
-    navigation.pane === 'root' || navigation.pane === 'servers' || navigation.pane === 'channels'
+  useEffect(() => {
+    if (!isNarrow || navigation.pane !== 'chat') return
+
+    let startX: number | null = null
+    let startY: number | null = null
+
+    const handleTouchStart = (event: TouchEvent) => {
+      if (event.touches.length !== 1 || event.touches[0].clientX > 32) return
+      if ((event.target as HTMLElement | null)?.closest('input, textarea, select, [contenteditable="true"]')) return
+      startX = event.touches[0].clientX
+      startY = event.touches[0].clientY
+    }
+
+    const handleTouchEnd = (event: TouchEvent) => {
+      if (startX === null || startY === null || event.changedTouches.length !== 1) return
+      const deltaX = event.changedTouches[0].clientX - startX
+      const deltaY = Math.abs(event.changedTouches[0].clientY - startY)
+      startX = null
+      startY = null
+      if (deltaX < 72 || deltaX <= deltaY * 1.25) return
+      if (navigation.memberDrawerOpen) {
+        commitNavigation({ memberDrawerOpen: false }, 'replace')
+      } else if (currentServer) {
+        commitNavigation({ pane: 'channels', memberDrawerOpen: false }, 'replace')
+      } else {
+        commitNavigation({ pane: 'root', homeDetailOpen: false }, 'replace')
+      }
+    }
+
+    document.addEventListener('touchstart', handleTouchStart, { passive: true })
+    document.addEventListener('touchend', handleTouchEnd, { passive: true })
+    return () => {
+      document.removeEventListener('touchstart', handleTouchStart)
+      document.removeEventListener('touchend', handleTouchEnd)
+    }
+  }, [commitNavigation, currentServer, isNarrow, navigation.memberDrawerOpen, navigation.pane])
+
   const voiceChannel = currentServer?.channels.find(
     (channel) => channel.id === voice.currentVoiceChannelId && channel.type === 'voice',
   )
 
   const mobileLayer = (
     <div className="miscord-mobile-layer" aria-live="polite">
-      {isNarrow && (navigation.pane === 'chat' || navigation.pane === 'channels' || settingsDetailOpen) && (
+      {isNarrow && (navigation.pane === 'chat' || settingsDetailOpen) && (
         <button type="button" className="miscord-mobile-back" onClick={goBack} aria-label="Назад">
           <ChevronLeft aria-hidden="true" />
         </button>
@@ -423,29 +387,11 @@ export function MobileExperience() {
         </section>
       )}
 
-      {isNarrow && showBottomNavigation && (
-        <nav className="miscord-mobile-bottom-nav" aria-label="Основная навигация">
-          <button type="button" className={navigation.rootTab === 'servers' ? 'is-active' : ''} onClick={openServers}>
-            <Server aria-hidden="true" />
-            <span>Серверы</span>
-            {servers.length > 0 && <small>{servers.length}</small>}
-          </button>
-          <button type="button" className={navigation.rootTab === 'messages' ? 'is-active' : ''} onClick={openMessages}>
-            <MessagesSquare aria-hidden="true" />
-            <span>ЛС</span>
-          </button>
-          <button type="button" onClick={openProfile}>
-            <User aria-hidden="true" />
-            <span>Профиль</span>
-          </button>
-        </nav>
-      )}
     </div>
   )
 
   return (
     <>
-      <span ref={markerRef} className="miscord-mobile-marker" aria-hidden="true" />
       {mounted ? createPortal(mobileLayer, document.body) : null}
     </>
   )

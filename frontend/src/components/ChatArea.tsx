@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
-import { Hash, Send, PlusCircle, X, Users, AtSign } from 'lucide-react'
+import { ChevronRight, Hash, Send, PlusCircle, X, Users, AtSign } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { useAuthStore } from '../store/store'
 import { useChatStore } from '../store/chatStore'
@@ -821,7 +821,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
 
   return (
     <div
-      className="relative flex h-full min-w-0 flex-1 flex-col bg-background"
+      className="chat-area relative flex h-full min-w-0 flex-1 flex-col bg-background"
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -837,17 +837,18 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
         </div>
       )}
       {/* Channel Header */}
-      <div className="app-header flex h-12 flex-shrink-0 items-center justify-between border-b px-4">
-        <div className="flex items-center">
+      <div className="app-header chat-area-header flex h-12 flex-shrink-0 items-center justify-between border-b px-4">
+        <div className="chat-area-header__title flex min-w-0 items-center">
           <Hash className="w-5 h-5 text-muted-foreground mr-2" />
-          <span className="font-semibold">{currentChannel.name}</span>
+          <span className="truncate font-semibold">{currentChannel.name}</span>
+          <ChevronRight className="mobile-channel-chevron ml-1 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           {currentChannel.type === 'text' && (currentChannel.slow_mode_seconds ?? 0) > 0 && (
             <span className="ml-3 rounded bg-[#5865f2]/15 px-2 py-0.5 text-xs text-[#949cf7]">
               Медленный режим: {formatSlowModeLabel(currentChannel.slow_mode_seconds ?? 0)}
             </span>
           )}
         </div>
-        <div className="flex items-center space-x-2">
+        <div className="chat-area-header__actions flex items-center space-x-2">
           <Tooltip content={showUserSidebar ? 'Скрыть список участников' : 'Показать список участников'}>
             <button
               className="interactive-row flex items-center p-2 text-muted-foreground hover:text-foreground"
@@ -866,7 +867,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
       <div className="relative min-h-0 flex-1">
         <div
           ref={messagesContainerRef}
-          className="chat-scroll h-full overflow-y-auto px-5 py-4"
+          className="chat-scroll chat-area-messages h-full overflow-y-auto px-5 py-4"
           onScroll={handleMessagesScroll}
         >
           <div ref={messagesContentRef} className="space-y-1">
@@ -964,14 +965,14 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
 
       {/* Message Input */}
       {currentChannel.type === 'text' && (
-        <div className="flex-shrink-0 border-t border-border/70 p-3">
+        <div className="chat-area-composer flex-shrink-0 border-t border-border/70 p-3">
           {isSlowModeActive && (
             <div className="mb-2 rounded-md border border-[#5865f2]/30 bg-[#5865f2]/10 px-3 py-2 text-sm text-[#dbdee1]">
               {sendLimitHint ||
                 `Подождите ${slowModeRemainingSeconds} сек. вЂ” в этом канале включён медленный режим.`}
             </div>
           )}
-          <form onSubmit={handleSendMessage} className="relative flex flex-col rounded-xl border border-[#3e3f45] bg-[#393a41] p-2">
+          <form onSubmit={handleSendMessage} className="chat-area-composer__surface relative flex flex-col rounded-xl border border-[#3e3f45] bg-[#393a41] p-2">
             {attachmentError && (
               <div className="mb-2 rounded-lg border border-[#da373c]/40 bg-[#da373c]/10 px-3 py-2 text-xs text-[#ffb8ba]">
                 {attachmentError}
@@ -1008,7 +1009,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
               </div>
             )}
             
-            <div className="flex items-center">
+            <div className="chat-area-composer__row flex items-center">
               <input 
                 type="file"
                 ref={fileInputRef}
@@ -1021,7 +1022,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
                 size="icon"
                 variant="ghost"
                 onClick={() => fileInputRef.current?.click()}
-                className="mr-2"
+                className="chat-area-composer__attach mr-2"
                 disabled={files.length >= MAX_CHAT_ATTACHMENTS || isLoading || isSlowModeActive}
                 title="Прикрепить файлы"
               >
@@ -1051,7 +1052,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
                     ? `Ответ пользователю ${replyingTo.author.username}...`
                     : `Написать в #${currentChannel.name} · / — команда · @ — упомянуть`
                 }
-                className="flex-1 bg-transparent outline-none text-sm"
+                className="chat-area-composer__input min-w-0 flex-1 bg-transparent text-sm outline-none"
                 disabled={isLoading || isSlowModeActive}
                 autoComplete="off"
               />
@@ -1059,7 +1060,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
                 type="submit"
                 size="icon"
                 variant="ghost"
-                className="h-8 w-8"
+                className="chat-area-composer__send h-8 w-8"
                 disabled={(!messageInput.trim() && files.length === 0) || isLoading || isSlowModeActive}
               >
                 {isLoading ? '...' : <Send className="w-4 h-4" />}
