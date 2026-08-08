@@ -623,7 +623,7 @@ html[data-miscord-pane="chat"] .miscord-mobile-voice-bar {
 
 @media (max-width: 767px) {
   :root {
-    --mobile-server-rail-width: 4.5rem;
+    --mobile-server-rail-width: calc(4.5rem + 4px);
     --mobile-channel-header-height: 3.5rem;
     --mobile-profile-dock-height: 4.75rem;
   }
@@ -654,9 +654,13 @@ html[data-miscord-pane="chat"] .miscord-mobile-voice-bar {
   .app-mobile-servers > .app-rail {
     width: 100% !important;
     min-width: 100% !important;
-    padding: calc(var(--safe-area-top) + 0.5rem) 0.625rem calc(var(--mobile-profile-dock-height) + var(--safe-area-bottom)) !important;
+    padding: calc(var(--safe-area-top) + 0.5rem) calc(0.625rem + 4px) calc(var(--mobile-profile-dock-height) + var(--safe-area-bottom)) 0.625rem !important;
     overflow-y: auto !important;
     overscroll-behavior: contain;
+  }
+
+  .app-mobile-servers > .app-rail > .server-rail-divider--primary {
+    margin-top: -0.75rem;
   }
 
   .app-mobile-servers > .app-rail > div:last-child {

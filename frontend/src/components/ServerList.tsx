@@ -230,7 +230,7 @@ export function ServerList() {
           </div>
         )}
 
-        <div className="h-[2px] w-8 rounded-full bg-border" />
+        <div className="server-rail-divider server-rail-divider--primary h-[2px] w-8 rounded-full bg-border" />
 
         {/* Server Icons */}
         <div className="flex w-full flex-1 flex-col items-center gap-3">
@@ -309,7 +309,7 @@ export function ServerList() {
           </Button>
         </div>
 
-        <div className="h-[2px] w-8 rounded-full bg-border" />
+        <div className="server-rail-divider h-[2px] w-8 rounded-full bg-border" />
       </div>
 
       {/* Create Server Modal */}
