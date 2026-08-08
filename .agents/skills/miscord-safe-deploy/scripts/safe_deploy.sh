@@ -33,10 +33,10 @@ diagnostics() {
 }
 trap diagnostics EXIT
 
-echo "[1/6] validating compose configuration"
+echo "[1/7] validating compose configuration"
 "${COMPOSE[@]}" config --quiet
 
-echo "[2/6] building replacement images while live services stay up"
+echo "[2/7] building replacement images while live services stay up"
 "${COMPOSE[@]}" build "${services[@]}"
 
 contains_service() {
@@ -48,13 +48,20 @@ contains_service() {
 }
 
 if contains_service backend; then
-  echo "[3/6] importing backend in a disposable container"
+  echo "[3/7] importing backend in a disposable container"
   "${COMPOSE[@]}" run --rm --no-deps backend python -c "import main; print('backend import: ok')"
 else
-  echo "[3/6] backend preflight not required"
+  echo "[3/7] backend preflight not required"
 fi
 
-echo "[4/6] replacing only requested services"
+if contains_service backend; then
+  echo "[4/7] applying idempotent bot schema migration"
+  "${COMPOSE[@]}" run --rm --no-deps backend python migrate_bot_phase4.py
+else
+  echo "[4/7] schema migration not required"
+fi
+
+echo "[5/7] replacing only requested services"
 "${COMPOSE[@]}" up -d --no-deps --force-recreate "${services[@]}"
 
 wait_for_service() {
@@ -93,7 +100,7 @@ wait_for_service() {
 contains_service backend && wait_for_service backend 8000
 contains_service frontend && wait_for_service frontend 3000
 
-echo "[5/6] refreshing Nginx Docker upstream addresses"
+echo "[6/7] refreshing Nginx Docker upstream addresses"
 if contains_service nginx; then
   wait_for_service nginx
 else
@@ -101,11 +108,31 @@ else
   wait_for_service nginx
 fi
 
-echo "[6/6] checking public frontend and API proxy"
+echo "[7/7] checking public frontend, API health, and Gateway"
 root_code=$(curl -sS -o /dev/null --max-time 15 -w '%{http_code}' "$PUBLIC_URL/")
 api_code=$(curl -sS -o /dev/null --max-time 15 -w '%{http_code}' "$PUBLIC_URL/api/health")
 [[ "$root_code" =~ ^[23][0-9][0-9]$ ]] || { echo "public root returned $root_code" >&2; exit 1; }
-[[ "$api_code" != "000" && "$api_code" -lt 500 ]] || { echo "public API returned $api_code" >&2; exit 1; }
+[[ "$api_code" == "200" ]] || { echo "public API health returned $api_code" >&2; exit 1; }
+
+"${COMPOSE[@]}" exec -T backend python - <<'PY'
+import asyncio
+import json
+import os
+
+import websockets
+
+
+async def probe() -> None:
+    public_url = os.environ.get("MISCORD_PUBLIC_URL", "https://miscord.ru")
+    gateway_url = public_url.replace("https://", "wss://", 1).replace("http://", "ws://", 1) + "/gateway?v=10&encoding=json"
+    async with websockets.connect(gateway_url, open_timeout=10) as socket:
+        payload = json.loads(await asyncio.wait_for(socket.recv(), timeout=10))
+        if payload.get("op") != 10 or not isinstance(payload.get("d", {}).get("heartbeat_interval"), int):
+            raise RuntimeError("Gateway did not return a valid HELLO payload")
+
+
+asyncio.run(probe())
+PY
 
 trap - EXIT
-echo "deployment accepted: root=$root_code api=$api_code"
+echo "deployment accepted: root=$root_code api=$api_code gateway=hello"

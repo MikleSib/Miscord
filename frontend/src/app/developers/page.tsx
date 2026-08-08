@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 
 import botService from '../../services/botService';
+import authService from '../../services/authService';
 import { useAuthStore } from '../../store/store';
 import type {
   BotApplication,
@@ -41,6 +42,7 @@ export default function DeveloperPortalPage() {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
   const [mounted, setMounted] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
   const [applications, setApplications] = useState<BotApplication[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -103,8 +105,38 @@ export default function DeveloperPortalPage() {
 
   useEffect(() => {
     if (!mounted) return;
+    let active = true;
+
+    const restoreSession = async () => {
+      const authState = useAuthStore.getState();
+      const savedToken = localStorage.getItem('access_token') || authState.token;
+      if (!savedToken) {
+        authState.logout();
+        if (active) setAuthChecked(true);
+        return;
+      }
+
+      try {
+        authState.setToken(savedToken);
+        const restoredUser = await authService.getCurrentUser();
+        if (!active) return;
+        authState.loginSuccess(restoredUser, savedToken);
+      } catch {
+        localStorage.removeItem('access_token');
+        authState.logout();
+      } finally {
+        if (active) setAuthChecked(true);
+      }
+    };
+
+    void restoreSession();
+    return () => { active = false; };
+  }, [mounted]);
+
+  useEffect(() => {
+    if (!mounted || !authChecked) return;
     if (!user) {
-      router.replace('/login');
+      router.replace('/login?redirect=/developers');
       return;
     }
     let active = true;
@@ -117,7 +149,7 @@ export default function DeveloperPortalPage() {
       .catch((requestError) => active && setError(errorMessage(requestError)))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
-  }, [mounted, router, user]);
+  }, [authChecked, mounted, router, user]);
 
   useEffect(() => {
     if (!selected) return;
@@ -382,7 +414,7 @@ export default function DeveloperPortalPage() {
     }
   };
 
-  if (!mounted || !user) return null;
+  if (!mounted || !authChecked || !user) return null;
 
   return (
     <main className="min-h-[100dvh] bg-[#1e1f22] text-[#f2f3f5]">

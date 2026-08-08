@@ -189,10 +189,12 @@ async def root():
 
 @app.get("/api/gateway")
 async def get_gateway_info(request: Request):
-    host = request.headers.get("host") or request.client.host
-    if request.url.scheme == "https":
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.client.host
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    request_scheme = forwarded_proto.split(",", 1)[0].strip().lower() if forwarded_proto else request.url.scheme
+    if request_scheme == "https":
         ws_scheme = "wss"
-    elif request.url.scheme == "http":
+    elif request_scheme == "http":
         ws_scheme = "ws"
     else:
         ws_scheme = "ws"
@@ -209,13 +211,38 @@ async def get_gateway_info(request: Request):
         },
     }
 
-# Эндпоинт для проверки здоровья
+@app.get("/api/health", include_in_schema=False)
 @app.get("/health")
 async def health_check():
-    scanner = await clamav_health() if settings.WEBHOOK_FILES_ENABLED else None
+    from fastapi.responses import JSONResponse
+
+    database = "ok"
+    try:
+        async with engine.connect() as connection:
+            await connection.execute(text("SELECT 1"))
+    except Exception:
+        database = "unavailable"
+
+    redis_status = "degraded"
+    if manager.redis_client:
+        try:
+            await manager.redis_client.ping()
+            redis_status = "ok"
+        except Exception:
+            redis_status = "unavailable"
+
+    try:
+        scanner_result = await clamav_health() if settings.WEBHOOK_FILES_ENABLED else None
+    except Exception:
+        scanner_result = False
+    scanner = "disabled" if scanner_result is None else ("ok" if scanner_result else "unavailable")
+
+    components = {"database": database, "redis": redis_status, "clamav": scanner}
+    if database != "ok":
+        return JSONResponse(status_code=503, content={"status": "unhealthy", "components": components})
     return {
-        "status": "healthy" if scanner is not False else "degraded",
-        "components": {"database": "ok", "redis": "ok" if manager.redis_client else "degraded", "clamav": scanner},
+        "status": "healthy" if redis_status == "ok" and scanner in {"ok", "disabled"} else "degraded",
+        "components": components,
     }
 
 # Подключаем статические файлы
