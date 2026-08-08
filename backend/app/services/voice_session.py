@@ -12,6 +12,7 @@ import uuid
 
 # channel_id -> { user_id -> connection_info }
 VoiceConnections = Dict[int, Dict[int, dict]]
+voice_connections: VoiceConnections = {}
 
 
 def new_connection_id() -> str:
@@ -42,6 +43,7 @@ def register_connection(
     is_muted: bool = False,
     is_deafened: bool = False,
     is_sharing_screen: bool = False,
+    gateway: str = "voice",
 ) -> dict:
     if channel_id not in voice_connections:
         voice_connections[channel_id] = {}
@@ -53,6 +55,7 @@ def register_connection(
         "is_muted": is_muted,
         "is_deafened": is_deafened,
         "is_sharing_screen": is_sharing_screen,
+        "gateway": gateway,
     }
     voice_connections[channel_id][user_id] = info
     return info

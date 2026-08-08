@@ -1,7 +1,8 @@
 from fastapi import WebSocket, WebSocketDisconnect
+import json
 from sqlalchemy import select, and_, delete
 from sqlalchemy.orm import selectinload
-from typing import Dict, Optional
+from typing import Optional
 
 from app.db.database import AsyncSessionLocal
 from app.models import User, VoiceChannel, VoiceChannelUser, ChannelMember
@@ -15,13 +16,10 @@ from app.services.voice_session import (
     pop_connection_if_current,
     find_user_channels,
     participant_payload,
+    voice_connections,
 )
 from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
 from app.services.miscord_serializers import miscord_voice_state
-
-# channel_id -> { user_id -> connection_info }
-voice_connections: Dict[int, Dict[int, dict]] = {}
-
 
 async def get_current_user_voice(websocket: WebSocket, token: str, db) -> Optional[User]:
     payload = decode_access_token(token)
@@ -384,13 +382,15 @@ async def _relay_signal(
     if not target or not target.get("websocket"):
         return
     try:
-        await target["websocket"].send_json(
-            {
-                "type": out_type,
-                "from_id": from_user_id,
-                payload_key: payload,
-            }
-        )
+        message = {
+            "type": f"voice_{out_type}" if target.get("gateway") == "unified" else out_type,
+            "from_id": from_user_id,
+            payload_key: payload,
+        }
+        if target.get("gateway") == "unified":
+            await target["websocket"].send_text(json.dumps(message))
+        else:
+            await target["websocket"].send_json(message)
     except Exception as exc:
         print(f"[Voice] relay {out_type} to {target_id} failed: {exc}")
 
@@ -406,12 +406,11 @@ async def _relay_request_offer(
     if not target or not target.get("websocket"):
         return
     try:
-        await target["websocket"].send_json(
-            {
-                "type": "request_offer",
-                "from_id": from_user_id,
-            }
-        )
+        message = {"type": "request_offer", "from_id": from_user_id}
+        if target.get("gateway") == "unified":
+            await target["websocket"].send_text(json.dumps(message))
+        else:
+            await target["websocket"].send_json(message)
     except Exception as exc:
         print(f"[Voice] relay request_offer to {target_id} failed: {exc}")
 

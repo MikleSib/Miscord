@@ -36,6 +36,7 @@ from app.services.voice_session import (
     register_connection,
     find_user_channels,
     participant_payload,
+    voice_connections,
 )
 from app.core.config import settings
 from app.models import DirectMessage, PendingChatUpload
@@ -61,9 +62,6 @@ async def _send_message_failure(
             "retry_after_seconds": retry_after_seconds,
         },
     })
-
-
-voice_connections: Dict[int, Dict[int, dict]] = {}
 
 
 async def _dispatch_bot_voice_state(
@@ -718,6 +716,7 @@ async def handle_join_voice(
             is_muted=is_muted,
             is_deafened=is_deafened,
             is_sharing_screen=False,
+            gateway="unified",
         )
 
         participants = []
@@ -916,6 +915,19 @@ async def handle_voice_offer(user: User, message_data: dict, manager):
     target_id = _normalize_target_user_id(message_data)
     offer = message_data.get("offer")
     if target_id is not None and offer:
+        target = next(
+            (
+                users[target_id]
+                for users in voice_connections.values()
+                if target_id in users
+            ),
+            None,
+        )
+        if target and target.get("gateway") == "bot" and target.get("websocket"):
+            await target["websocket"].send_json(
+                {"type": "offer", "from_id": user.id, "offer": offer}
+            )
+            return
         await manager.send_personal_message(
             {
                 "type": "voice_offer",
@@ -931,6 +943,19 @@ async def handle_voice_answer(user: User, message_data: dict, manager):
     target_id = _normalize_target_user_id(message_data)
     answer = message_data.get("answer")
     if target_id is not None and answer:
+        target = next(
+            (
+                users[target_id]
+                for users in voice_connections.values()
+                if target_id in users
+            ),
+            None,
+        )
+        if target and target.get("gateway") == "bot" and target.get("websocket"):
+            await target["websocket"].send_json(
+                {"type": "answer", "from_id": user.id, "answer": answer}
+            )
+            return
         await manager.send_personal_message(
             {
                 "type": "voice_answer",
@@ -946,6 +971,23 @@ async def handle_voice_ice_candidate(user: User, message_data: dict, manager):
     target_id = _normalize_target_user_id(message_data)
     candidate = message_data.get("candidate")
     if target_id is not None and candidate:
+        target = next(
+            (
+                users[target_id]
+                for users in voice_connections.values()
+                if target_id in users
+            ),
+            None,
+        )
+        if target and target.get("gateway") == "bot" and target.get("websocket"):
+            await target["websocket"].send_json(
+                {
+                    "type": "ice_candidate",
+                    "from_id": user.id,
+                    "candidate": candidate,
+                }
+            )
+            return
         await manager.send_personal_message(
             {
                 "type": "voice_ice_candidate",

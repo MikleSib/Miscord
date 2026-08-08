@@ -18,6 +18,7 @@ from app.services.voice_session import (
     new_connection_id,
     participant_payload,
     register_connection,
+    voice_connections,
 )
 from app.websocket.connection_manager import manager
 from app.websocket.voice import (
@@ -30,7 +31,6 @@ from app.websocket.voice import (
     _relay_request_offer,
     _relay_signal,
     _replace_same_channel_connection,
-    voice_connections,
 )
 
 
@@ -89,6 +89,11 @@ class _BotVoiceSocketAdapter:
             )
             return
         await self.websocket.send_json(payload)
+
+    async def send_text(self, payload: str) -> None:
+        data = json.loads(payload)
+        if isinstance(data, dict):
+            await self.send_json(data)
 
     async def close(self, code: int = 1000, reason: str = "") -> None:
         await self.websocket.close(code=code, reason=reason)
@@ -209,7 +214,7 @@ async def _prepare_connection(
     )
     await db.commit()
 
-    await manager.connect(websocket, user.id, -session.channel_id)
+    await manager.register_channel(websocket, user.id, -session.channel_id)
     register_connection(
         voice_connections,
         session.channel_id,
@@ -219,6 +224,7 @@ async def _prepare_connection(
         connection_id=connection_id,
         is_muted=session.self_mute,
         is_deafened=session.self_deaf,
+        gateway="bot",
     )
     await bot_voice_sessions.attach(session.session_id, websocket)
     return user, voice_channel, connection_id
@@ -392,7 +398,7 @@ async def websocket_bot_voice_gateway_endpoint(websocket: WebSocket) -> None:
     except (ValueError, TypeError):
         await _close(websocket, 4002, "Failed to decode payload")
     except Exception as exc:
-        print(f"[BotVoiceGateway] error: {type(exc).__name__}")
+        print(f"[BotVoiceGateway] error: {type(exc).__name__}: {exc}")
         await _close(websocket, 1011, "Internal voice error")
     finally:
         if session is not None and user is not None and voice_channel is not None and connection_id:
