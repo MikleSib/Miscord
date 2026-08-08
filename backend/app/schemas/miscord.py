@@ -50,7 +50,7 @@ def _validate_command_options(options: list[dict[str, Any]], *, depth: int = 0) 
     return options
 
 
-class DiscordApplicationCommandPayload(BaseModel):
+class MiscordApplicationCommandPayload(BaseModel):
     name: str = Field(min_length=1, max_length=32)
     name_localizations: dict[str, str] | None = None
     description: str = Field(default="", max_length=100)
@@ -200,7 +200,7 @@ def _validate_modal(data: dict[str, Any]) -> None:
             raise ValueError("modal text input length constraints are invalid")
 
 
-class DiscordMessageCreate(BaseModel):
+class MiscordMessageCreate(BaseModel):
     content: str | None = Field(default=None, max_length=2000)
     nonce: str | int | None = None
     tts: bool = False
@@ -226,7 +226,7 @@ class DiscordMessageCreate(BaseModel):
         return self
 
 
-class DiscordMessageUpdate(BaseModel):
+class MiscordMessageUpdate(BaseModel):
     content: str | None = Field(default=None, max_length=2000)
     embeds: list[dict[str, Any]] | None = Field(default=None, max_length=10)
     flags: int | None = None
@@ -240,7 +240,7 @@ class DiscordMessageUpdate(BaseModel):
         return _validate_components(value) if value is not None else None
 
 
-class DiscordInteractionCallback(BaseModel):
+class MiscordInteractionCallback(BaseModel):
     type: int
     data: dict[str, Any] | None = None
     model_config = ConfigDict(extra="forbid")

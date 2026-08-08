@@ -9,12 +9,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.discord_errors import ALREADY_ACKNOWLEDGED, DiscordAPIError, UNKNOWN_INTERACTION, UNKNOWN_MESSAGE
+from app.core.miscord_errors import ALREADY_ACKNOWLEDGED, MiscordAPIError, UNKNOWN_INTERACTION, UNKNOWN_MESSAGE
 from app.models import BotApplication, BotInteraction, BotInteractionMessage, Message
-from app.schemas.discord import DiscordInteractionCallback
+from app.schemas.miscord import MiscordInteractionCallback
 from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
-from app.services.discord_serializers import discord_message
-from app.services.discord_snowflake import generate_snowflake
+from app.services.miscord_serializers import miscord_message
+from app.services.miscord_snowflake import generate_snowflake
 from app.websocket.connection_manager import manager
 
 
@@ -123,7 +123,7 @@ async def _create_response_message(
     original: bool,
 ) -> Message:
     if interaction.channel_id is None:
-        raise DiscordAPIError(400, 50035, "Interaction does not have a channel")
+        raise MiscordAPIError(400, 50035, "Interaction does not have a channel")
     flags = int(data.get("flags") or 0)
     ephemeral = bool(flags & EPHEMERAL_FLAG)
     message = Message(
@@ -194,7 +194,7 @@ async def update_response_message(
 async def apply_initial_callback(
     db: AsyncSession,
     interaction: BotInteraction,
-    callback: DiscordInteractionCallback,
+    callback: MiscordInteractionCallback,
 ) -> Message | None:
     if interaction.responded:
         raise ALREADY_ACKNOWLEDGED()

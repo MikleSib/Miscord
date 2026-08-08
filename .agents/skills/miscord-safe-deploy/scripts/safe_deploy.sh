@@ -34,6 +34,11 @@ diagnostics() {
 trap diagnostics EXIT
 
 echo "[1/7] validating compose configuration"
+forbidden_brand="dis""cord"
+if git grep -I -i -q "$forbidden_brand" -- . || git ls-files | grep -i -q "$forbidden_brand"; then
+  echo "forbidden competitor branding found in tracked source" >&2
+  exit 1
+fi
 "${COMPOSE[@]}" config --quiet
 
 echo "[2/7] building replacement images while live services stay up"
@@ -57,7 +62,7 @@ fi
 if contains_service backend; then
   echo "[4/7] applying idempotent bot schema migration"
   "${COMPOSE[@]}" run --rm --no-deps backend python migrate_bot_phase4.py
-  "${COMPOSE[@]}" run --rm --no-deps backend python migrate_bot_discord_v10.py
+  "${COMPOSE[@]}" run --rm --no-deps backend python migrate_bot_miscord_v10.py
 else
   echo "[4/7] schema migration not required"
 fi

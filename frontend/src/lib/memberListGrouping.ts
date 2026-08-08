@@ -31,7 +31,7 @@ function getHighestNonDefaultRole(member: ServerMember): Role | null {
   return nonDefault.reduce((best, role) => (role.position > best.position ? role : best));
 }
 
-/** Группировка участников как в Discord: секции по высшей роли + «Не в сети» внизу. */
+/** Группировка участников по высшей роли с секцией «Не в сети» внизу. */
 export function groupMembersByRole(members: ServerMember[], roles: Role[]): GroupedMembers {
   const displayRoles = roles
     .filter((role) => !role.is_default)

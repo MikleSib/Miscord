@@ -1,4 +1,4 @@
-/** Discord API v10 permission values. Keep numbers for the existing internal
+/** Miscord API v10 permission values. Keep numbers for the existing internal
  * API, but always perform bitwise operations with BigInt: JavaScript's normal
  * bitwise operators truncate values to signed 32 bits. */
 export const Permissions = {

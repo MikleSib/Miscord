@@ -11,12 +11,12 @@ export interface SwitchProps {
   className?: string
   id?: string
   'aria-label'?: string
-  /** success = зелёный (по умолчанию), brand = синий Discord */
+  /** success = зелёный (по умолчанию), brand = синий Miscord */
   variant?: 'success' | 'brand'
 }
 
 /**
- * Переключатель в стиле Discord: зелёный/синий «вкл», серый «выкл»,
+ * Фирменный переключатель: зелёный/синий «вкл», серый «выкл»,
  * белый кружок едет с лёгким пружинным отскоком.
  */
 export function Switch({

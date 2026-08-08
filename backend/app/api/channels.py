@@ -18,7 +18,7 @@ from app.schemas.channel import (
 from app.schemas.user import User as UserResponse
 from app.core.dependencies import get_current_active_user, get_current_user
 from app.core.permissions import (
-    DEFAULT_PERMISSIONS, Permission, discord_permissions_to_legacy, ensure_default_role, get_default_role,
+    DEFAULT_PERMISSIONS, Permission, miscord_permissions_to_legacy, ensure_default_role, get_default_role,
     get_member_permissions, has_permission, is_member as is_server_member,
     require_membership, require_permission
 )
@@ -43,7 +43,7 @@ from app.services.channel_access import (
     user_can_manage_messages,
 )
 from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
-from app.services.discord_serializers import discord_channel
+from app.services.miscord_serializers import miscord_channel
 import secrets as secrets_mod
 
 router = APIRouter()
@@ -253,7 +253,7 @@ async def create_channel(
         color=None,
         position=0,
         permissions=DEFAULT_PERMISSIONS,
-        legacy_permissions=discord_permissions_to_legacy(DEFAULT_PERMISSIONS),
+        legacy_permissions=miscord_permissions_to_legacy(DEFAULT_PERMISSIONS),
         is_default=True,
     ))
     
@@ -595,7 +595,7 @@ async def get_channel_details(
     )
     member_rows = members_result.all()
 
-    # Роли участников — для цвета имени в списке участников (как в Discord)
+    # Роли участников определяют цвет имени в списке
     member_roles_result = await db.execute(
         select(MemberRole.user_id, Role)
         .join(Role, MemberRole.role_id == Role.id)
@@ -853,7 +853,7 @@ async def create_text_channel(
         changes={"kind": "text"},
     )
     await bot_event_dispatcher.dispatch_guild_event(
-        db, channel_id, "CHANNEL_CREATE", discord_channel(new_text_channel, guild_id=channel_id, overwrites=[])
+        db, channel_id, "CHANNEL_CREATE", miscord_channel(new_text_channel, guild_id=channel_id, overwrites=[])
     )
     
     return new_text_channel
@@ -915,7 +915,7 @@ async def create_voice_channel(
         changes={"kind": "voice"},
     )
     await bot_event_dispatcher.dispatch_guild_event(
-        db, channel_id, "CHANNEL_CREATE", discord_channel(new_voice_channel, guild_id=channel_id, overwrites=[])
+        db, channel_id, "CHANNEL_CREATE", miscord_channel(new_voice_channel, guild_id=channel_id, overwrites=[])
     )
     
     return new_voice_channel
@@ -993,7 +993,7 @@ async def update_text_channel(
         db,
         text_channel.channel_id,
         "CHANNEL_UPDATE",
-        discord_channel(text_channel, guild_id=text_channel.channel_id, overwrites=[]),
+        miscord_channel(text_channel, guild_id=text_channel.channel_id, overwrites=[]),
     )
 
     return text_channel
@@ -1070,7 +1070,7 @@ async def update_voice_channel(
         db,
         voice_channel.channel_id,
         "CHANNEL_UPDATE",
-        discord_channel(voice_channel, guild_id=voice_channel.channel_id, overwrites=[]),
+        miscord_channel(voice_channel, guild_id=voice_channel.channel_id, overwrites=[]),
     )
 
     return voice_channel
@@ -1135,7 +1135,7 @@ async def delete_text_channel(
         db,
         server_id,
         "CHANNEL_DELETE",
-        discord_channel(text_channel, guild_id=server_id, overwrites=[]),
+        miscord_channel(text_channel, guild_id=server_id, overwrites=[]),
     )
 
     return {"detail": "Текстовый канал скрыт"}
@@ -1200,7 +1200,7 @@ async def restore_text_channel(
         db,
         server_id,
         "CHANNEL_CREATE",
-        discord_channel(text_channel, guild_id=server_id, overwrites=[]),
+        miscord_channel(text_channel, guild_id=server_id, overwrites=[]),
     )
 
     return text_channel
@@ -1234,7 +1234,7 @@ async def delete_voice_channel(
     # Получаем сервер для уведомления
     server_id = voice_channel.channel_id
     deleted_channel_name = voice_channel.name
-    deleted_channel_payload = discord_channel(voice_channel, guild_id=server_id, overwrites=[])
+    deleted_channel_payload = miscord_channel(voice_channel, guild_id=server_id, overwrites=[])
 
     # Получаем всех участников сервера для уведомления
     members_stmt = select(ChannelMember.user_id).where(ChannelMember.channel_id == server_id)
@@ -1462,7 +1462,7 @@ async def get_channel_messages(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Сообщения пачками (как Discord):
+    Сообщения возвращаются пачками:
     - без before → последние `limit` сообщений;
     - with before → ещё `limit` сообщений старше этого id.
     """

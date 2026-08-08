@@ -180,7 +180,7 @@ def effective_channel_level(settings: dict[str, Any], text_channel_id: int) -> s
             return item["level"]
 
     if settings.get("muted"):
-        # Заглушенный сервер: только упоминания (как в Discord)
+        # Для заглушенного сервера пропускаем только упоминания
         return "mentions"
 
     level = settings.get("notification_level") or "all"

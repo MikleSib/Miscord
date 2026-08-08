@@ -5,7 +5,7 @@ import { Check, Ban } from 'lucide-react'
 
 import { cn } from '../../lib/utils'
 
-/** Палитра цветов ролей, как в Discord. */
+/** Палитра цветов ролей Miscord. */
 export const ROLE_COLORS = [
   '#1abc9c',
   '#2ecc71',

@@ -77,7 +77,7 @@ async def _notify_server_members(server_id: Optional[int], message: dict, exclud
 
 async def _force_leave_other_channels(user: User, keep_channel_id: int, db) -> None:
     """
-    Discord: пользователь одновременно только в одном голосовом канале.
+    Miscord: пользователь одновременно только в одном голосовом канале.
     При входе в новый — принудительно выходим из остальных.
     """
     other_channels = [cid for cid in find_user_channels(voice_connections, user.id) if cid != keep_channel_id]
@@ -162,7 +162,7 @@ async def websocket_voice_endpoint(
     channel_id: int,
     token: str,
 ):
-    """WebSocket сигнализации голосового канала (mesh WebRTC, как Discord)."""
+    """WebSocket сигнализации голосового канала (mesh WebRTC, как Miscord)."""
     connection_id = new_connection_id()
     manager_channel_id = -channel_id
     user: Optional[User] = None

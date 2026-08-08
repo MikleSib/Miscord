@@ -3,15 +3,15 @@ from pydantic import ValidationError
 
 from app.core.permissions import (
     Permission,
-    discord_permissions_to_legacy,
-    legacy_permissions_to_discord,
+    miscord_permissions_to_legacy,
+    legacy_permissions_to_miscord,
 )
 from app.api.bot_client import router as bot_client_router
-from app.schemas.discord import DiscordApplicationCommandPayload, DiscordInteractionCallback, DiscordMessageCreate
-from app.services.discord_snowflake import generate_snowflake
+from app.schemas.miscord import MiscordApplicationCommandPayload, MiscordInteractionCallback, MiscordMessageCreate
+from app.services.miscord_snowflake import generate_snowflake
 
 
-def test_permission_values_match_discord_v10():
+def test_permission_values_match_miscord_v10():
     assert int(Permission.VIEW_CHANNEL) == 1 << 10
     assert int(Permission.SEND_MESSAGES) == 1 << 11
     assert int(Permission.USE_APPLICATION_COMMANDS) == 1 << 31
@@ -20,16 +20,16 @@ def test_permission_values_match_discord_v10():
 
 def test_legacy_permission_round_trip_preserves_mapped_bits():
     legacy = (1 << 0) | (1 << 1) | (1 << 15) | (1 << 18)
-    discord = legacy_permissions_to_discord(legacy)
-    assert discord & int(Permission.VIEW_CHANNEL)
-    assert discord & int(Permission.SEND_MESSAGES)
-    assert discord & int(Permission.ADMINISTRATOR)
-    assert discord & int(Permission.SEND_MESSAGES_IN_THREADS)
-    assert discord_permissions_to_legacy(discord) & legacy == legacy
+    miscord = legacy_permissions_to_miscord(legacy)
+    assert miscord & int(Permission.VIEW_CHANNEL)
+    assert miscord & int(Permission.SEND_MESSAGES)
+    assert miscord & int(Permission.ADMINISTRATOR)
+    assert miscord & int(Permission.SEND_MESSAGES_IN_THREADS)
+    assert miscord_permissions_to_legacy(miscord) & legacy == legacy
 
 
 def test_command_contract_accepts_options_and_string_permissions():
-    command = DiscordApplicationCommandPayload(
+    command = MiscordApplicationCommandPayload(
         name="weather",
         description="Show weather",
         default_member_permissions=str(1 << 31),
@@ -46,7 +46,7 @@ def test_command_contract_accepts_options_and_string_permissions():
 
 def test_command_contract_rejects_required_option_after_optional():
     with pytest.raises(ValidationError):
-        DiscordApplicationCommandPayload(
+        MiscordApplicationCommandPayload(
             name="invalid",
             description="Invalid order",
             options=[
@@ -58,7 +58,7 @@ def test_command_contract_rejects_required_option_after_optional():
 
 def test_message_components_enforce_unique_custom_ids():
     with pytest.raises(ValidationError):
-        DiscordMessageCreate(
+        MiscordMessageCreate(
             components=[{
                 "type": 1,
                 "components": [
@@ -69,7 +69,7 @@ def test_message_components_enforce_unique_custom_ids():
         )
 
 
-def test_generated_snowflakes_are_discord_sized_and_monotonic():
+def test_generated_snowflakes_are_miscord_sized_and_monotonic():
     first = int(generate_snowflake())
     second = int(generate_snowflake())
     assert first > 0
@@ -77,8 +77,8 @@ def test_generated_snowflakes_are_discord_sized_and_monotonic():
     assert second < 2**64
 
 
-def test_modal_callback_matches_discord_text_input_contract():
-    callback = DiscordInteractionCallback(
+def test_modal_callback_matches_miscord_text_input_contract():
+    callback = MiscordInteractionCallback(
         type=9,
         data={
             "custom_id": "feedback",
@@ -106,7 +106,7 @@ def test_modal_callback_rejects_duplicate_text_input_ids():
         "components": [{"type": 4, "custom_id": "duplicate", "label": label, "style": 1}],
     }
     with pytest.raises(ValidationError):
-        DiscordInteractionCallback(
+        MiscordInteractionCallback(
             type=9,
             data={"custom_id": "feedback", "title": "Feedback", "components": [row("One"), row("Two")]},
         )

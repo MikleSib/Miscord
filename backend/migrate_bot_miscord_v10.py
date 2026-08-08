@@ -1,4 +1,4 @@
-"""Idempotent Discord API v10 compatibility migration for the bot platform.
+"""Idempotent Miscord API v10 compatibility migration for the bot platform.
 
 The legacy permission columns are deliberately preserved. This lets the old
 backend keep serving correct permissions while the new image is preflighted
@@ -16,7 +16,7 @@ from sqlalchemy import text
 from app.db.database import engine
 
 
-LEGACY_TO_DISCORD = {
+LEGACY_TO_MISCORD = {
     0: 10,  # VIEW_CHANNELS -> VIEW_CHANNEL
     1: 11,  # SEND_MESSAGES
     2: 13,  # MANAGE_MESSAGES
@@ -42,7 +42,7 @@ LEGACY_TO_DISCORD = {
 def _permission_expression(column: str) -> str:
     parts = [
         f"(CASE WHEN ({column} & {1 << old_bit}) <> 0 THEN {1 << new_bit} ELSE 0 END)"
-        for old_bit, new_bit in LEGACY_TO_DISCORD.items()
+        for old_bit, new_bit in LEGACY_TO_MISCORD.items()
     ]
     return " | ".join(parts)
 
@@ -187,7 +187,7 @@ async def migrate() -> None:
             "WHERE permissions_v10 IS NULL"
         ))
         # The former default requested MESSAGE_CONTENT but omitted GUILDS. New
-        # installs use Discord's non-privileged GUILDS + GUILD_MESSAGES baseline.
+        # installs use Miscord's non-privileged GUILDS + GUILD_MESSAGES baseline.
         await connection.execute(text(
             "UPDATE bot_installs SET intents = 513 WHERE intents = 33280"
         ))

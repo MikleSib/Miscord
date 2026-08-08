@@ -920,7 +920,7 @@ export function ChannelSidebar() {
                         )}
                       </Button>
 
-                      {/* Лимит: двухцветная капсула с косым разрезом (как в Discord) */}
+                      {/* Лимит: двухцветная капсула с косым разрезом */}
                       {hasUserLimit && !showVoiceSettings && (
                         <span
                           aria-label={`Участников ${currentCount} из ${userLimit}`}

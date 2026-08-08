@@ -377,7 +377,7 @@ class VoiceService {
       return;
     }
 
-    // Discord: сначала полностью выходим из прошлого канала
+    // Miscord: сначала полностью выходим из прошлого канала
     await this.disconnectAsync();
 
     const sessionId = ++this.sessionId;

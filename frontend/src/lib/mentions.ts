@@ -1,7 +1,7 @@
 import { Permissions, hasPermission } from './permissions'
 import { ServerMember } from '../types'
 
-/** Формат хранения как в Discord: <@123> */
+/** Внутренний формат хранения упоминания: <@123> */
 export const MENTION_TOKEN_RE = /<@(\d+)>/g
 
 export type MentionCandidate = {

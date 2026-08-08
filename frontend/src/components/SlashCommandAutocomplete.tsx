@@ -1,6 +1,6 @@
 'use client'
 
-import type { DiscordApplicationCommand } from '../types/bot'
+import type { MiscordApplicationCommand } from '../types/bot'
 
 export function SlashCommandAutocomplete({
   commands,
@@ -9,10 +9,10 @@ export function SlashCommandAutocomplete({
   onSelect,
   onHover,
 }: {
-  commands: DiscordApplicationCommand[]
+  commands: MiscordApplicationCommand[]
   selectedIndex: number
   applicationNames: Record<string, string>
-  onSelect: (command: DiscordApplicationCommand) => void
+  onSelect: (command: MiscordApplicationCommand) => void
   onHover: (index: number) => void
 }) {
   if (!commands.length) return null

@@ -17,7 +17,7 @@ from app.models import (
 )
 from app.services.server_events import notify_server, notify_users
 from app.services.bot_event_dispatcher import INTENT_GUILD_MEMBERS, dispatcher as bot_event_dispatcher
-from app.services.discord_serializers import discord_user
+from app.services.miscord_serializers import miscord_user
 
 
 def serialize_member_user(user: User, *, nickname: Optional[str] = None) -> dict:
@@ -163,7 +163,7 @@ async def add_member_and_notify(
         "GUILD_MEMBER_ADD",
         {
             "guild_id": str(server_id),
-            "user": discord_user(user),
+            "user": miscord_user(user),
             "nick": membership.nickname if membership else None,
             "avatar": None,
             "roles": [str(role_id) for role_id in role_ids],
@@ -214,6 +214,6 @@ async def remove_member_rows(db: AsyncSession, server_id: int, user_id: int) -> 
             db,
             server_id,
             "GUILD_MEMBER_REMOVE",
-            {"guild_id": str(server_id), "user": discord_user(user)},
+            {"guild_id": str(server_id), "user": miscord_user(user)},
             required_intent=INTENT_GUILD_MEMBERS,
         )

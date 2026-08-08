@@ -71,7 +71,7 @@ def test_ready_payload_contract():
     assert payload["application"] == {"id": "123", "flags": 0}
 
 
-def test_validate_gateway_query_supports_discord_zlib_stream():
+def test_validate_gateway_query_supports_miscord_zlib_stream():
     version, encoding = validate_gateway_query(
         GATEWAY_API_VERSION,
         GATEWAY_DEFAULT_ENCODING,

@@ -347,7 +347,7 @@ export const AudioDeviceSettings: React.FC<AudioDeviceSettingsProps> = ({ classN
                   Изоляция голоса
                 </Label>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Только ваш прекрасный голос. Discord удалит ненужный шум
+                  Только ваш прекрасный голос. Miscord удалит ненужный шум
                 </p>
               </div>
             </div>

@@ -49,7 +49,7 @@ export interface BotClientSecretReset {
   rotation_id: number;
 }
 
-export interface DiscordApplicationCommand {
+export interface MiscordApplicationCommand {
   id: string;
   application_id: string;
   guild_id?: string;
@@ -58,7 +58,7 @@ export interface DiscordApplicationCommand {
   name_localizations?: Record<string, string> | null;
   description: string;
   description_localizations?: Record<string, string> | null;
-  options?: DiscordApplicationCommandOption[];
+  options?: MiscordApplicationCommandOption[];
   default_member_permissions?: string | null;
   dm_permission?: boolean;
   contexts?: number[];
@@ -67,13 +67,13 @@ export interface DiscordApplicationCommand {
   version: string;
 }
 
-export interface DiscordApplicationCommandOption {
+export interface MiscordApplicationCommandOption {
   type: number;
   name: string;
   description: string;
   required?: boolean;
   choices?: Array<{ name: string; value: string | number }>;
-  options?: DiscordApplicationCommandOption[];
+  options?: MiscordApplicationCommandOption[];
   min_value?: number;
   max_value?: number;
   min_length?: number;
@@ -84,7 +84,7 @@ export interface DiscordApplicationCommandOption {
 
 export interface ChannelApplicationCommands {
   applications: Array<{ id: string; name: string; icon: string | null; description: string }>;
-  commands: DiscordApplicationCommand[];
+  commands: MiscordApplicationCommand[];
 }
 
 export interface ClientInteractionResult {

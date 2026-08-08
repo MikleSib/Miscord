@@ -7,7 +7,7 @@ import type { Message } from '../types'
 import botService from '../services/botService'
 import { cn } from '../lib/utils'
 
-type DiscordComponent = {
+type MiscordComponent = {
   type?: number
   style?: number
   custom_id?: string
@@ -25,7 +25,7 @@ type DiscordComponent = {
     emoji?: { id?: string | null; name?: string | null }
     default?: boolean
   }>
-  components?: DiscordComponent[]
+  components?: MiscordComponent[]
 }
 
 const buttonStyles: Record<number, string> = {
@@ -36,20 +36,20 @@ const buttonStyles: Record<number, string> = {
   5: 'bg-[#4e5058] text-white hover:bg-[#5d6069]',
 }
 
-function Emoji({ emoji }: { emoji?: DiscordComponent['emoji'] }) {
+function Emoji({ emoji }: { emoji?: MiscordComponent['emoji'] }) {
   if (!emoji?.name) return null
   return <span aria-hidden>{emoji.name}</span>
 }
 
 export function ApplicationMessageComponents({ message }: { message: Message }) {
-  const rows = useMemo(() => (message.components || []) as DiscordComponent[], [message.components])
+  const rows = useMemo(() => (message.components || []) as MiscordComponent[], [message.components])
   const [pending, setPending] = useState<string | null>(null)
   const [completed, setCompleted] = useState<Set<string>>(new Set())
   const [error, setError] = useState<string | null>(null)
 
   if (!rows.length || !message.channelId) return null
 
-  const interact = async (component: DiscordComponent, values: string[] = []) => {
+  const interact = async (component: MiscordComponent, values: string[] = []) => {
     const customId = component.custom_id
     if (!customId || !message.channelId || pending) return
     setPending(customId)
@@ -70,7 +70,7 @@ export function ApplicationMessageComponents({ message }: { message: Message }) 
     }
   }
 
-  const renderComponent = (component: DiscordComponent, index: number) => {
+  const renderComponent = (component: MiscordComponent, index: number) => {
     const type = Number(component.type || 0)
     const key = component.custom_id || component.url || `${type}-${index}`
     const disabled = Boolean(component.disabled || pending || (component.custom_id && completed.has(component.custom_id)))

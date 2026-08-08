@@ -1,5 +1,5 @@
 /**
- * Утилиты mesh-голосового канала (Discord-like).
+ * Утилиты mesh-голосового канала Miscord.
  * Меньший user_id создаёт offer — оба не шлют offer одновременно.
  */
 export function shouldCreateOffer(localUserId: number | null, remoteUserId: number): boolean {

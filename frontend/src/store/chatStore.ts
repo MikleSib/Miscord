@@ -4,7 +4,7 @@ import { Message, Reaction } from '../types';
 
 type ChatMessage = Message;
 
-/** Сколько сообщений за один запрос — как в Discord (пачками, не весь чат) */
+/** Сколько сообщений загружается за один запрос */
 export const CHAT_PAGE_SIZE = 50;
 
 interface ChatState {

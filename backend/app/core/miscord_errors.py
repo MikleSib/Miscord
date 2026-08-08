@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 
-class DiscordAPIError(Exception):
+class MiscordAPIError(Exception):
     def __init__(
         self,
         status_code: int,
@@ -27,8 +27,8 @@ class DiscordAPIError(Exception):
         return output
 
 
-def invalid_form(field: str, message: str) -> DiscordAPIError:
-    return DiscordAPIError(
+def invalid_form(field: str, message: str) -> MiscordAPIError:
+    return MiscordAPIError(
         400,
         50035,
         "Invalid Form Body",
@@ -36,11 +36,11 @@ def invalid_form(field: str, message: str) -> DiscordAPIError:
     )
 
 
-UNKNOWN_CHANNEL = lambda: DiscordAPIError(404, 10003, "Unknown Channel")
-UNKNOWN_GUILD = lambda: DiscordAPIError(404, 10004, "Unknown Guild")
-UNKNOWN_MESSAGE = lambda: DiscordAPIError(404, 10008, "Unknown Message")
-UNKNOWN_INTERACTION = lambda: DiscordAPIError(404, 10062, "Unknown Interaction")
-UNKNOWN_COMMAND = lambda: DiscordAPIError(404, 10063, "Unknown application command")
-MISSING_ACCESS = lambda: DiscordAPIError(403, 50001, "Missing Access")
-MISSING_PERMISSIONS = lambda: DiscordAPIError(403, 50013, "Missing Permissions")
-ALREADY_ACKNOWLEDGED = lambda: DiscordAPIError(400, 40060, "Interaction has already been acknowledged.")
+UNKNOWN_CHANNEL = lambda: MiscordAPIError(404, 10003, "Unknown Channel")
+UNKNOWN_GUILD = lambda: MiscordAPIError(404, 10004, "Unknown Guild")
+UNKNOWN_MESSAGE = lambda: MiscordAPIError(404, 10008, "Unknown Message")
+UNKNOWN_INTERACTION = lambda: MiscordAPIError(404, 10062, "Unknown Interaction")
+UNKNOWN_COMMAND = lambda: MiscordAPIError(404, 10063, "Unknown application command")
+MISSING_ACCESS = lambda: MiscordAPIError(403, 50001, "Missing Access")
+MISSING_PERMISSIONS = lambda: MiscordAPIError(403, 50013, "Missing Permissions")
+ALREADY_ACKNOWLEDGED = lambda: MiscordAPIError(400, 40060, "Interaction has already been acknowledged.")

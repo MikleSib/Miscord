@@ -1,4 +1,4 @@
-"""Права сервера в виде битовой маски (по образцу Discord).
+"""Права сервера в виде битовой маски (по образцу Miscord).
 
 Единая точка проверки прав. До появления этого модуля единственной проверкой
 во всём проекте было сравнение `channel.owner_id == current_user.id`.
@@ -16,34 +16,34 @@ from app.models import Channel, ChannelMember, MemberRole, Role, User
 # Позиция роли владельца — выше любой реальной роли
 OWNER_POSITION = 1 << 30
 
-LEGACY_TO_DISCORD_PERMISSION_BITS = {
+LEGACY_TO_MISCORD_PERMISSION_BITS = {
     0: 10, 1: 11, 2: 13, 3: 4, 4: 5, 5: 28, 6: 1, 7: 2,
     8: 0, 9: 5, 10: 7, 11: 27, 12: 22, 13: 23, 14: 24,
     15: 3, 16: 28, 17: 29, 18: 38,
 }
 
 
-def legacy_permissions_to_discord(value: int | None) -> int:
+def legacy_permissions_to_miscord(value: int | None) -> int:
     source = int(value or 0)
     output = 0
-    for old_bit, discord_bit in LEGACY_TO_DISCORD_PERMISSION_BITS.items():
+    for old_bit, miscord_bit in LEGACY_TO_MISCORD_PERMISSION_BITS.items():
         if source & (1 << old_bit):
-            output |= 1 << discord_bit
+            output |= 1 << miscord_bit
     return output
 
 
-def discord_permissions_to_legacy(value: int | None) -> int:
+def miscord_permissions_to_legacy(value: int | None) -> int:
     source = int(value or 0)
     output = 0
-    for old_bit, discord_bit in LEGACY_TO_DISCORD_PERMISSION_BITS.items():
-        if source & (1 << discord_bit):
+    for old_bit, miscord_bit in LEGACY_TO_MISCORD_PERMISSION_BITS.items():
+        if source & (1 << miscord_bit):
             output |= 1 << old_bit
     return output
 
 
 class Permission(IntFlag):
-    # Discord API v10 permission values. Aliases at the bottom preserve the
-    # existing Miscord names while public APIs use canonical Discord names.
+    # Miscord API v10 permission values. Aliases at the bottom preserve the
+    # existing Miscord names while public APIs use canonical Miscord names.
     CREATE_INSTANT_INVITE = 1 << 0
     KICK_MEMBERS = 1 << 1
     BAN_MEMBERS = 1 << 2
@@ -96,7 +96,7 @@ class Permission(IntFlag):
     USE_EXTERNAL_APPS = 1 << 50
     PIN_MESSAGES = 1 << 51
     BYPASS_SLOWMODE = 1 << 52
-    # Права уровня канала (overwrites), как в Discord
+    # Права уровня канала с учётом overwrites
     CREATE_INVITE = CREATE_INSTANT_INVITE
     VIEW_CHANNELS = VIEW_CHANNEL
     MANAGE_SERVER = MANAGE_GUILD
@@ -321,7 +321,7 @@ async def ensure_default_role(db: AsyncSession, server_id: int) -> Role:
         color=None,
         position=0,
         permissions=DEFAULT_PERMISSIONS,
-        legacy_permissions=discord_permissions_to_legacy(DEFAULT_PERMISSIONS),
+        legacy_permissions=miscord_permissions_to_legacy(DEFAULT_PERMISSIONS),
         is_default=True,
     )
     db.add(role)

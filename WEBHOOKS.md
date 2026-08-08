@@ -5,7 +5,7 @@
 ## Возможности
 
 - `content` до 2000 символов.
-- До 10 Discord-совместимых embeds и 6000 текстовых символов суммарно.
+- До 10 Miscord-совместимых embeds и 6000 текстовых символов суммарно.
 - Снимок `username` и `avatar_url` в каждом сообщении.
 - Безопасные по умолчанию `allowed_mentions`.
 - Флаги `SUPPRESS_EMBEDS` и `SUPPRESS_NOTIFICATIONS`.

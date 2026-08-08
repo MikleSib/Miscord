@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { MobileExperience } from '../components/mobile/MobileExperience'
 import { useEffect, useState, useRef } from 'react'
@@ -475,7 +475,7 @@ export default function HomePage() {
         style={{ display: 'none' }}
       />
 
-      {/* Единый dock: голос + профиль (как в Discord) */}
+      {/* Единый dock: голос + профиль */}
       <div className="user-dock absolute bottom-2 left-2 z-50">
         <VoiceConnectionPanel />
         <UserProfileBar embedded onSettingsClick={handleOpenSettings} />

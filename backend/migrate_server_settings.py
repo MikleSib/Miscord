@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Миграция под Discord-подобные настройки сервера.
+"""Миграция настроек сервера Miscord.
 
 Добавляет колонки в существующие таблицы:
   - channels.banner, channels.is_public

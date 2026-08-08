@@ -11,8 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
-from app.core.discord_errors import (
-    DiscordAPIError,
+from app.core.miscord_errors import (
+    MiscordAPIError,
     MISSING_ACCESS,
     MISSING_PERMISSIONS,
     UNKNOWN_CHANNEL,
@@ -23,7 +23,7 @@ from app.core.discord_errors import (
 from app.core.permissions import (
     ALL_PERMISSIONS,
     Permission,
-    discord_permissions_to_legacy,
+    miscord_permissions_to_legacy,
     get_member_permissions,
     get_top_role_position,
     has_permission,
@@ -50,7 +50,7 @@ from app.models import (
     VoiceChannel,
     Webhook,
 )
-from app.schemas.discord import DiscordApplicationCommandPayload, DiscordMessageCreate, DiscordMessageUpdate
+from app.schemas.miscord import MiscordApplicationCommandPayload, MiscordMessageCreate, MiscordMessageUpdate
 from app.schemas.webhook import WebhookTokenUpdate
 from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
 from app.services.bot_security import BotPrincipal, get_bot_principal_by_token
@@ -66,12 +66,12 @@ from app.services.bot_interactions import (
 )
 from app.services.channel_access import user_can_access_text_channel
 from app.services.channel_permissions import get_effective_channel_permissions
-from app.services.discord_serializers import (
-    discord_channel,
-    discord_command,
-    discord_message,
-    discord_role,
-    discord_user,
+from app.services.miscord_serializers import (
+    miscord_channel,
+    miscord_command,
+    miscord_message,
+    miscord_role,
+    miscord_user,
 )
 from app.services.webhook_security import generate_webhook_token, hash_webhook_token
 from app.websocket.connection_manager import manager
@@ -80,40 +80,40 @@ from app.websocket.connection_manager import manager
 router = APIRouter()
 
 
-def _validation_error(exc: ValidationError) -> DiscordAPIError:
+def _validation_error(exc: ValidationError) -> MiscordAPIError:
     errors: dict[str, Any] = {}
     for item in exc.errors(include_url=False):
         path = ".".join(str(part) for part in item.get("loc", ())) or "_errors"
         errors[path] = {"_errors": [{"code": item.get("type", "BASE_TYPE_INVALID"), "message": item["msg"]}]}
-    return DiscordAPIError(400, 50035, "Invalid Form Body", errors=errors)
+    return MiscordAPIError(400, 50035, "Invalid Form Body", errors=errors)
 
 
-async def get_discord_bot(
+async def get_miscord_bot(
     authorization: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> BotPrincipal:
     if not settings.BOT_PLATFORM_ENABLED:
-        raise DiscordAPIError(404, 0, "404: Not Found")
+        raise MiscordAPIError(404, 0, "404: Not Found")
     if not authorization or not authorization.startswith("Bot "):
-        raise DiscordAPIError(401, 0, "401: Unauthorized", headers={"WWW-Authenticate": "Bot"})
+        raise MiscordAPIError(401, 0, "401: Unauthorized", headers={"WWW-Authenticate": "Bot"})
     try:
         return await get_bot_principal_by_token(authorization[4:].strip(), db)
     except Exception as exc:
-        raise DiscordAPIError(401, 0, "401: Unauthorized", headers={"WWW-Authenticate": "Bot"}) from exc
+        raise MiscordAPIError(401, 0, "401: Unauthorized", headers={"WWW-Authenticate": "Bot"}) from exc
 
 
-async def get_discord_identity(
+async def get_miscord_identity(
     authorization: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> tuple[User, BotPrincipal | OAuthPrincipal]:
     if authorization and authorization.startswith("Bot "):
-        principal = await get_discord_bot(authorization=authorization, db=db)
+        principal = await get_miscord_bot(authorization=authorization, db=db)
         return principal.bot_user, principal
     if authorization and authorization.startswith("Bearer "):
         principal = await oauth_principal_from_token(authorization[7:].strip(), db)
         if principal is not None and principal.user is not None and "identify" in principal.scopes:
             return principal.user, principal
-    raise DiscordAPIError(401, 0, "401: Unauthorized", headers={"WWW-Authenticate": "Bearer"})
+    raise MiscordAPIError(401, 0, "401: Unauthorized", headers={"WWW-Authenticate": "Bearer"})
 
 
 def _require_application(principal: BotPrincipal, application_id: str) -> None:
@@ -137,7 +137,7 @@ def _application_payload(application: BotApplication) -> dict[str, Any]:
         "rpc_origins": [],
         "bot_public": bool(application.bot_public),
         "bot_require_code_grant": bool(application.bot_require_code_grant),
-        "bot": discord_user(application.bot_user),
+        "bot": miscord_user(application.bot_user),
         "terms_of_service_url": application.terms_of_service_url,
         "privacy_policy_url": application.privacy_policy_url,
         "verify_key": application.public_key,
@@ -265,7 +265,7 @@ async def _require_guild_permission(
 
 async def _role_target_allowed(db: AsyncSession, principal: BotPrincipal, guild_id: int, role: Role) -> None:
     if role.server_id != guild_id:
-        raise DiscordAPIError(404, 10011, "Unknown Role")
+        raise MiscordAPIError(404, 10011, "Unknown Role")
     if role.is_default or role.managed_by_bot_application_id is not None:
         raise MISSING_PERMISSIONS()
     top_position = await get_top_role_position(db, guild_id, principal.bot_user.id)
@@ -281,7 +281,7 @@ async def get_gateway(request: Request):
 
 
 @router.get("/gateway/bot")
-async def get_gateway_bot(request: Request, principal: BotPrincipal = Depends(get_discord_bot)):
+async def get_gateway_bot(request: Request, principal: BotPrincipal = Depends(get_miscord_bot)):
     payload = await get_gateway(request)
     payload.update({
         "shards": 1,
@@ -296,31 +296,31 @@ async def get_gateway_bot(request: Request, principal: BotPrincipal = Depends(ge
 
 
 @router.get("/users/@me")
-async def get_current_user(identity: tuple[User, BotPrincipal | OAuthPrincipal] = Depends(get_discord_identity)):
-    return discord_user(identity[0])
+async def get_current_user(identity: tuple[User, BotPrincipal | OAuthPrincipal] = Depends(get_miscord_identity)):
+    return miscord_user(identity[0])
 
 
 @router.get("/oauth2/applications/@me")
 @router.get("/applications/@me")
-async def get_current_application(principal: BotPrincipal = Depends(get_discord_bot)):
+async def get_current_application(principal: BotPrincipal = Depends(get_miscord_bot)):
     return _application_payload(principal.application)
 
 
 @router.get("/users/{user_id}")
 async def get_user(
     user_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     user = await db.get(User, user_id)
     if user is None:
-        raise DiscordAPIError(404, 10013, "Unknown User")
-    return discord_user(user)
+        raise MiscordAPIError(404, 10013, "Unknown User")
+    return miscord_user(user)
 
 
 @router.get("/users/@me/guilds")
 async def get_current_user_guilds(
-    identity: tuple[User, BotPrincipal | OAuthPrincipal] = Depends(get_discord_identity),
+    identity: tuple[User, BotPrincipal | OAuthPrincipal] = Depends(get_miscord_identity),
     db: AsyncSession = Depends(get_db),
 ):
     user, principal = identity
@@ -368,7 +368,7 @@ async def get_current_user_guilds(
 
 @router.get("/users/@me/connections")
 async def get_current_user_connections(
-    identity: tuple[User, BotPrincipal | OAuthPrincipal] = Depends(get_discord_identity),
+    identity: tuple[User, BotPrincipal | OAuthPrincipal] = Depends(get_miscord_identity),
 ):
     _, principal = identity
     if not isinstance(principal, OAuthPrincipal) or "connections" not in principal.scopes:
@@ -380,7 +380,7 @@ async def get_current_user_connections(
 async def get_guild(
     guild_id: int,
     with_counts: bool = Query(default=False),
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     install = await _active_install(db, principal, guild_id)
@@ -402,7 +402,7 @@ async def get_guild(
         "verification_level": 0,
         "default_message_notifications": 0,
         "explicit_content_filter": 0,
-        "roles": [discord_role(role, guild_id=guild_id) for role in roles_result.scalars().all()],
+        "roles": [miscord_role(role, guild_id=guild_id) for role in roles_result.scalars().all()],
         "emojis": [],
         "features": [],
         "mfa_level": 0,
@@ -435,14 +435,14 @@ async def get_guild(
 async def modify_guild(
     guild_id: int,
     payload: dict[str, Any] = Body(...),
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     guild, _, _ = await _require_guild_permission(db, principal, guild_id, Permission.MANAGE_GUILD)
     if "name" in payload:
         name = str(payload["name"] or "").strip()
         if not 2 <= len(name) <= 100:
-            raise DiscordAPIError(400, 50035, "Guild name must be 2-100 characters")
+            raise MiscordAPIError(400, 50035, "Guild name must be 2-100 characters")
         guild.name = name
     if "description" in payload:
         description = str(payload["description"] or "").strip()
@@ -466,7 +466,7 @@ async def modify_guild(
 @router.get("/guilds/{guild_id}/channels")
 async def get_guild_channels(
     guild_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     await _active_install(db, principal, guild_id)
@@ -474,9 +474,9 @@ async def get_guild_channels(
     voice_result = await db.execute(select(VoiceChannel).where(VoiceChannel.channel_id == guild_id))
     output = []
     for channel in text_result.scalars().all():
-        output.append(discord_channel(channel, guild_id=guild_id, overwrites=await _channel_overwrites(db, guild_id, channel.id, "text")))
+        output.append(miscord_channel(channel, guild_id=guild_id, overwrites=await _channel_overwrites(db, guild_id, channel.id, "text")))
     for channel in voice_result.scalars().all():
-        output.append(discord_channel(channel, guild_id=guild_id, overwrites=await _channel_overwrites(db, guild_id, channel.id, "voice")))
+        output.append(miscord_channel(channel, guild_id=guild_id, overwrites=await _channel_overwrites(db, guild_id, channel.id, "voice")))
     return sorted(output, key=lambda item: (item["position"], item["id"]))
 
 
@@ -484,13 +484,13 @@ async def get_guild_channels(
 async def create_guild_channel(
     guild_id: int,
     payload: dict[str, Any] = Body(...),
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     await _require_guild_permission(db, principal, guild_id, Permission.MANAGE_CHANNELS)
     name = str(payload.get("name") or "").strip()
     if not 1 <= len(name) <= 100:
-        raise DiscordAPIError(400, 50035, "Channel name must be 1-100 characters")
+        raise MiscordAPIError(400, 50035, "Channel name must be 1-100 characters")
     channel_type = int(payload.get("type", 0))
     position = max(0, int(payload.get("position") or 0))
     if channel_type == 0:
@@ -511,11 +511,11 @@ async def create_guild_channel(
         )
         kind = "voice"
     else:
-        raise DiscordAPIError(400, 50035, "Only guild text and voice channels are supported")
+        raise MiscordAPIError(400, 50035, "Only guild text and voice channels are supported")
     db.add(channel)
     await db.commit()
     await db.refresh(channel)
-    response = discord_channel(channel, guild_id=guild_id, overwrites=[])
+    response = miscord_channel(channel, guild_id=guild_id, overwrites=[])
     await bot_event_dispatcher.dispatch_guild_event(db, guild_id, "CHANNEL_CREATE", response)
     return response
 
@@ -523,13 +523,13 @@ async def create_guild_channel(
 @router.get("/channels/{channel_id}")
 async def get_channel(
     channel_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     text_channel = await db.get(TextChannel, channel_id)
     if text_channel is not None and not text_channel.is_hidden:
         await _active_install(db, principal, text_channel.channel_id)
-        return discord_channel(
+        return miscord_channel(
             text_channel,
             guild_id=text_channel.channel_id,
             overwrites=await _channel_overwrites(db, text_channel.channel_id, channel_id, "text"),
@@ -537,7 +537,7 @@ async def get_channel(
     voice_channel = await _voice_channel(db, channel_id)
     if voice_channel is not None:
         await _active_install(db, principal, voice_channel.channel_id)
-        return discord_channel(
+        return miscord_channel(
             voice_channel,
             guild_id=voice_channel.channel_id,
             overwrites=await _channel_overwrites(db, voice_channel.channel_id, channel_id, "voice"),
@@ -549,7 +549,7 @@ async def get_channel(
 async def modify_channel(
     channel_id: int,
     payload: dict[str, Any] = Body(...),
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     channel: TextChannel | VoiceChannel | None = await db.get(TextChannel, channel_id)
@@ -563,7 +563,7 @@ async def modify_channel(
     if "name" in payload:
         name = str(payload["name"] or "").strip()
         if not 1 <= len(name) <= 100:
-            raise DiscordAPIError(400, 50035, "Channel name must be 1-100 characters")
+            raise MiscordAPIError(400, 50035, "Channel name must be 1-100 characters")
         channel.name = name
     if "position" in payload:
         channel.position = max(0, int(payload["position"] or 0))
@@ -575,7 +575,7 @@ async def modify_channel(
         if "user_limit" in payload:
             channel.max_users = max(0, min(99, int(payload["user_limit"] or 0)))
     await db.commit()
-    response = discord_channel(
+    response = miscord_channel(
         channel,
         guild_id=channel.channel_id,
         overwrites=await _channel_overwrites(db, channel.channel_id, channel.id, kind),
@@ -587,7 +587,7 @@ async def modify_channel(
 @router.delete("/channels/{channel_id}")
 async def delete_channel(
     channel_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     channel: TextChannel | VoiceChannel | None = await db.get(TextChannel, channel_id)
@@ -599,7 +599,7 @@ async def delete_channel(
         raise UNKNOWN_CHANNEL()
     guild_id = int(channel.channel_id)
     await _require_guild_permission(db, principal, guild_id, Permission.MANAGE_CHANNELS)
-    response = discord_channel(
+    response = miscord_channel(
         channel,
         guild_id=guild_id,
         overwrites=await _channel_overwrites(db, guild_id, channel.id, kind),
@@ -620,7 +620,7 @@ async def edit_channel_permissions(
     channel_id: int,
     overwrite_id: int,
     payload: dict[str, Any] = Body(...),
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     channel: TextChannel | VoiceChannel | None = await db.get(TextChannel, channel_id)
@@ -636,21 +636,21 @@ async def edit_channel_permissions(
     if target_type == OverwriteTargetType.ROLE:
         role = await db.get(Role, overwrite_id)
         if role is None or role.server_id != guild_id:
-            raise DiscordAPIError(404, 10011, "Unknown Role")
+            raise MiscordAPIError(404, 10011, "Unknown Role")
     else:
         membership = await db.scalar(select(ChannelMember.id).where(
             ChannelMember.channel_id == guild_id,
             ChannelMember.user_id == overwrite_id,
         ))
         if membership is None:
-            raise DiscordAPIError(404, 10007, "Unknown Member")
+            raise MiscordAPIError(404, 10007, "Unknown Member")
     try:
         allow = int(payload.get("allow") or 0)
         deny = int(payload.get("deny") or 0)
     except (TypeError, ValueError) as exc:
-        raise DiscordAPIError(400, 50035, "allow and deny must be integer strings") from exc
+        raise MiscordAPIError(400, 50035, "allow and deny must be integer strings") from exc
     if allow < 0 or deny < 0 or allow & deny:
-        raise DiscordAPIError(400, 50035, "Invalid permission overwrite")
+        raise MiscordAPIError(400, 50035, "Invalid permission overwrite")
     overwrite = await db.scalar(select(ChannelPermissionOverwrite).where(
         ChannelPermissionOverwrite.channel_kind == kind,
         ChannelPermissionOverwrite.channel_id == channel_id,
@@ -668,10 +668,10 @@ async def edit_channel_permissions(
         db.add(overwrite)
     overwrite.allow = allow
     overwrite.deny = deny
-    overwrite.legacy_allow = discord_permissions_to_legacy(allow)
-    overwrite.legacy_deny = discord_permissions_to_legacy(deny)
+    overwrite.legacy_allow = miscord_permissions_to_legacy(allow)
+    overwrite.legacy_deny = miscord_permissions_to_legacy(deny)
     await db.commit()
-    updated = discord_channel(
+    updated = miscord_channel(
         channel,
         guild_id=guild_id,
         overwrites=await _channel_overwrites(db, guild_id, channel_id, kind.value),
@@ -684,7 +684,7 @@ async def edit_channel_permissions(
 async def delete_channel_permissions(
     channel_id: int,
     overwrite_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     channel: TextChannel | VoiceChannel | None = await db.get(TextChannel, channel_id)
@@ -702,7 +702,7 @@ async def delete_channel_permissions(
         ChannelPermissionOverwrite.target_id == overwrite_id,
     ))
     await db.commit()
-    updated = discord_channel(
+    updated = miscord_channel(
         channel,
         guild_id=guild_id,
         overwrites=await _channel_overwrites(db, guild_id, channel_id, kind.value),
@@ -711,7 +711,7 @@ async def delete_channel_permissions(
     return Response(status_code=204)
 
 
-def _discord_webhook(webhook: Webhook, token: str | None = None) -> dict[str, Any]:
+def _miscord_webhook(webhook: Webhook, token: str | None = None) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "id": str(webhook.id),
         "type": 1,
@@ -734,7 +734,7 @@ def _discord_webhook(webhook: Webhook, token: str | None = None) -> dict[str, An
 async def _managed_bot_webhook(db: AsyncSession, principal: BotPrincipal, webhook_id: int) -> Webhook:
     webhook = await db.get(Webhook, webhook_id)
     if webhook is None:
-        raise DiscordAPIError(404, 10015, "Unknown Webhook")
+        raise MiscordAPIError(404, 10015, "Unknown Webhook")
     await _require_bot_text_channel(db, principal, webhook.text_channel_id, permission=Permission.MANAGE_WEBHOOKS)
     return webhook
 
@@ -743,16 +743,16 @@ async def _managed_bot_webhook(db: AsyncSession, principal: BotPrincipal, webhoo
 async def create_channel_webhook(
     channel_id: int,
     payload: dict[str, Any] = Body(...),
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     channel, _, _ = await _require_bot_text_channel(db, principal, channel_id, permission=Permission.MANAGE_WEBHOOKS)
     name = str(payload.get("name") or "").strip()
-    if not 1 <= len(name) <= 80 or any(value in name.casefold() for value in ("discord", "miscord", "system", "official")):
-        raise DiscordAPIError(400, 50035, "Invalid webhook name")
+    if not 1 <= len(name) <= 80 or any(value in name.casefold() for value in ("miscord", "miscord", "system", "official")):
+        raise MiscordAPIError(400, 50035, "Invalid webhook name")
     channel_count = await db.scalar(select(func.count(Webhook.id)).where(Webhook.text_channel_id == channel_id))
     if int(channel_count or 0) >= 15:
-        raise DiscordAPIError(400, 30007, "Maximum number of webhooks reached")
+        raise MiscordAPIError(400, 30007, "Maximum number of webhooks reached")
     token = generate_webhook_token()
     webhook = Webhook(
         server_id=channel.channel_id,
@@ -770,45 +770,45 @@ async def create_channel_webhook(
         "guild_id": str(channel.channel_id),
         "channel_id": str(channel.id),
     })
-    return _discord_webhook(webhook, token)
+    return _miscord_webhook(webhook, token)
 
 
 @router.get("/channels/{channel_id}/webhooks")
 async def get_channel_webhooks(
     channel_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     await _require_bot_text_channel(db, principal, channel_id, permission=Permission.MANAGE_WEBHOOKS)
     result = await db.execute(select(Webhook).where(Webhook.text_channel_id == channel_id).order_by(Webhook.id))
-    return [_discord_webhook(webhook) for webhook in result.scalars().all()]
+    return [_miscord_webhook(webhook) for webhook in result.scalars().all()]
 
 
 @router.get("/guilds/{guild_id}/webhooks")
 async def get_guild_webhooks(
     guild_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     await _require_guild_permission(db, principal, guild_id, Permission.MANAGE_WEBHOOKS)
     result = await db.execute(select(Webhook).where(Webhook.server_id == guild_id).order_by(Webhook.id))
-    return [_discord_webhook(webhook) for webhook in result.scalars().all()]
+    return [_miscord_webhook(webhook) for webhook in result.scalars().all()]
 
 
 @router.get("/webhooks/{webhook_id}")
 async def get_webhook(
     webhook_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
-    return _discord_webhook(await _managed_bot_webhook(db, principal, webhook_id))
+    return _miscord_webhook(await _managed_bot_webhook(db, principal, webhook_id))
 
 
 @router.patch("/webhooks/{webhook_id}")
 async def modify_webhook(
     webhook_id: int,
     payload: dict[str, Any] = Body(...),
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     webhook = await _managed_bot_webhook(db, principal, webhook_id)
@@ -816,7 +816,7 @@ async def modify_webhook(
     if "name" in payload:
         name = str(payload["name"] or "").strip()
         if not 1 <= len(name) <= 80:
-            raise DiscordAPIError(400, 50035, "Invalid webhook name")
+            raise MiscordAPIError(400, 50035, "Invalid webhook name")
         webhook.name = name
     if "avatar" in payload:
         webhook.avatar_url = str(payload["avatar"] or "")[:2048] or None
@@ -824,10 +824,10 @@ async def modify_webhook(
         try:
             target_id = int(payload["channel_id"])
         except (TypeError, ValueError) as exc:
-            raise DiscordAPIError(400, 50035, "Invalid channel_id") from exc
+            raise MiscordAPIError(400, 50035, "Invalid channel_id") from exc
         target, _, _ = await _require_bot_text_channel(db, principal, target_id, permission=Permission.MANAGE_WEBHOOKS)
         if target.channel_id != webhook.server_id:
-            raise DiscordAPIError(400, 50035, "A webhook cannot be moved to another guild")
+            raise MiscordAPIError(400, 50035, "A webhook cannot be moved to another guild")
         webhook.text_channel_id = target.id
     await db.commit()
     for changed_channel_id in {previous_channel_id, webhook.text_channel_id}:
@@ -835,13 +835,13 @@ async def modify_webhook(
             "guild_id": str(webhook.server_id),
             "channel_id": str(changed_channel_id),
         })
-    return _discord_webhook(webhook)
+    return _miscord_webhook(webhook)
 
 
 @router.delete("/webhooks/{webhook_id}", status_code=204)
 async def delete_webhook(
     webhook_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     webhook = await _managed_bot_webhook(db, principal, webhook_id)
@@ -882,7 +882,7 @@ async def delete_webhook_with_token(webhook_id: int, token: str, db: AsyncSessio
 async def _interaction_webhook(db: AsyncSession, application_id: int, token: str):
     try:
         return await load_interaction_by_token(db, str(application_id), token)
-    except DiscordAPIError as exc:
+    except MiscordAPIError as exc:
         if exc.code == 10062:
             return None
         raise
@@ -900,13 +900,13 @@ async def execute_webhook(
     if interaction_pair is not None:
         interaction, application = interaction_pair
         try:
-            payload = DiscordMessageCreate.model_validate(await request.json())
+            payload = MiscordMessageCreate.model_validate(await request.json())
         except (ValidationError, ValueError) as exc:
             if isinstance(exc, ValidationError):
                 raise _validation_error(exc) from exc
-            raise DiscordAPIError(400, 50035, "Invalid JSON body") from exc
+            raise MiscordAPIError(400, 50035, "Invalid JSON body") from exc
         message = await create_followup(db, interaction, application, payload.model_dump(exclude_unset=True))
-        return discord_message(message, guild_id=interaction.guild_id)
+        return miscord_message(message, guild_id=interaction.guild_id)
     from app.api.webhooks import execute_webhook as implementation
     return await implementation(request=request, webhook_id=webhook_id, token=token, wait=wait, db=db)
 
@@ -917,7 +917,7 @@ async def get_webhook_message(webhook_id: int, token: str, message_id: str, db: 
     if interaction_pair is not None:
         interaction, _ = interaction_pair
         if message_id == "@original":
-            return discord_message(await get_original_response(db, interaction), guild_id=interaction.guild_id)
+            return miscord_message(await get_original_response(db, interaction), guild_id=interaction.guild_id)
         try:
             numeric_id = int(message_id)
         except ValueError as exc:
@@ -929,7 +929,7 @@ async def get_webhook_message(webhook_id: int, token: str, message_id: str, db: 
         ))
         if link is None:
             raise UNKNOWN_MESSAGE()
-        return discord_message(await load_response_message(db, numeric_id), guild_id=interaction.guild_id)
+        return miscord_message(await load_response_message(db, numeric_id), guild_id=interaction.guild_id)
     try:
         numeric_id = int(message_id)
     except ValueError as exc:
@@ -950,11 +950,11 @@ async def edit_webhook_message(
     if interaction_pair is not None:
         interaction, _ = interaction_pair
         try:
-            payload = DiscordMessageUpdate.model_validate(await request.json())
+            payload = MiscordMessageUpdate.model_validate(await request.json())
         except (ValidationError, ValueError) as exc:
             if isinstance(exc, ValidationError):
                 raise _validation_error(exc) from exc
-            raise DiscordAPIError(400, 50035, "Invalid JSON body") from exc
+            raise MiscordAPIError(400, 50035, "Invalid JSON body") from exc
         changes = payload.model_dump(exclude_unset=True)
         if message_id == "@original":
             message = await edit_original_response(db, interaction, changes)
@@ -971,7 +971,7 @@ async def edit_webhook_message(
             if link is None:
                 raise UNKNOWN_MESSAGE()
             message = await update_response_message(db, interaction, await load_response_message(db, numeric_id), changes)
-        return discord_message(message, guild_id=interaction.guild_id)
+        return miscord_message(message, guild_id=interaction.guild_id)
     try:
         numeric_id = int(message_id)
     except ValueError as exc:
@@ -1010,7 +1010,7 @@ async def delete_webhook_message(webhook_id: int, token: str, message_id: str, d
     return await implementation(webhook_id=webhook_id, token=token, message_id=numeric_id, db=db)
 
 
-async def _discord_invite_payload(db: AsyncSession, invite: Invite) -> dict[str, Any]:
+async def _miscord_invite_payload(db: AsyncSession, invite: Invite) -> dict[str, Any]:
     guild = await _guild(db, invite.server_id)
     channel = await db.get(TextChannel, invite.target_text_channel_id) if invite.target_text_channel_id else None
     inviter = await db.get(User, invite.inviter_id) if invite.inviter_id else None
@@ -1025,7 +1025,7 @@ async def _discord_invite_payload(db: AsyncSession, invite: Invite) -> dict[str,
         "code": invite.code,
         "guild": {"id": str(guild.id), "name": guild.name, "icon": guild.icon, "features": []},
         "channel": ({"id": str(channel.id), "name": channel.name, "type": 0} if channel else None),
-        "inviter": discord_user(inviter) if inviter else None,
+        "inviter": miscord_user(inviter) if inviter else None,
         "target_type": None,
         "approximate_presence_count": None,
         "approximate_member_count": None,
@@ -1043,7 +1043,7 @@ async def _new_invite_code(db: AsyncSession) -> str:
         code = secrets.token_urlsafe(8).replace("-", "").replace("_", "")[:10]
         if not await db.scalar(select(Invite.id).where(Invite.code == code)):
             return code
-    raise DiscordAPIError(500, 0, "Could not create invite")
+    raise MiscordAPIError(500, 0, "Could not create invite")
 
 
 @router.get("/invites/{code}")
@@ -1051,15 +1051,15 @@ async def get_invite(code: str, db: AsyncSession = Depends(get_db)):
     invite = await db.scalar(select(Invite).where(Invite.code == code))
     now = datetime.now(timezone.utc)
     if invite is None or (invite.expires_at and (invite.expires_at if invite.expires_at.tzinfo else invite.expires_at.replace(tzinfo=timezone.utc)) <= now):
-        raise DiscordAPIError(404, 10006, "Unknown Invite")
-    return await _discord_invite_payload(db, invite)
+        raise MiscordAPIError(404, 10006, "Unknown Invite")
+    return await _miscord_invite_payload(db, invite)
 
 
 @router.post("/channels/{channel_id}/invites", status_code=200)
 async def create_channel_invite(
     channel_id: int,
     payload: dict[str, Any] = Body(default={}),
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     channel, _, _ = await _require_bot_text_channel(db, principal, channel_id, permission=Permission.CREATE_INSTANT_INVITE)
@@ -1075,7 +1075,7 @@ async def create_channel_invite(
         ).order_by(Invite.id.desc()).limit(1))
         existing = result.scalar_one_or_none()
         if existing is not None and (not existing.max_uses or existing.uses < existing.max_uses):
-            return await _discord_invite_payload(db, existing)
+            return await _miscord_invite_payload(db, existing)
     invite = Invite(
         code=await _new_invite_code(db),
         server_id=channel.channel_id,
@@ -1088,7 +1088,7 @@ async def create_channel_invite(
     db.add(invite)
     await db.commit()
     await db.refresh(invite)
-    response = await _discord_invite_payload(db, invite)
+    response = await _miscord_invite_payload(db, invite)
     await bot_event_dispatcher.dispatch_guild_event(db, channel.channel_id, "INVITE_CREATE", response)
     return response
 
@@ -1096,36 +1096,36 @@ async def create_channel_invite(
 @router.get("/channels/{channel_id}/invites")
 async def get_channel_invites(
     channel_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     await _require_bot_text_channel(db, principal, channel_id, permission=Permission.MANAGE_CHANNELS)
     result = await db.execute(select(Invite).where(Invite.target_text_channel_id == channel_id).order_by(Invite.id))
-    return [await _discord_invite_payload(db, invite) for invite in result.scalars().all()]
+    return [await _miscord_invite_payload(db, invite) for invite in result.scalars().all()]
 
 
 @router.get("/guilds/{guild_id}/invites")
 async def get_guild_invites(
     guild_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     await _require_guild_permission(db, principal, guild_id, Permission.MANAGE_GUILD)
     result = await db.execute(select(Invite).where(Invite.server_id == guild_id).order_by(Invite.id))
-    return [await _discord_invite_payload(db, invite) for invite in result.scalars().all()]
+    return [await _miscord_invite_payload(db, invite) for invite in result.scalars().all()]
 
 
 @router.delete("/invites/{code}")
 async def delete_invite(
     code: str,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     invite = await db.scalar(select(Invite).where(Invite.code == code))
     if invite is None:
-        raise DiscordAPIError(404, 10006, "Unknown Invite")
+        raise MiscordAPIError(404, 10006, "Unknown Invite")
     await _require_guild_permission(db, principal, invite.server_id, Permission.MANAGE_GUILD)
-    response = await _discord_invite_payload(db, invite)
+    response = await _miscord_invite_payload(db, invite)
     guild_id = invite.server_id
     await db.delete(invite)
     await db.commit()
@@ -1136,21 +1136,21 @@ async def delete_invite(
 @router.get("/guilds/{guild_id}/roles")
 async def get_guild_roles(
     guild_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     await _active_install(db, principal, guild_id)
     result = await db.execute(select(Role).where(Role.server_id == guild_id).order_by(Role.position))
-    return [discord_role(role, guild_id=guild_id) for role in result.scalars().all()]
+    return [miscord_role(role, guild_id=guild_id) for role in result.scalars().all()]
 
 
 def _role_color(value: Any) -> str | None:
     try:
         color = int(value or 0)
     except (TypeError, ValueError) as exc:
-        raise DiscordAPIError(400, 50035, "Role color must be an integer") from exc
+        raise MiscordAPIError(400, 50035, "Role color must be an integer") from exc
     if color < 0 or color > 0xFFFFFF:
-        raise DiscordAPIError(400, 50035, "Role color is outside the RGB range")
+        raise MiscordAPIError(400, 50035, "Role color is outside the RGB range")
     return f"#{color:06x}" if color else None
 
 
@@ -1158,9 +1158,9 @@ def _role_permissions(value: Any) -> int:
     try:
         permissions = int(value or 0)
     except (TypeError, ValueError) as exc:
-        raise DiscordAPIError(400, 50035, "permissions must be an integer string") from exc
+        raise MiscordAPIError(400, 50035, "permissions must be an integer string") from exc
     if permissions < 0 or permissions & ~ALL_PERMISSIONS:
-        raise DiscordAPIError(400, 50035, "Invalid permissions")
+        raise MiscordAPIError(400, 50035, "Invalid permissions")
     return permissions
 
 
@@ -1168,7 +1168,7 @@ def _role_permissions(value: Any) -> int:
 async def create_guild_role(
     guild_id: int,
     payload: dict[str, Any] = Body(default={}),
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     await _require_guild_permission(db, principal, guild_id, Permission.MANAGE_ROLES)
@@ -1177,7 +1177,7 @@ async def create_guild_role(
         raise MISSING_PERMISSIONS()
     name = str(payload.get("name") or "new role").strip()
     if not 1 <= len(name) <= 100:
-        raise DiscordAPIError(400, 50035, "Role name must be 1-100 characters")
+        raise MiscordAPIError(400, 50035, "Role name must be 1-100 characters")
     permissions = _role_permissions(payload.get("permissions"))
     role = Role(
         server_id=guild_id,
@@ -1185,13 +1185,13 @@ async def create_guild_role(
         color=_role_color(payload.get("color")),
         position=max(1, top_position - 1),
         permissions=permissions,
-        legacy_permissions=discord_permissions_to_legacy(permissions),
+        legacy_permissions=miscord_permissions_to_legacy(permissions),
         is_default=False,
     )
     db.add(role)
     await db.commit()
     await db.refresh(role)
-    response = discord_role(role, guild_id=guild_id)
+    response = miscord_role(role, guild_id=guild_id)
     await bot_event_dispatcher.dispatch_guild_event(db, guild_id, "GUILD_ROLE_CREATE", {"guild_id": str(guild_id), "role": response})
     return response
 
@@ -1201,18 +1201,18 @@ async def modify_guild_role(
     guild_id: int,
     role_id: int,
     payload: dict[str, Any] = Body(...),
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     await _require_guild_permission(db, principal, guild_id, Permission.MANAGE_ROLES)
     role = await db.get(Role, role_id)
     if role is None:
-        raise DiscordAPIError(404, 10011, "Unknown Role")
+        raise MiscordAPIError(404, 10011, "Unknown Role")
     await _role_target_allowed(db, principal, guild_id, role)
     if "name" in payload:
         name = str(payload["name"] or "").strip()
         if not 1 <= len(name) <= 100:
-            raise DiscordAPIError(400, 50035, "Role name must be 1-100 characters")
+            raise MiscordAPIError(400, 50035, "Role name must be 1-100 characters")
         role.name = name
     if "color" in payload or "colors" in payload:
         color_value = payload.get("color")
@@ -1225,9 +1225,9 @@ async def modify_guild_role(
         if not has_permission(own_permissions, Permission.ADMINISTRATOR) and permissions & ~own_permissions:
             raise MISSING_PERMISSIONS()
         role.permissions = permissions
-        role.legacy_permissions = discord_permissions_to_legacy(permissions)
+        role.legacy_permissions = miscord_permissions_to_legacy(permissions)
     await db.commit()
-    response = discord_role(role, guild_id=guild_id)
+    response = miscord_role(role, guild_id=guild_id)
     await bot_event_dispatcher.dispatch_guild_event(db, guild_id, "GUILD_ROLE_UPDATE", {"guild_id": str(guild_id), "role": response})
     return response
 
@@ -1236,13 +1236,13 @@ async def modify_guild_role(
 async def delete_guild_role(
     guild_id: int,
     role_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     await _require_guild_permission(db, principal, guild_id, Permission.MANAGE_ROLES)
     role = await db.get(Role, role_id)
     if role is None:
-        raise DiscordAPIError(404, 10011, "Unknown Role")
+        raise MiscordAPIError(404, 10011, "Unknown Role")
     await _role_target_allowed(db, principal, guild_id, role)
     await db.delete(role)
     await db.commit()
@@ -1256,12 +1256,12 @@ async def _guild_member_payload(db: AsyncSession, guild_id: int, user: User) -> 
     )
     membership = membership_result.scalar_one_or_none()
     if membership is None:
-        raise DiscordAPIError(404, 10007, "Unknown Member")
+        raise MiscordAPIError(404, 10007, "Unknown Member")
     roles_result = await db.execute(
         select(MemberRole.role_id).where(MemberRole.server_id == guild_id, MemberRole.user_id == user.id)
     )
     return {
-        "user": discord_user(user),
+        "user": miscord_user(user),
         "nick": membership.nickname,
         "avatar": None,
         "banner": None,
@@ -1281,7 +1281,7 @@ async def _guild_member_payload(db: AsyncSession, guild_id: int, user: User) -> 
 @router.get("/guilds/{guild_id}/members/@me")
 async def get_current_member(
     guild_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     await _active_install(db, principal, guild_id)
@@ -1292,13 +1292,13 @@ async def get_current_member(
 async def get_guild_member(
     guild_id: int,
     user_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     await _active_install(db, principal, guild_id)
     user = await db.get(User, user_id)
     if user is None:
-        raise DiscordAPIError(404, 10007, "Unknown Member")
+        raise MiscordAPIError(404, 10007, "Unknown Member")
     return await _guild_member_payload(db, guild_id, user)
 
 
@@ -1307,7 +1307,7 @@ async def list_guild_members(
     guild_id: int,
     limit: int = Query(default=1, ge=1, le=1000),
     after: int = Query(default=0, ge=0),
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     await _active_install(db, principal, guild_id)
@@ -1340,7 +1340,7 @@ async def add_guild_member_role(
     guild_id: int,
     user_id: int,
     role_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     guild, _, _ = await _require_guild_permission(db, principal, guild_id, Permission.MANAGE_ROLES)
@@ -1349,10 +1349,10 @@ async def add_guild_member_role(
         ChannelMember.user_id == user_id,
     ))
     if membership is None:
-        raise DiscordAPIError(404, 10007, "Unknown Member")
+        raise MiscordAPIError(404, 10007, "Unknown Member")
     role = await db.get(Role, role_id)
     if role is None:
-        raise DiscordAPIError(404, 10011, "Unknown Role")
+        raise MiscordAPIError(404, 10011, "Unknown Role")
     await _role_target_allowed(db, principal, guild_id, role)
     if user_id != principal.bot_user.id:
         await _member_target_allowed(db, principal, guild, user_id)
@@ -1377,7 +1377,7 @@ async def remove_guild_member_role(
     guild_id: int,
     user_id: int,
     role_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     guild, _, _ = await _require_guild_permission(db, principal, guild_id, Permission.MANAGE_ROLES)
@@ -1386,10 +1386,10 @@ async def remove_guild_member_role(
         ChannelMember.user_id == user_id,
     ))
     if membership is None:
-        raise DiscordAPIError(404, 10007, "Unknown Member")
+        raise MiscordAPIError(404, 10007, "Unknown Member")
     role = await db.get(Role, role_id)
     if role is None:
-        raise DiscordAPIError(404, 10011, "Unknown Role")
+        raise MiscordAPIError(404, 10011, "Unknown Role")
     await _role_target_allowed(db, principal, guild_id, role)
     if user_id != principal.bot_user.id:
         await _member_target_allowed(db, principal, guild, user_id)
@@ -1411,7 +1411,7 @@ async def remove_guild_member_role(
 async def remove_guild_member(
     guild_id: int,
     user_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     guild, _, _ = await _require_guild_permission(db, principal, guild_id, Permission.KICK_MEMBERS)
@@ -1421,7 +1421,7 @@ async def remove_guild_member(
         ChannelMember.user_id == user_id,
     ))
     if membership is None:
-        raise DiscordAPIError(404, 10007, "Unknown Member")
+        raise MiscordAPIError(404, 10007, "Unknown Member")
     await db.execute(delete(MemberRole).where(MemberRole.server_id == guild_id, MemberRole.user_id == user_id))
     await db.execute(delete(ChannelMember).where(ChannelMember.channel_id == guild_id, ChannelMember.user_id == user_id))
     await db.commit()
@@ -1436,7 +1436,7 @@ async def remove_guild_member(
 
 
 def _ban_payload(ban: ServerBan) -> dict[str, Any]:
-    return {"reason": ban.reason, "user": discord_user(ban.user)}
+    return {"reason": ban.reason, "user": miscord_user(ban.user)}
 
 
 @router.get("/guilds/{guild_id}/bans")
@@ -1445,12 +1445,12 @@ async def get_guild_bans(
     limit: int = Query(default=1000, ge=1, le=1000),
     before: int | None = Query(default=None),
     after: int | None = Query(default=None),
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     await _require_guild_permission(db, principal, guild_id, Permission.BAN_MEMBERS)
     if before is not None and after is not None:
-        raise DiscordAPIError(400, 50035, "before and after are mutually exclusive")
+        raise MiscordAPIError(400, 50035, "before and after are mutually exclusive")
     query = select(ServerBan).options(selectinload(ServerBan.user)).where(ServerBan.server_id == guild_id)
     if before is not None:
         query = query.where(ServerBan.user_id < before).order_by(ServerBan.user_id.desc())
@@ -1466,7 +1466,7 @@ async def get_guild_bans(
 async def get_guild_ban(
     guild_id: int,
     user_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     await _require_guild_permission(db, principal, guild_id, Permission.BAN_MEMBERS)
@@ -1476,7 +1476,7 @@ async def get_guild_ban(
     ))
     ban = result.scalar_one_or_none()
     if ban is None:
-        raise DiscordAPIError(404, 10026, "Unknown Ban")
+        raise MiscordAPIError(404, 10026, "Unknown Ban")
     return _ban_payload(ban)
 
 
@@ -1486,14 +1486,14 @@ async def create_guild_ban(
     user_id: int,
     payload: dict[str, Any] = Body(default={}),
     audit_reason: str | None = Header(default=None, alias="X-Audit-Log-Reason"),
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     guild, _, _ = await _require_guild_permission(db, principal, guild_id, Permission.BAN_MEMBERS)
     await _member_target_allowed(db, principal, guild, user_id)
     user = await db.get(User, user_id)
     if user is None:
-        raise DiscordAPIError(404, 10013, "Unknown User")
+        raise MiscordAPIError(404, 10013, "Unknown User")
     ban = await db.scalar(select(ServerBan).where(ServerBan.server_id == guild_id, ServerBan.user_id == user_id))
     if ban is None:
         ban = ServerBan(server_id=guild_id, user_id=user_id, moderator_id=principal.bot_user.id)
@@ -1506,7 +1506,7 @@ async def create_guild_ban(
         db,
         guild_id,
         "GUILD_BAN_ADD",
-        {"guild_id": str(guild_id), "user": discord_user(user)},
+        {"guild_id": str(guild_id), "user": miscord_user(user)},
         required_intent=1 << 2,
     )
     return Response(status_code=204)
@@ -1516,7 +1516,7 @@ async def create_guild_ban(
 async def remove_guild_ban(
     guild_id: int,
     user_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     await _require_guild_permission(db, principal, guild_id, Permission.BAN_MEMBERS)
@@ -1526,8 +1526,8 @@ async def remove_guild_ban(
     ))
     ban = result.scalar_one_or_none()
     if ban is None:
-        raise DiscordAPIError(404, 10026, "Unknown Ban")
-    user_payload = discord_user(ban.user)
+        raise MiscordAPIError(404, 10026, "Unknown Ban")
+    user_payload = miscord_user(ban.user)
     await db.delete(ban)
     await db.commit()
     await bot_event_dispatcher.dispatch_guild_event(
@@ -1547,12 +1547,12 @@ async def get_channel_messages(
     before: int | None = Query(default=None),
     after: int | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=100),
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     channel, _, _ = await _require_bot_text_channel(db, principal, channel_id, permission=Permission.READ_MESSAGE_HISTORY)
     if sum(value is not None for value in (around, before, after)) > 1:
-        raise DiscordAPIError(400, 50035, "Only one of around, before, or after may be provided")
+        raise MiscordAPIError(400, 50035, "Only one of around, before, or after may be provided")
     query = select(Message).options(
         selectinload(Message.author),
         selectinload(Message.attachments),
@@ -1578,32 +1578,32 @@ async def get_channel_messages(
     messages = list(result.scalars().unique().all())
     if after is not None:
         messages.reverse()
-    return [discord_message(item, guild_id=channel.channel_id) for item in messages]
+    return [miscord_message(item, guild_id=channel.channel_id) for item in messages]
 
 
 @router.get("/channels/{channel_id}/messages/{message_id}")
 async def get_channel_message(
     channel_id: int,
     message_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     channel, _, _ = await _require_bot_text_channel(db, principal, channel_id, permission=Permission.READ_MESSAGE_HISTORY)
     message = await _message(db, message_id)
     if message.text_channel_id != channel_id or message.is_deleted:
         raise UNKNOWN_MESSAGE()
-    return discord_message(message, guild_id=channel.channel_id)
+    return miscord_message(message, guild_id=channel.channel_id)
 
 
 @router.post("/channels/{channel_id}/messages", status_code=200)
 async def create_message(
     channel_id: int,
     raw_payload: dict[str, Any] = Body(...),
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        payload = DiscordMessageCreate.model_validate(raw_payload)
+        payload = MiscordMessageCreate.model_validate(raw_payload)
     except ValidationError as exc:
         raise _validation_error(exc) from exc
     channel, _, _ = await _require_bot_text_channel(db, principal, channel_id, permission=Permission.SEND_MESSAGES)
@@ -1615,14 +1615,14 @@ async def create_message(
         existing = existing_result.scalar_one_or_none()
         if existing is not None:
             if payload.enforce_nonce:
-                return discord_message(await _message(db, existing.id), guild_id=channel.channel_id)
+                return miscord_message(await _message(db, existing.id), guild_id=channel.channel_id)
             nonce = None
     reply_to_id = None
     if payload.message_reference and payload.message_reference.get("message_id"):
         try:
             reply_to_id = int(payload.message_reference["message_id"])
         except (TypeError, ValueError) as exc:
-            raise DiscordAPIError(400, 50035, "Invalid message reference") from exc
+            raise MiscordAPIError(400, 50035, "Invalid message reference") from exc
         referenced = await _message(db, reply_to_id)
         if referenced.text_channel_id != channel_id:
             raise UNKNOWN_MESSAGE()
@@ -1645,7 +1645,7 @@ async def create_message(
     internal = bot_event_dispatcher.internal_message_payload(loaded)
     await manager.send_to_channel(channel_id, {"type": "new_message", "data": internal})
     await bot_event_dispatcher.dispatch_message_create(db, loaded)
-    return discord_message(loaded, guild_id=channel.channel_id)
+    return miscord_message(loaded, guild_id=channel.channel_id)
 
 
 @router.patch("/channels/{channel_id}/messages/{message_id}")
@@ -1653,11 +1653,11 @@ async def edit_message(
     channel_id: int,
     message_id: int,
     raw_payload: dict[str, Any] = Body(...),
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        payload = DiscordMessageUpdate.model_validate(raw_payload)
+        payload = MiscordMessageUpdate.model_validate(raw_payload)
     except ValidationError as exc:
         raise _validation_error(exc) from exc
     channel, _, _ = await _require_bot_text_channel(db, principal, channel_id, permission=Permission.SEND_MESSAGES)
@@ -1674,14 +1674,14 @@ async def edit_message(
     internal = bot_event_dispatcher.internal_message_payload(loaded)
     await manager.send_to_channel(channel_id, {"type": "message_edited", "data": internal})
     await bot_event_dispatcher.dispatch_message_update(db, loaded)
-    return discord_message(loaded, guild_id=channel.channel_id)
+    return miscord_message(loaded, guild_id=channel.channel_id)
 
 
 @router.delete("/channels/{channel_id}/messages/{message_id}", status_code=204)
 async def delete_message(
     channel_id: int,
     message_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     channel, _, permissions = await _require_bot_text_channel(db, principal, channel_id)
@@ -1702,7 +1702,7 @@ async def create_reaction(
     channel_id: int,
     message_id: int,
     emoji: str,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     await _require_bot_text_channel(db, principal, channel_id, permission=Permission.ADD_REACTIONS)
@@ -1726,7 +1726,7 @@ async def delete_own_reaction(
     channel_id: int,
     message_id: int,
     emoji: str,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     await _require_bot_text_channel(db, principal, channel_id)
@@ -1750,7 +1750,7 @@ async def get_reactions(
     emoji: str,
     limit: int = Query(default=25, ge=1, le=100),
     after: int = Query(default=0, ge=0),
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     await _require_bot_text_channel(db, principal, channel_id, permission=Permission.READ_MESSAGE_HISTORY)
@@ -1764,7 +1764,7 @@ async def get_reactions(
         .order_by(User.id)
         .limit(limit)
     )
-    return [discord_user(user) for user in result.scalars().all()]
+    return [miscord_user(user) for user in result.scalars().all()]
 
 
 @router.delete("/channels/{channel_id}/messages/{message_id}/reactions/{emoji}/{user_id}", status_code=204)
@@ -1773,7 +1773,7 @@ async def delete_user_reaction(
     message_id: int,
     emoji: str,
     user_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     await _require_bot_text_channel(db, principal, channel_id, permission=Permission.MANAGE_MESSAGES)
@@ -1797,7 +1797,7 @@ async def delete_all_reactions_for_emoji(
     channel_id: int,
     message_id: int,
     emoji: str,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     channel, _, _ = await _require_bot_text_channel(db, principal, channel_id, permission=Permission.MANAGE_MESSAGES)
@@ -1819,7 +1819,7 @@ async def delete_all_reactions_for_emoji(
 async def delete_all_reactions(
     channel_id: int,
     message_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     channel, _, _ = await _require_bot_text_channel(db, principal, channel_id, permission=Permission.MANAGE_MESSAGES)
@@ -1845,7 +1845,7 @@ def _command_scope(application_id: int, guild_id: int | None) -> list[Any]:
 async def _upsert_command(
     db: AsyncSession,
     principal: BotPrincipal,
-    payload: DiscordApplicationCommandPayload,
+    payload: MiscordApplicationCommandPayload,
     *,
     guild_id: int | None,
 ) -> tuple[BotCommand, bool]:
@@ -1865,7 +1865,7 @@ async def _upsert_command(
             BotCommand.command_type == payload.type,
         ))
         if int(count or 0) >= limits[payload.type]:
-            raise DiscordAPIError(400, 30032, "Maximum number of application commands reached")
+            raise MiscordAPIError(400, 30032, "Maximum number of application commands reached")
         command = BotCommand(application_id=principal.application.id, server_id=guild_id)
         db.add(command)
     command.name = payload.name
@@ -1875,7 +1875,7 @@ async def _upsert_command(
     command.description_localizations = payload.description_localizations
     command.default_member_permissions = int(payload.default_member_permissions) if payload.default_member_permissions is not None else None
     command.legacy_default_member_permissions = (
-        discord_permissions_to_legacy(command.default_member_permissions)
+        miscord_permissions_to_legacy(command.default_member_permissions)
         if command.default_member_permissions is not None
         else None
     )
@@ -1905,14 +1905,14 @@ async def _list_commands(db: AsyncSession, principal: BotPrincipal, guild_id: in
         .where(*_command_scope(principal.application.id, guild_id), BotCommand.is_enabled.is_(True))
         .order_by(BotCommand.id)
     )
-    return [discord_command(item, application_client_id=principal.application.client_id) for item in result.scalars().all()]
+    return [miscord_command(item, application_client_id=principal.application.client_id) for item in result.scalars().all()]
 
 
 @router.get("/applications/{application_id}/commands")
 async def list_global_commands(
     application_id: str,
     with_localizations: bool = Query(default=False),
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     _require_application(principal, application_id)
@@ -1924,7 +1924,7 @@ async def list_guild_commands(
     application_id: str,
     guild_id: int,
     with_localizations: bool = Query(default=False),
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     _require_application(principal, application_id)
@@ -1935,16 +1935,16 @@ async def list_guild_commands(
 async def create_global_command(
     application_id: str,
     raw_payload: dict[str, Any] = Body(...),
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     _require_application(principal, application_id)
     try:
-        payload = DiscordApplicationCommandPayload.model_validate(raw_payload)
+        payload = MiscordApplicationCommandPayload.model_validate(raw_payload)
     except ValidationError as exc:
         raise _validation_error(exc) from exc
     command, created = await _upsert_command(db, principal, payload, guild_id=None)
-    return discord_command(command, application_client_id=principal.application.client_id)
+    return miscord_command(command, application_client_id=principal.application.client_id)
 
 
 @router.post("/applications/{application_id}/guilds/{guild_id}/commands")
@@ -1952,16 +1952,16 @@ async def create_guild_command(
     application_id: str,
     guild_id: int,
     raw_payload: dict[str, Any] = Body(...),
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     _require_application(principal, application_id)
     try:
-        payload = DiscordApplicationCommandPayload.model_validate(raw_payload)
+        payload = MiscordApplicationCommandPayload.model_validate(raw_payload)
     except ValidationError as exc:
         raise _validation_error(exc) from exc
     command, created = await _upsert_command(db, principal, payload, guild_id=guild_id)
-    return discord_command(command, application_client_id=principal.application.client_id)
+    return miscord_command(command, application_client_id=principal.application.client_id)
 
 
 async def _get_command(db: AsyncSession, principal: BotPrincipal, command_id: int, guild_id: int | None) -> BotCommand:
@@ -1992,7 +1992,7 @@ def _command_permissions_payload(command: BotCommand, application_id: str, guild
 async def get_guild_application_command_permissions(
     application_id: str,
     guild_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     _require_application(principal, application_id)
@@ -2027,7 +2027,7 @@ async def get_application_command_permissions(
     application_id: str,
     guild_id: int,
     command_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     _require_application(principal, application_id)
@@ -2042,7 +2042,7 @@ async def edit_application_command_permissions(
     guild_id: int,
     command_id: int,
     payload: dict[str, Any] = Body(...),
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     _require_application(principal, application_id)
@@ -2050,19 +2050,19 @@ async def edit_application_command_permissions(
     command = await _guild_permission_command(db, principal, guild_id, command_id)
     raw_permissions = payload.get("permissions")
     if not isinstance(raw_permissions, list) or len(raw_permissions) > 100:
-        raise DiscordAPIError(400, 50035, "permissions must be an array with at most 100 entries")
+        raise MiscordAPIError(400, 50035, "permissions must be an array with at most 100 entries")
     cleaned: list[dict[str, Any]] = []
     seen: set[tuple[int, str]] = set()
     for item in raw_permissions:
         if not isinstance(item, dict):
-            raise DiscordAPIError(400, 50035, "Each command permission must be an object")
+            raise MiscordAPIError(400, 50035, "Each command permission must be an object")
         try:
             permission_type = int(item.get("type"))
             target_id = str(int(item.get("id")))
         except (TypeError, ValueError) as exc:
-            raise DiscordAPIError(400, 50035, "Invalid command permission target") from exc
+            raise MiscordAPIError(400, 50035, "Invalid command permission target") from exc
         if permission_type not in {1, 2, 3} or (permission_type, target_id) in seen:
-            raise DiscordAPIError(400, 50035, "Invalid or duplicate command permission target")
+            raise MiscordAPIError(400, 50035, "Invalid or duplicate command permission target")
         seen.add((permission_type, target_id))
         cleaned.append({"id": target_id, "type": permission_type, "permission": bool(item.get("permission"))})
     definition = dict(command.definition) if isinstance(command.definition, dict) else {}
@@ -2079,11 +2079,11 @@ async def edit_application_command_permissions(
 async def get_global_command(
     application_id: str,
     command_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     _require_application(principal, application_id)
-    return discord_command(await _get_command(db, principal, command_id, None), application_client_id=principal.application.client_id)
+    return miscord_command(await _get_command(db, principal, command_id, None), application_client_id=principal.application.client_id)
 
 
 @router.get("/applications/{application_id}/guilds/{guild_id}/commands/{command_id}")
@@ -2091,12 +2091,12 @@ async def get_guild_command(
     application_id: str,
     guild_id: int,
     command_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     _require_application(principal, application_id)
     await _active_install(db, principal, guild_id)
-    return discord_command(await _get_command(db, principal, command_id, guild_id), application_client_id=principal.application.client_id)
+    return miscord_command(await _get_command(db, principal, command_id, guild_id), application_client_id=principal.application.client_id)
 
 
 async def _edit_command(
@@ -2107,7 +2107,7 @@ async def _edit_command(
     raw_payload: dict[str, Any],
 ) -> dict[str, Any]:
     command = await _get_command(db, principal, command_id, guild_id)
-    current = discord_command(command, application_client_id=principal.application.client_id)
+    current = miscord_command(command, application_client_id=principal.application.client_id)
     merged = {
         "name": current["name"],
         "description": current["description"],
@@ -2123,7 +2123,7 @@ async def _edit_command(
         **raw_payload,
     }
     try:
-        payload = DiscordApplicationCommandPayload.model_validate(merged)
+        payload = MiscordApplicationCommandPayload.model_validate(merged)
     except ValidationError as exc:
         raise _validation_error(exc) from exc
     command.name = payload.name
@@ -2138,7 +2138,7 @@ async def _edit_command(
     }
     command.default_member_permissions = int(payload.default_member_permissions) if payload.default_member_permissions is not None else None
     command.legacy_default_member_permissions = (
-        discord_permissions_to_legacy(command.default_member_permissions)
+        miscord_permissions_to_legacy(command.default_member_permissions)
         if command.default_member_permissions is not None
         else None
     )
@@ -2148,7 +2148,7 @@ async def _edit_command(
     command.contexts = payload.contexts
     command.version += 1
     await db.commit()
-    return discord_command(command, application_client_id=principal.application.client_id)
+    return miscord_command(command, application_client_id=principal.application.client_id)
 
 
 @router.patch("/applications/{application_id}/commands/{command_id}")
@@ -2156,7 +2156,7 @@ async def edit_global_command(
     application_id: str,
     command_id: int,
     raw_payload: dict[str, Any] = Body(...),
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     _require_application(principal, application_id)
@@ -2169,7 +2169,7 @@ async def edit_guild_command(
     guild_id: int,
     command_id: int,
     raw_payload: dict[str, Any] = Body(...),
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     _require_application(principal, application_id)
@@ -2187,7 +2187,7 @@ async def _delete_command(db: AsyncSession, principal: BotPrincipal, command_id:
 async def delete_global_command(
     application_id: str,
     command_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     _require_application(principal, application_id)
@@ -2200,7 +2200,7 @@ async def delete_guild_command(
     application_id: str,
     guild_id: int,
     command_id: int,
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     _require_application(principal, application_id)
@@ -2215,20 +2215,20 @@ async def _bulk_overwrite(
     guild_id: int | None,
     raw_payload: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    parsed: list[DiscordApplicationCommandPayload] = []
+    parsed: list[MiscordApplicationCommandPayload] = []
     try:
-        parsed = [DiscordApplicationCommandPayload.model_validate(item) for item in raw_payload]
+        parsed = [MiscordApplicationCommandPayload.model_validate(item) for item in raw_payload]
     except ValidationError as exc:
         raise _validation_error(exc) from exc
     keys = [(item.name, item.type) for item in parsed]
     if len(keys) != len(set(keys)):
-        raise DiscordAPIError(400, 50035, "Command names and types must be unique")
+        raise MiscordAPIError(400, 50035, "Command names and types must be unique")
     existing_result = await db.execute(select(BotCommand).where(*_command_scope(principal.application.id, guild_id)))
     existing = {(item.name, int(item.command_type)): item for item in existing_result.scalars().all()}
     output = []
     for item in parsed:
         command, _ = await _upsert_command(db, principal, item, guild_id=guild_id)
-        output.append(discord_command(command, application_client_id=principal.application.client_id))
+        output.append(miscord_command(command, application_client_id=principal.application.client_id))
     remove_ids = [item.id for key, item in existing.items() if key not in set(keys)]
     if remove_ids:
         await db.execute(delete(BotCommand).where(BotCommand.id.in_(remove_ids)))
@@ -2240,7 +2240,7 @@ async def _bulk_overwrite(
 async def bulk_overwrite_global_commands(
     application_id: str,
     raw_payload: list[dict[str, Any]] = Body(...),
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     _require_application(principal, application_id)
@@ -2252,7 +2252,7 @@ async def bulk_overwrite_guild_commands(
     application_id: str,
     guild_id: int,
     raw_payload: list[dict[str, Any]] = Body(...),
-    principal: BotPrincipal = Depends(get_discord_bot),
+    principal: BotPrincipal = Depends(get_miscord_bot),
     db: AsyncSession = Depends(get_db),
 ):
     _require_application(principal, application_id)

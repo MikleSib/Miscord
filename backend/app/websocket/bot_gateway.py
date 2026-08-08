@@ -36,7 +36,7 @@ from app.services.bot_event_dispatcher import (
     dispatcher as bot_event_dispatcher,
 )
 from app.services.bot_security import BotPrincipal, get_bot_principal_by_token
-from app.services.discord_serializers import discord_channel, discord_role, discord_user
+from app.services.miscord_serializers import miscord_channel, miscord_role, miscord_user
 
 
 OP_HEARTBEAT = int(GatewayOpCode.HEARTBEAT)
@@ -147,7 +147,7 @@ async def _guild_create_payload(db: AsyncSession, principal: BotPrincipal, guild
     for overwrite in overwrite_result.scalars().all():
         overwrites.setdefault((overwrite.channel_kind, int(overwrite.channel_id)), []).append(overwrite)
     channels = [
-        discord_channel(
+        miscord_channel(
             item,
             guild_id=guild_id,
             overwrites=overwrites.get((ChannelKind.TEXT, item.id), []),
@@ -156,7 +156,7 @@ async def _guild_create_payload(db: AsyncSession, principal: BotPrincipal, guild
         if not item.is_hidden
     ]
     channels.extend(
-        discord_channel(
+        miscord_channel(
             item,
             guild_id=guild_id,
             overwrites=overwrites.get((ChannelKind.VOICE, item.id), []),
@@ -179,7 +179,7 @@ async def _guild_create_payload(db: AsyncSession, principal: BotPrincipal, guild
         "verification_level": 0,
         "default_message_notifications": 0,
         "explicit_content_filter": 0,
-        "roles": [discord_role(item, guild_id=guild_id) for item in guild.roles],
+        "roles": [miscord_role(item, guild_id=guild_id) for item in guild.roles],
         "emojis": [],
         "features": [],
         "mfa_level": 0,
@@ -203,7 +203,7 @@ async def _guild_create_payload(db: AsyncSession, principal: BotPrincipal, guild
         "member_count": len(member_count_result.scalars().all()),
         "voice_states": [],
         "members": [{
-            "user": discord_user(principal.bot_user),
+            "user": miscord_user(principal.bot_user),
             "nick": membership.nickname if membership else None,
             "avatar": None,
             "roles": [str(item) for item in role_ids_result.scalars().all()],
@@ -440,7 +440,7 @@ async def websocket_gateway_endpoint(websocket: WebSocket) -> None:
                 members = []
                 for user, membership in users_result.all():
                     members.append({
-                        "user": discord_user(user),
+                        "user": miscord_user(user),
                         "nick": membership.nickname,
                         "roles": roles_by_user.get(user.id, []),
                         "joined_at": membership.joined_at.isoformat() if membership.joined_at else None,

@@ -19,7 +19,7 @@ export interface TooltipProps {
 const SHOW_DELAY_MS = 350
 
 /**
- * Discord-style tooltip через portal — не обрезается overflow родителей.
+ * Фирменная подсказка через portal — не обрезается overflow родителей.
  */
 export function Tooltip({
   content,

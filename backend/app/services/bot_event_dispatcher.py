@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models import BotApplication, BotInstall, TextChannel
 from app.schemas.bot_protocol import GatewayOpCode, GATEWAY_API_VERSION
-from app.services.discord_serializers import discord_message, discord_user
+from app.services.miscord_serializers import miscord_message, miscord_user
 from app.services.message_serializer import serialize_channel_message
 
 
@@ -140,7 +140,7 @@ class BotEventDispatcher:
         gateway_host = gateway_host.replace("https://", "wss://", 1).replace("http://", "ws://", 1)
         return {
             "v": GATEWAY_API_VERSION,
-            "user": discord_user(bot_user),
+            "user": miscord_user(bot_user),
             "guilds": [{"id": str(guild_id), "unavailable": True} for guild_id in guild_ids],
             "session_id": session_id,
             "resume_gateway_url": f"{gateway_host}/gateway",
@@ -395,7 +395,7 @@ class BotEventDispatcher:
         channel = await db.get(TextChannel, message.text_channel_id)
         if channel is None:
             return
-        payload = discord_message(message, guild_id=channel.channel_id)
+        payload = miscord_message(message, guild_id=channel.channel_id)
         for application_id in await self._installed_apps_for_channel(db, message.text_channel_id, INTENT_GUILD_MESSAGES):
             await self._dispatch_to_application(
                 application_id,
@@ -409,7 +409,7 @@ class BotEventDispatcher:
         channel = await db.get(TextChannel, message.text_channel_id)
         if channel is None:
             return
-        payload = discord_message(message, guild_id=channel.channel_id)
+        payload = miscord_message(message, guild_id=channel.channel_id)
         for application_id in await self._installed_apps_for_channel(db, message.text_channel_id, INTENT_GUILD_MESSAGES):
             await self._dispatch_to_application(
                 application_id,

@@ -6,7 +6,7 @@ from typing import Any
 from app.services.attachment_storage import attachment_url
 
 
-def discord_user(user) -> dict[str, Any]:
+def miscord_user(user) -> dict[str, Any]:
     return {
         "id": str(user.id),
         "username": user.username,
@@ -28,7 +28,7 @@ def discord_user(user) -> dict[str, Any]:
     }
 
 
-def discord_role(role, *, guild_id: int | None = None) -> dict[str, Any]:
+def miscord_role(role, *, guild_id: int | None = None) -> dict[str, Any]:
     role_id = guild_id if guild_id is not None and bool(role.is_default) else role.id
     try:
         color = int(str(role.color or "0").lstrip("#") or "0", 16)
@@ -51,7 +51,7 @@ def discord_role(role, *, guild_id: int | None = None) -> dict[str, Any]:
     }
 
 
-def discord_channel(channel, *, guild_id: int, overwrites: list[Any] | None = None) -> dict[str, Any]:
+def miscord_channel(channel, *, guild_id: int, overwrites: list[Any] | None = None) -> dict[str, Any]:
     channel_type = 0 if channel.__class__.__name__ == "TextChannel" else 2
     payload: dict[str, Any] = {
         "id": str(channel.id),
@@ -84,7 +84,7 @@ def discord_channel(channel, *, guild_id: int, overwrites: list[Any] | None = No
     return payload
 
 
-def discord_attachment(attachment) -> dict[str, Any]:
+def miscord_attachment(attachment) -> dict[str, Any]:
     filename = attachment.original_filename or "attachment"
     url = attachment_url(attachment.id, filename) if attachment.storage_key else attachment.file_url
     return {
@@ -99,7 +99,7 @@ def discord_attachment(attachment) -> dict[str, Any]:
     }
 
 
-def discord_message(message, *, guild_id: int | None = None) -> dict[str, Any]:
+def miscord_message(message, *, guild_id: int | None = None) -> dict[str, Any]:
     author = message.author
     if message.webhook_id is not None:
         author_payload = {
@@ -111,7 +111,7 @@ def discord_message(message, *, guild_id: int | None = None) -> dict[str, Any]:
             "bot": True,
         }
     else:
-        author_payload = discord_user(author)
+        author_payload = miscord_user(author)
     reaction_counts = Counter(item.emoji for item in (message.reactions or []))
     payload: dict[str, Any] = {
         "id": str(message.id),
@@ -125,7 +125,7 @@ def discord_message(message, *, guild_id: int | None = None) -> dict[str, Any]:
         "mentions": [],
         "mention_roles": [],
         "mention_channels": [],
-        "attachments": [discord_attachment(item) for item in (message.attachments or [])],
+        "attachments": [miscord_attachment(item) for item in (message.attachments or [])],
         "embeds": list(message.embeds or []),
         "reactions": [
             {"count": count, "count_details": {"burst": 0, "normal": count}, "me": False, "me_burst": False, "emoji": {"id": None, "name": emoji}, "burst_colors": []}
@@ -140,7 +140,7 @@ def discord_message(message, *, guild_id: int | None = None) -> dict[str, Any]:
         "application_id": str(message.application_id) if getattr(message, "application_id", None) else None,
         "message_reference": ({"message_id": str(message.reply_to_id), "channel_id": str(message.text_channel_id), "fail_if_not_exists": True} if message.reply_to_id else None),
         "flags": int(message.flags or 0),
-        "referenced_message": discord_message(message.reply_to, guild_id=guild_id) if getattr(message, "reply_to", None) else None,
+        "referenced_message": miscord_message(message.reply_to, guild_id=guild_id) if getattr(message, "reply_to", None) else None,
         "interaction_metadata": getattr(message, "interaction_metadata", None),
         "thread": None,
         "components": list(getattr(message, "components", None) or []),
@@ -152,7 +152,7 @@ def discord_message(message, *, guild_id: int | None = None) -> dict[str, Any]:
     return payload
 
 
-def discord_command(command, *, application_client_id: str) -> dict[str, Any]:
+def miscord_command(command, *, application_client_id: str) -> dict[str, Any]:
     definition = command.definition if isinstance(command.definition, dict) else {}
     payload: dict[str, Any] = {
         "id": str(command.id),

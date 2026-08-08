@@ -1,4 +1,4 @@
-"""Discord-подобное управление сервером: роли, участники, баны, приглашения, аудит.
+"""Управление сервером Miscord: роли, участники, баны, приглашения и аудит.
 
 Смонтирован на /api/servers. «Сервер» в проекте — это модель Channel.
 """
@@ -22,7 +22,7 @@ from app.core.permissions import (
     PERMISSION_CATALOG,
     PERMISSION_GROUPS,
     Permission,
-    discord_permissions_to_legacy,
+    miscord_permissions_to_legacy,
     ensure_default_role,
     get_default_role,
     get_member_permissions,
@@ -70,7 +70,7 @@ from app.services.bot_event_dispatcher import (
     INTENT_GUILD_MODERATION,
     dispatcher as bot_event_dispatcher,
 )
-from app.services.discord_serializers import discord_role, discord_user
+from app.services.miscord_serializers import miscord_role, miscord_user
 from app.services.server_events import notify_server, notify_users
 from app.services.server_membership import (
     add_member_and_notify,
@@ -114,7 +114,7 @@ async def _load_member_roles_map(db: AsyncSession, server_id: int) -> dict[int, 
     return mapping
 
 
-async def _discord_member_update(db: AsyncSession, server_id: int, user_id: int) -> dict:
+async def _miscord_member_update(db: AsyncSession, server_id: int, user_id: int) -> dict:
     user = await _get_user_or_404(db, user_id)
     membership = await db.scalar(select(ChannelMember).where(
         ChannelMember.channel_id == server_id,
@@ -127,7 +127,7 @@ async def _discord_member_update(db: AsyncSession, server_id: int, user_id: int)
     return {
         "guild_id": str(server_id),
         "roles": [str(role_id) for role_id in role_ids],
-        "user": discord_user(user),
+        "user": miscord_user(user),
         "nick": membership.nickname if membership else None,
         "avatar": None,
         "joined_at": membership.joined_at.isoformat() if membership and membership.joined_at else None,
@@ -267,7 +267,7 @@ def _serialize_invite(invite: Invite, *, inviter: Optional[User] = None) -> dict
     }
 
 
-def _discord_invite(invite: Invite, *, inviter: Optional[User] = None) -> dict:
+def _miscord_invite(invite: Invite, *, inviter: Optional[User] = None) -> dict:
     max_age = 0
     if invite.expires_at and invite.created_at:
         expires_at = invite.expires_at if invite.expires_at.tzinfo else invite.expires_at.replace(tzinfo=timezone.utc)
@@ -278,7 +278,7 @@ def _discord_invite(invite: Invite, *, inviter: Optional[User] = None) -> dict:
         "code": invite.code,
         "created_at": invite.created_at.isoformat() if invite.created_at else None,
         "guild_id": str(invite.server_id),
-        "inviter": discord_user(inviter) if inviter else None,
+        "inviter": miscord_user(inviter) if inviter else None,
         "max_age": max_age,
         "max_uses": int(invite.max_uses or 0),
         "target_type": 0,
@@ -542,7 +542,7 @@ async def delete_invite(
         db,
         server.id,
         "INVITE_DELETE",
-        _discord_invite(invite, inviter=event_inviter),
+        _miscord_invite(invite, inviter=event_inviter),
         required_intent=INTENT_GUILD_INVITES,
     )
 
@@ -748,7 +748,7 @@ async def update_server_member(
         db,
         server_id,
         "GUILD_MEMBER_UPDATE",
-        await _discord_member_update(db, server_id, user_id),
+        await _miscord_member_update(db, server_id, user_id),
         required_intent=INTENT_GUILD_MEMBERS,
     )
 
@@ -1001,7 +1001,7 @@ async def create_server_ban(
         db,
         server_id,
         "GUILD_BAN_ADD",
-        {"guild_id": str(server_id), "user": discord_user(target)},
+        {"guild_id": str(server_id), "user": miscord_user(target)},
         required_intent=INTENT_GUILD_MODERATION,
     )
 
@@ -1046,7 +1046,7 @@ async def delete_server_ban(
         db,
         server_id,
         "GUILD_BAN_REMOVE",
-        {"guild_id": str(server_id), "user": discord_user(target)},
+        {"guild_id": str(server_id), "user": miscord_user(target)},
         required_intent=INTENT_GUILD_MODERATION,
     )
 
@@ -1133,7 +1133,7 @@ async def create_server_role(
         color=payload.color,
         position=next_position,
         permissions=int(payload.permissions),
-        legacy_permissions=discord_permissions_to_legacy(int(payload.permissions)),
+        legacy_permissions=miscord_permissions_to_legacy(int(payload.permissions)),
         is_default=False,
     )
     db.add(role)
@@ -1161,7 +1161,7 @@ async def create_server_role(
         db,
         server_id,
         "GUILD_ROLE_CREATE",
-        {"guild_id": str(server_id), "role": discord_role(role, guild_id=server_id)},
+        {"guild_id": str(server_id), "role": miscord_role(role, guild_id=server_id)},
     )
 
     return payload_role
@@ -1216,7 +1216,7 @@ async def reorder_server_roles(
             db,
             server_id,
             "GUILD_ROLE_UPDATE",
-            {"guild_id": str(server_id), "role": discord_role(updated_role, guild_id=server_id)},
+            {"guild_id": str(server_id), "role": miscord_role(updated_role, guild_id=server_id)},
         )
 
     return {"detail": "Порядок ролей обновлён", "order": ordered_ids}
@@ -1262,7 +1262,7 @@ async def update_server_role(
                 detail="Нельзя выдать роли права, которых у вас нет",
             )
         role.permissions = new_permissions
-        role.legacy_permissions = discord_permissions_to_legacy(new_permissions)
+        role.legacy_permissions = miscord_permissions_to_legacy(new_permissions)
 
     if "name" in updates and updates["name"]:
         if role.is_default:
@@ -1304,7 +1304,7 @@ async def update_server_role(
         db,
         server_id,
         "GUILD_ROLE_UPDATE",
-        {"guild_id": str(server_id), "role": discord_role(role, guild_id=server_id)},
+        {"guild_id": str(server_id), "role": miscord_role(role, guild_id=server_id)},
     )
 
     return role_payload
@@ -1513,7 +1513,7 @@ async def _member_roles_response(db: AsyncSession, server_id: int, user_id: int)
         db,
         server_id,
         "GUILD_MEMBER_UPDATE",
-        await _discord_member_update(db, server_id, user_id),
+        await _miscord_member_update(db, server_id, user_id),
         required_intent=INTENT_GUILD_MEMBERS,
     )
     return payload
@@ -1624,7 +1624,7 @@ async def create_server_invite(
         db,
         server_id,
         "INVITE_CREATE",
-        _discord_invite(invite, inviter=current_user),
+        _miscord_invite(invite, inviter=current_user),
         required_intent=INTENT_GUILD_INVITES,
     )
 

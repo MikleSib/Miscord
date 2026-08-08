@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import React from 'react'
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
@@ -27,7 +27,7 @@ import { useOutgoingMessageStore } from '../store/outgoingMessageStore'
 import reactionService from '../services/reactionService'
 import serverService from '../services/serverService'
 import botService from '../services/botService'
-import type { ChannelApplicationCommands, DiscordApplicationCommand, DiscordApplicationCommandOption } from '../types/bot'
+import type { ChannelApplicationCommands, MiscordApplicationCommand, MiscordApplicationCommandOption } from '../types/bot'
 import { formatSlowModeLabel } from '../lib/slowMode'
 import {
   filterMentionCandidates,
@@ -103,7 +103,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   const [mentionIndex, setMentionIndex] = useState(0)
   const [applicationCommands, setApplicationCommands] = useState<ChannelApplicationCommands>({ applications: [], commands: [] })
   const [slashIndex, setSlashIndex] = useState(0)
-  const [selectedSlashCommand, setSelectedSlashCommand] = useState<DiscordApplicationCommand | null>(null)
+  const [selectedSlashCommand, setSelectedSlashCommand] = useState<MiscordApplicationCommand | null>(null)
   const [profilePopover, setProfilePopover] = useState<{
     member: ServerMember
     anchorRect: DOMRect
@@ -304,7 +304,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
       container.scrollHeight - container.scrollTop - container.clientHeight
     stickToBottomRef.current = distanceFromBottom < 140
 
-    // Как в Discord: доскроллил вверх в†’ подгрузить ещё пачку старых
+    // При прокрутке вверх подгружаем следующую пачку старых сообщений
     if (
       container.scrollTop < 80 &&
       hasMoreOlder &&
@@ -606,7 +606,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     })
   }
 
-  const applySlashCommand = (command: DiscordApplicationCommand) => {
+  const applySlashCommand = (command: MiscordApplicationCommand) => {
     setSelectedSlashCommand(command)
     setMessageInput(`/${command.name}${command.options?.length ? ' ' : ''}`)
     setSlashIndex(0)
@@ -620,10 +620,10 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     })
   }
 
-  const parseCommandOptions = (command: DiscordApplicationCommand, source: string) => {
+  const parseCommandOptions = (command: MiscordApplicationCommand, source: string) => {
     const tokens = source.match(/"[^"]*"|'[^']*'|\S+/g)?.map((token) => token.replace(/^("|')|("|')$/g, '')) || []
     const definitions = command.options || []
-    return definitions.slice(0, tokens.length).map((option: DiscordApplicationCommandOption, index) => {
+    return definitions.slice(0, tokens.length).map((option: MiscordApplicationCommandOption, index) => {
       const raw = tokens[index]
       let value: string | number | boolean = raw
       if (option.type === 4) value = Number.parseInt(raw, 10)

@@ -102,7 +102,7 @@ export function EmptyState({
   )
 }
 
-/** Переключатель в стиле Discord. */
+/** Фирменный переключатель настроек. */
 export function Toggle({
   checked,
   onChange,

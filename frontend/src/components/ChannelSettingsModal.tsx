@@ -189,7 +189,7 @@ export function ChannelSettingsModal({
       className="fixed inset-0 overflow-hidden bg-[#313338]"
       style={{ zIndex: MODAL_Z_INDEX }}
     >
-      {/* Центрированная колонка как в Discord: нав + контент */}
+      {/* Центрированная колонка: навигация + контент */}
       <div className="mx-auto flex h-full w-full max-w-[1080px]">
         <aside className="flex w-[200px] shrink-0 flex-col bg-[#2b2d31] px-2 pt-[60px] sm:w-[218px]">
           <div className="mb-2 px-2">

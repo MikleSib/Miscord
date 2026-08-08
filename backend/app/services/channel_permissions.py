@@ -1,4 +1,4 @@
-"""Расчёт прав на уровне канала с учётом переопределений (как в Discord)."""
+"""Расчёт прав на уровне канала Miscord с учётом переопределений."""
 
 from typing import Iterable, Literal, Optional
 
@@ -33,7 +33,7 @@ def _resolve_single_permission(
     member_allow: int,
     member_deny: int,
 ) -> bool:
-    """Discord-подобный расчёт одного бита права с учётом overwrites."""
+    """Рассчитать один бит права с учётом overwrites."""
     bit = int(permission)
 
     if member_allow & bit:

@@ -11,11 +11,11 @@ from app.core.dependencies import get_current_active_user
 from app.core.permissions import Permission, get_member_permissions, has_permission
 from app.db.database import get_db
 from app.models import BotApplication, BotCommand, BotInstall, BotInteraction, ChannelMember, MemberRole, Message, TextChannel, User
-from app.schemas.discord import ClientInteractionCreate
+from app.schemas.miscord import ClientInteractionCreate
 from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
 from app.services.bot_interactions import apply_initial_callback, aware, new_interaction, utcnow
 from app.services.channel_access import require_text_channel_access
-from app.services.discord_serializers import discord_command, discord_message, discord_user
+from app.services.miscord_serializers import miscord_command, miscord_message, miscord_user
 from app.services.interaction_delivery import InteractionEndpointError, deliver_interaction_http
 
 
@@ -130,7 +130,7 @@ async def list_channel_application_commands(
             "icon": application.avatar_url,
             "description": application.description or "",
         }
-        commands.append(discord_command(command, application_client_id=application.client_id))
+        commands.append(miscord_command(command, application_client_id=application.client_id))
     return {"applications": list(apps.values()), "commands": commands}
 
 
@@ -187,8 +187,8 @@ async def _deliver(db: AsyncSession, interaction: BotInteraction, application: B
                 application.secret.signing_private_key_ciphertext,
                 interaction.request_payload,
             )
-            from app.schemas.discord import DiscordInteractionCallback
-            await apply_initial_callback(db, interaction, DiscordInteractionCallback.model_validate(callback_data))
+            from app.schemas.miscord import MiscordInteractionCallback
+            await apply_initial_callback(db, interaction, MiscordInteractionCallback.model_validate(callback_data))
             return "responded", 1
         except (InteractionEndpointError, ValueError):
             return "failed", 0
@@ -278,7 +278,7 @@ async def create_channel_interaction(
         "channel_id": str(channel.id),
         "channel": {"id": str(channel.id), "type": 0, "guild_id": str(channel.channel_id), "name": channel.name},
         "member": {
-            "user": discord_user(current_user),
+            "user": miscord_user(current_user),
             "roles": [str(item) for item in role_ids],
             "joined_at": membership.joined_at.isoformat() if membership and membership.joined_at else None,
             "deaf": False,
@@ -377,8 +377,8 @@ async def create_component_interaction(
         },
         "guild_id": str(channel.channel_id),
         "channel_id": str(channel.id),
-        "member": {"user": discord_user(current_user), "roles": [str(item) for item in role_ids], "permissions": str(permissions)},
-        "message": discord_message(message, guild_id=channel.channel_id),
+        "member": {"user": miscord_user(current_user), "roles": [str(item) for item in role_ids], "permissions": str(permissions)},
+        "message": miscord_message(message, guild_id=channel.channel_id),
         "token": "",
         "version": 1,
         "app_permissions": str(int(install.permissions or 0)),
@@ -457,7 +457,7 @@ async def create_modal_interaction(
         "channel_id": str(channel.id),
         "channel": {"id": str(channel.id), "type": 0, "guild_id": str(channel.channel_id), "name": channel.name},
         "member": {
-            "user": discord_user(current_user),
+            "user": miscord_user(current_user),
             "roles": [str(item) for item in role_ids],
             "joined_at": membership.joined_at.isoformat() if membership and membership.joined_at else None,
             "deaf": False,

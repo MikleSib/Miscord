@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.core.dependencies import get_current_active_user
-from app.core.permissions import ALL_PERMISSIONS, Permission, discord_permissions_to_legacy, get_member_permissions, require_permission
+from app.core.permissions import ALL_PERMISSIONS, Permission, miscord_permissions_to_legacy, get_member_permissions, require_permission
 from app.db.database import get_db
 from app.models.bot import BotApplication, BotInstall, BotCommand, BotInteraction
 from app.models.channel import Channel, ChannelMember, TextChannel
@@ -513,7 +513,7 @@ async def authorize_bot_install(
             color="#5865f2",
             position=int(position_result.scalar() or 0) + 1,
             permissions=requested,
-            legacy_permissions=discord_permissions_to_legacy(requested),
+            legacy_permissions=miscord_permissions_to_legacy(requested),
             is_default=False,
             managed_by_bot_application_id=application.id,
         )
@@ -522,7 +522,7 @@ async def authorize_bot_install(
     else:
         role.name = application.name
         role.permissions = requested
-        role.legacy_permissions = discord_permissions_to_legacy(requested)
+        role.legacy_permissions = miscord_permissions_to_legacy(requested)
 
     membership_result = await db.execute(
         select(ChannelMember).where(
@@ -545,7 +545,7 @@ async def authorize_bot_install(
     install.role_id = role.id
     install.scopes = scopes
     install.permissions = requested
-    install.legacy_permissions = discord_permissions_to_legacy(requested)
+    install.legacy_permissions = miscord_permissions_to_legacy(requested)
     install.status = "active"
     await db.commit()
     if not was_existing:
@@ -705,7 +705,7 @@ async def create_bot_command(
             definition=payload.definition or {},
             default_member_permissions=payload.default_member_permissions,
             legacy_default_member_permissions=(
-                discord_permissions_to_legacy(payload.default_member_permissions)
+                miscord_permissions_to_legacy(payload.default_member_permissions)
                 if payload.default_member_permissions is not None
                 else None
             ),
@@ -761,7 +761,7 @@ async def replace_bot_command(
     }
     command.default_member_permissions = payload.default_member_permissions
     command.legacy_default_member_permissions = (
-        discord_permissions_to_legacy(payload.default_member_permissions)
+        miscord_permissions_to_legacy(payload.default_member_permissions)
         if payload.default_member_permissions is not None
         else None
     )
@@ -818,7 +818,7 @@ async def update_bot_command(
     if "default_member_permissions" in payload.model_fields_set:
         command.default_member_permissions = payload.default_member_permissions
         command.legacy_default_member_permissions = (
-            discord_permissions_to_legacy(payload.default_member_permissions)
+            miscord_permissions_to_legacy(payload.default_member_permissions)
             if payload.default_member_permissions is not None
             else None
         )

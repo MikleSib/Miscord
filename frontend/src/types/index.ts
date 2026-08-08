@@ -37,7 +37,7 @@ export interface Server {
   channels: Channel[];
 }
 
-// --- Управление сервером (Discord-подобные настройки) ---
+// --- Управление сервером Miscord ---
 
 export interface Role {
   id: number;

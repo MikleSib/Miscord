@@ -4,7 +4,7 @@
 
 @layer base {
   :root {
-    /* Discord desktop palette sampled from the supplied reference. */
+    /* Miscord desktop palette sampled from the supplied reference. */
     --background: 231 7% 21%;
     --foreground: 0 0% 96%;
     --card: 233 7% 24%;
@@ -947,7 +947,7 @@
     transform: scale(0.86);
     pointer-events: none;
     z-index: 0;
-    /* Затухание чуть дольше появления — как в Discord */
+    /* Затухание чуть дольше появления */
     transition:
       opacity 280ms cubic-bezier(0.16, 1, 0.3, 1),
       transform 280ms cubic-bezier(0.16, 1, 0.3, 1),
@@ -1360,7 +1360,7 @@
   transform: scale(0.985);
 }
 
-/* Просмотр фото/GIF в чате (как в Discord) */
+/* Просмотр фото/GIF в чате */
 .media-lightbox {
   position: fixed;
   inset: 0;
@@ -1528,7 +1528,7 @@
   cursor: zoom-in;
 }
 
-/* —— Discord-style tooltips —— */
+/* —— Фирменные подсказки —— */
 .miscord-tooltip-trigger {
   display: inline-flex;
   max-width: 100%;

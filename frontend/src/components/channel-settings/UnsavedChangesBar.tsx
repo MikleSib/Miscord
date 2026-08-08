@@ -12,7 +12,7 @@ interface UnsavedChangesBarProps {
   className?: string
 }
 
-/** Нижняя панель Discord: выезжает снизу вверх при несохранённых изменениях. */
+/** Нижняя панель Miscord: выезжает снизу вверх при несохранённых изменениях. */
 export function UnsavedChangesBar({
   visible,
   isSaving = false,

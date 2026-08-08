@@ -4,7 +4,7 @@ import threading
 import time
 
 
-DISCORD_EPOCH_MS = 1420070400000
+MISCORD_EPOCH_MS = 1420070400000
 _WORKER_ID = 1
 _PROCESS_ID = 1
 _lock = threading.Lock()
@@ -25,7 +25,7 @@ def generate_snowflake() -> str:
             _increment = 0
         _last_millisecond = millisecond
         value = (
-            ((millisecond - DISCORD_EPOCH_MS) << 22)
+            ((millisecond - MISCORD_EPOCH_MS) << 22)
             | (_WORKER_ID << 17)
             | (_PROCESS_ID << 12)
             | _increment

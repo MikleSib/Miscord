@@ -12,7 +12,7 @@ import httpx
 
 from app.core.config import settings
 from app.services.bot_security import sign_interaction_request
-from app.services.discord_snowflake import generate_snowflake
+from app.services.miscord_snowflake import generate_snowflake
 
 
 class InteractionEndpointError(ValueError):
