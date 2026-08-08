@@ -13,6 +13,8 @@ export interface User {
   request_id?: number;
   last_message_at?: string | null;
   is_friend?: boolean;
+  is_bot?: boolean;
+  is_webhook?: boolean;
 }
 
 export interface FriendRequest {

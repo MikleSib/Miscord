@@ -16,6 +16,12 @@ class Role(Base):
     position = Column(Integer, default=0, nullable=False)
     permissions = Column(BigInteger, default=0, nullable=False)
     is_default = Column(Boolean, default=False, nullable=False)  # роль @everyone
+    managed_by_bot_application_id = Column(
+        Integer,
+        ForeignKey("bot_applications.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     server = relationship("Channel", back_populates="roles")

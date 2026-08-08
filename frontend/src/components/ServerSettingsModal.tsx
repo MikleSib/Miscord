@@ -19,6 +19,7 @@ import { ServerRolesTab } from './server-settings/ServerRolesTab'
 import { ServerInvitesTab } from './server-settings/ServerInvitesTab'
 import { ServerBansTab } from './server-settings/ServerBansTab'
 import { ServerAuditLogTab } from './server-settings/ServerAuditLogTab'
+import { ServerBotsTab } from './server-settings/ServerBotsTab'
 
 interface ServerSettingsModalProps {
   isOpen: boolean
@@ -27,7 +28,7 @@ interface ServerSettingsModalProps {
   onServerUpdate: (updatedServer: Server) => void
 }
 
-type TabId = 'overview' | 'members' | 'roles' | 'invites' | 'bans' | 'audit'
+type TabId = 'overview' | 'members' | 'roles' | 'bots' | 'invites' | 'bans' | 'audit'
 
 interface TabItem {
   id: TabId
@@ -42,6 +43,7 @@ const TABS: TabItem[] = [
   { id: 'overview', label: 'Профиль сервера', icon: Info },
   { id: 'members', label: 'Участники', icon: Users, group: 'users' },
   { id: 'roles', label: 'Роли', icon: Shield, group: 'users', permission: Permissions.MANAGE_ROLES },
+  { id: 'bots', label: 'Боты', icon: Users, group: 'users', permission: Permissions.MANAGE_SERVER },
   { id: 'invites', label: 'Приглашения', icon: Link2, group: 'users', permission: Permissions.CREATE_INVITE },
   { id: 'bans', label: 'Блокировки', icon: Ban, group: 'moderation', permission: Permissions.BAN_MEMBERS },
   { id: 'audit', label: 'Журнал аудита', icon: ScrollText, group: 'moderation', permission: Permissions.VIEW_AUDIT_LOG },
@@ -264,6 +266,7 @@ export function ServerSettingsModal({ isOpen, onClose, server, onServerUpdate }:
             )}
             {activeTab === 'members' && <ServerMembersTab server={server} />}
             {activeTab === 'roles' && <ServerRolesTab server={server} />}
+            {activeTab === 'bots' && <ServerBotsTab server={server} />}
             {activeTab === 'invites' && <ServerInvitesTab server={server} />}
             {activeTab === 'bans' && <ServerBansTab server={server} />}
             {activeTab === 'audit' && <ServerAuditLogTab server={server} />}

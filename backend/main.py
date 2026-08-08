@@ -9,7 +9,7 @@ from sqlalchemy import delete, text
 
 from app.core.config import settings
 from app.db.database import engine, Base
-from app.api import auth, channels, channel_permissions, servers, uploads, reactions, friends, direct_messages, embeds, webhooks, attachment_files, bot_apps
+from app.api import auth, channels, channel_permissions, servers, uploads, reactions, friends, direct_messages, embeds, webhooks, attachment_files, bot_apps, bot_platform
 from app.websocket import chat, voice
 from app.websocket.connection_manager import manager
 from app.websocket.chat import websocket_chat_endpoint, websocket_notifications_endpoint
@@ -136,6 +136,7 @@ app.include_router(embeds.router, prefix="/api", tags=["embeds"])
 app.include_router(webhooks.router, prefix="/api", tags=["webhooks"])
 app.include_router(attachment_files.router, prefix="/api", tags=["attachments"])
 app.include_router(bot_apps.router, prefix="/api", tags=["bot-platform"])
+app.include_router(bot_platform.router, prefix="/api", tags=["bot-platform"])
 
 # WebSocket эндпоинты
 

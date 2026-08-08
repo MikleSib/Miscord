@@ -131,6 +131,17 @@ export default function DeveloperPortalPage() {
     }
   };
 
+  const copyInviteLink = async () => {
+    if (!selected) return;
+    setError(null);
+    try {
+      const inviteLink = await botService.getInviteLink(selected.id);
+      await navigator.clipboard.writeText(inviteLink);
+    } catch (requestError) {
+      setError(errorMessage(requestError));
+    }
+  };
+
   const disableApplication = async () => {
     if (!selected || !window.confirm('Отключить приложение и немедленно отозвать его токен?')) return;
     setSaving(true);
@@ -245,6 +256,11 @@ export default function DeveloperPortalPage() {
                   <div className="mb-4 flex items-center gap-3"><KeyRound className="h-5 w-5 text-[#f0b232]" /><h3 className="font-bold">Bot Token</h3></div>
                   <p className="mb-5 text-sm leading-6 text-[#b5bac1]">Токен нельзя получить повторно. Если он потерян или раскрыт, создайте новый. Старый будет отозван немедленно.</p>
                   <button disabled={saving || selected.status !== 'active'} onClick={resetToken} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#4e5058] px-4 text-sm font-bold hover:bg-[#5d6069] disabled:opacity-50"><RefreshCw className="h-4 w-4" /> Сбросить токен</button>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-[#2b2d31] p-5 md:p-6">
+                  <div className="mb-3 flex items-center gap-3"><Bot className="h-5 w-5 text-[#5865f2]" /><h3 className="font-bold">Установка на сервер</h3></div>
+                  <p className="mb-5 text-sm leading-6 text-[#b5bac1]">Ссылка открывает безопасный экран авторизации с выбором сервера и запрашиваемыми правами.</p>
+                  <button disabled={selected.status !== 'active'} onClick={copyInviteLink} className="inline-flex min-h-11 items-center rounded-xl bg-[#5865f2] px-4 text-sm font-bold hover:bg-[#4752c4] disabled:opacity-50">Копировать invite-link</button>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-[#2b2d31] p-5 md:p-6">
                   <div className="mb-3 flex items-center gap-3"><ShieldCheck className="h-5 w-5 text-[#53d487]" /><h3 className="font-bold">Public Key</h3></div>

@@ -63,6 +63,7 @@ class BotInstall(Base):
     application_id = Column(Integer, ForeignKey("bot_applications.id", ondelete="CASCADE"), nullable=False, index=True)
     server_id = Column(Integer, ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, index=True)
     installed_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    role_id = Column(Integer, ForeignKey("server_roles.id", ondelete="SET NULL"), nullable=True, index=True)
     scopes = Column(JSON, nullable=False, default=list)
     permissions = Column(BigInteger, nullable=False, default=0, server_default="0")
     status = Column(String(20), nullable=False, default="active", server_default="active", index=True)

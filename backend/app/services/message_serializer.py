@@ -22,6 +22,7 @@ def serialize_author(message) -> dict[str, Any]:
         "display_name": author.display_name,
         "avatar_url": getattr(author, "avatar_url", None),
         "is_webhook": False,
+        "is_bot": bool(getattr(author, "is_bot", False)),
     }
 
 

@@ -1135,6 +1135,11 @@ async def update_server_role(
         db, server_id, current_user, Permission.MANAGE_ROLES
     )
     role = await _get_role_or_404(db, server_id, role_id)
+    if role.managed_by_bot_application_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Managed bot roles cannot be edited manually",
+        )
 
     if current_user.id != server.owner_id:
         actor_position = await get_top_role_position(
@@ -1208,6 +1213,11 @@ async def delete_server_role(
     server = await get_server(db, server_id)
     await require_permission(db, server_id, current_user, Permission.MANAGE_ROLES)
     role = await _get_role_or_404(db, server_id, role_id)
+    if role.managed_by_bot_application_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Remove the bot integration to delete its managed role",
+        )
 
     if role.is_default:
         raise HTTPException(
@@ -1259,6 +1269,11 @@ async def _assert_can_assign_role(
     actor: User,
     role: Role,
 ) -> None:
+    if role.managed_by_bot_application_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Managed bot roles cannot be assigned manually",
+        )
     if role.is_default:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -28,3 +28,28 @@ export interface BotTokenReset {
   bot_token: string;
   rotation_id: number;
 }
+
+export interface BotAuthorizationServer {
+  id: number;
+  name: string;
+  icon: string | null;
+  already_installed: boolean;
+  can_grant: boolean;
+}
+
+export interface BotAuthorizationPreview {
+  application: BotApplication;
+  scopes: string[];
+  permissions: number;
+  permission_names: string[];
+  servers: BotAuthorizationServer[];
+}
+
+export interface InstalledBot {
+  application: BotApplication;
+  permissions: number;
+  permission_names: string[];
+  scopes: string[];
+  installed_at: string;
+  installed_by_id: number;
+}

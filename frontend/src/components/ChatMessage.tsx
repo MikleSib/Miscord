@@ -104,6 +104,7 @@ export function ChatMessage({
   // Проверяем, может ли текущий пользователь редактировать/удалять это сообщение
   const canEditDelete = currentUser &&
     !(message.author as typeof message.author & { is_webhook?: boolean }).is_webhook &&
+    !message.author.is_bot &&
     message.author.id === currentUser.id && 
     (new Date().getTime() - new Date(message.timestamp).getTime()) < 2 * 60 * 60 * 1000; // 2 часа
 
@@ -253,6 +254,11 @@ export function ChatMessage({
             {(message.author as typeof message.author & { is_webhook?: boolean }).is_webhook && (
               <span className="rounded bg-[#5865f2] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
                 WEBHOOK
+              </span>
+            )}
+            {message.author.is_bot && (
+              <span className="rounded bg-[#5865f2] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+                BOT
               </span>
             )}
             <Tooltip content={formatMessageFullTime(message.timestamp)}>
