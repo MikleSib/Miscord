@@ -10,6 +10,7 @@ import { cn } from '../lib/utils'
 import { Button } from './ui/button'
 import { Tooltip } from './ui/tooltip'
 import voiceService from '../services/voiceService'
+import optimizedVoiceService from '../services/optimizedVoiceService'
 import { useScreenSharePickerStore } from '../store/screenSharePickerStore'
 import { Channel, Role, ServerMember } from '../types'
 import {
@@ -644,18 +645,13 @@ export function ChannelSidebar() {
   const getParticipantVolume = (userId: number): number => participantVolumes[userId] ?? 100
 
   const setParticipantVolume = (userId: number, volume: number) => {
-    const normalizedVolume = Math.min(100, Math.max(0, volume))
+    const normalizedVolume = Math.min(100, Math.max(0, Math.round(volume)))
 
     setParticipantVolumes((currentVolumes) => ({
       ...currentVolumes,
       [userId]: normalizedVolume,
     }))
-    localStorage.setItem(`voice-volume-${userId}`, normalizedVolume.toString())
-
-    const audioElement = document.getElementById(`remote-audio-${userId}`) as HTMLAudioElement | null
-    if (audioElement) {
-      audioElement.volume = normalizedVolume / 100
-    }
+    optimizedVoiceService.setParticipantVolume(userId, normalizedVolume)
   }
   const openCreateChannelModal = (type: 'text' | 'voice') => {
     setCreateChannelInitialType(type)
@@ -1215,6 +1211,8 @@ export function ChannelSidebar() {
                 <Slider
                   value={getParticipantVolume(contextMenu.participant.user_id)}
                   onChange={(_, value) => setParticipantVolume(contextMenu.participant.user_id, value as number)}
+                  aria-label={`Громкость пользователя ${contextMenu.participant.username}`}
+                  aria-valuetext={`${getParticipantVolume(contextMenu.participant.user_id)} процентов`}
                   min={0}
                   max={100}
                   step={5}

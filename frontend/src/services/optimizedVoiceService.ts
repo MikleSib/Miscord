@@ -19,6 +19,7 @@ import { advancedNoiseGate } from './advancedNoiseGate';
 import { useAudioDeviceStore } from '../store/audioDeviceStore';
 import { useAuthStore } from '../store/store';
 import { shouldCreateOffer } from './voicePeerUtils';
+import { clampVoiceVolumePercent, combineVoiceVolumes } from './voiceVolume';
 
 interface PeerConnection {
   pc: RTCPeerConnection;
@@ -62,6 +63,7 @@ class OptimizedVoiceService {
   private speakingUsers: Set<number> = new Set();
   private participantDirectory: Map<number, VoiceParticipant> = new Map();
   private remoteAudioElements: Map<number, HTMLAudioElement> = new Map();
+  private participantVolumes: Map<number, number> = new Map();
   
   // VAD
   private audioContext: AudioContext | null = null;
@@ -606,11 +608,33 @@ class OptimizedVoiceService {
   }
 
   public setOutputVolume(volume: number): void {
-    const nextVolume = Math.min(100, Math.max(0, volume));
+    const nextVolume = clampVoiceVolumePercent(volume);
     useAudioDeviceStore.getState().setOutputVolume(nextVolume);
-    this.remoteAudioElements.forEach((audio) => {
-      audio.volume = nextVolume / 100;
+    this.remoteAudioElements.forEach((audio, userId) => {
+      this.applyRemoteAudioVolume(userId, audio, nextVolume);
     });
+  }
+
+  public setParticipantVolume(userId: number, volume: number): void {
+    const nextVolume = clampVoiceVolumePercent(volume);
+    this.participantVolumes.set(userId, nextVolume);
+
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem(`voice-volume-${userId}`, String(nextVolume));
+      } catch {
+        // Storage may be unavailable; the live session volume still applies.
+      }
+    }
+
+    const audio = this.remoteAudioElements.get(userId);
+    if (audio) {
+      this.applyRemoteAudioVolume(
+        userId,
+        audio,
+        useAudioDeviceStore.getState().outputVolume,
+      );
+    }
   }
 
   public async setOutputDevice(deviceId: string): Promise<void> {
@@ -704,7 +728,7 @@ class OptimizedVoiceService {
 
     const audioState = useAudioDeviceStore.getState();
     audio.srcObject = stream;
-    audio.volume = audioState.outputVolume / 100;
+    this.applyRemoteAudioVolume(userId, audio, audioState.outputVolume);
     audio.muted = this.isDeafened;
 
     const sinkAudio = audio as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
@@ -713,6 +737,34 @@ class OptimizedVoiceService {
       await sinkAudio.setSinkId(sinkId).catch(() => undefined);
     }
     await audio.play().catch(() => undefined);
+  }
+
+  private getParticipantVolume(userId: number): number {
+    const cached = this.participantVolumes.get(userId);
+    if (cached !== undefined) return cached;
+
+    let volume = 100;
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = window.localStorage.getItem(`voice-volume-${userId}`);
+        if (saved !== null) volume = clampVoiceVolumePercent(Number(saved));
+      } catch {
+        // Use the default when storage is unavailable.
+      }
+    }
+    this.participantVolumes.set(userId, volume);
+    return volume;
+  }
+
+  private applyRemoteAudioVolume(
+    userId: number,
+    audio: HTMLAudioElement,
+    outputVolume: number,
+  ): void {
+    audio.volume = combineVoiceVolumes(
+      outputVolume,
+      this.getParticipantVolume(userId),
+    );
   }
 
   private removeRemoteAudio(userId: number): void {
