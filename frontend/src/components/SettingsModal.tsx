@@ -1,11 +1,12 @@
 'use client'
 
 import React, { useState, useRef, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuthStore } from '../store/store';
 import { Button } from './ui/button';
 import { Avatar } from '@mui/material';
 import { UserAvatar } from './ui/user-avatar';
-import { X, Upload, Trash2, User, Mic, Volume2 } from 'lucide-react';
+import { X, Upload, Trash2, User, Mic, Volume2, Bot } from 'lucide-react';
 import { cn } from '../lib/utils';
 import authService from '../services/authService';
 import { VoiceVideoSettings } from './VoiceVideoSettings';
@@ -36,6 +37,7 @@ export default function SettingsModal({
   onClose,
   initialTab = 'profile',
 }: SettingsModalProps) {
+  const router = useRouter();
   const { user } = useAuthStore();
   const [activeTab, setActiveTab] = useState<'profile' | 'voice'>(initialTab);
   const [displayName, setDisplayName] = useState('');
@@ -213,6 +215,17 @@ export default function SettingsModal({
                   </button>
                 );
               })}
+              <div className="my-2 border-t border-border" />
+              <button
+                onClick={() => {
+                  onClose();
+                  router.push('/developers');
+                }}
+                className="w-full flex items-center gap-3 px-3 py-2 text-left rounded-md text-muted-foreground transition-colors hover:text-foreground hover:bg-accent"
+              >
+                <Bot className="w-4 h-4" />
+                Developer Portal
+              </button>
             </nav>
           </div>
 

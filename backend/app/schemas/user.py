@@ -42,6 +42,7 @@ class UserUpdate(BaseModel):
 class User(UserBase):
     id: int
     is_active: bool
+    is_bot: bool = False
     is_online: bool
     avatar_url: Optional[str] = None
     created_at: datetime

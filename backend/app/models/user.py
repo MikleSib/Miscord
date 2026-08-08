@@ -13,6 +13,7 @@ class User(Base):
     display_name = Column(String, nullable=True)
     avatar_url = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
+    is_bot = Column(Boolean, default=False, nullable=False, server_default="false")
     is_online = Column(Boolean, default=False)
     last_activity = Column(DateTime(timezone=True), server_default=func.now())
     created_at = Column(DateTime(timezone=True), server_default=func.now())

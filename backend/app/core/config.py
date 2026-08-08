@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     WEBHOOKS_ENABLED: bool = True
     WEBHOOK_FILES_ENABLED: bool = True
     WEBHOOK_TOKEN_ENCRYPTION_KEY: str = ""
+    BOT_PLATFORM_ENABLED: bool = False
+    BOT_SECRET_ENCRYPTION_KEY: str = ""
     ATTACHMENT_SIGNING_KEY: str = ""
     ATTACHMENT_STORAGE_DIR: str = "/app/data/attachments"
     ATTACHMENT_QUARANTINE_DIR: str = "/app/data/quarantine"
@@ -84,6 +86,8 @@ class Settings(BaseSettings):
             logger.warning(msg)
         if self.WEBHOOKS_ENABLED and env in {"production", "prod"} and not self.WEBHOOK_TOKEN_ENCRYPTION_KEY:
             raise RuntimeError("WEBHOOK_TOKEN_ENCRYPTION_KEY is required when webhooks are enabled in production.")
+        if self.BOT_PLATFORM_ENABLED and env in {"production", "prod"} and not self.BOT_SECRET_ENCRYPTION_KEY:
+            raise RuntimeError("BOT_SECRET_ENCRYPTION_KEY is required when the bot platform is enabled in production.")
         if self.S3_ENABLED:
             required = {
                 "S3_BUCKET": self.S3_BUCKET,
