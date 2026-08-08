@@ -12,18 +12,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.db.database import AsyncSessionLocal
 from app.models.bot import BotSession
+from app.schemas.bot_protocol import GatewayOpCode
 from app.services.bot_event_dispatcher import INTENT_DEFAULTS, dispatcher as bot_event_dispatcher
 from app.services.bot_security import get_bot_principal_by_token
 
 
-OP_DISPATCH = 0
-OP_HEARTBEAT = 1
-OP_IDENTIFY = 2
-OP_RECONNECT = 7
-OP_RESUME = 6
-OP_INVALID_SESSION = 9
-OP_HELLO = 10
-OP_HEARTBEAT_ACK = 11
+OP_DISPATCH = GatewayOpCode.DISPATCH
+OP_HEARTBEAT = GatewayOpCode.HEARTBEAT
+OP_IDENTIFY = GatewayOpCode.IDENTIFY
+OP_RECONNECT = GatewayOpCode.RECONNECT
+OP_RESUME = GatewayOpCode.RESUME
+OP_INVALID_SESSION = GatewayOpCode.INVALID_SESSION
+OP_HELLO = GatewayOpCode.HELLO
+OP_HEARTBEAT_ACK = GatewayOpCode.HEARTBEAT_ACK
 
 
 def _coerce_dict(value: object) -> dict[str, Any]:

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, WebSocket
+from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
@@ -22,6 +22,11 @@ from app.models import VoiceChannelUser
 from app.services.clamav import clamav_health
 from app.services.webhook_notifications import dispatcher as webhook_notification_dispatcher
 from app.services.pending_upload_cleanup import run_pending_upload_cleanup_loop
+from app.schemas.bot_protocol import (
+    BotProtocolError,
+    GATEWAY_DEFAULT_ENCODING,
+    validate_gateway_query,
+)
 
 
 _SENSITIVE_QUERY_VALUE = re.compile(
@@ -188,7 +193,19 @@ async def root():
 
 
 @app.get("/api/gateway")
-async def get_gateway_info(request: Request):
+async def get_gateway_info(
+    request: Request,
+    v: int | None = None,
+    encoding: str = GATEWAY_DEFAULT_ENCODING,
+    compress: str | None = None,
+):
+    try:
+        resolved_version, resolved_encoding = validate_gateway_query(v, encoding, compress)
+    except Exception as exc:
+        if isinstance(exc, BotProtocolError):
+            raise HTTPException(status_code=exc.status_code, detail=exc.as_detail()) from exc
+        raise
+
     host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.client.host
     forwarded_proto = request.headers.get("x-forwarded-proto")
     request_scheme = forwarded_proto.split(",", 1)[0].strip().lower() if forwarded_proto else request.url.scheme
@@ -200,8 +217,8 @@ async def get_gateway_info(request: Request):
         ws_scheme = "ws"
     return {
         "url": f"{ws_scheme}://{host}/gateway",
-        "v": 10,
-        "encoding": "json",
+        "v": resolved_version,
+        "encoding": resolved_encoding,
         "shards": 1,
         "session_start_limit": {
             "total": 1000,

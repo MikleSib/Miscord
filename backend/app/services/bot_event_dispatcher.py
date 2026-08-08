@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import BotApplication, BotInstall, TextChannel
+from app.schemas.bot_protocol import GatewayOpCode, GATEWAY_API_VERSION
 from app.services.message_serializer import serialize_channel_message
 
 
@@ -19,10 +20,10 @@ INTENT_GUILD_MESSAGES = 1 << 9
 INTENT_MESSAGE_CONTENT = 1 << 15
 INTENT_DEFAULTS = INTENT_GUILD_MESSAGES | INTENT_MESSAGE_CONTENT
 
-OP_DISPATCH = 0
-OP_HELLO = 10
-OP_HEARTBEAT_ACK = 11
-OP_HELLO_PAYLOAD = {"v": 10, "properties": {}}
+OP_DISPATCH = GatewayOpCode.DISPATCH
+OP_HELLO = GatewayOpCode.HELLO
+OP_HEARTBEAT_ACK = GatewayOpCode.HEARTBEAT_ACK
+OP_HELLO_PAYLOAD = {"v": GATEWAY_API_VERSION, "properties": {}}
 
 
 @dataclass
