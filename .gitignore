@@ -62,6 +62,9 @@ temp/
 # Python
 __pycache__/
 
+# Local Miscord Music Bot runtime
+examples/music-bot/*.log
+
 .env
 venv/
 ENV/
