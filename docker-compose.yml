@@ -30,9 +30,13 @@ services:
     environment:
       DATABASE_URL: postgresql://miscord_user:miscord_password@postgres:5432/miscord
       REDIS_URL: redis://redis:6379
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      SERVER_HOST: ${SERVER_HOST:-https://miscord.ru}
       WEBHOOKS_ENABLED: "true"
       WEBHOOK_FILES_ENABLED: "true"
       WEBHOOK_TOKEN_ENCRYPTION_KEY: ${WEBHOOK_TOKEN_ENCRYPTION_KEY:-}
+      BOT_PLATFORM_ENABLED: ${BOT_PLATFORM_ENABLED:-false}
+      BOT_SECRET_ENCRYPTION_KEY: ${BOT_SECRET_ENCRYPTION_KEY:-}
       ATTACHMENT_SIGNING_KEY: ${ATTACHMENT_SIGNING_KEY:-}
       ATTACHMENT_STORAGE_DIR: /app/data/attachments
       ATTACHMENT_QUARANTINE_DIR: /app/data/quarantine
@@ -49,7 +53,7 @@ services:
       S3_DELIVERY_URL_TTL_SECONDS: ${S3_DELIVERY_URL_TTL_SECONDS:-86400}
       CLAMAV_HOST: clamav
       CLAMAV_PORT: "3310"
-      SECRET_KEY: your-secret-key-here-change-in-production
+      SECRET_KEY: ${SECRET_KEY:-your-secret-key-here-change-in-production}
       CORS_ORIGINS: '["http://localhost:3000", "https://miscord.ru", "https://www.miscord.ru"]'
       ICE_SERVERS: '${ICE_SERVERS:-[{"urls":["stun:stun.l.google.com:19302","stun:stun1.l.google.com:19302"]},{"urls":["turn:miscord.ru:3478?transport=udp","turn:miscord.ru:3478?transport=tcp"],"username":"miscord","credential":"change-this-turn-password"}]}'
     ports:
