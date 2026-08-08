@@ -526,12 +526,21 @@ class MiscordMusicBot:
             print(f"music bot ready as {data['user']['username']}")
             return
         if event == "GUILD_CREATE":
-            for state in data.get("voice_states") or []:
+            states = data.get("voice_states") or []
+            for state in states:
                 self._remember_voice_state(state)
+            print(
+                f"guild snapshot guild={data.get('id')} "
+                f"voice_states={len(states)} cached={len(self.voice_states)}"
+            )
             return
         if event == "VOICE_STATE_UPDATE":
             self._remember_voice_state(data)
             guild_id = int(data.get("guild_id") or 0)
+            print(
+                f"voice state guild={guild_id} user={data.get('user_id')} "
+                f"channel={data.get('channel_id')} cached={len(self.voice_states)}"
+            )
             if int(data.get("user_id") or 0) == self.user_id and guild_id in self.pending_voice:
                 self.pending_voice[guild_id]["state"] = data
                 self._finish_pending_voice(guild_id)
@@ -662,6 +671,10 @@ class MiscordMusicBot:
                 _validate_youtube_url(url)
                 channel_id = self.voice_states.get((guild_id, user_id))
                 if channel_id is None:
+                    print(
+                        f"voice lookup miss guild={guild_id} user={user_id} "
+                        f"cached={len(self.voice_states)}"
+                    )
                     await self._respond(
                         interaction,
                         "Сначала войдите в голосовой канал.",

@@ -28,6 +28,7 @@ from app.services.rate_limit import enforce_message_antispam, rate_limit_payload
 from app.services.mentions import notify_message_mentions
 from app.services.message_notifications import notify_channel_message_activity
 from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
+from app.services.miscord_serializers import miscord_voice_state
 from app.services.voice_session import (
     new_connection_id,
     is_active_connection,
@@ -63,6 +64,32 @@ async def _send_message_failure(
 
 
 voice_connections: Dict[int, Dict[int, dict]] = {}
+
+
+async def _dispatch_bot_voice_state(
+    db: AsyncSession,
+    *,
+    guild_id: int,
+    channel_id: Optional[int],
+    user_id: int,
+    session_id: str,
+    self_mute: bool = False,
+    self_deaf: bool = False,
+) -> None:
+    await bot_event_dispatcher.dispatch_voice_state_update(
+        db,
+        guild_id,
+        miscord_voice_state(
+            guild_id=guild_id,
+            channel_id=channel_id,
+            user_id=user_id,
+            session_id=session_id,
+            self_mute=self_mute,
+            self_deaf=self_deaf,
+        ),
+    )
+
+
 VOICE_OPERATION_LOCK = asyncio.Lock()
 VOICE_DEBUG_METRICS: Dict[str, int] = {
     "voice_reconnections": 0,
@@ -746,6 +773,16 @@ async def handle_join_voice(
             "request_id": request_id,
         })
 
+        await _dispatch_bot_voice_state(
+            db,
+            guild_id=int(voice_channel.channel_id),
+            channel_id=voice_channel_id,
+            user_id=user.id,
+            session_id=connection_id,
+            self_mute=is_muted,
+            self_deaf=is_deafened,
+        )
+
         _structured_log(
             user,
             "join_voice_ok",
@@ -832,7 +869,8 @@ async def cleanup_voice_connection(
             voice_channel_id,
         )
 
-    await db.execute(
+    voice_channel = await db.get(VoiceChannel, voice_channel_id)
+    delete_result = await db.execute(
         delete(VoiceChannelUser).where(
             and_(
                 VoiceChannelUser.voice_channel_id == voice_channel_id,
@@ -841,6 +879,22 @@ async def cleanup_voice_connection(
         )
     )
     await db.commit()
+
+    if voice_channel is not None and (
+        removed is not None or int(getattr(delete_result, "rowcount", 0) or 0) > 0
+    ):
+        removed_connection_id = (
+            str(removed.get("connection_id") or "")
+            if isinstance(removed, dict)
+            else str(connection_id or "")
+        )
+        await _dispatch_bot_voice_state(
+            db,
+            guild_id=int(voice_channel.channel_id),
+            channel_id=None,
+            user_id=user.id,
+            session_id=removed_connection_id,
+        )
 
     if not silent and removed is not None:
         await _broadcast_voice(
@@ -936,6 +990,19 @@ async def handle_voice_mute(
         exclude_user_id=user.id,
     )
 
+    voice_channel = await db.get(VoiceChannel, voice_channel_id)
+    connection = voice_connections.get(voice_channel_id, {}).get(user.id, {})
+    if voice_user_db is not None and voice_channel is not None:
+        await _dispatch_bot_voice_state(
+            db,
+            guild_id=int(voice_channel.channel_id),
+            channel_id=voice_channel_id,
+            user_id=user.id,
+            session_id=str(connection.get("connection_id") or ""),
+            self_mute=is_muted,
+            self_deaf=bool(connection.get("is_deafened", False)),
+        )
+
 
 async def handle_voice_deafen(
     user: User,
@@ -969,6 +1036,19 @@ async def handle_voice_deafen(
         {"type": "user_deafened", "user_id": user.id, "is_deafened": is_deafened},
         exclude_user_id=user.id,
     )
+
+    voice_channel = await db.get(VoiceChannel, voice_channel_id)
+    connection = voice_connections.get(voice_channel_id, {}).get(user.id, {})
+    if voice_user_db is not None and voice_channel is not None:
+        await _dispatch_bot_voice_state(
+            db,
+            guild_id=int(voice_channel.channel_id),
+            channel_id=voice_channel_id,
+            user_id=user.id,
+            session_id=str(connection.get("connection_id") or ""),
+            self_mute=bool(connection.get("is_muted", False)),
+            self_deaf=is_deafened,
+        )
 
 
 async def handle_voice_speaking(
