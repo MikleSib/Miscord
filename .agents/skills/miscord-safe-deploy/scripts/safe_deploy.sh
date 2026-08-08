@@ -57,6 +57,7 @@ fi
 if contains_service backend; then
   echo "[4/7] applying idempotent bot schema migration"
   "${COMPOSE[@]}" run --rm --no-deps backend python migrate_bot_phase4.py
+  "${COMPOSE[@]}" run --rm --no-deps backend python migrate_bot_discord_v10.py
 else
   echo "[4/7] schema migration not required"
 fi
@@ -108,10 +109,12 @@ else
   wait_for_service nginx
 fi
 
-echo "[7/7] checking public frontend, API health, and Gateway"
+echo "[7/7] checking public frontend, OAuth, API health, and Gateway"
 root_code=$(curl -sS -o /dev/null --max-time 15 -w '%{http_code}' "$PUBLIC_URL/")
+oauth_code=$(curl -sS -L -o /dev/null --max-time 15 -w '%{http_code}' "$PUBLIC_URL/oauth2/authorize")
 api_code=$(curl -sS -o /dev/null --max-time 15 -w '%{http_code}' "$PUBLIC_URL/api/health")
 [[ "$root_code" =~ ^[23][0-9][0-9]$ ]] || { echo "public root returned $root_code" >&2; exit 1; }
+[[ "$oauth_code" == "200" ]] || { echo "public OAuth authorize page returned $oauth_code" >&2; exit 1; }
 [[ "$api_code" == "200" ]] || { echo "public API health returned $api_code" >&2; exit 1; }
 
 "${COMPOSE[@]}" exec -T backend python - <<'PY'
@@ -135,4 +138,4 @@ asyncio.run(probe())
 PY
 
 trap - EXIT
-echo "deployment accepted: root=$root_code api=$api_code gateway=hello"
+echo "deployment accepted: root=$root_code oauth=$oauth_code api=$api_code gateway=hello"
