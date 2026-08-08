@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
@@ -20,6 +20,8 @@ import {
 import botService from '../../services/botService';
 import authService from '../../services/authService';
 import { useAuthStore } from '../../store/store';
+import { Permissions, permissionBitfield } from '../../lib/permissions';
+import { DeveloperBotSettings } from '../../components/developers/DeveloperBotSettings';
 import type {
   BotApplication,
   BotCommand,
@@ -37,9 +39,20 @@ function errorMessage(error: unknown): string {
   return 'Не удалось выполнить операцию. Попробуйте ещё раз.';
 }
 
+function normalizedPermissionDraft(value: unknown): string {
+  if (typeof value !== 'string' && typeof value !== 'number') {
+    return String(Permissions.VIEW_CHANNELS + Permissions.SEND_MESSAGES);
+  }
+  const permissions = permissionBitfield(value);
+  return (permissions & BigInt(Permissions.ADMINISTRATOR)) !== BigInt(0)
+    ? String(Permissions.ADMINISTRATOR)
+    : permissions.toString();
+}
+
 
 export default function DeveloperPortalPage() {
   const router = useRouter();
+  const initializedApplicationId = useRef<number | null>(null);
   const user = useAuthStore((state) => state.user);
   const [mounted, setMounted] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
@@ -62,6 +75,12 @@ export default function DeveloperPortalPage() {
   const [editTermsUrl, setEditTermsUrl] = useState('');
   const [editPrivacyUrl, setEditPrivacyUrl] = useState('');
   const [editFlags, setEditFlags] = useState(0);
+  const [editInstallPermissions, setEditInstallPermissions] = useState(
+    String(Permissions.VIEW_CHANNELS + Permissions.SEND_MESSAGES),
+  );
+  const [activeSection, setActiveSection] = useState<'bot' | 'advanced'>('bot');
+  const [mediaBusy, setMediaBusy] = useState<'avatar' | 'banner' | null>(null);
+  const [inviteCopied, setInviteCopied] = useState(false);
   const [copied, setCopied] = useState(false);
   const [dispatchToken, setDispatchToken] = useState('');
   const [dispatchPayload, setDispatchPayload] = useState(
@@ -90,6 +109,20 @@ export default function DeveloperPortalPage() {
     () => applications.find((application) => application.id === selectedId) ?? null,
     [applications, selectedId],
   );
+
+  const botSettingsDirty = useMemo(() => {
+    if (!selected) return false;
+    const storedPermissions = selected.install_params?.permissions;
+    const normalizedStoredPermissions =
+      typeof storedPermissions === 'string' || typeof storedPermissions === 'number'
+        ? String(storedPermissions)
+        : String(Permissions.VIEW_CHANNELS + Permissions.SEND_MESSAGES);
+    return editName.trim() !== selected.name
+      || editBotPublic !== selected.bot_public
+      || editRequireCodeGrant !== selected.bot_require_code_grant
+      || editFlags !== (selected.flags || 0)
+      || editInstallPermissions !== normalizedStoredPermissions;
+  }, [editBotPublic, editFlags, editInstallPermissions, editName, editRequireCodeGrant, selected]);
 
   const normalizeIdList = (value: string): number[] => value
     .split(',')
@@ -168,6 +201,8 @@ export default function DeveloperPortalPage() {
 
   useEffect(() => {
     if (!selected) return;
+    if (initializedApplicationId.current === selected.id) return;
+    initializedApplicationId.current = selected.id;
     setEditName(selected.name);
     setEditDescription(selected.description ?? '');
     setEditBotPublic(selected.bot_public);
@@ -177,6 +212,10 @@ export default function DeveloperPortalPage() {
     setEditTermsUrl(selected.terms_of_service_url ?? '');
     setEditPrivacyUrl(selected.privacy_policy_url ?? '');
     setEditFlags(selected.flags || 0);
+    const storedPermissions = selected.install_params?.permissions;
+    setEditInstallPermissions(normalizedPermissionDraft(storedPermissions));
+    setActiveSection('bot');
+    setInviteCopied(false);
     setCommandsError(null);
     resetCommandForm();
     setCreatingCommand(false);
@@ -253,6 +292,11 @@ export default function DeveloperPortalPage() {
         terms_of_service_url: editTermsUrl.trim() || null,
         privacy_policy_url: editPrivacyUrl.trim() || null,
         flags: editFlags,
+        install_params: {
+          ...(selected.install_params ?? {}),
+          scopes: ['bot', 'applications.commands'],
+          permissions: editInstallPermissions,
+        },
       });
       setApplications((current) => current.map((item) => item.id === updated.id ? updated : item));
     } catch (requestError) {
@@ -281,10 +325,50 @@ export default function DeveloperPortalPage() {
     if (!selected) return;
     setError(null);
     try {
-      const inviteLink = await botService.getInviteLink(selected.id);
+      const inviteLink = await botService.getInviteLink(selected.id, editInstallPermissions);
       await navigator.clipboard.writeText(inviteLink);
+      setInviteCopied(true);
+      window.setTimeout(() => setInviteCopied(false), 1500);
     } catch (requestError) {
       setError(errorMessage(requestError));
+    }
+  };
+
+  const replaceApplication = (updated: BotApplication) => {
+    setApplications((current) => current.map((item) => item.id === updated.id ? updated : item));
+  };
+
+  const uploadBotMedia = async (kind: 'avatar' | 'banner', file: File) => {
+    if (!selected) return;
+    if (!file.type.startsWith('image/')) {
+      setError('Выберите изображение PNG, GIF, JPG или WEBP.');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setError('Максимальный размер изображения — 10 МБ.');
+      return;
+    }
+    setMediaBusy(kind);
+    setError(null);
+    try {
+      replaceApplication(await botService.uploadMedia(selected.id, kind, file));
+    } catch (requestError) {
+      setError(errorMessage(requestError));
+    } finally {
+      setMediaBusy(null);
+    }
+  };
+
+  const deleteBotMedia = async (kind: 'avatar' | 'banner') => {
+    if (!selected) return;
+    setMediaBusy(kind);
+    setError(null);
+    try {
+      replaceApplication(await botService.deleteMedia(selected.id, kind));
+    } catch (requestError) {
+      setError(errorMessage(requestError));
+    } finally {
+      setMediaBusy(null);
     }
   };
 
@@ -468,7 +552,7 @@ export default function DeveloperPortalPage() {
 
   return (
     <main className="min-h-[100dvh] bg-[#1e1f22] text-[#f2f3f5]">
-      <header className="sticky top-0 z-20 flex min-h-16 items-center gap-3 border-b border-white/10 bg-[#1e1f22]/95 px-4 backdrop-blur md:px-7">
+      <header className="sticky top-0 z-20 flex min-h-14 items-center gap-3 border-b border-white/10 bg-[#1e1f22]/95 px-4 backdrop-blur md:px-7">
         <button onClick={() => router.push('/')} className="grid h-11 w-11 place-items-center rounded-xl text-[#b5bac1] hover:bg-white/10 hover:text-white" aria-label="Вернуться в Miscord">
           <ArrowLeft className="h-5 w-5" />
         </button>
@@ -476,13 +560,28 @@ export default function DeveloperPortalPage() {
           <Bot className="h-5 w-5" />
         </div>
         <div className="min-w-0">
-          <h1 className="truncate text-base font-bold">Developer Portal</h1>
-          <p className="truncate text-xs text-[#949ba4]">Приложения и bot identity</p>
+          <h1 className="truncate text-base font-bold">Портал разработчиков Miscord</h1>
+          <p className="truncate text-xs text-[#949ba4]">Приложения, боты и команды</p>
+        </div>
+        {applications.length > 0 && (
+          <select
+            value={selectedId ?? ''}
+            onChange={(event) => setSelectedId(Number(event.target.value))}
+            className="ml-2 hidden min-h-9 max-w-60 rounded-md border border-white/10 bg-[#2b2d31] px-3 text-sm font-semibold outline-none focus:border-[#5865f2] md:block"
+            aria-label="Выбрать приложение"
+          >
+            {applications.map((application) => <option key={application.id} value={application.id}>{application.name}</option>)}
+          </select>
+        )}
+        <div className="ml-auto hidden items-center gap-1 sm:flex">
+          <button onClick={() => setCreateOpen(true)} className="inline-flex min-h-9 items-center gap-2 rounded-md bg-[#2b2d31] px-3 text-sm font-semibold hover:bg-[#35373c]"><Plus className="h-4 w-4" /> Создать</button>
+          <button onClick={() => setActiveSection('bot')} className={`min-h-9 rounded-md px-3 text-sm font-semibold hover:bg-white/5 ${activeSection === 'bot' ? 'text-white' : 'text-[#b5bac1]'}`}>Бот</button>
+          <button onClick={() => setActiveSection('advanced')} className={`min-h-9 rounded-md px-3 text-sm font-semibold hover:bg-white/5 ${activeSection === 'advanced' ? 'text-white' : 'text-[#b5bac1]'}`}>Расширенные настройки</button>
         </div>
       </header>
 
-      <div className="mx-auto grid w-full max-w-7xl gap-5 p-4 md:grid-cols-[18rem_minmax(0,1fr)] md:p-7">
-        <aside className="rounded-2xl border border-white/10 bg-[#2b2d31] p-3 md:sticky md:top-24 md:h-[calc(100dvh-8rem)]">
+      <div className="mx-auto w-full max-w-[1600px] p-4 md:px-12 md:py-7">
+        <aside className="mb-4 border border-white/10 bg-[#2b2d31] p-3 md:hidden">
           <div className="mb-3 flex items-center justify-between px-2">
             <span className="text-xs font-bold uppercase tracking-wider text-[#949ba4]">Мои приложения</span>
             <button onClick={() => setCreateOpen(true)} className="grid h-10 w-10 place-items-center rounded-xl bg-[#5865f2] hover:bg-[#4752c4]" aria-label="Новое приложение">
@@ -496,7 +595,11 @@ export default function DeveloperPortalPage() {
                 onClick={() => setSelectedId(application.id)}
                 className={`flex min-w-52 items-center gap-3 rounded-xl px-3 py-3 text-left md:w-full ${selectedId === application.id ? 'bg-[#404249] text-white' : 'text-[#b5bac1] hover:bg-[#35373c]'}`}
               >
-                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#5865f2] font-bold">{application.name.slice(0, 1).toUpperCase()}</span>
+                {application.avatar_url ? (
+                  <img src={application.avatar_url} alt="" className="h-10 w-10 shrink-0 rounded-full object-cover" />
+                ) : (
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#5865f2] font-bold">{application.name.slice(0, 1).toUpperCase()}</span>
+                )}
                 <span className="min-w-0">
                   <strong className="block truncate text-sm">{application.name}</strong>
                   <span className="block truncate text-xs text-[#949ba4]">{application.client_id}</span>
@@ -508,6 +611,12 @@ export default function DeveloperPortalPage() {
             <div className="rounded-xl border border-dashed border-white/15 px-4 py-8 text-center text-sm text-[#949ba4]">
               Создайте первое приложение, чтобы получить bot identity и токен.
             </div>
+          )}
+          {selected && (
+            <nav className="mt-4 border-t border-white/10 pt-3" aria-label="Разделы приложения">
+              <button type="button" onClick={() => setActiveSection('bot')} className={`flex min-h-10 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-semibold ${activeSection === 'bot' ? 'bg-[#404249] text-white' : 'text-[#b5bac1] hover:bg-[#35373c]'}`}><Bot className="h-4 w-4" /> Бот</button>
+              <button type="button" onClick={() => setActiveSection('advanced')} className={`mt-1 flex min-h-10 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-semibold ${activeSection === 'advanced' ? 'bg-[#404249] text-white' : 'text-[#b5bac1] hover:bg-[#35373c]'}`}><ShieldCheck className="h-4 w-4" /> Расширенные настройки</button>
+            </nav>
           )}
         </aside>
 
@@ -522,6 +631,31 @@ export default function DeveloperPortalPage() {
           {loading ? (
             <div className="rounded-2xl border border-white/10 bg-[#2b2d31] p-8 text-[#949ba4]">Загрузка приложений...</div>
           ) : selected ? (
+            <>
+              {activeSection === 'bot' ? (
+                <DeveloperBotSettings
+                  application={selected}
+                  name={editName}
+                  onNameChange={setEditName}
+                  botPublic={editBotPublic}
+                  onBotPublicChange={setEditBotPublic}
+                  requireCodeGrant={editRequireCodeGrant}
+                  onRequireCodeGrantChange={setEditRequireCodeGrant}
+                  flags={editFlags}
+                  onFlagChange={toggleAppFlag}
+                  permissions={editInstallPermissions}
+                  onPermissionsChange={setEditInstallPermissions}
+                  saving={saving}
+                  dirty={botSettingsDirty}
+                  mediaBusy={mediaBusy}
+                  inviteCopied={inviteCopied}
+                  onSave={saveApplication}
+                  onResetToken={resetToken}
+                  onCopyInvite={copyInviteLink}
+                  onUploadMedia={uploadBotMedia}
+                  onDeleteMedia={deleteBotMedia}
+                />
+              ) : (
             <div className="space-y-5">
               <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#2b2d31]">
                 <div className="border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(88,101,242,.28),_transparent_42%)] p-6 md:p-8">
@@ -774,6 +908,8 @@ export default function DeveloperPortalPage() {
                 <button disabled={saving} onClick={disableApplication} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#da373c]/50 px-4 text-sm font-bold text-[#ffb8bb] hover:bg-[#da373c]/15 disabled:opacity-50"><Trash2 className="h-4 w-4" /> Отключить приложение</button>
               </div>
             </div>
+              )}
+            </>
           ) : (
             <button onClick={() => setCreateOpen(true)} className="grid min-h-72 w-full place-items-center rounded-2xl border border-dashed border-white/15 bg-[#2b2d31] p-8 text-center hover:border-[#5865f2]/70">
               <span><Plus className="mx-auto mb-3 h-8 w-8 text-[#5865f2]" /><strong className="block">Создать Bot Application</strong><span className="mt-2 block text-sm text-[#949ba4]">Токен будет показан только один раз.</span></span>

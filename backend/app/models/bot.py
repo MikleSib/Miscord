@@ -18,6 +18,7 @@ class BotApplication(Base):
     name = Column(String(80), nullable=False)
     description = Column(String(400), nullable=True)
     avatar_url = Column(String(2048), nullable=True)
+    banner_url = Column(String(2048), nullable=True)
     public_key = Column(String(64), nullable=False)
     bot_public = Column(Boolean, nullable=False, default=True, server_default="true")
     bot_require_code_grant = Column(Boolean, nullable=False, default=False, server_default="false")

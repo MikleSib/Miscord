@@ -22,6 +22,7 @@ export interface BotApplicationPayload {
   name: string;
   description?: string | null;
   avatar_url?: string | null;
+  banner_url?: string | null;
   bot_public?: boolean;
   bot_require_code_grant?: boolean;
   terms_of_service_url?: string | null;
@@ -53,6 +54,20 @@ const botService = {
     return response.data;
   },
 
+  async uploadMedia(applicationId: number, kind: 'avatar' | 'banner', file: File): Promise<BotApplication> {
+    const form = new FormData();
+    form.append('image', file);
+    const response = await api.post<BotApplication>(`/api/bot-apps/${applicationId}/${kind}`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
+  async deleteMedia(applicationId: number, kind: 'avatar' | 'banner'): Promise<BotApplication> {
+    const response = await api.delete<BotApplication>(`/api/bot-apps/${applicationId}/${kind}`);
+    return response.data;
+  },
+
   async resetToken(applicationId: number): Promise<BotTokenReset> {
     const response = await api.post<BotTokenReset>(`/api/bot-apps/${applicationId}/reset-token`);
     return response.data;
@@ -69,7 +84,7 @@ const botService = {
 
   async getInviteLink(
     applicationId: number,
-    permissions = Permissions.VIEW_CHANNELS + Permissions.SEND_MESSAGES,
+    permissions: number | string = Permissions.VIEW_CHANNELS + Permissions.SEND_MESSAGES,
   ): Promise<string> {
     const response = await api.get<{ invite_url: string }>(`/api/bot-apps/${applicationId}/invite-link`, {
       params: { permissions, scope: 'bot applications.commands' },

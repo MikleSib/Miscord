@@ -215,9 +215,10 @@ async def read_and_validate_image(upload: UploadFile, *, max_bytes: int = MAX_IM
             break
         total += len(chunk)
         if total > max_bytes:
+            max_mib = max(1, max_bytes // (1024 * 1024))
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail="Размер файла не должен превышать 5MB.",
+                detail=f"Размер файла не должен превышать {max_mib} МиБ.",
             )
         chunks.append(chunk)
 

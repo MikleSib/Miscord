@@ -61,6 +61,7 @@ SCHEMA_STATEMENTS = (
     "ALTER TABLE bot_commands ADD COLUMN IF NOT EXISTS nsfw BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE bot_applications ADD COLUMN IF NOT EXISTS bot_public BOOLEAN NOT NULL DEFAULT TRUE",
     "ALTER TABLE bot_applications ADD COLUMN IF NOT EXISTS bot_require_code_grant BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE bot_applications ADD COLUMN IF NOT EXISTS banner_url VARCHAR(2048)",
     "ALTER TABLE bot_applications ADD COLUMN IF NOT EXISTS terms_of_service_url VARCHAR(2048)",
     "ALTER TABLE bot_applications ADD COLUMN IF NOT EXISTS privacy_policy_url VARCHAR(2048)",
     "ALTER TABLE bot_applications ADD COLUMN IF NOT EXISTS redirect_uris JSONB NOT NULL DEFAULT '[]'::jsonb",

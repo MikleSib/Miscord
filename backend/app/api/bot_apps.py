@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
+import logging
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile, status
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -37,10 +38,15 @@ from app.services.bot_security import (
 )
 from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
 from app.services.interaction_delivery import InteractionEndpointError, verify_interactions_endpoint
+from app.services.image_upload import read_and_validate_image
+from app.services.object_storage import ObjectStorageError, delete_public_media, store_public_image
+from app.services.rate_limit import rate_limit_user
 
 
 router = APIRouter()
 MAX_APPLICATIONS_PER_OWNER = 10
+MAX_BOT_MEDIA_BYTES = 10 * 1024 * 1024
+logger = logging.getLogger(__name__)
 
 
 def _ensure_enabled() -> None:
@@ -55,6 +61,7 @@ def _serialize(application: BotApplication) -> BotApplicationResponse:
         name=application.name,
         description=application.description,
         avatar_url=application.avatar_url,
+        banner_url=application.banner_url,
         public_key=application.public_key,
         bot_public=bool(application.bot_public),
         bot_require_code_grant=bool(application.bot_require_code_grant),
@@ -143,6 +150,7 @@ async def create_bot_application(
         name=payload.name,
         description=payload.description,
         avatar_url=payload.avatar_url,
+        banner_url=payload.banner_url,
         public_key=public_key,
         bot_public=payload.bot_public,
         bot_require_code_grant=payload.bot_require_code_grant,
@@ -231,6 +239,8 @@ async def update_bot_application(
     if "avatar_url" in changes:
         application.avatar_url = changes["avatar_url"] or None
         application.bot_user.avatar_url = changes["avatar_url"] or None
+    if "banner_url" in changes:
+        application.banner_url = changes["banner_url"] or None
     settings_fields = {
         "bot_public",
         "bot_require_code_grant",
@@ -252,6 +262,145 @@ async def update_bot_application(
     db.add(_audit(application.id, current_user.id, "application_update", {"fields": sorted(changes.keys())}))
     await db.commit()
     return _serialize(await _owned_application(db, current_user.id, application_id))
+
+
+async def _replace_bot_media(
+    *,
+    application_id: int,
+    media_kind: str,
+    image: UploadFile,
+    request: Request,
+    current_user: User,
+    db: AsyncSession,
+) -> BotApplicationResponse:
+    application = await _owned_application(db, current_user.id, application_id)
+    if application.status != "active":
+        raise HTTPException(status_code=409, detail="Disabled applications cannot update media")
+    rate_limit_user(current_user.id, f"bot-{media_kind}", limit=10, window=60, request=request)
+    new_url: str | None = None
+    try:
+        data, extension, content_type = await read_and_validate_image(image, max_bytes=MAX_BOT_MEDIA_BYTES)
+        new_url, _storage_key = await store_public_image(f"bot-{media_kind}s", data, extension, content_type)
+    except HTTPException:
+        raise
+    except ObjectStorageError as exc:
+        raise HTTPException(status_code=503, detail="Media storage is unavailable") from exc
+    except Exception as exc:
+        logger.error("[BOT_MEDIA] Failed to store %s: %s", media_kind, exc)
+        raise HTTPException(status_code=500, detail="Не удалось сохранить изображение") from exc
+    finally:
+        await image.close()
+
+    field_name = f"{media_kind}_url"
+    old_url = getattr(application, field_name)
+    setattr(application, field_name, new_url)
+    if media_kind == "avatar":
+        application.bot_user.avatar_url = new_url
+    application.updated_at = datetime.now(timezone.utc)
+    db.add(_audit(application.id, current_user.id, f"{media_kind}_update"))
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        await delete_public_media(new_url)
+        raise
+    if old_url != new_url:
+        try:
+            await delete_public_media(old_url)
+        except ObjectStorageError as exc:
+            logger.warning("[BOT_MEDIA] Failed to remove previous %s: %s", media_kind, exc)
+    return _serialize(await _owned_application(db, current_user.id, application_id))
+
+
+async def _delete_bot_media(
+    *,
+    application_id: int,
+    media_kind: str,
+    current_user: User,
+    db: AsyncSession,
+) -> BotApplicationResponse:
+    application = await _owned_application(db, current_user.id, application_id)
+    field_name = f"{media_kind}_url"
+    old_url = getattr(application, field_name)
+    setattr(application, field_name, None)
+    if media_kind == "avatar":
+        application.bot_user.avatar_url = None
+    application.updated_at = datetime.now(timezone.utc)
+    db.add(_audit(application.id, current_user.id, f"{media_kind}_delete"))
+    await db.commit()
+    try:
+        await delete_public_media(old_url)
+    except ObjectStorageError as exc:
+        logger.warning("[BOT_MEDIA] Failed to remove deleted %s: %s", media_kind, exc)
+    return _serialize(await _owned_application(db, current_user.id, application_id))
+
+
+@router.post("/bot-apps/{application_id}/avatar", response_model=BotApplicationResponse)
+async def upload_bot_avatar(
+    application_id: int,
+    request: Request,
+    image: UploadFile = File(...),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _ensure_enabled()
+    return await _replace_bot_media(
+        application_id=application_id,
+        media_kind="avatar",
+        image=image,
+        request=request,
+        current_user=current_user,
+        db=db,
+    )
+
+
+@router.delete("/bot-apps/{application_id}/avatar", response_model=BotApplicationResponse)
+async def delete_bot_avatar(
+    application_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _ensure_enabled()
+    return await _delete_bot_media(
+        application_id=application_id,
+        media_kind="avatar",
+        current_user=current_user,
+        db=db,
+    )
+
+
+@router.post("/bot-apps/{application_id}/banner", response_model=BotApplicationResponse)
+async def upload_bot_banner(
+    application_id: int,
+    request: Request,
+    image: UploadFile = File(...),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _ensure_enabled()
+    return await _replace_bot_media(
+        application_id=application_id,
+        media_kind="banner",
+        image=image,
+        request=request,
+        current_user=current_user,
+        db=db,
+    )
+
+
+@router.delete("/bot-apps/{application_id}/banner", response_model=BotApplicationResponse)
+async def delete_bot_banner(
+    application_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _ensure_enabled()
+    return await _delete_bot_media(
+        application_id=application_id,
+        media_kind="banner",
+        current_user=current_user,
+        db=db,
+    )
 
 
 @router.delete("/bot-apps/{application_id}", status_code=status.HTTP_204_NO_CONTENT)

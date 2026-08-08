@@ -62,7 +62,20 @@ def _parse_scopes(raw_scope: str) -> list[str]:
 def _validate_permissions(value: int) -> int:
     if value < 0 or value & ~int(ALL_PERMISSIONS):
         raise HTTPException(status_code=400, detail="Invalid permissions bitfield")
+    if value & int(Permission.ADMINISTRATOR):
+        return int(Permission.ADMINISTRATOR)
     return value
+
+
+def _resolve_invite_permissions(application: BotApplication, requested: int | None) -> int:
+    if requested is not None:
+        return _validate_permissions(requested)
+    configured = (application.install_params or {}).get("permissions")
+    try:
+        resolved = int(configured)
+    except (TypeError, ValueError):
+        resolved = int(Permission.VIEW_CHANNEL | Permission.SEND_MESSAGES)
+    return _validate_permissions(resolved)
 
 
 def _permission_names(value: int) -> list[str]:
@@ -368,14 +381,13 @@ async def _require_bot_channel(
 @router.get("/bot-apps/{application_id}/invite-link")
 async def get_bot_invite_link(
     application_id: int,
-    permissions: int = Query(default=int(Permission.VIEW_CHANNELS | Permission.SEND_MESSAGES), ge=0),
+    permissions: int | None = Query(default=None, ge=0),
     scope: str = Query(default="bot applications.commands"),
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     _ensure_enabled()
     scopes = _parse_scopes(scope)
-    permissions = _validate_permissions(permissions)
     result = await db.execute(
         select(BotApplication).where(
             BotApplication.id == application_id,
@@ -386,6 +398,9 @@ async def get_bot_invite_link(
     application = result.scalar_one_or_none()
     if not application:
         raise HTTPException(status_code=404, detail="Bot application not found")
+
+    permissions = _resolve_invite_permissions(application, permissions)
+
     return {
         "invite_url": build_bot_authorize_url(
             settings.SERVER_HOST,

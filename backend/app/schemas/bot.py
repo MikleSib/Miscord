@@ -4,15 +4,34 @@ from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 import re
 
+from app.core.permissions import ALL_PERMISSIONS, Permission
+
 
 _COMMAND_NAME_RE = re.compile(r"^[\w-]{1,32}$")
 _SUPPORTED_COMMAND_TYPES = {1, 2, 3}
+
+
+def _normalize_install_params(value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    if value is None or "permissions" not in value:
+        return value
+    normalized = dict(value)
+    try:
+        permissions = int(normalized["permissions"])
+    except (TypeError, ValueError) as exc:
+        raise ValueError("install_params.permissions must be a decimal bitfield") from exc
+    if permissions < 0 or permissions & ~int(ALL_PERMISSIONS):
+        raise ValueError("install_params.permissions contains unsupported permission bits")
+    if permissions & int(Permission.ADMINISTRATOR):
+        permissions = int(Permission.ADMINISTRATOR)
+    normalized["permissions"] = str(permissions)
+    return normalized
 
 
 class BotApplicationCreate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     description: Optional[str] = Field(default=None, max_length=400)
     avatar_url: Optional[str] = Field(default=None, max_length=2048)
+    banner_url: Optional[str] = Field(default=None, max_length=2048)
     bot_public: bool = True
     bot_require_code_grant: bool = False
     terms_of_service_url: Optional[str] = Field(default=None, max_length=2048)
@@ -37,6 +56,7 @@ class BotApplicationCreate(BaseModel):
     @field_validator(
         "description",
         "avatar_url",
+        "banner_url",
         "terms_of_service_url",
         "privacy_policy_url",
         "interactions_endpoint_url",
@@ -70,11 +90,17 @@ class BotApplicationCreate(BaseModel):
                 output.append(cleaned[:20])
         return output[:5]
 
+    @field_validator("install_params")
+    @classmethod
+    def normalize_install_params(cls, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+        return _normalize_install_params(value)
+
 
 class BotApplicationUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=80)
     description: Optional[str] = Field(default=None, max_length=400)
     avatar_url: Optional[str] = Field(default=None, max_length=2048)
+    banner_url: Optional[str] = Field(default=None, max_length=2048)
     bot_public: Optional[bool] = None
     bot_require_code_grant: Optional[bool] = None
     terms_of_service_url: Optional[str] = Field(default=None, max_length=2048)
@@ -102,6 +128,7 @@ class BotApplicationUpdate(BaseModel):
     @field_validator(
         "description",
         "avatar_url",
+        "banner_url",
         "terms_of_service_url",
         "privacy_policy_url",
         "interactions_endpoint_url",
@@ -128,6 +155,11 @@ class BotApplicationUpdate(BaseModel):
             return None
         return list(dict.fromkeys(item.strip().lower()[:20] for item in value if item.strip()))[:5]
 
+    @field_validator("install_params")
+    @classmethod
+    def normalize_install_params(cls, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+        return _normalize_install_params(value)
+
 
 class BotIdentityResponse(BaseModel):
     id: int
@@ -145,6 +177,7 @@ class BotApplicationResponse(BaseModel):
     name: str
     description: Optional[str]
     avatar_url: Optional[str]
+    banner_url: Optional[str]
     public_key: str
     bot_public: bool
     bot_require_code_grant: bool

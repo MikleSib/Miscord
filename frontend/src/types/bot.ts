@@ -12,6 +12,7 @@ export interface BotApplication {
   name: string;
   description: string | null;
   avatar_url: string | null;
+  banner_url: string | null;
   public_key: string;
   bot_public: boolean;
   bot_require_code_grant: boolean;
