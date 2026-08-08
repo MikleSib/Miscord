@@ -8,6 +8,7 @@ import {
   Check,
   Copy,
   KeyRound,
+  Send,
   Plus,
   RefreshCw,
   Save,
@@ -18,7 +19,13 @@ import {
 
 import botService from '../../services/botService';
 import { useAuthStore } from '../../store/store';
-import type { BotApplication, BotCommand, BotCommandPayload } from '../../types/bot';
+import type {
+  BotApplication,
+  BotCommand,
+  BotCommandPayload,
+  BotCommandDispatchPayload,
+  BotCommandDispatchResponse,
+} from '../../types/bot';
 
 
 function errorMessage(error: unknown): string {
@@ -46,6 +53,14 @@ export default function DeveloperPortalPage() {
   const [editDescription, setEditDescription] = useState('');
   const [oneTimeToken, setOneTimeToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [dispatchToken, setDispatchToken] = useState('');
+  const [dispatchPayload, setDispatchPayload] = useState(
+    '{\n  "type": 2,\n  "guild_id": 0,\n  "channel_id": 0,\n  "data": {\n    "name": "ping"\n  },\n  "user": {\n    "id": ""\n  }\n}',
+  );
+  const [dispatchResponse, setDispatchResponse] = useState<BotCommandDispatchResponse | null>(null);
+  const [dispatchBusy, setDispatchBusy] = useState(false);
+  const [dispatchError, setDispatchError] = useState<string | null>(null);
+  const [dispatchCopied, setDispatchCopied] = useState(false);
   const [commands, setCommands] = useState<BotCommand[]>([]);
   const [commandsLoading, setCommandsLoading] = useState(false);
   const [commandsError, setCommandsError] = useState<string | null>(null);
@@ -111,6 +126,12 @@ export default function DeveloperPortalPage() {
     setCommandsError(null);
     resetCommandForm();
     setCreatingCommand(false);
+    setDispatchError(null);
+    setDispatchResponse(null);
+    setDispatchToken('');
+    setDispatchPayload(
+      '{\n  "type": 2,\n  "guild_id": 0,\n  "channel_id": 0,\n  "data": {\n    "name": "ping"\n  },\n  "user": {\n    "id": ""\n  }\n}',
+    );
   }, [selected]);
 
   useEffect(() => {
@@ -317,6 +338,50 @@ export default function DeveloperPortalPage() {
     }
   };
 
+  const testDispatch = async () => {
+    if (!selected) return;
+    setDispatchBusy(true);
+    setDispatchError(null);
+    try {
+      const parsed = JSON.parse(dispatchPayload);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('Payload must be a JSON object');
+      }
+      const payload = parsed as BotCommandDispatchPayload;
+      const response = await botService.dispatchCommand(selected.id, dispatchToken.trim(), payload);
+      setDispatchResponse(response);
+    } catch (requestError) {
+      setDispatchError(errorMessage(requestError));
+    } finally {
+      setDispatchBusy(false);
+    }
+  };
+
+  const copyDispatchCurl = async () => {
+    if (!selected || !dispatchToken.trim()) return;
+    let payloadText = dispatchPayload;
+    try {
+      const parsed = JSON.parse(payloadText);
+      payloadText = JSON.stringify(parsed);
+    } catch (requestError) {
+      setDispatchError(errorMessage(requestError));
+      return;
+    }
+    const curl = [
+      `curl -X POST ${window.location.origin}/api/bot/apps/${selected.id}/commands/dispatch \\`,
+      `  -H "Authorization: Bot ${dispatchToken.trim()}" \\`,
+      '  -H "Content-Type: application/json" \\',
+      `  -d '${payloadText.replace(/'/g, '\\\'')}'`,
+    ].join('\n');
+    try {
+      await navigator.clipboard.writeText(curl);
+      setDispatchCopied(true);
+      window.setTimeout(() => setDispatchCopied(false), 1500);
+    } catch (requestError) {
+      setDispatchError(errorMessage(requestError));
+    }
+  };
+
   if (!mounted || !user) return null;
 
   return (
@@ -421,6 +486,60 @@ export default function DeveloperPortalPage() {
                   <code className="block break-all rounded-xl bg-[#1e1f22] p-3 font-mono text-xs text-[#dbdee1]">{selected.public_key}</code>
                 </div>
               </div>
+
+                <div className="rounded-2xl border border-white/10 bg-[#2b2d31] p-5 md:p-6">
+                  <div className="mb-3 flex items-center gap-3"><Send className="h-5 w-5 text-[#23a55a]" /><h3 className="font-bold">Test command runtime</h3></div>
+                  <p className="mb-4 text-sm leading-6 text-[#b5bac1]">Отправьте тестовый dispatch event для проверки runtime API через bot token.</p>
+                  <label className="mb-3 grid gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wide text-[#b5bac1]">Bot token</span>
+                    <input
+                      value={dispatchToken}
+                      onChange={(event) => setDispatchToken(event.target.value)}
+                      className="min-h-11 rounded-xl border border-white/10 bg-[#1e1f22] px-3.5 text-base outline-none focus:border-[#5865f2]"
+                      placeholder="mcb_... . . ."
+                    />
+                  </label>
+                  <label className="grid gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wide text-[#b5bac1]">Payload JSON</span>
+                    <textarea
+                      rows={8}
+                      value={dispatchPayload}
+                      onChange={(event) => setDispatchPayload(event.target.value)}
+                      className="rounded-xl border border-white/10 bg-[#1e1f22] p-3.5 font-mono text-sm text-[#dbdee1] outline-none focus:border-[#5865f2]"
+                    />
+                  </label>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      onClick={testDispatch}
+                      disabled={dispatchBusy || !dispatchToken.trim()}
+                      className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#5865f2] px-4 text-sm font-bold hover:bg-[#4752c4] disabled:opacity-50"
+                    >
+                      <Send className="h-4 w-4" />
+                      {dispatchBusy ? 'Отправляется...' : 'Отправить тест'}
+                    </button>
+                    <button
+                      onClick={copyDispatchCurl}
+                      disabled={!dispatchToken.trim()}
+                      className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#5865f2]/30 px-4 text-sm font-bold text-[#b5bac1] hover:bg-white/10 disabled:opacity-50"
+                    >
+                      {dispatchCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                      {dispatchCopied ? 'Копировано' : 'Copy curl'}
+                    </button>
+                  </div>
+                  {dispatchError && (
+                    <div className="mt-3 rounded-xl border border-[#da373c]/40 bg-[#da373c]/12 px-3 py-2 text-sm text-[#ffb8bb]">
+                      {dispatchError}
+                    </div>
+                  )}
+                  {dispatchResponse && (
+                    <div className="mt-3 rounded-xl border border-[#5865f2]/20 bg-[#1e1f22] p-3">
+                      <p className="mb-2 text-xs font-bold text-[#b5bac1]">Latest response</p>
+                      <code className="block whitespace-pre-wrap break-all text-xs text-[#dbdee1]">
+                        {JSON.stringify(dispatchResponse, null, 2)}
+                      </code>
+                    </div>
+                  )}
+                </div>
 
                 <div className="rounded-2xl border border-white/10 bg-[#2b2d31] p-5 md:p-6">
                   <div className="mb-4 flex flex-wrap items-center justify-between gap-3">

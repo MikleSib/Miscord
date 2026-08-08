@@ -175,3 +175,26 @@ class BotCommandResponse(BaseModel):
 class BotInteractionCallbackRequest(BaseModel):
     type: int = Field(ge=1, le=11)
     data: dict[str, Any] | None = None
+
+
+class BotCommandDispatchRequest(BaseModel):
+    type: int = 2
+    id: str | None = None
+    token: str | None = None
+    guild_id: int | None = Field(default=None, ge=0)
+    channel_id: int | None = Field(default=None, ge=0)
+    data: dict[str, Any] = Field(default_factory=dict)
+    member: dict[str, Any] | None = None
+    user: dict[str, Any] | None = None
+    model_config = ConfigDict(extra="forbid")
+
+
+class BotCommandDispatchResponse(BaseModel):
+    type: int
+    data: dict[str, Any] | None = None
+    interaction_id: str
+    interaction_token: str
+    application_id: int
+    command_id: int | None = None
+    guild_id: int | None = None
+    channel_id: int | None = None

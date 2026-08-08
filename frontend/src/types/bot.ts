@@ -103,3 +103,25 @@ export interface BotCommandSyncResult {
   synced_commands: number;
   commands: BotCommand[];
 }
+
+export interface BotCommandDispatchPayload {
+  type?: number;
+  id?: string | null;
+  token?: string | null;
+  guild_id?: number | null;
+  channel_id?: number | null;
+  data: Record<string, unknown>;
+  member?: Record<string, unknown> | null;
+  user?: Record<string, unknown> | null;
+}
+
+export interface BotCommandDispatchResponse {
+  type: number;
+  data?: Record<string, unknown> | null;
+  interaction_id: string;
+  interaction_token: string;
+  application_id: number;
+  command_id: number | null;
+  guild_id: number | null;
+  channel_id: number | null;
+}

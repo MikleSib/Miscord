@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlencode
@@ -23,6 +24,8 @@ from app.schemas.bot_install import BotInstallRequest, BotMessageCreate, BotMess
 from app.schemas.bot import (
     BotCommandCreate,
     BotCommandUpdate,
+    BotCommandDispatchRequest,
+    BotCommandDispatchResponse,
     BotInteractionCallbackRequest,
 )
 from app.services.bot_security import BotPrincipal, get_current_bot, verify_interaction_signature
@@ -362,7 +365,23 @@ async def get_bot_invite_link(
     if not application:
         raise HTTPException(status_code=404, detail="Bot application not found")
     query = urlencode({"client_id": application.client_id, "scope": " ".join(scopes), "permissions": permissions})
-    return {"invite_url": f"{settings.SERVER_HOST.rstrip('/')}/bot/authorize?{query}"}
+    return {"invite_url": f"{settings.SERVER_HOST.rstrip('/')}/bot/oauth/callback?{query}"}
+
+
+@router.get("/bot/oauth/callback")
+async def get_bot_oauth_callback(
+    client_id: str,
+    scope: str = "bot",
+    permissions: int = 0,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _ensure_enabled()
+    await _application_by_client_id(db, client_id)
+    scopes = _parse_scopes(scope)
+    permissions = _validate_permissions(permissions)
+    query = urlencode({"client_id": client_id, "scope": " ".join(scopes), "permissions": permissions})
+    return {"authorize_url": f"{settings.SERVER_HOST.rstrip('/')}/bot/authorize?{query}"}
 
 
 @router.get("/bot/oauth/authorize")
@@ -882,6 +901,111 @@ async def create_interaction_callback(
     interaction.updated_at = datetime.now(timezone.utc)
     await db.commit()
     return {"interaction_id": interaction_id, "status": "ok"}
+
+
+@router.post("/bot/apps/{application_id}/commands/dispatch", response_model=BotCommandDispatchResponse)
+async def dispatch_bot_command(
+    application_id: int,
+    payload: BotCommandDispatchRequest,
+    principal: BotPrincipal = Depends(get_current_bot),
+    db: AsyncSession = Depends(get_db),
+):
+    _ensure_enabled()
+    if principal.application.id != application_id:
+        raise HTTPException(status_code=403, detail="Not allowed to dispatch for this application")
+    if payload.type != 2:
+        raise HTTPException(status_code=400, detail="Only application command dispatch is supported")
+
+    interaction_name = _normalized_command_name(
+        str(payload.data.get("name") if isinstance(payload.data, dict) else None or "").strip()
+    )
+    if not interaction_name:
+        raise HTTPException(status_code=400, detail="command name is required")
+
+    interaction_id = (payload.id or "").strip() or secrets.token_hex(8)
+    interaction_token = (payload.token or "").strip() or secrets.token_urlsafe(18)
+
+    interaction = await _load_or_create_interaction_record(
+        db,
+        principal.application,
+        interaction_id,
+        interaction_token,
+    )
+    interaction.guild_id = payload.guild_id
+    interaction.channel_id = payload.channel_id
+
+    actor_user_id = _coerce_interaction_number(
+        payload.member.get("user", {}).get("id") if isinstance(payload.member, dict) and isinstance(payload.member.get("user"), dict) else None
+    )
+    if actor_user_id is None:
+        actor_user_id = _coerce_interaction_number(
+            payload.user.get("id") if isinstance(payload.user, dict) else None
+        )
+    interaction.author_user_id = actor_user_id
+
+    command = await _resolve_command_for_interaction(db, principal.application, payload.guild_id, interaction_name)
+    if not command:
+        response = _interaction_error("Command not found.")
+        interaction.response_type = int(response["type"])
+        interaction.response_payload = response
+        interaction.command_id = None
+        interaction.responded = True
+        interaction.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+        await bot_event_dispatcher.dispatch_interaction_create(db, interaction)
+        return BotCommandDispatchResponse(
+            interaction_id=interaction.interaction_id,
+            interaction_token=interaction.interaction_token,
+            application_id=principal.application.id,
+            command_id=None,
+            guild_id=payload.guild_id,
+            channel_id=payload.channel_id,
+            type=response["type"],
+            data=response.get("data"),
+        )
+
+    if command.server_id is not None and actor_user_id is None:
+        response = _interaction_error("Permission denied.")
+        interaction.response_type = int(response["type"])
+        interaction.response_payload = response
+        interaction.command_id = command.id
+        interaction.responded = True
+        interaction.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+        await bot_event_dispatcher.dispatch_interaction_create(db, interaction)
+        return BotCommandDispatchResponse(
+            interaction_id=interaction.interaction_id,
+            interaction_token=interaction.interaction_token,
+            application_id=principal.application.id,
+            command_id=command.id,
+            guild_id=payload.guild_id,
+            channel_id=payload.channel_id,
+            type=response["type"],
+            data=response.get("data"),
+        )
+
+    if command.server_id is not None and actor_user_id is not None:
+        await _check_command_permissions(db, command, actor_user_id, payload.guild_id)
+
+    command.definition = command.definition if isinstance(command.definition, dict) else {}
+    response = _build_default_command_response(command)
+    interaction.command_id = command.id
+    interaction.responded = True
+    interaction.response_type = int(response.get("type") or 4)
+    interaction.response_payload = response
+    interaction.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await bot_event_dispatcher.dispatch_interaction_create(db, interaction)
+    return BotCommandDispatchResponse(
+        interaction_id=interaction.interaction_id,
+        interaction_token=interaction.interaction_token,
+        application_id=principal.application.id,
+        command_id=command.id,
+        guild_id=payload.guild_id,
+        channel_id=payload.channel_id,
+        type=response.get("type", 4),
+        data=response.get("data"),
+    )
 
 
 @router.post("/v1/interactions")

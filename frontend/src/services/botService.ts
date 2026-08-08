@@ -9,6 +9,8 @@ import type {
   BotCommandPayload,
   BotCommandUpdatePayload,
   BotCommandSyncResult,
+  BotCommandDispatchPayload,
+  BotCommandDispatchResponse,
 } from '../types/bot';
 
 export interface BotApplicationPayload {
@@ -113,6 +115,23 @@ const botService = {
     const response = await api.post<BotCommandSyncResult>(`/api/bot-apps/${applicationId}/commands/sync`, null, {
       params,
     });
+    return response.data;
+  },
+
+  async dispatchCommand(
+    applicationId: number,
+    botToken: string,
+    payload: BotCommandDispatchPayload,
+  ): Promise<BotCommandDispatchResponse> {
+    const response = await api.post<BotCommandDispatchResponse>(
+      `/api/bot/apps/${applicationId}/commands/dispatch`,
+      payload,
+      {
+        headers: {
+          Authorization: `Bot ${botToken}`,
+        },
+      },
+    );
     return response.data;
   },
 };
