@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-PROJECT="${COMPOSE_PROJECT_NAME:-miscord}"
 PUBLIC_URL="${MISCORD_PUBLIC_URL:-https://miscord.ru}"
 ROOT="${MISCORD_ROOT:-$(git rev-parse --show-toplevel)}"
-COMPOSE=(docker compose -p "$PROJECT")
+COMPOSE=(docker compose)
+if [[ -n "${COMPOSE_PROJECT_NAME:-}" ]]; then
+  COMPOSE+=(-p "$COMPOSE_PROJECT_NAME")
+fi
 
 if (( $# == 0 )); then
   echo "usage: safe_deploy.sh <backend|frontend|nginx> [...]" >&2
@@ -114,7 +116,7 @@ else
   wait_for_service nginx
 fi
 
-echo "[7/7] checking public frontend, OAuth, API health, and Gateway"
+echo "[7/7] checking public frontend, OAuth, API health, and Gateways"
 root_code=$(curl -sS -o /dev/null --max-time 15 -w '%{http_code}' "$PUBLIC_URL/")
 oauth_code=$(curl -sS -L -o /dev/null --max-time 15 -w '%{http_code}' "$PUBLIC_URL/oauth2/authorize")
 api_code=$(curl -sS -o /dev/null --max-time 15 -w '%{http_code}' "$PUBLIC_URL/api/health")
@@ -132,15 +134,22 @@ import websockets
 
 async def probe() -> None:
     public_url = os.environ.get("MISCORD_PUBLIC_URL", "https://miscord.ru")
-    gateway_url = public_url.replace("https://", "wss://", 1).replace("http://", "ws://", 1) + "/gateway?v=10&encoding=json"
+    websocket_base = public_url.replace("https://", "wss://", 1).replace("http://", "ws://", 1)
+    gateway_url = websocket_base + "/gateway?v=10&encoding=json"
     async with websockets.connect(gateway_url, open_timeout=10) as socket:
         payload = json.loads(await asyncio.wait_for(socket.recv(), timeout=10))
         if payload.get("op") != 10 or not isinstance(payload.get("d", {}).get("heartbeat_interval"), int):
             raise RuntimeError("Gateway did not return a valid HELLO payload")
+
+    voice_gateway_url = websocket_base + "/ws/voice-gateway?v=8"
+    async with websockets.connect(voice_gateway_url, open_timeout=10) as socket:
+        payload = json.loads(await asyncio.wait_for(socket.recv(), timeout=10))
+        if payload.get("op") != 8 or not isinstance(payload.get("d", {}).get("heartbeat_interval"), int):
+            raise RuntimeError("Voice Gateway did not return a valid HELLO payload")
 
 
 asyncio.run(probe())
 PY
 
 trap - EXIT
-echo "deployment accepted: root=$root_code oauth=$oauth_code api=$api_code gateway=hello"
+echo "deployment accepted: root=$root_code oauth=$oauth_code api=$api_code gateway=hello voice_gateway=hello"
