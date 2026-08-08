@@ -83,18 +83,24 @@ class AudioBus(AudioStreamTrack):
         super().__init__()
         self._source: AudioStreamTrack | None = None
         self._source_lock = asyncio.Lock()
+        self._source_announced = False
         self._silence_pts = 0
 
     async def set_source(self, source: AudioStreamTrack | None) -> None:
         async with self._source_lock:
             self._source = source
+            self._source_announced = False
 
     async def recv(self) -> AudioFrame:
         async with self._source_lock:
             source = self._source
         if source is not None:
             try:
-                return await source.recv()
+                frame = await source.recv()
+                if not self._source_announced:
+                    self._source_announced = True
+                    print("audio bus is forwarding source frames")
+                return frame
             except MediaStreamError:
                 async with self._source_lock:
                     if self._source is source:
@@ -163,6 +169,7 @@ class GuildMusicPlayer:
             player: MediaPlayer | None = None
             try:
                 stream_url, title = await asyncio.to_thread(_resolve_youtube, item.url)
+                print(f"music source resolved: {title}")
                 player = MediaPlayer(
                     stream_url,
                     options={
@@ -256,7 +263,12 @@ class VoiceConnection:
         if ready.get("op") != 2:
             raise RuntimeError("Voice Gateway did not send Ready")
         self._configure_ice(ready["d"].get("ice_servers") or [])
-        for participant in ready["d"].get("participants") or []:
+        participants = ready["d"].get("participants") or []
+        print(
+            f"voice ready guild={self.guild_id} channel={self.channel_id} "
+            f"participants={len(participants)} ice_servers={len(self.ice_servers)}"
+        )
+        for participant in participants:
             await self._participant_connected(int(participant["user_id"]))
         await self._send(
             {
@@ -362,8 +374,16 @@ class VoiceConnection:
 
         @pc.on("connectionstatechange")
         async def on_connectionstatechange() -> None:
+            print(
+                f"voice peer={remote_user_id} connection={pc.connectionState} "
+                f"ice={pc.iceConnectionState} signaling={pc.signalingState}"
+            )
             if pc.connectionState in {"failed", "closed"}:
                 await self._remove_peer(remote_user_id)
+
+        @pc.on("iceconnectionstatechange")
+        async def on_iceconnectionstatechange() -> None:
+            print(f"voice peer={remote_user_id} ice={pc.iceConnectionState}")
 
         return pc
 
@@ -387,6 +407,7 @@ class VoiceConnection:
         )
 
     async def _handle_offer(self, remote_user_id: int, offer: dict) -> None:
+        print(f"voice offer received from={remote_user_id}")
         pc = await self._ensure_peer(remote_user_id)
         await pc.setRemoteDescription(
             RTCSessionDescription(sdp=str(offer["sdp"]), type=str(offer["type"]))
@@ -403,6 +424,7 @@ class VoiceConnection:
                 },
             }
         )
+        print(f"voice answer sent to={remote_user_id}")
 
     async def _handle_answer(self, remote_user_id: int, answer: dict) -> None:
         pc = self.peers.get(remote_user_id)
@@ -411,6 +433,7 @@ class VoiceConnection:
         await pc.setRemoteDescription(
             RTCSessionDescription(sdp=str(answer["sdp"]), type=str(answer["type"]))
         )
+        print(f"voice answer received from={remote_user_id}")
 
     async def _handle_candidate(self, remote_user_id: int, payload: dict | None) -> None:
         pc = self.peers.get(remote_user_id)
@@ -671,6 +694,7 @@ class MiscordMusicBot:
         member = interaction.get("member") or {}
         user = member.get("user") or interaction.get("user") or {}
         user_id = int(user.get("id") or 0)
+        print(f"interaction command={name} guild={guild_id} user={user_id}")
         if guild_id <= 0:
             await self._respond(interaction, "Музыкальные команды работают только на сервере.", ephemeral=True)
             return
@@ -715,9 +739,13 @@ class MiscordMusicBot:
                 )
                 return
             if name == "stop":
+                await self._defer(interaction)
+                deferred = True
                 await player.stop()
                 await self._leave_voice(guild_id)
-                await self._respond(interaction, "Воспроизведение остановлено.")
+                await self._edit_deferred_response(
+                    interaction, "Воспроизведение остановлено."
+                )
                 return
             if name == "queue":
                 current = player.current_title or "ничего"

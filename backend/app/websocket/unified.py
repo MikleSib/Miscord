@@ -924,9 +924,12 @@ async def handle_voice_offer(user: User, message_data: dict, manager):
             None,
         )
         if target and target.get("gateway") == "bot" and target.get("websocket"):
-            await target["websocket"].send_json(
-                {"type": "offer", "from_id": user.id, "offer": offer}
-            )
+            try:
+                await target["websocket"].send_json(
+                    {"type": "offer", "from_id": user.id, "offer": offer}
+                )
+            except Exception as exc:
+                print(f"[UnifiedWS] voice offer to bot={target_id} failed: {exc}")
             return
         await manager.send_personal_message(
             {
@@ -952,9 +955,12 @@ async def handle_voice_answer(user: User, message_data: dict, manager):
             None,
         )
         if target and target.get("gateway") == "bot" and target.get("websocket"):
-            await target["websocket"].send_json(
-                {"type": "answer", "from_id": user.id, "answer": answer}
-            )
+            try:
+                await target["websocket"].send_json(
+                    {"type": "answer", "from_id": user.id, "answer": answer}
+                )
+            except Exception as exc:
+                print(f"[UnifiedWS] voice answer to bot={target_id} failed: {exc}")
             return
         await manager.send_personal_message(
             {
@@ -980,13 +986,16 @@ async def handle_voice_ice_candidate(user: User, message_data: dict, manager):
             None,
         )
         if target and target.get("gateway") == "bot" and target.get("websocket"):
-            await target["websocket"].send_json(
-                {
-                    "type": "ice_candidate",
-                    "from_id": user.id,
-                    "candidate": candidate,
-                }
-            )
+            try:
+                await target["websocket"].send_json(
+                    {
+                        "type": "ice_candidate",
+                        "from_id": user.id,
+                        "candidate": candidate,
+                    }
+                )
+            except Exception as exc:
+                print(f"[UnifiedWS] voice ICE to bot={target_id} failed: {exc}")
             return
         await manager.send_personal_message(
             {
