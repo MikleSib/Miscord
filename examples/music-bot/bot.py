@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import time
+from collections import deque
 from contextlib import suppress
 from dataclasses import dataclass
 from fractions import Fraction
@@ -23,6 +24,7 @@ from aiortc import (
 from aiortc.contrib.media import MediaPlayer, MediaRelay
 from aiortc.sdp import candidate_from_sdp, candidate_to_sdp
 from av import AudioFrame
+from av.audio.resampler import AudioResampler
 from dotenv import load_dotenv
 from yt_dlp import YoutubeDL
 
@@ -37,6 +39,9 @@ YOUTUBE_HOSTS = {
     "music.youtube.com",
     "youtu.be",
 }
+AUDIO_SAMPLE_RATE = 48_000
+AUDIO_SAMPLES_PER_FRAME = 960
+AUDIO_FRAME_DURATION = AUDIO_SAMPLES_PER_FRAME / AUDIO_SAMPLE_RATE
 
 
 def _application_id_from_token(token: str) -> str:
@@ -84,37 +89,82 @@ class AudioBus(AudioStreamTrack):
         self._source: AudioStreamTrack | None = None
         self._source_lock = asyncio.Lock()
         self._source_announced = False
-        self._silence_pts = 0
+        self._source_generation = 0
+        self._resampler = self._create_resampler()
+        self._pending_frames: deque[AudioFrame] = deque()
+        self._next_pts = 0
+
+    @staticmethod
+    def _create_resampler() -> AudioResampler:
+        return AudioResampler(
+            format="s16",
+            layout="stereo",
+            rate=AUDIO_SAMPLE_RATE,
+            frame_size=AUDIO_SAMPLES_PER_FRAME,
+        )
 
     async def set_source(self, source: AudioStreamTrack | None) -> None:
         async with self._source_lock:
             self._source = source
             self._source_announced = False
+            self._source_generation += 1
+            self._resampler = self._create_resampler()
+            self._pending_frames.clear()
+
+    def _stamp(self, frame: AudioFrame) -> AudioFrame:
+        # The WebRTC sender uses frame timestamps to build RTP timestamps. Media
+        # files start their clock at zero, so forwarding source timestamps would
+        # jump backwards after silence or every new /play. Keep one monotonic
+        # 48 kHz clock for the lifetime of this stable outbound track instead.
+        frame.sample_rate = AUDIO_SAMPLE_RATE
+        frame.pts = self._next_pts
+        frame.time_base = Fraction(1, AUDIO_SAMPLE_RATE)
+        self._next_pts += frame.samples
+        return frame
 
     async def recv(self) -> AudioFrame:
-        async with self._source_lock:
-            source = self._source
-        if source is not None:
+        if self.readyState != "live":
+            raise MediaStreamError
+        while True:
+            async with self._source_lock:
+                if self._pending_frames:
+                    return self._stamp(self._pending_frames.popleft())
+                source = self._source
+                generation = self._source_generation
+                resampler = self._resampler
+
+            if source is None:
+                break
+
             try:
-                frame = await source.recv()
-                if not self._source_announced:
-                    self._source_announced = True
-                    print("audio bus is forwarding source frames")
-                return frame
+                source_frame = await source.recv()
             except MediaStreamError:
                 async with self._source_lock:
-                    if self._source is source:
+                    if (
+                        self._source is source
+                        and self._source_generation == generation
+                    ):
                         self._source = None
+                        self._source_generation += 1
+                        self._resampler = self._create_resampler()
+                        self._pending_frames.clear()
+                continue
 
-        await asyncio.sleep(0.02)
-        frame = AudioFrame(format="s16", layout="stereo", samples=960)
+            async with self._source_lock:
+                if self._source is not source or self._source_generation != generation:
+                    continue
+                self._pending_frames.extend(resampler.resample(source_frame))
+                if not self._source_announced and self._pending_frames:
+                    self._source_announced = True
+                    print("audio bus is forwarding normalized source frames")
+
+        await asyncio.sleep(AUDIO_FRAME_DURATION)
+        frame = AudioFrame(
+            format="s16", layout="stereo", samples=AUDIO_SAMPLES_PER_FRAME
+        )
         for plane in frame.planes:
             plane.update(bytes(plane.buffer_size))
-        frame.sample_rate = 48_000
-        frame.pts = self._silence_pts
-        frame.time_base = Fraction(1, 48_000)
-        self._silence_pts += 960
-        return frame
+        return self._stamp(frame)
 
 
 @dataclass(frozen=True)
@@ -125,6 +175,10 @@ class QueueItem:
 class GuildMusicPlayer:
     def __init__(self) -> None:
         self.audio = AudioBus()
+        # Keep one relay for the whole player lifetime. Creating a relay for
+        # every reconnect leaves its reader consuming this endless AudioBus,
+        # so several stale readers eventually split frames between themselves.
+        self.relay = MediaRelay()
         self._queue: asyncio.Queue[QueueItem] = asyncio.Queue()
         self._skip_event: asyncio.Event | None = None
         self._closed = False
@@ -162,6 +216,7 @@ class GuildMusicPlayer:
         self._worker.cancel()
         with suppress(asyncio.CancelledError):
             await self._worker
+        self.audio.stop()
 
     async def _run(self) -> None:
         while not self._closed:
@@ -220,6 +275,7 @@ class VoiceConnection:
         session_id: str,
         token: str,
         audio: AudioBus,
+        relay: MediaRelay,
     ) -> None:
         self.endpoint = endpoint if endpoint.startswith("ws") else f"wss://{endpoint}"
         self.guild_id = guild_id
@@ -228,10 +284,10 @@ class VoiceConnection:
         self.session_id = session_id
         self.token = token
         self.audio = audio
+        self.relay = relay
         self.websocket = None
         self.ice_servers: list[RTCIceServer] = []
         self.peers: dict[int, RTCPeerConnection] = {}
-        self.relay = MediaRelay()
         self._send_lock = asyncio.Lock()
         self._heartbeat_task: asyncio.Task | None = None
         self._receive_task: asyncio.Task | None = None
@@ -352,7 +408,10 @@ class VoiceConnection:
         if existing is not None:
             return existing
         pc = RTCPeerConnection(RTCConfiguration(iceServers=self.ice_servers))
-        pc.addTrack(self.relay.subscribe(self.audio))
+        # A buffered MediaRelay queue can grow without a limit when encoding or
+        # the network falls behind, making listeners hear an increasingly old
+        # audio backlog. Voice is live media, so keep only the newest frame.
+        pc.addTrack(self.relay.subscribe(self.audio, buffered=False))
         self.peers[remote_user_id] = pc
 
         @pc.on("icecandidate")
@@ -645,6 +704,7 @@ class MiscordMusicBot:
             session_id=str(state["session_id"]),
             token=str(server["token"]),
             audio=player.audio,
+            relay=player.relay,
         )
         await connection.connect()
         self.voice_connections[guild_id] = connection
@@ -741,7 +801,8 @@ class MiscordMusicBot:
             if name == "stop":
                 await self._defer(interaction)
                 deferred = True
-                await player.stop()
+                await player.close()
+                self.players.pop(guild_id, None)
                 await self._leave_voice(guild_id)
                 await self._edit_deferred_response(
                     interaction, "Воспроизведение остановлено."
