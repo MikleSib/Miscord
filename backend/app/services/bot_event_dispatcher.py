@@ -385,7 +385,7 @@ class BotEventDispatcher:
         exclude_application_id: int | None = None,
     ) -> None:
         result = await db.execute(
-            select(BotInstall.application_id, BotInstall.intents)
+            select(BotInstall.application_id)
             .join(BotApplication, BotApplication.id == BotInstall.application_id)
             .where(
                 BotInstall.server_id == guild_id,
@@ -393,11 +393,9 @@ class BotEventDispatcher:
                 BotApplication.status == "active",
             )
         )
-        for application_id, install_intents in result.all():
+        for (application_id,) in result.all():
             application_id = int(application_id)
             if exclude_application_id is not None and application_id == exclude_application_id:
-                continue
-            if not int(install_intents or 0) & INTENT_GUILD_VOICE_STATES:
                 continue
             await self._dispatch_to_application(
                 application_id,
@@ -406,12 +404,12 @@ class BotEventDispatcher:
                 event_name="VOICE_STATE_UPDATE",
             )
 
-    async def _installed_apps_for_channel(self, db: AsyncSession, channel_id: int, required_intent: int) -> list[int]:
+    async def _installed_apps_for_channel(self, db: AsyncSession, channel_id: int) -> list[int]:
         channel = await db.get(TextChannel, channel_id)
         if channel is None:
             return []
         result = await db.execute(
-            select(BotInstall.application_id, BotInstall.intents)
+            select(BotInstall.application_id)
             .join(BotApplication, BotApplication.id == BotInstall.application_id)
             .where(
                 BotInstall.server_id == channel.channel_id,
@@ -419,14 +417,17 @@ class BotEventDispatcher:
                 BotApplication.status == "active",
             )
         )
-        return [int(app_id) for app_id, intents in result.all() if int(intents or 0) & required_intent]
+        # Discord-style Gateway intents belong to the active Gateway session,
+        # not to the OAuth installation. _dispatch_to_application applies the
+        # requested intent for every connected session.
+        return [int(app_id) for (app_id,) in result.all()]
 
     async def dispatch_message_create(self, db: AsyncSession, message) -> None:
         channel = await db.get(TextChannel, message.text_channel_id)
         if channel is None:
             return
         payload = miscord_message(message, guild_id=channel.channel_id)
-        for application_id in await self._installed_apps_for_channel(db, message.text_channel_id, INTENT_GUILD_MESSAGES):
+        for application_id in await self._installed_apps_for_channel(db, message.text_channel_id):
             await self._dispatch_to_application(
                 application_id,
                 payload,
@@ -440,7 +441,7 @@ class BotEventDispatcher:
         if channel is None:
             return
         payload = miscord_message(message, guild_id=channel.channel_id)
-        for application_id in await self._installed_apps_for_channel(db, message.text_channel_id, INTENT_GUILD_MESSAGES):
+        for application_id in await self._installed_apps_for_channel(db, message.text_channel_id):
             await self._dispatch_to_application(
                 application_id,
                 payload,
@@ -454,7 +455,7 @@ class BotEventDispatcher:
         if channel is None:
             return
         payload = {"id": str(message_id), "channel_id": str(channel_id), "guild_id": str(channel.channel_id)}
-        for application_id in await self._installed_apps_for_channel(db, channel_id, INTENT_GUILD_MESSAGES):
+        for application_id in await self._installed_apps_for_channel(db, channel_id):
             await self._dispatch_to_application(
                 application_id,
                 payload,
@@ -478,7 +479,7 @@ class BotEventDispatcher:
             "burst_colors": [],
             "type": 0,
         }
-        for application_id in await self._installed_apps_for_channel(db, message.text_channel_id, INTENT_GUILD_MESSAGE_REACTIONS):
+        for application_id in await self._installed_apps_for_channel(db, message.text_channel_id):
             await self._dispatch_to_application(application_id, payload, required_intent=INTENT_GUILD_MESSAGE_REACTIONS, event_name="MESSAGE_REACTION_ADD")
 
     async def dispatch_message_reaction_remove(self, db: AsyncSession, message, user, emoji: str) -> None:
@@ -494,7 +495,7 @@ class BotEventDispatcher:
             "burst": False,
             "type": 0,
         }
-        for application_id in await self._installed_apps_for_channel(db, message.text_channel_id, INTENT_GUILD_MESSAGE_REACTIONS):
+        for application_id in await self._installed_apps_for_channel(db, message.text_channel_id):
             await self._dispatch_to_application(application_id, payload, required_intent=INTENT_GUILD_MESSAGE_REACTIONS, event_name="MESSAGE_REACTION_REMOVE")
 
     async def dispatch_typing_start(self, db: AsyncSession, channel_id: int, user_id: int) -> None:
@@ -508,7 +509,7 @@ class BotEventDispatcher:
             "timestamp": int(time.time()),
             "member": None,
         }
-        for application_id in await self._installed_apps_for_channel(db, channel_id, INTENT_GUILD_MESSAGE_TYPING):
+        for application_id in await self._installed_apps_for_channel(db, channel_id):
             await self._dispatch_to_application(application_id, payload, required_intent=INTENT_GUILD_MESSAGE_TYPING, event_name="TYPING_START")
 
     async def dispatch_guild_event(
@@ -521,14 +522,12 @@ class BotEventDispatcher:
         required_intent: int = INTENT_GUILDS,
     ) -> None:
         result = await db.execute(
-            select(BotInstall.application_id, BotInstall.intents).where(
+            select(BotInstall.application_id).where(
                 BotInstall.server_id == guild_id,
                 BotInstall.status == "active",
             )
         )
-        for application_id, intents in result.all():
-            if required_intent and not (int(intents or 0) & required_intent):
-                continue
+        for (application_id,) in result.all():
             await self._dispatch_to_application(int(application_id), payload, required_intent=required_intent, event_name=event_name)
 
     async def dispatch_interaction_create(self, db: AsyncSession, interaction) -> int:

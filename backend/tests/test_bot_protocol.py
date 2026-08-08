@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock
+
 import pytest
 
 from app.schemas.bot_protocol import (
@@ -10,7 +12,7 @@ from app.schemas.bot_protocol import (
     VoiceGatewayOpCode,
     validate_gateway_query,
 )
-from app.services.bot_event_dispatcher import dispatcher
+from app.services.bot_event_dispatcher import INTENT_GUILD_VOICE_STATES, dispatcher
 
 
 def test_validate_gateway_query_uses_defaults():
@@ -89,3 +91,25 @@ def test_voice_gateway_opcode_contract():
     assert VoiceGatewayOpCode.HELLO == 8
     assert VoiceGatewayOpCode.CLIENT_CONNECT == 11
     assert VoiceGatewayOpCode.CLIENT_DISCONNECT == 13
+
+
+@pytest.mark.asyncio
+async def test_voice_state_delivery_is_gated_by_gateway_session_not_install_intents(monkeypatch):
+    class Result:
+        @staticmethod
+        def all():
+            return [(42,)]
+
+    db = type("Database", (), {"execute": AsyncMock(return_value=Result())})()
+    dispatch = AsyncMock(return_value=1)
+    monkeypatch.setattr(dispatcher, "_dispatch_to_application", dispatch)
+
+    payload = {"guild_id": "7", "user_id": "9", "channel_id": "11"}
+    await dispatcher.dispatch_voice_state_update(db, 7, payload)
+
+    dispatch.assert_awaited_once_with(
+        42,
+        payload,
+        required_intent=INTENT_GUILD_VOICE_STATES,
+        event_name="VOICE_STATE_UPDATE",
+    )
