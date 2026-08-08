@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="176" height="40" viewBox="0 0 176 40" role="img" aria-labelledby="title">
+  <title id="title">Miscord</title>
+  <rect width="40" height="40" rx="12" fill="#7C86F7"/>
+  <path d="M11 14.5c2.8-2.2 5.8-3.3 9-3.3s6.2 1.1 9 3.3v10.8c-2.8 2.3-5.8 3.5-9 3.5s-6.2-1.2-9-3.5V14.5Z" fill="white"/>
+  <circle cx="16.3" cy="20" r="2" fill="#5865F2"/>
+  <circle cx="23.7" cy="20" r="2" fill="#5865F2"/>
+  <path d="M16 24c2.5 1.5 5.5 1.5 8 0" fill="none" stroke="#5865F2" stroke-width="1.8" stroke-linecap="round"/>
+  <text x="52" y="27" fill="#F7F8FA" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="750">Miscord</text>
+</svg>

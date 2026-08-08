@@ -1,0 +1,91 @@
+---
+title: "Отправка сообщений"
+description: "Payload входящего вебхука, embeds и обработка ошибок."
+icon: "send"
+---
+
+Отправьте JSON через `POST` на полученный `WEBHOOK_URL`.
+
+<CodeGroup>
+```bash cURL
+curl -X POST "$WEBHOOK_URL?wait=true" \
+  -H "Content-Type: application/json" \
+  -d '{"content":"Сборка успешно завершена"}'
+```
+
+```js JavaScript
+const response = await fetch(`${process.env.WEBHOOK_URL}?wait=true`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    content: 'Сборка успешно завершена',
+    username: 'Deploy Bot',
+  }),
+});
+
+if (!response.ok) throw new Error(`Webhook: ${response.status}`);
+console.log(await response.json());
+```
+
+```python Python
+import os
+import requests
+
+response = requests.post(
+    f"{os.environ['WEBHOOK_URL']}?wait=true",
+    json={"content": "Сборка успешно завершена"},
+    timeout=10,
+)
+response.raise_for_status()
+print(response.json())
+```
+</CodeGroup>
+
+<Note>
+  Добавьте `?wait=true`, если нужен созданный объект сообщения в ответе. Без этого успешная отправка может вернуть пустой ответ.
+</Note>
+
+## Сообщение с embed
+
+```json
+{
+  "username": "Мониторинг",
+  "content": "Production снова доступен",
+  "embeds": [
+    {
+      "title": "Проверка завершена",
+      "description": "Все сервисы отвечают штатно.",
+      "color": 5793266,
+      "fields": [
+        {
+          "name": "Окружение",
+          "value": "production",
+          "inline": true
+        },
+        {
+          "name": "Статус",
+          "value": "healthy",
+          "inline": true
+        }
+      ]
+    }
+  ]
+}
+```
+
+## Ограничения payload
+
+- `content` — до 2000 символов;
+- до 10 embeds в одном сообщении;
+- суммарный текст embeds — до 6000 символов;
+- до 25 полей в одном embed;
+- внешние URL изображений должны использовать HTTPS.
+
+## Типичные ответы
+
+| Код | Значение |
+| --- | --- |
+| `200` / `204` | Сообщение принято |
+| `400` | Некорректный JSON или превышен лимит поля |
+| `401` / `404` | URL неверен, удалён или токен был сброшен |
+| `429` | Слишком много запросов; повторите после `Retry-After` |

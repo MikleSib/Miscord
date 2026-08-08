@@ -1,0 +1,79 @@
+---
+title: "Event Webhooks"
+description: "Получение подписанных событий приложения через HTTPS."
+icon: "radio"
+---
+
+Event Webhooks доставляют события жизненного цикла приложения на ваш HTTPS endpoint без постоянного Gateway-соединения.
+
+## Настройка
+
+<Steps>
+  <Step title="Подготовьте HTTPS endpoint">
+    Endpoint должен быть доступен из интернета, использовать HTTPS и не перенаправлять запрос на другой URL.
+  </Step>
+  <Step title="Обработайте проверочный PING">
+    При сохранении URL Miscord отправляет payload с `type: 0`. Ответьте пустым HTTP `204`.
+  </Step>
+  <Step title="Укажите URL">
+    В [портале разработчика](https://miscord.ru/developers) откройте **Расширенные настройки** и заполните **Event Webhooks URL**.
+  </Step>
+  <Step title="Выберите события">
+    Включите Event Webhooks и отметьте необходимые типы. Сохранение доступно только после успешной проверки endpoint.
+  </Step>
+</Steps>
+
+## Проверочный запрос
+
+```json
+{
+  "version": 1,
+  "application_id": "1234567890",
+  "type": 0
+}
+```
+
+Ответ не должен содержать тело:
+
+```http
+HTTP/1.1 204 No Content
+```
+
+## Payload события
+
+```json
+{
+  "version": 1,
+  "application_id": "1234567890",
+  "type": 1,
+  "event": {
+    "type": "APPLICATION_AUTHORIZED",
+    "timestamp": "2026-08-09T00:00:00+00:00",
+    "data": {}
+  }
+}
+```
+
+Подтвердите успешную обработку пустым HTTP `204`.
+
+## Доступные события
+
+<AccordionGroup>
+  <Accordion title="Установка приложения" icon="user-check">
+    `APPLICATION_AUTHORIZED` — приложение установлено на сервер или для пользователя.
+  </Accordion>
+  <Accordion title="Удаление приложения" icon="user-x">
+    `APPLICATION_DEAUTHORIZED` — установка приложения отозвана.
+  </Accordion>
+  <Accordion title="Права и игровые события" icon="gamepad-2">
+    Также доступны события entitlement, quest enrollment, lobby messages и game direct messages. Включайте только те типы, которые обрабатывает ваш сервис.
+  </Accordion>
+</AccordionGroup>
+
+<Note>
+  При неуспешной доставке Miscord повторяет запросы с увеличивающейся задержкой в пределах десяти минут. Обработчик должен быть идемпотентным.
+</Note>
+
+<Card title="Защитить endpoint" icon="shield-check" href="/webhooks/security">
+  Проверьте подпись Ed25519 и допустимость timestamp до обработки события.
+</Card>

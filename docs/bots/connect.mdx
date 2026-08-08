@@ -1,0 +1,78 @@
+---
+title: "Подключение бота"
+description: "REST API и минимальное Gateway-соединение."
+icon: "plug-zap"
+---
+
+Используйте REST API для действий по запросу и Gateway для событий в реальном времени.
+
+## Отправка сообщения через REST
+
+```bash
+curl -X POST "https://miscord.ru/api/v10/channels/CHANNEL_ID/messages" \
+  -H "Authorization: Bot $MISCORD_BOT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"content":"Бот подключён к Miscord"}'
+```
+
+## Минимальный Gateway-клиент
+
+Установите WebSocket-клиент:
+
+```bash
+npm install ws
+```
+
+```js
+import WebSocket from 'ws';
+
+const token = process.env.MISCORD_BOT_TOKEN;
+const socket = new WebSocket(
+  'wss://miscord.ru/gateway?v=10&encoding=json',
+);
+
+let sequence = null;
+let heartbeat = null;
+
+socket.on('message', (raw) => {
+  const payload = JSON.parse(raw.toString());
+  if (payload.s !== null && payload.s !== undefined) sequence = payload.s;
+
+  if (payload.op === 10) {
+    heartbeat = setInterval(() => {
+      socket.send(JSON.stringify({ op: 1, d: sequence }));
+    }, payload.d.heartbeat_interval);
+
+    socket.send(JSON.stringify({
+      op: 2,
+      d: {
+        token,
+        intents: 513,
+        properties: {
+          os: process.platform,
+          browser: 'miscord-example',
+          device: 'miscord-example',
+        },
+      },
+    }));
+  }
+
+  if (payload.op === 0) {
+    console.log(payload.t, payload.d);
+  }
+});
+
+socket.on('close', () => clearInterval(heartbeat));
+```
+
+<Note>
+  Первый пакет сервера имеет opcode `10` и содержит `heartbeat_interval`. Отправляйте heartbeat с opcode `1`, затем идентифицируйте сессию opcode `2`.
+</Note>
+
+## Ошибки и ограничения
+
+- `401` — токен отсутствует, отозван или передан без префикса `Bot`.
+- `403` — бот установлен, но не имеет нужного разрешения.
+- `429` — превышено ограничение запросов; учитывайте `Retry-After` и заголовки rate limit.
+- Gateway close `4013` — некорректные intents.
+- Gateway close `4014` — запрошены недоступные privileged intents.

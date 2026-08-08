@@ -1,0 +1,64 @@
+---
+title: "Создание бота"
+description: "Регистрация приложения и первичная настройка bot token."
+icon: "circle-plus"
+---
+
+<Steps>
+  <Step title="Создайте приложение">
+    Откройте [портал разработчика](https://miscord.ru/developers), нажмите **Создать**, укажите имя и описание приложения.
+  </Step>
+  <Step title="Сохраните секреты">
+    После создания скопируйте **Bot token** и **Client secret**. Эти значения показываются полностью только в момент выдачи.
+  </Step>
+  <Step title="Настройте профиль">
+    В разделе **Бот** загрузите аватар и баннер, задайте имя и выберите, может ли приложение устанавливаться публично.
+  </Step>
+  <Step title="Выберите тип установки">
+    В расширенных настройках включите установку на сервер, для пользователя или оба варианта. Для серверной установки задайте разрешения по умолчанию.
+  </Step>
+  <Step title="Сохраните изменения">
+    Miscord применит новые параметры к создаваемым ссылкам установки. Уже выданные токены при обычном сохранении не меняются.
+  </Step>
+</Steps>
+
+## Проверка токена
+
+<CodeGroup>
+```bash cURL
+curl https://miscord.ru/api/v10/users/@me \
+  -H "Authorization: Bot $MISCORD_BOT_TOKEN"
+```
+
+```js JavaScript
+const response = await fetch('https://miscord.ru/api/v10/users/@me', {
+  headers: {
+    Authorization: `Bot ${process.env.MISCORD_BOT_TOKEN}`,
+  },
+});
+
+if (!response.ok) throw new Error(`Miscord API: ${response.status}`);
+console.log(await response.json());
+```
+
+```python Python
+import os
+import requests
+
+response = requests.get(
+    "https://miscord.ru/api/v10/users/@me",
+    headers={"Authorization": f"Bot {os.environ['MISCORD_BOT_TOKEN']}"},
+    timeout=10,
+)
+response.raise_for_status()
+print(response.json())
+```
+</CodeGroup>
+
+## Ротация токена
+
+Если токен попал в логи или репозиторий, откройте приложение и нажмите **Сбросить токен**.
+
+<Warning>
+  После сброса старый токен перестаёт работать сразу. Обновите секрет в окружении приложения и переподключите Gateway.
+</Warning>

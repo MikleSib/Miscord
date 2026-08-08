@@ -1,0 +1,92 @@
+---
+title: "Проверка подписи"
+description: "Безопасная проверка подписанных interactions и Event Webhooks."
+icon: "shield-check"
+---
+
+Miscord подписывает исходное тело HTTP-запроса Ed25519. Public key доступен в настройках приложения.
+
+В каждом запросе присутствуют:
+
+- `X-Signature-Ed25519` — подпись в hex;
+- `X-Signature-Timestamp` — Unix timestamp;
+- исходное JSON-тело запроса.
+
+Строка для проверки подписи формируется как `timestamp + raw_body`.
+
+## Node.js
+
+```bash
+npm install tweetnacl
+```
+
+```js
+import nacl from 'tweetnacl';
+
+export function verifyMiscordRequest(req, rawBody, publicKeyHex) {
+  const signature = req.headers['x-signature-ed25519'];
+  const timestamp = req.headers['x-signature-timestamp'];
+
+  if (!signature || !timestamp) return false;
+
+  const message = Buffer.concat([
+    Buffer.from(timestamp),
+    Buffer.from(rawBody),
+  ]);
+
+  return nacl.sign.detached.verify(
+    message,
+    Buffer.from(signature, 'hex'),
+    Buffer.from(publicKeyHex, 'hex'),
+  );
+}
+```
+
+## Python
+
+```bash
+pip install cryptography
+```
+
+```python
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+
+def verify_miscord_request(signature, timestamp, raw_body, public_key_hex):
+    try:
+        public_key = Ed25519PublicKey.from_public_bytes(
+            bytes.fromhex(public_key_hex)
+        )
+        public_key.verify(
+            bytes.fromhex(signature),
+            timestamp.encode("utf-8") + raw_body,
+        )
+        return True
+    except (ValueError, InvalidSignature):
+        return False
+```
+
+## Обязательные проверки
+
+<Steps>
+  <Step title="Получите сырое тело">
+    Не сериализуйте JSON повторно перед проверкой: даже другое форматирование изменит подпись.
+  </Step>
+  <Step title="Проверьте заголовки">
+    Отклоните запрос без подписи или timestamp.
+  </Step>
+  <Step title="Ограничьте возраст запроса">
+    Сравните timestamp с текущим временем, чтобы снизить риск повторного воспроизведения запроса.
+  </Step>
+  <Step title="Проверьте Ed25519">
+    Используйте public key именно того приложения, чей `application_id` указан в payload.
+  </Step>
+  <Step title="Обработайте событие идемпотентно">
+    Повторная доставка не должна создавать дубликаты или повторно выполнять необратимые операции.
+  </Step>
+</Steps>
+
+<Warning>
+  Сначала проверяйте подпись исходных байтов, и только затем разбирайте JSON и выполняйте бизнес-логику.
+</Warning>

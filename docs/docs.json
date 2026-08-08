@@ -1,0 +1,125 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "maple",
+  "name": "Miscord",
+  "description": "Документация для разработчиков Miscord: боты, команды, вебхуки и API v10.",
+  "colors": {
+    "primary": "#5865F2",
+    "light": "#7C86F7",
+    "dark": "#4752C4"
+  },
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg",
+    "href": "https://miscord.ru"
+  },
+  "favicon": "/favicon.svg",
+  "appearance": {
+    "default": "dark"
+  },
+  "fonts": {
+    "family": "Inter"
+  },
+  "icons": {
+    "library": "lucide"
+  },
+  "background": {
+    "decoration": "grid"
+  },
+  "styling": {
+    "eyebrows": "breadcrumbs",
+    "codeblocks": "dark"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Портал разработчика",
+        "href": "https://miscord.ru/developers"
+      },
+      {
+        "label": "Открыть Miscord",
+        "href": "https://miscord.ru"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Создать бота",
+      "href": "https://miscord.ru/developers"
+    }
+  },
+  "navigation": {
+    "languages": [
+      {
+        "language": "ru",
+        "default": true,
+        "tabs": [
+          {
+            "tab": "Документация",
+            "icon": "book-open",
+            "groups": [
+              {
+                "group": "Начало работы",
+                "pages": [
+                  "index",
+                  "quickstart"
+                ]
+              }
+            ]
+          },
+          {
+            "tab": "Боты",
+            "icon": "bot",
+            "groups": [
+              {
+                "group": "Боты",
+                "pages": [
+                  "bots/overview",
+                  "bots/create",
+                  "bots/install",
+                  "bots/connect",
+                  "bots/commands"
+                ]
+              }
+            ]
+          },
+          {
+            "tab": "Вебхуки",
+            "icon": "webhook",
+            "groups": [
+              {
+                "group": "Входящие вебхуки",
+                "pages": [
+                  "webhooks/overview",
+                  "webhooks/create",
+                  "webhooks/send"
+                ]
+              },
+              {
+                "group": "События приложения",
+                "pages": [
+                  "webhooks/events",
+                  "webhooks/security"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/MikleSib/Miscord",
+      "website": "https://miscord.ru"
+    }
+  },
+  "search": {
+    "prompt": "Найдите ответ по ботам и вебхукам"
+  },
+  "seo": {
+    "indexing": "all",
+    "metatags": {
+      "canonical": "https://docs.miscord.ru"
+    }
+  }
+}

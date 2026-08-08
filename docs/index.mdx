@@ -1,0 +1,46 @@
+---
+title: "Добро пожаловать"
+description: "Создавайте ботов и подключайте внешние сервисы к Miscord."
+icon: "house"
+---
+
+Miscord предоставляет API v10, Gateway, команды приложений и вебхуки для интеграции ваших сервисов с серверами и пользователями.
+
+<Note>
+  Базовый REST URL: `https://miscord.ru/api/v10`. Gateway: `wss://miscord.ru/gateway?v=10&encoding=json`.
+</Note>
+
+## Начните с нужного сценария
+
+<CardGroup cols={2}>
+  <Card title="Создать бота" icon="bot" href="/bots/create">
+    Зарегистрируйте приложение, сохраните токен и настройте права установки.
+  </Card>
+  <Card title="Установить бота" icon="user-plus" href="/bots/install">
+    Добавьте бота на сервер или установите приложение для пользователя.
+  </Card>
+  <Card title="Создать вебхук" icon="webhook" href="/webhooks/create">
+    Получите секретный URL для публикации сообщений во внешний канал.
+  </Card>
+  <Card title="Получать события" icon="radio" href="/webhooks/events">
+    Подключите HTTPS endpoint и проверяйте подпись каждого события.
+  </Card>
+</CardGroup>
+
+## Что поддерживается
+
+<CardGroup cols={3}>
+  <Card title="REST API v10" icon="braces">
+    Сообщения, каналы, серверы, роли, участники, команды и вебхуки.
+  </Card>
+  <Card title="Gateway" icon="plug-zap">
+    События в реальном времени, heartbeat, resume и intents.
+  </Card>
+  <Card title="Interactions" icon="mouse-pointer-click">
+    Slash-команды, команды пользователя и сообщения, кнопки и autocomplete.
+  </Card>
+</CardGroup>
+
+<Tip>
+  Если вы впервые создаёте интеграцию, пройдите [быстрый старт](/quickstart). Он проверяет токен одним безопасным запросом.
+</Tip>
