@@ -265,6 +265,10 @@ class BotEventDispatcher:
             if state:
                 state.last_heartbeat = datetime.now(timezone.utc)
 
+    async def has_active_sessions(self, application_id: int) -> bool:
+        async with self._lock:
+            return bool(self._sessions_by_app.get(application_id))
+
     async def hello(self, websocket: WebSocket) -> None:
         await self._send(websocket, {
             "op": int(OP_HELLO),

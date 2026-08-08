@@ -132,6 +132,7 @@ class UserActivityService:
                 select(User.id)
                 .where(
                     User.is_online == True,
+                    User.is_bot == False,
                     User.last_activity < cutoff_time
                 )
             )
@@ -167,4 +168,4 @@ class UserActivityService:
         await self.update_user_activity(user_id, db)
 
 # Глобальный экземпляр сервиса
-user_activity_service = UserActivityService() 
+user_activity_service = UserActivityService()

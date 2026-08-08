@@ -40,6 +40,7 @@ from app.services.bot_event_dispatcher import (
     dispatcher as bot_event_dispatcher,
 )
 from app.services.bot_security import BotPrincipal, get_bot_principal_by_token
+from app.services.bot_presence import set_bot_online
 from app.services.bot_voice_sessions import registry as bot_voice_sessions
 from app.services.miscord_serializers import miscord_channel, miscord_role, miscord_user, miscord_voice_state
 from app.websocket.voice import _broadcast_voice, voice_connections
@@ -585,6 +586,7 @@ async def websocket_gateway_endpoint(websocket: WebSocket) -> None:
                 if result is None:
                     return
                 principal, state = result
+                await set_bot_online(db, principal.bot_user.id, True)
                 continue
             if op == OP_RESUME:
                 if state is not None:
@@ -598,6 +600,7 @@ async def websocket_gateway_endpoint(websocket: WebSocket) -> None:
                 if result is None:
                     continue
                 principal, state = result
+                await set_bot_online(db, principal.bot_user.id, True)
                 continue
             if op == OP_RECONNECT:
                 await _close(websocket, 4000)
@@ -668,6 +671,13 @@ async def websocket_gateway_endpoint(websocket: WebSocket) -> None:
             await bot_event_dispatcher.unregister(state.session_id, resumable=True)
             try:
                 await _mark_session_inactive(db, state.session_id, resumable=True)
+            except Exception:
+                pass
+        if principal is not None and not await bot_event_dispatcher.has_active_sessions(
+            principal.application.id
+        ):
+            try:
+                await set_bot_online(db, principal.bot_user.id, False)
             except Exception:
                 pass
         await db.close()

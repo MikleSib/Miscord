@@ -9,7 +9,7 @@ import logging
 import re
 import hashlib
 import time
-from sqlalchemy import delete, text
+from sqlalchemy import delete, text, update
 
 from app.core.config import settings
 from app.db.database import engine, Base
@@ -25,7 +25,7 @@ from app.websocket.bot_gateway import websocket_gateway_endpoint
 from app.websocket.bot_voice_gateway import websocket_bot_voice_gateway_endpoint
 from app.services.user_activity_service import user_activity_service
 from app.db.database import AsyncSessionLocal
-from app.models import VoiceChannelUser
+from app.models import BotSession, User, VoiceChannelUser
 from app.services.clamav import clamav_health
 from app.services.webhook_notifications import dispatcher as webhook_notification_dispatcher
 from app.services.pending_upload_cleanup import run_pending_upload_cleanup_loop
@@ -98,6 +98,10 @@ async def lifespan(app: FastAPI):
     # Voice presence is runtime state; it must not survive a backend restart.
     async with AsyncSessionLocal() as db:
         await db.execute(delete(VoiceChannelUser))
+        # Gateway and voice presence are runtime state. A process crash cannot
+        # be allowed to leave bots or persisted sessions looking connected.
+        await db.execute(update(User).where(User.is_bot == True).values(is_online=False))
+        await db.execute(update(BotSession).values(is_active=False))
         await db.commit()
     
     # Инициализация Redis для WebSocket
