@@ -328,6 +328,10 @@ async def websocket_bot_voice_gateway_endpoint(websocket: WebSocket) -> None:
             send_participants=False,
             source_application_id=session.application_id,
         )
+        # The gateway can stay connected for hours. End the read transaction
+        # opened while building presence/events so schema changes are not
+        # blocked by an idle bot voice session.
+        await db.rollback()
 
         while True:
             payload = await _receive_json(
@@ -385,11 +389,13 @@ async def websocket_bot_voice_gateway_endpoint(websocket: WebSocket) -> None:
                 continue
             if message_type == "mute":
                 await _handle_mute(db, session.channel_id, user.id, payload.get("is_muted", False))
+                await db.rollback()
                 continue
             if message_type == "deafen":
                 await _handle_deafen(
                     db, session.channel_id, user.id, payload.get("is_deafened", False)
                 )
+                await db.rollback()
                 continue
             await _close(websocket, 4001, "Unknown voice opcode")
             return
