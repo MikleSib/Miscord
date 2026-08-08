@@ -7,9 +7,10 @@ import time
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import HTTPException, WebSocket, WebSocketDisconnect
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -28,7 +29,10 @@ from app.models import (
     TextChannel,
     User,
     VoiceChannel,
+    VoiceChannelUser,
 )
+from app.core.permissions import Permission, has_permission
+from app.services.channel_permissions import get_effective_channel_permissions
 from app.schemas.bot_protocol import BotProtocolError, GatewayOpCode, validate_gateway_query
 from app.services.bot_event_dispatcher import (
     HEARTBEAT_INTERVAL_MS,
@@ -36,7 +40,9 @@ from app.services.bot_event_dispatcher import (
     dispatcher as bot_event_dispatcher,
 )
 from app.services.bot_security import BotPrincipal, get_bot_principal_by_token
-from app.services.miscord_serializers import miscord_channel, miscord_role, miscord_user
+from app.services.bot_voice_sessions import registry as bot_voice_sessions
+from app.services.miscord_serializers import miscord_channel, miscord_role, miscord_user, miscord_voice_state
+from app.websocket.voice import _broadcast_voice, voice_connections
 
 
 OP_HEARTBEAT = int(GatewayOpCode.HEARTBEAT)
@@ -72,6 +78,12 @@ def _coerce_int(value: Any, default: int | None = 0) -> int | None:
 def _clean_token(value: str | None) -> str:
     token = str(value or "").strip()
     return token[4:].strip() if token.startswith("Bot ") else token
+
+
+def _voice_gateway_endpoint() -> str:
+    parsed = urlsplit(settings.SERVER_HOST.rstrip("/"))
+    host = parsed.netloc or parsed.path
+    return f"{host}/ws/voice-gateway?v=8"
 
 
 async def _close(websocket: WebSocket, code: int) -> None:
@@ -143,6 +155,22 @@ async def _guild_create_payload(db: AsyncSession, principal: BotPrincipal, guild
     overwrite_result = await db.execute(select(ChannelPermissionOverwrite).where(
         ChannelPermissionOverwrite.server_id == guild_id
     ))
+    voice_state_result = await db.execute(
+        select(VoiceChannelUser, VoiceChannel)
+        .join(VoiceChannel, VoiceChannel.id == VoiceChannelUser.voice_channel_id)
+        .where(VoiceChannel.channel_id == guild_id)
+    )
+    voice_states = [
+        miscord_voice_state(
+            guild_id=guild_id,
+            channel_id=voice_channel.id,
+            user_id=voice_user.user_id,
+            session_id=f"voice-{voice_user.id}",
+            self_mute=bool(voice_user.is_muted),
+            self_deaf=bool(voice_user.is_deafened),
+        )
+        for voice_user, voice_channel in voice_state_result.all()
+    ]
     overwrites: dict[tuple[ChannelKind, int], list[ChannelPermissionOverwrite]] = {}
     for overwrite in overwrite_result.scalars().all():
         overwrites.setdefault((overwrite.channel_kind, int(overwrite.channel_id)), []).append(overwrite)
@@ -201,7 +229,7 @@ async def _guild_create_payload(db: AsyncSession, principal: BotPrincipal, guild
         "large": False,
         "unavailable": False,
         "member_count": len(member_count_result.scalars().all()),
-        "voice_states": [],
+        "voice_states": voice_states,
         "members": [{
             "user": miscord_user(principal.bot_user),
             "nick": membership.nickname if membership else None,
@@ -320,6 +348,174 @@ async def _receive_payload(websocket: WebSocket) -> tuple[dict[str, Any] | None,
     return payload if isinstance(payload, dict) else None, len(encoded)
 
 
+async def _handle_voice_state_update(
+    db: AsyncSession,
+    principal: BotPrincipal,
+    state,
+    data: dict[str, Any],
+) -> None:
+    guild_id = _coerce_int(data.get("guild_id"), 0) or 0
+    raw_channel_id = data.get("channel_id")
+    channel_id = None if raw_channel_id is None else _coerce_int(raw_channel_id, 0)
+    if guild_id <= 0 or (channel_id is not None and channel_id <= 0):
+        return
+
+    installed = await db.scalar(
+        select(BotInstall.id).where(
+            BotInstall.application_id == principal.application.id,
+            BotInstall.server_id == guild_id,
+            BotInstall.status == "active",
+        )
+    )
+    if installed is None:
+        return
+
+    if channel_id is None:
+        existing = await bot_voice_sessions.get_for_application_guild(
+            principal.application.id, guild_id
+        )
+        await bot_voice_sessions.revoke(principal.application.id, guild_id)
+        await bot_event_dispatcher.send_to_session(
+            state,
+            "VOICE_STATE_UPDATE",
+            miscord_voice_state(
+                guild_id=guild_id,
+                channel_id=None,
+                user_id=principal.bot_user.id,
+                session_id=existing.session_id if existing else state.session_id,
+                self_mute=bool(data.get("self_mute", False)),
+                self_deaf=bool(data.get("self_deaf", False)),
+            ),
+        )
+        return
+
+    voice_channel = await db.get(VoiceChannel, channel_id)
+    if voice_channel is None or int(voice_channel.channel_id) != guild_id:
+        return
+
+    permissions = await get_effective_channel_permissions(
+        db, guild_id, principal.bot_user.id, "voice", channel_id
+    )
+    if (
+        not has_permission(permissions, Permission.VIEW_CHANNEL)
+        or not has_permission(permissions, Permission.CONNECT)
+        or not has_permission(permissions, Permission.SPEAK)
+    ):
+        return
+
+    existing = await bot_voice_sessions.get_for_application_guild(
+        principal.application.id, guild_id
+    )
+    if (
+        existing is not None
+        and existing.channel_id == channel_id
+        and existing.websocket is not None
+    ):
+        old_self_mute = existing.self_mute
+        old_self_deaf = existing.self_deaf
+        self_mute = bool(data.get("self_mute", False))
+        self_deaf = bool(data.get("self_deaf", False))
+        await bot_voice_sessions.update_state(
+            existing.session_id,
+            self_mute=self_mute,
+            self_deaf=self_deaf,
+        )
+        await db.execute(
+            update(VoiceChannelUser)
+            .where(
+                VoiceChannelUser.voice_channel_id == channel_id,
+                VoiceChannelUser.user_id == principal.bot_user.id,
+            )
+            .values(is_muted=self_mute, is_deafened=self_deaf)
+        )
+        await db.commit()
+        connection = voice_connections.get(channel_id, {}).get(principal.bot_user.id)
+        if connection is not None:
+            connection["is_muted"] = self_mute
+            connection["is_deafened"] = self_deaf
+        if old_self_mute != self_mute:
+            await _broadcast_voice(
+                channel_id,
+                {
+                    "type": "user_muted",
+                    "user_id": principal.bot_user.id,
+                    "is_muted": self_mute,
+                },
+                exclude_user_id=principal.bot_user.id,
+            )
+        if old_self_deaf != self_deaf:
+            await _broadcast_voice(
+                channel_id,
+                {
+                    "type": "user_deafened",
+                    "user_id": principal.bot_user.id,
+                    "is_deafened": self_deaf,
+                },
+                exclude_user_id=principal.bot_user.id,
+            )
+        state_payload = miscord_voice_state(
+            guild_id=guild_id,
+            channel_id=channel_id,
+            user_id=principal.bot_user.id,
+            session_id=existing.session_id,
+            self_mute=self_mute,
+            self_deaf=self_deaf,
+        )
+        await bot_event_dispatcher.send_to_session(
+            state, "VOICE_STATE_UPDATE", state_payload
+        )
+        await bot_event_dispatcher.dispatch_voice_state_update(
+            db,
+            guild_id,
+            state_payload,
+            exclude_application_id=principal.application.id,
+        )
+        return
+
+    active_count = await db.scalar(
+        select(func.count(VoiceChannelUser.id)).where(
+            VoiceChannelUser.voice_channel_id == channel_id,
+            VoiceChannelUser.user_id != principal.bot_user.id,
+        )
+    )
+    if (
+        int(voice_channel.max_users or 0) > 0
+        and int(active_count or 0) >= int(voice_channel.max_users)
+        and not has_permission(permissions, Permission.MOVE_MEMBERS)
+    ):
+        return
+
+    voice_session, voice_token = await bot_voice_sessions.create(
+        application_id=principal.application.id,
+        bot_user_id=principal.bot_user.id,
+        guild_id=guild_id,
+        channel_id=channel_id,
+        self_mute=bool(data.get("self_mute", False)),
+        self_deaf=bool(data.get("self_deaf", False)),
+    )
+    await bot_event_dispatcher.send_to_session(
+        state,
+        "VOICE_STATE_UPDATE",
+        miscord_voice_state(
+            guild_id=guild_id,
+            channel_id=channel_id,
+            user_id=principal.bot_user.id,
+            session_id=voice_session.session_id,
+            self_mute=voice_session.self_mute,
+            self_deaf=voice_session.self_deaf,
+        ),
+    )
+    await bot_event_dispatcher.send_to_session(
+        state,
+        "VOICE_SERVER_UPDATE",
+        {
+            "token": voice_token,
+            "guild_id": str(guild_id),
+            "endpoint": _voice_gateway_endpoint(),
+        },
+    )
+
+
 async def websocket_gateway_endpoint(websocket: WebSocket) -> None:
     await websocket.accept()
     if not settings.BOT_PLATFORM_ENABLED:
@@ -412,6 +608,7 @@ async def websocket_gateway_endpoint(websocket: WebSocket) -> None:
             if op == OP_PRESENCE_UPDATE:
                 continue
             if op == OP_VOICE_STATE_UPDATE:
+                await _handle_voice_state_update(db, principal, state, data)
                 continue
             if op == OP_REQUEST_GUILD_MEMBERS:
                 if not (state.intents & (1 << 1)):

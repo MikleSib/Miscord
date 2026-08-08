@@ -84,6 +84,34 @@ def miscord_channel(channel, *, guild_id: int, overwrites: list[Any] | None = No
     return payload
 
 
+def miscord_voice_state(
+    *,
+    guild_id: int,
+    channel_id: int | None,
+    user_id: int,
+    session_id: str,
+    self_mute: bool = False,
+    self_deaf: bool = False,
+    mute: bool = False,
+    deaf: bool = False,
+) -> dict[str, Any]:
+    return {
+        "guild_id": str(guild_id),
+        "channel_id": str(channel_id) if channel_id is not None else None,
+        "user_id": str(user_id),
+        "member": None,
+        "session_id": session_id,
+        "deaf": bool(deaf),
+        "mute": bool(mute),
+        "self_deaf": bool(self_deaf),
+        "self_mute": bool(self_mute),
+        "self_stream": False,
+        "self_video": False,
+        "suppress": False,
+        "request_to_speak_timestamp": None,
+    }
+
+
 def miscord_attachment(attachment) -> dict[str, Any]:
     filename = attachment.original_filename or "attachment"
     url = attachment_url(attachment.id, filename) if attachment.storage_key else attachment.file_url

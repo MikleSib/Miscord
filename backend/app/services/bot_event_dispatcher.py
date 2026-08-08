@@ -376,6 +376,36 @@ class BotEventDispatcher:
             event_name="GUILD_DELETE",
         )
 
+    async def dispatch_voice_state_update(
+        self,
+        db: AsyncSession,
+        guild_id: int,
+        payload: dict[str, Any],
+        *,
+        exclude_application_id: int | None = None,
+    ) -> None:
+        result = await db.execute(
+            select(BotInstall.application_id, BotInstall.intents)
+            .join(BotApplication, BotApplication.id == BotInstall.application_id)
+            .where(
+                BotInstall.server_id == guild_id,
+                BotInstall.status == "active",
+                BotApplication.status == "active",
+            )
+        )
+        for application_id, install_intents in result.all():
+            application_id = int(application_id)
+            if exclude_application_id is not None and application_id == exclude_application_id:
+                continue
+            if not int(install_intents or 0) & INTENT_GUILD_VOICE_STATES:
+                continue
+            await self._dispatch_to_application(
+                application_id,
+                payload,
+                required_intent=INTENT_GUILD_VOICE_STATES,
+                event_name="VOICE_STATE_UPDATE",
+            )
+
     async def _installed_apps_for_channel(self, db: AsyncSession, channel_id: int, required_intent: int) -> list[int]:
         channel = await db.get(TextChannel, channel_id)
         if channel is None:

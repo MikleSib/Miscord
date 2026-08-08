@@ -1,0 +1,138 @@
+---
+title: "Голосовые подключения"
+description: "Подключение приложения к голосовому каналу через Gateway и Miscord Voice Gateway."
+icon: "audio-lines"
+---
+
+Голосовое подключение использует два WebSocket-соединения:
+
+1. основной Gateway управляет состоянием приложения;
+2. Miscord Voice Gateway выполняет voice handshake и WebRTC-сигнализацию.
+
+Медиатрафик передаётся как Opus через WebRTC/DTLS-SRTP и не проходит через основной Gateway.
+
+## Требования
+
+- приложение установлено на сервер с областью `bot`;
+- роль приложения имеет права `VIEW_CHANNEL`, `CONNECT` и `SPEAK`;
+- при установке включён intent `GUILD_VOICE_STATES` (`1 << 7`);
+- Gateway-сессия идентифицирована Bot Token.
+
+## Запрос на подключение
+
+Отправьте opcode `4` в основной Gateway:
+
+```json
+{
+  "op": 4,
+  "d": {
+    "guild_id": "SERVER_ID",
+    "channel_id": "VOICE_CHANNEL_ID",
+    "self_mute": false,
+    "self_deaf": true
+  }
+}
+```
+
+Для выхода передайте `channel_id: null`.
+
+Если проверка прав и лимита канала прошла, основной Gateway отправит два события:
+
+```json
+{
+  "op": 0,
+  "t": "VOICE_STATE_UPDATE",
+  "d": {
+    "guild_id": "SERVER_ID",
+    "channel_id": "VOICE_CHANNEL_ID",
+    "user_id": "BOT_USER_ID",
+    "session_id": "VOICE_SESSION_ID",
+    "self_mute": false,
+    "self_deaf": true
+  }
+}
+```
+
+```json
+{
+  "op": 0,
+  "t": "VOICE_SERVER_UPDATE",
+  "d": {
+    "token": "SHORT_LIVED_VOICE_TOKEN",
+    "guild_id": "SERVER_ID",
+    "endpoint": "miscord.ru/ws/voice-gateway?v=8"
+  }
+}
+```
+
+<Warning>
+  Voice Token является одноразовым короткоживущим секретом. Не сохраняйте его и не выводите в логи.
+</Warning>
+
+## Voice Gateway handshake
+
+Подключитесь к `wss://` + `endpoint`. Сервер первым отправляет opcode `8` Hello с `heartbeat_interval`.
+
+Ответьте opcode `0` Identify:
+
+```json
+{
+  "op": 0,
+  "d": {
+    "server_id": "SERVER_ID",
+    "user_id": "BOT_USER_ID",
+    "session_id": "VOICE_SESSION_ID",
+    "token": "SHORT_LIVED_VOICE_TOKEN",
+    "max_dave_protocol_version": 0
+  }
+}
+```
+
+Opcode `2` Ready содержит `ssrc`, список `ice_servers`, участников и транспорт `webrtc`.
+
+Выберите протокол:
+
+```json
+{
+  "op": 1,
+  "d": {
+    "protocol": "webrtc",
+    "data": { "mode": "webrtc_dtls_srtp" }
+  }
+}
+```
+
+Перед передачей аудио отправьте opcode `5` Speaking. Heartbeat отправляется opcode `3`, подтверждение приходит opcode `6`.
+
+| Opcode | Направление | Назначение |
+| --- | --- | --- |
+| `0` | клиент → сервер | Identify |
+| `1` | клиент → сервер | Select Protocol |
+| `2` | сервер → клиент | Ready |
+| `3` | клиент → сервер | Heartbeat |
+| `4` | сервер → клиент | Session Description |
+| `5` | оба | Speaking |
+| `6` | сервер → клиент | Heartbeat ACK |
+| `7` | клиент → сервер | Resume |
+| `8` | сервер → клиент | Hello |
+| `9` | сервер → клиент | Resumed |
+| `11` | сервер → клиент | Client Connect |
+| `13` | сервер → клиент | Client Disconnect |
+
+## WebRTC-сигнализация
+
+SDP и ICE передаются в том же Voice WebSocket как Miscord media extension:
+
+```json
+{
+  "type": "offer",
+  "target_id": "USER_ID",
+  "offer": { "type": "offer", "sdp": "..." }
+}
+```
+
+Аналогично используются типы `answer`, `ice_candidate` и `request_offer`. Меньший `user_id` создаёт offer, что предотвращает одновременные конфликтующие предложения.
+
+<Card title="Готовый Music Bot" icon="music" href="/bots/music">
+  Пример очереди, slash-команд, YouTube-резолвера и Opus/WebRTC-передачи.
+</Card>

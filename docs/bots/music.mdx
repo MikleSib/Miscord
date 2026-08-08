@@ -1,0 +1,70 @@
+---
+title: "Пример Music Bot"
+description: "Запуск музыкального бота с /play, /skip, /stop и /queue."
+icon: "music-2"
+---
+
+Готовый пример находится в каталоге `examples/music-bot` репозитория Miscord.
+
+## Возможности
+
+- `/play url` — добавить ссылку YouTube;
+- `/skip` — пропустить текущий трек;
+- `/stop` — очистить очередь и выйти;
+- `/queue` — показать текущий трек и размер очереди;
+- автоматический вход в голосовой канал пользователя;
+- Opus через WebRTC/DTLS-SRTP;
+- отдельная очередь для каждого сервера.
+
+## Подготовка приложения
+
+<Steps>
+  <Step title="Сбросьте опубликованные секреты">
+    Если Bot Token или Client Secret когда-либо попадали в чат, лог или скриншот, немедленно сбросьте их. Для запуска Music Bot нужен только новый Bot Token.
+  </Step>
+  <Step title="Настройте установку">
+    Добавьте области `bot` и `applications.commands`. Выдайте права Просматривать канал, Подключаться, Говорить и Использовать команды приложений.
+  </Step>
+  <Step title="Включите voice intent">
+    При установке приложения включите `GUILD_VOICE_STATES`.
+  </Step>
+  <Step title="Установите зависимости">
+    Создайте Python 3.11 окружение и выполните `pip install -r requirements.txt` в каталоге примера.
+  </Step>
+</Steps>
+
+## Переменные окружения
+
+```dotenv
+MISCORD_BOT_TOKEN=новый-токен
+MISCORD_APPLICATION_ID=id-приложения
+MISCORD_GUILD_ID=id-тестового-сервера
+MISCORD_API_BASE=https://miscord.ru/api/v10
+MISCORD_GATEWAY=wss://miscord.ru/gateway?v=10&encoding=json
+```
+
+Не передавайте Bot Token в браузер и не добавляйте `.env` в Git. Client Secret здесь не используется.
+
+## Регистрация команд
+
+```bash
+python register_commands.py
+```
+
+Если `MISCORD_GUILD_ID` заполнен, команды регистрируются только на тестовом сервере. Без него создаются глобальные команды.
+
+## Запуск
+
+```bash
+python bot.py
+```
+
+После запуска войдите в голосовой канал и выполните:
+
+```text
+/play url:https://www.youtube.com/watch?v=...
+```
+
+<Note>
+  Miscord предоставляет голосовой транспорт, но не извлекает музыку с внешних сайтов. Пример использует `yt-dlp`. Соблюдайте правила источника и права на ретрансляцию контента.
+</Note>

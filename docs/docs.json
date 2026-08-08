@@ -77,7 +77,9 @@
                   "bots/create",
                   "bots/install",
                   "bots/connect",
-                  "bots/commands"
+                  "bots/commands",
+                  "bots/voice",
+                  "bots/music"
                 ]
               }
             ]

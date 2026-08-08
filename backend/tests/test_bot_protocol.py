@@ -7,6 +7,7 @@ from app.schemas.bot_protocol import (
     GATEWAY_API_VERSION,
     GATEWAY_DEFAULT_ENCODING,
     GatewayOpCode,
+    VoiceGatewayOpCode,
     validate_gateway_query,
 )
 from app.services.bot_event_dispatcher import dispatcher
@@ -79,3 +80,12 @@ def test_validate_gateway_query_supports_miscord_zlib_stream():
     )
     assert version == GATEWAY_API_VERSION
     assert encoding == GATEWAY_DEFAULT_ENCODING
+
+
+def test_voice_gateway_opcode_contract():
+    assert VoiceGatewayOpCode.IDENTIFY == 0
+    assert VoiceGatewayOpCode.READY == 2
+    assert VoiceGatewayOpCode.HEARTBEAT_ACK == 6
+    assert VoiceGatewayOpCode.HELLO == 8
+    assert VoiceGatewayOpCode.CLIENT_CONNECT == 11
+    assert VoiceGatewayOpCode.CLIENT_DISCONNECT == 13

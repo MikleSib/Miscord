@@ -22,6 +22,7 @@ from app.websocket.chat import websocket_chat_endpoint, websocket_notifications_
 from app.websocket.voice import websocket_voice_endpoint
 from app.websocket.unified import websocket_unified_endpoint
 from app.websocket.bot_gateway import websocket_gateway_endpoint
+from app.websocket.bot_voice_gateway import websocket_bot_voice_gateway_endpoint
 from app.services.user_activity_service import user_activity_service
 from app.db.database import AsyncSessionLocal
 from app.models import VoiceChannelUser
@@ -263,6 +264,10 @@ async def websocket_notifications_endpoint_route(websocket: WebSocket, token: st
 async def websocket_gateway_endpoint_route(websocket: WebSocket):
     await websocket_gateway_endpoint(websocket)
 
+@app.websocket("/ws/voice-gateway")
+async def websocket_bot_voice_gateway_endpoint_route(websocket: WebSocket):
+    await websocket_bot_voice_gateway_endpoint(websocket)
+
 @app.websocket("/ws/voice/{channel_id}")
 async def websocket_voice_endpoint_route(websocket: WebSocket, channel_id: int, token: str):
     await websocket_voice_endpoint(websocket, channel_id, token)
@@ -281,6 +286,7 @@ async def root():
             "websocket_voice": "/ws/voice/{channel_id} (deprecated)",
             "websocket_notifications": "/ws/notifications (deprecated)",
             "gateway": "/api/gateway",
+            "voice_gateway": "/ws/voice-gateway?v=8",
         }
     }
 

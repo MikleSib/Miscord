@@ -16,6 +16,8 @@ from app.services.voice_session import (
     find_user_channels,
     participant_payload,
 )
+from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
+from app.services.miscord_serializers import miscord_voice_state
 
 # channel_id -> { user_id -> connection_info }
 voice_connections: Dict[int, Dict[int, dict]] = {}
@@ -130,6 +132,17 @@ async def _force_leave_other_channels(user: User, keep_channel_id: int, db) -> N
             },
             user.id,
         )
+        if server_id is not None:
+            await bot_event_dispatcher.dispatch_voice_state_update(
+                db,
+                server_id,
+                miscord_voice_state(
+                    guild_id=server_id,
+                    channel_id=None,
+                    user_id=user.id,
+                    session_id=str(info.get("connection_id") or ""),
+                ),
+            )
 
     await db.execute(
         delete(VoiceChannelUser).where(
@@ -411,6 +424,8 @@ async def _handle_join(
     channel_id: int,
     voice_channel: VoiceChannel,
     data: dict,
+    send_participants: bool = True,
+    source_application_id: int | None = None,
 ) -> None:
     is_muted = bool(data.get("is_muted", False))
     is_deafened = bool(data.get("is_deafened", False))
@@ -434,18 +449,19 @@ async def _handle_join(
             )
         )
 
-    await websocket.send_json(
-        {
-            "type": "participants",
-            "participants": participants,
-            "ice_servers": settings.ICE_SERVERS,
-            "self": {
-                "user_id": user.id,
-                "is_muted": is_muted,
-                "is_deafened": is_deafened,
-            },
-        }
-    )
+    if send_participants:
+        await websocket.send_json(
+            {
+                "type": "participants",
+                "participants": participants,
+                "ice_servers": settings.ICE_SERVERS,
+                "self": {
+                    "user_id": user.id,
+                    "is_muted": is_muted,
+                    "is_deafened": is_deafened,
+                },
+            }
+        )
 
     join_message = {
         "type": "user_joined_voice",
@@ -481,6 +497,20 @@ async def _handle_join(
         },
         user.id,
     )
+    if server_id is not None:
+        await bot_event_dispatcher.dispatch_voice_state_update(
+            db,
+            server_id,
+            miscord_voice_state(
+                guild_id=server_id,
+                channel_id=channel_id,
+                user_id=user.id,
+                session_id=str(info.get("connection_id") if info else ""),
+                self_mute=is_muted,
+                self_deaf=is_deafened,
+            ),
+            exclude_application_id=source_application_id,
+        )
 
 
 async def _handle_mute(db, channel_id: int, user_id: int, is_muted: bool) -> None:
@@ -506,6 +536,20 @@ async def _handle_mute(db, channel_id: int, user_id: int, is_muted: bool) -> Non
         {"type": "user_muted", "user_id": user_id, "is_muted": is_muted},
         exclude_user_id=user_id,
     )
+    voice_channel = await db.get(VoiceChannel, channel_id)
+    if voice_channel is not None:
+        await bot_event_dispatcher.dispatch_voice_state_update(
+            db,
+            int(voice_channel.channel_id),
+            miscord_voice_state(
+                guild_id=int(voice_channel.channel_id),
+                channel_id=channel_id,
+                user_id=user_id,
+                session_id=str(info.get("connection_id") if info else ""),
+                self_mute=is_muted,
+                self_deaf=bool(info.get("is_deafened")) if info else False,
+            ),
+        )
 
 
 async def _handle_deafen(db, channel_id: int, user_id: int, is_deafened: bool) -> None:
@@ -531,6 +575,20 @@ async def _handle_deafen(db, channel_id: int, user_id: int, is_deafened: bool) -
         {"type": "user_deafened", "user_id": user_id, "is_deafened": is_deafened},
         exclude_user_id=user_id,
     )
+    voice_channel = await db.get(VoiceChannel, channel_id)
+    if voice_channel is not None:
+        await bot_event_dispatcher.dispatch_voice_state_update(
+            db,
+            int(voice_channel.channel_id),
+            miscord_voice_state(
+                guild_id=int(voice_channel.channel_id),
+                channel_id=channel_id,
+                user_id=user_id,
+                session_id=str(info.get("connection_id") if info else ""),
+                self_mute=bool(info.get("is_muted")) if info else False,
+                self_deaf=is_deafened,
+            ),
+        )
 
 
 async def _cleanup_voice_session(
@@ -542,6 +600,7 @@ async def _cleanup_voice_session(
     connection_id: str,
     manager_channel_id: int,
     joined_presence: bool,
+    source_application_id: int | None = None,
 ) -> None:
     await manager.disconnect(websocket, user.id, manager_channel_id)
 
@@ -593,4 +652,16 @@ async def _cleanup_voice_session(
         },
         user.id,
     )
+    if leave_server_id is not None:
+        await bot_event_dispatcher.dispatch_voice_state_update(
+            db,
+            leave_server_id,
+            miscord_voice_state(
+                guild_id=leave_server_id,
+                channel_id=None,
+                user_id=user.id,
+                session_id=connection_id,
+            ),
+            exclude_application_id=source_application_id,
+        )
     print(f"[Voice] cleaned up user={user.id} channel={channel_id}")
