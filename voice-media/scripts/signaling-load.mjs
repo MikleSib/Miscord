@@ -7,6 +7,8 @@ import WebSocket from 'ws';
 const users = Number.parseInt(process.env.LOAD_USERS ?? '1000', 10);
 const roomCount = Number.parseInt(process.env.LOAD_ROOMS ?? '100', 10);
 const concurrency = Number.parseInt(process.env.LOAD_CONCURRENCY ?? '50', 10);
+const holdMs = Number.parseInt(process.env.LOAD_HOLD_MS ?? '0', 10);
+const pingIntervalMs = Number.parseInt(process.env.LOAD_PING_INTERVAL_MS ?? '15000', 10);
 const baseUrl = process.env.VOICE_SMOKE_WS_URL ?? 'ws://127.0.0.1:3011';
 const jwtSecret = process.env.VOICE_MEDIA_JWT_SECRET ?? 'local-voice-media-secret-change-me-32-bytes';
 const secret = new TextEncoder().encode(jwtSecret);
@@ -14,6 +16,8 @@ const runId = randomUUID();
 const sockets = [];
 const durations = [];
 const failures = [];
+const disconnectedDuringHold = new Set();
+let intentionalClose = false;
 
 function waitMessage(socket, predicate, timeoutMs = 10_000) {
   return new Promise((resolve, reject) => {
@@ -82,6 +86,12 @@ async function connectUser(index) {
   await rpc(socket, 'identify', `identify-${index}`, { ticket: token });
   await rpc(socket, 'create_transport', `send-${index}`, { direction: 'send' });
   await rpc(socket, 'create_transport', `recv-${index}`, { direction: 'recv' });
+  socket.once('close', () => {
+    if (!intentionalClose) disconnectedDuringHold.add(index);
+  });
+  socket.once('error', () => {
+    if (!intentionalClose) disconnectedDuringHold.add(index);
+  });
   durations.push(performance.now() - started);
   sockets.push(socket);
 }
@@ -102,6 +112,24 @@ await Promise.all(Array.from({ length: Math.min(concurrency, users) }, () => wor
 const sorted = [...durations].sort((left, right) => left - right);
 const p95 = sorted.length ? sorted[Math.ceil(sorted.length * 0.95) - 1] : Number.POSITIVE_INFINITY;
 const successRate = users > 0 ? durations.length / users : 0;
+
+let pingTimer;
+if (holdMs > 0 && sockets.length > 0) {
+  pingTimer = setInterval(() => {
+    const pingId = `hold-ping-${Date.now()}`;
+    for (const socket of sockets) {
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'ping', request_id: pingId }));
+      }
+    }
+  }, pingIntervalMs);
+  await new Promise((resolve) => setTimeout(resolve, holdMs));
+  clearInterval(pingTimer);
+}
+
+const connectedAtEnd = sockets.filter((socket) => socket.readyState === WebSocket.OPEN).length;
+const survivalRate = sockets.length > 0 ? connectedAtEnd / sockets.length : 0;
+intentionalClose = true;
 for (const socket of sockets) socket.close();
 await new Promise((resolve) => setTimeout(resolve, 500));
 
@@ -113,7 +141,11 @@ const summary = {
   p95_join_ms: Number(p95.toFixed(1)),
   rooms: roomCount,
   transports_per_peer: 2,
+  hold_ms: holdMs,
+  connected_at_end: connectedAtEnd,
+  survived_percent: Number((survivalRate * 100).toFixed(2)),
+  disconnected_during_hold: disconnectedDuringHold.size,
   first_failures: failures.slice(0, 5),
 };
 console.log(JSON.stringify(summary));
-if (successRate < 0.99 || p95 >= 3_000) process.exitCode = 1;
+if (successRate < 0.99 || p95 >= 3_000 || survivalRate < 0.99) process.exitCode = 1;
