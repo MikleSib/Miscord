@@ -158,6 +158,10 @@ services:
 
   nginx:
     image: nginx:1.25-alpine
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     ports:
       - "127.0.0.1:8443:80"
     volumes:
