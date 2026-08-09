@@ -11,6 +11,7 @@ from typing import Awaitable, Callable
 
 import nacl.bindings
 import websockets
+from websockets.exceptions import ConnectionClosed
 
 
 MODE = "aead_xchacha20_poly1305_rtpsize"
@@ -74,6 +75,14 @@ class VoiceConnection:
         self._send_lock = asyncio.Lock()
         self._speaking = False
 
+    @property
+    def is_connected(self) -> bool:
+        return (
+            self.websocket is not None
+            and self._receive_task is not None
+            and not self._receive_task.done()
+        )
+
     async def connect(self) -> None:
         url = self.endpoint
         if not url.startswith(("ws://", "wss://")):
@@ -109,6 +118,8 @@ class VoiceConnection:
     async def send_opus(self, opus_packet: bytes) -> None:
         if not self.cipher or not self.udp or not self.remote:
             raise RuntimeError("Voice UDP transport is not connected")
+        if not self.is_connected:
+            raise RuntimeError("Voice Gateway disconnected; run /play again to reconnect")
         if not self._speaking:
             self._speaking = True
             await self._send_op(5, {"speaking": 1, "delay": 0, "ssrc": self.ssrc})
@@ -182,10 +193,17 @@ class VoiceConnection:
     async def _receive_loop(self) -> None:
         if not self.websocket:
             return
-        async for raw in self.websocket:
-            payload = json.loads(raw)
-            if payload.get("op") == 13:
-                print(f"voice participant disconnected: {payload.get('d', {}).get('user_id')}")
+        try:
+            async for raw in self.websocket:
+                payload = json.loads(raw)
+                if payload.get("op") == 13:
+                    print(f"voice participant disconnected: {payload.get('d', {}).get('user_id')}")
+        except ConnectionClosed as exc:
+            print(f"voice gateway disconnected: code={exc.code} reason={exc.reason or 'none'}")
+        finally:
+            self._speaking = False
+            if self._heartbeat_task:
+                self._heartbeat_task.cancel()
 
     async def _udp_receive_loop(self) -> None:
         if not self.udp:

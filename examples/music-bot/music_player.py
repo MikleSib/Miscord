@@ -119,8 +119,10 @@ class GuildMusicPlayer:
                 continue
             item = self.queue.popleft()
             generation = self._generation
+            packet_count = 0
             try:
                 source_url, self.current_title = await asyncio.to_thread(resolve_youtube, item.url)
+                print(f"player started: {self.current_title}")
                 iterator = opus_packets(source_url)
                 deadline = asyncio.get_running_loop().time()
                 while generation == self._generation and not self._closed:
@@ -130,6 +132,9 @@ class GuildMusicPlayer:
                     if not self.connection:
                         raise RuntimeError("Бот не подключён к голосовому каналу.")
                     await self.connection.send_opus(packet)
+                    packet_count += 1
+                    if packet_count == 1:
+                        print("player sent first RTP packet")
                     deadline += 0.02
                     await asyncio.sleep(max(0, deadline - asyncio.get_running_loop().time()))
             except asyncio.CancelledError:
@@ -137,6 +142,8 @@ class GuildMusicPlayer:
             except Exception as exc:
                 print(f"player error: {type(exc).__name__}: {exc}")
             finally:
+                if packet_count:
+                    print(f"player stopped: packets={packet_count}")
                 if self.connection:
                     with suppress(Exception):
                         await self.connection.stop_speaking()

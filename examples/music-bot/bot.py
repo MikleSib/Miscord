@@ -153,11 +153,12 @@ class MiscordMusicBot:
         self, guild_id: int, channel_id: int, player: GuildMusicPlayer,
     ) -> VoiceConnection:
         current = self.voice_connections.get(guild_id)
-        if current and current.channel_id == channel_id:
+        if current and current.channel_id == channel_id and current.is_connected:
             player.attach(current)
             return current
         if current:
             await current.close()
+            self.voice_connections.pop(guild_id, None)
         pending = {"state": None, "server": None, "event": asyncio.Event()}
         self.pending_voice[guild_id] = pending
         await self._send({
@@ -183,6 +184,7 @@ class MiscordMusicBot:
             token=str(server["token"]),
         )
         await connection.connect()
+        print(f"voice connected: guild={guild_id} channel={channel_id}")
         self.voice_connections[guild_id] = connection
         player.attach(connection)
         return connection
@@ -211,8 +213,9 @@ class MiscordMusicBot:
         response.raise_for_status()
 
     async def _edit_deferred(self, interaction: dict, content: str) -> None:
+        application_id = str(interaction.get("application_id") or self.application_id)
         response = await self.http.patch(
-            f"{self.api_base}/webhooks/{self.application_id}/{interaction['token']}/messages/@original",
+            f"{self.api_base}/webhooks/{application_id}/{interaction['token']}/messages/@original",
             json={"content": content[:2000]},
         )
         response.raise_for_status()
@@ -261,7 +264,20 @@ class MiscordMusicBot:
                     ephemeral=True,
                 )
         except Exception as exc:
-            print(f"interaction error: {type(exc).__name__}: {exc}")
+            if isinstance(exc, httpx.HTTPStatusError):
+                response = exc.response
+                try:
+                    detail = response.json()
+                    code = detail.get("code")
+                    description = detail.get("message") or detail.get("detail")
+                except ValueError:
+                    code, description = None, None
+                print(
+                    "interaction error: "
+                    f"status={response.status_code} code={code} message={description or 'unknown'}"
+                )
+            else:
+                print(f"interaction error: {type(exc).__name__}: {exc}")
             message = "Не удалось выполнить команду. Проверьте права бота и ссылку."
             with suppress(Exception):
                 if deferred:
