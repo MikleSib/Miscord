@@ -1,9 +1,9 @@
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip make g++ ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN MEDIASOUP_SKIP_WORKER_PREBUILT_DOWNLOAD=1 npm ci
 COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build \
