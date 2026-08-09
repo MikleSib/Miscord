@@ -17,6 +17,7 @@ export class SfuTransport {
   private screenAudio: Producer | null = null;
   private readonly consumers = new Map<string, Consumer>();
   private readonly producerDirectory = new Map<string, ProducerDescriptor>();
+  private readonly requestedScreenUsers = new Set<number>();
   private remoteMediaHandler?: RemoteMediaHandler;
   private speakersHandler?: SpeakersHandler;
   private failureHandler?: (message: string) => void;
@@ -115,10 +116,15 @@ export class SfuTransport {
   }
 
   async ensureScreenShare(userId: number): Promise<void> {
+    this.requestedScreenUsers.add(userId);
     const descriptors = [...this.producerDirectory.values()].filter(
       (item) => item.user_id === userId && item.source.startsWith('screen-'),
     );
     for (const descriptor of descriptors) await this.consume(descriptor);
+  }
+
+  clearScreenShareRequest(userId: number): void {
+    this.requestedScreenUsers.delete(userId);
   }
 
   async setScreenQuality(userId: number, spatialLayer: number, temporalLayer = 2): Promise<void> {
@@ -155,6 +161,7 @@ export class SfuTransport {
     this.recvTransport?.close();
     this.rpc.close();
     this.producerDirectory.clear();
+    this.requestedScreenUsers.clear();
   }
 
   private async createTransport(direction: 'send' | 'recv'): Promise<Transport> {
@@ -197,7 +204,10 @@ export class SfuTransport {
   private bindNotifications(): void {
     this.rpc.on('producer_available', (descriptor: ProducerDescriptor) => {
       this.producerDirectory.set(descriptor.producer_id, descriptor);
-      if (descriptor.source === 'microphone') void this.consume(descriptor);
+      if (
+        descriptor.source === 'microphone'
+        || (descriptor.source.startsWith('screen-') && this.requestedScreenUsers.has(descriptor.user_id))
+      ) void this.consume(descriptor);
     });
     this.rpc.on('producer_closed', ({ producer_id }: { producer_id: string }) => {
       this.producerDirectory.delete(producer_id);

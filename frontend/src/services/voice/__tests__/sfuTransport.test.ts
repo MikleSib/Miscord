@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const state = vi.hoisted(() => ({
   requests: [] as Array<{ type: string; payload: Record<string, unknown> }>,
   produced: [] as Array<{ options: Record<string, unknown>; producer: FakeProducer }>,
+  handlers: new Map<string, (payload: any) => void>(),
 }));
 
 class FakeProducer {
@@ -65,7 +66,7 @@ vi.mock('../mediaRpcClient', () => ({
       return {};
     }
 
-    on(): void {}
+    on(type: string, handler: (payload: any) => void): void { state.handlers.set(type, handler); }
     close(): void {}
   },
 }));
@@ -90,6 +91,7 @@ function screenStream(video: MediaStreamTrack, audio?: MediaStreamTrack): MediaS
 beforeEach(() => {
   state.requests.length = 0;
   state.produced.length = 0;
+  state.handlers.clear();
 });
 
 describe('SfuTransport lifecycle', () => {
@@ -127,6 +129,37 @@ describe('SfuTransport lifecycle', () => {
     await transport.startScreenShare(screenStream(track('video')));
     await transport.stopScreenShare();
     expect(state.requests.filter((item) => item.type === 'close_producer')).toHaveLength(3);
+    transport.close();
+  });
+
+  it('consumes a screen producer that appears after the viewer subscribes', async () => {
+    const transport = new SfuTransport();
+    await transport.connect('ws://local/ws/media', 'ticket', track('audio'));
+    const consume = vi.spyOn(transport as any, 'consume').mockResolvedValue(undefined);
+
+    await transport.ensureScreenShare(77);
+    state.handlers.get('producer_available')?.({
+      producer_id: 'late-screen',
+      user_id: 77,
+      source: 'screen-video',
+      kind: 'video',
+    });
+
+    await vi.waitFor(() => expect(consume).toHaveBeenCalledWith(expect.objectContaining({
+      producer_id: 'late-screen',
+      user_id: 77,
+    })));
+
+    consume.mockClear();
+    transport.clearScreenShareRequest(77);
+    state.handlers.get('producer_available')?.({
+      producer_id: 'restarted-screen',
+      user_id: 77,
+      source: 'screen-video',
+      kind: 'video',
+    });
+    await new Promise<void>((resolve) => queueMicrotask(() => resolve()));
+    expect(consume).not.toHaveBeenCalled();
     transport.close();
   });
 });

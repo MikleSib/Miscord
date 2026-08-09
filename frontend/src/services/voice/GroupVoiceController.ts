@@ -6,6 +6,7 @@ import { useAudioDeviceStore } from '../../store/audioDeviceStore';
 import { audioProcessingService } from '../audioProcessingService';
 import unifiedWebSocketService from '../unifiedWebSocketService';
 import { captureAudioStream, getVoiceSettingsSnapshot, sensitivityToDbfs, type VoiceSettingsSnapshot } from '../voiceSettings';
+import { dispatchScreenShareState } from './screenShareEvents';
 import { SfuTransport } from './sfuTransport';
 import type { RemoteMedia, VoiceCallbacks, VoiceJoinedPayload, VoiceParticipant } from './types';
 
@@ -33,6 +34,7 @@ export class GroupVoiceController {
   private participants = new Map<number, VoiceParticipant>();
   private audioElements = new Map<string, HTMLAudioElement>();
   private screenTracks = new Map<number, Map<string, MediaStreamTrack>>();
+  private screenSharingUsers = new Set<number>();
   private participantVolumes = new Map<number, number>();
   private speakingUsers = new Set<number>();
   private isMuted = false;
@@ -74,6 +76,9 @@ export class GroupVoiceController {
       await this.transport.connect(payload.transport.ws_url, payload.transport.ticket, track);
       this.participants = new Map(payload.participants.map((item) => [item.user_id, item]));
       this.callbacks.participantsReceived?.(payload.participants);
+      for (const participant of payload.participants) {
+        if (participant.is_sharing_screen) this.updateScreenShareState(participant.user_id, true, participant);
+      }
       await this.applyTransmitGate();
     } catch (error) {
       this.cleanupMedia();
@@ -193,8 +198,11 @@ export class GroupVoiceController {
       this.screenStream = stream;
       await this.transport.startScreenShare(stream);
       this.isScreenSharing = true;
-      const userId = useAuthStore.getState().user?.id;
-      if (userId != null) this.attachScreenMedia(userId, stream);
+      const user = useAuthStore.getState().user;
+      if (user) {
+        this.attachScreenMedia(user.id, stream);
+        this.updateScreenShareState(user.id, true, user);
+      }
       if (this.currentChannelId !== null) unifiedWebSocketService.startScreenShare(this.currentChannelId);
       return true;
     } catch (error) {
@@ -262,16 +270,17 @@ export class GroupVoiceController {
     });
     unifiedWebSocketService.onUserLeftVoice(({ user_id }) => {
       this.participants.delete(user_id);
+      this.updateScreenShareState(user_id, false);
       this.removeRemoteUser(user_id);
       this.callbacks.participantLeft?.(user_id);
     });
     unifiedWebSocketService.onUserMuted((data) => this.callbacks.participantStatusChanged?.(data.user_id, { is_muted: data.is_muted }));
     unifiedWebSocketService.onUserDeafened((data) => this.callbacks.participantStatusChanged?.(data.user_id, { is_deafened: data.is_deafened }));
     unifiedWebSocketService.onUserSpeaking((data) => this.setRemoteSpeaking(data.user_id, data.is_speaking));
-    unifiedWebSocketService.onScreenShareStarted((data) => this.callbacks.screenShareChanged?.(data.user_id, true));
+    unifiedWebSocketService.onScreenShareStarted((data) => this.updateScreenShareState(data.user_id, true, data));
     unifiedWebSocketService.onScreenShareStopped((data) => {
+      this.updateScreenShareState(data.user_id, false, data);
       this.removeScreenMedia(data.user_id);
-      this.callbacks.screenShareChanged?.(data.user_id, false);
     });
     unifiedWebSocketService.on('error', (data: { code?: string; message?: string }) => {
       if (this.pendingJoin) this.rejectJoin(new Error(data.message || 'Не удалось войти в голосовой канал.'));
@@ -340,6 +349,35 @@ export class GroupVoiceController {
   private setRemoteSpeaking(userId: number, speaking: boolean): void {
     if (speaking) this.speakingUsers.add(userId); else this.speakingUsers.delete(userId);
     this.callbacks.speakingChanged?.(userId, speaking);
+  }
+
+  private updateScreenShareState(
+    userId: number,
+    sharing: boolean,
+    identity: Partial<VoiceParticipant> = {},
+  ): void {
+    if (!Number.isFinite(userId) || this.screenSharingUsers.has(userId) === sharing) return;
+    if (sharing) this.screenSharingUsers.add(userId);
+    else {
+      this.screenSharingUsers.delete(userId);
+      this.transport?.clearScreenShareRequest(userId);
+    }
+    const localUser = useAuthStore.getState().user;
+    const participant = this.participants.get(userId);
+    const username = identity.display_name?.trim()
+      || identity.username?.trim()
+      || participant?.display_name?.trim()
+      || participant?.username?.trim()
+      || (localUser?.id === userId ? localUser.display_name?.trim() || localUser.username : '')
+      || `User ${userId}`;
+    dispatchScreenShareState({
+      user_id: userId,
+      username,
+      display_name: identity.display_name || participant?.display_name,
+      avatar_url: identity.avatar_url || participant?.avatar_url,
+      is_sharing_screen: sharing,
+    });
+    this.callbacks.screenShareChanged?.(userId, sharing);
   }
 
   private async applyTransmitGate(): Promise<void> {
@@ -445,7 +483,10 @@ export class GroupVoiceController {
     this.screenStream = null;
     this.isScreenSharing = false;
     const userId = useAuthStore.getState().user?.id;
-    if (userId != null) this.removeScreenMedia(userId);
+    if (userId != null) {
+      this.updateScreenShareState(userId, false);
+      this.removeScreenMedia(userId);
+    }
     if (this.currentChannelId !== null) unifiedWebSocketService.stopScreenShare(this.currentChannelId);
   }
 
@@ -458,6 +499,8 @@ export class GroupVoiceController {
     this.localStream = null;
     this.screenStream?.getTracks().forEach((track) => track.stop());
     this.screenStream = null;
+    this.isScreenSharing = false;
+    for (const userId of [...this.screenSharingUsers]) this.updateScreenShareState(userId, false);
     void audioProcessingService.destroy();
     for (const userId of [...this.screenTracks.keys()]) this.removeScreenMedia(userId);
     for (const userId of [...this.participants.keys()]) this.removeRemoteUser(userId);
