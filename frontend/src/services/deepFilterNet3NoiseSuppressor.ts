@@ -1,6 +1,6 @@
 // Public audio assets are served as immutable, so changing the query version is
 // required whenever the worklet implementation changes.
-const WORKLET_PATH = '/audio/deepfilternet3/dfn3-worklet.js?v=2026-08-10-always-process';
+const WORKLET_PATH = '/audio/deepfilternet3/dfn3-worklet.js?v=2026-08-10-declick';
 const PROCESSOR_NAME = 'miscord-deepfilternet3';
 const WASM_PATH = '/audio/deepfilternet3/dfn3.wasm';
 const WEIGHTS_PATH = '/audio/deepfilternet3/dfn3_weights.bin';
