@@ -1,5 +1,5 @@
-import soundService from '../services/soundService';
 import voiceService from '../services/voiceService';
+import { playScreenShareSound } from '../services/voice/screenShareSounds';
 import { useScreenShareStore } from '../store/screenShareStore';
 
 /** Открыть просмотр стрима: звук у зрителя + сигнал ведущему. */
@@ -9,7 +9,7 @@ export function openScreenShareView(streamerId: number, username: string): void 
   useScreenShareStore.getState().openViewer(streamerId, username);
   void voiceService.ensureRemoteScreenShare(streamerId);
 
-  soundService.playStreamJoinSound();
+  playScreenShareSound('join');
   voiceService.notifyStreamerViewerJoined(streamerId);
 
   window.dispatchEvent(

@@ -29,6 +29,7 @@ from app.websocket.group_voice import (
     join_voice as join_group_voice,
     leave_voice as leave_group_voice,
     refresh_ticket as refresh_group_voice_ticket,
+    notify_screen_share_viewer_joined,
     update_voice_state as update_group_voice_state,
 )
 from app.services.voice_presence import voice_presence
@@ -214,6 +215,18 @@ async def websocket_unified_endpoint(
                             db=db,
                             manager=manager,
                             local_connections=voice_connections,
+                        )
+
+                    elif msg_type == "screen_share_viewer_joined":
+                        try:
+                            streamer_id = int(message_data.get("streamer_id"))
+                        except (TypeError, ValueError):
+                            streamer_id = 0
+                        await notify_screen_share_viewer_joined(
+                            user=user,
+                            channel_id=current_voice_channel,
+                            streamer_id=streamer_id,
+                            manager=manager,
                         )
 
                     elif msg_type == "voice_media_ticket_refresh":

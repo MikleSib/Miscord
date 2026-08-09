@@ -334,6 +334,25 @@ async def update_voice_state(
     await broadcast_voice(manager, channel_id, payload)
 
 
+async def notify_screen_share_viewer_joined(
+    *, user: User, channel_id: Optional[int], streamer_id: int, manager: Any,
+) -> bool:
+    if not channel_id or streamer_id == user.id:
+        return False
+    streamer = await voice_presence.get_for_user(streamer_id)
+    if not streamer or int(streamer.get("channel_id", 0)) != channel_id:
+        return False
+    if not bool(streamer.get("is_sharing_screen")):
+        return False
+    await manager.send_personal_message({
+        "type": "screen_share_viewer_joined",
+        "streamer_id": streamer_id,
+        "viewer_id": user.id,
+        "viewer_username": user.display_name or user.username,
+    }, streamer_id)
+    return True
+
+
 async def refresh_ticket(
     *,
     user: User,

@@ -7,6 +7,7 @@ import { audioProcessingService } from '../audioProcessingService';
 import unifiedWebSocketService from '../unifiedWebSocketService';
 import { captureAudioStream, getVoiceSettingsSnapshot, sensitivityToDbfs, type VoiceSettingsSnapshot } from '../voiceSettings';
 import { dispatchScreenShareState } from './screenShareEvents';
+import { playScreenShareSound } from './screenShareSounds';
 import { SfuTransport } from './sfuTransport';
 import type { RemoteMedia, VoiceCallbacks, VoiceJoinedPayload, VoiceParticipant } from './types';
 
@@ -35,6 +36,7 @@ export class GroupVoiceController {
   private audioElements = new Map<string, HTMLAudioElement>();
   private screenTracks = new Map<number, Map<string, MediaStreamTrack>>();
   private screenSharingUsers = new Set<number>();
+  private viewerJoinSentAt = new Map<number, number>();
   private participantVolumes = new Map<number, number>();
   private speakingUsers = new Set<number>();
   private isMuted = false;
@@ -204,6 +206,7 @@ export class GroupVoiceController {
         this.updateScreenShareState(user.id, true, user);
       }
       if (this.currentChannelId !== null) unifiedWebSocketService.startScreenShare(this.currentChannelId);
+      playScreenShareSound('start');
       return true;
     } catch (error) {
       this.lastScreenShareStartCancelled = error instanceof DOMException && error.name === 'NotAllowedError';
@@ -220,7 +223,18 @@ export class GroupVoiceController {
     await this.transport?.ensureScreenShare(userId);
   }
 
-  notifyStreamerViewerJoined(_userId: number): void {}
+  notifyStreamerViewerJoined(userId: number): void {
+    const localUserId = useAuthStore.getState().user?.id;
+    if (this.currentChannelId === null || localUserId == null || localUserId === userId) return;
+    const now = Date.now();
+    if (now - (this.viewerJoinSentAt.get(userId) ?? 0) < 3000) return;
+    const sent = unifiedWebSocketService.send({
+      type: 'screen_share_viewer_joined',
+      voice_channel_id: this.currentChannelId,
+      streamer_id: userId,
+    });
+    if (sent) this.viewerJoinSentAt.set(userId, now);
+  }
 
   async reapplyScreenShareQuality(): Promise<void> {
     if (!this.screenStream) return;
@@ -281,6 +295,10 @@ export class GroupVoiceController {
     unifiedWebSocketService.onScreenShareStopped((data) => {
       this.updateScreenShareState(data.user_id, false, data);
       this.removeScreenMedia(data.user_id);
+    });
+    unifiedWebSocketService.on('screen_share_viewer_joined', (data: { streamer_id: number }) => {
+      const localUserId = useAuthStore.getState().user?.id;
+      if (this.isScreenSharing && localUserId === Number(data.streamer_id)) playScreenShareSound('join');
     });
     unifiedWebSocketService.on('error', (data: { code?: string; message?: string }) => {
       if (this.pendingJoin) this.rejectJoin(new Error(data.message || 'Не удалось войти в голосовой канал.'));
@@ -478,19 +496,22 @@ export class GroupVoiceController {
 
   private async stopScreenShareNow(): Promise<void> {
     if (!this.isScreenSharing && !this.screenStream) return;
-    await this.transport?.stopScreenShare();
-    this.screenStream?.getTracks().forEach((track) => track.stop());
+    const stream = this.screenStream;
     this.screenStream = null;
     this.isScreenSharing = false;
+    await this.transport?.stopScreenShare();
+    stream?.getTracks().forEach((track) => track.stop());
     const userId = useAuthStore.getState().user?.id;
     if (userId != null) {
       this.updateScreenShareState(userId, false);
       this.removeScreenMedia(userId);
     }
     if (this.currentChannelId !== null) unifiedWebSocketService.stopScreenShare(this.currentChannelId);
+    playScreenShareSound('stop');
   }
 
   private cleanupMedia(): void {
+    const wasScreenSharing = this.isScreenSharing;
     this.rejectJoin(new Error('Подключение отменено.'));
     this.transport?.close();
     this.transport = null;
@@ -500,10 +521,12 @@ export class GroupVoiceController {
     this.screenStream?.getTracks().forEach((track) => track.stop());
     this.screenStream = null;
     this.isScreenSharing = false;
+    this.viewerJoinSentAt.clear();
     for (const userId of [...this.screenSharingUsers]) this.updateScreenShareState(userId, false);
     void audioProcessingService.destroy();
     for (const userId of [...this.screenTracks.keys()]) this.removeScreenMedia(userId);
     for (const userId of [...this.participants.keys()]) this.removeRemoteUser(userId);
+    if (wasScreenSharing) playScreenShareSound('stop');
   }
 }
 
