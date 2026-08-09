@@ -1,6 +1,6 @@
 // Public audio assets are served as immutable, so changing the query version is
 // required whenever the worklet implementation changes.
-const WORKLET_PATH = '/audio/deepfilternet3/dfn3-worklet.js?v=2026-08-10-primed-fifo';
+const WORKLET_PATH = '/audio/deepfilternet3/dfn3-worklet.js?v=2026-08-10-always-process';
 const PROCESSOR_NAME = 'miscord-deepfilternet3';
 const WASM_PATH = '/audio/deepfilternet3/dfn3.wasm';
 const WEIGHTS_PATH = '/audio/deepfilternet3/dfn3_weights.bin';
@@ -9,6 +9,8 @@ const WEIGHTS_PATH = '/audio/deepfilternet3/dfn3_weights.bin';
 const REALTIME_OVERLOAD_STRIKES = 4;
 /** Доля кадров, не уложившихся в реальное время, после которой окно считается плохим. */
 const OVERLOAD_FRAME_RATIO = 0.2;
+/** 10 мс пропущенного звука за окно — рендер уже не справляется. */
+const GLITCH_SAMPLES_LIMIT = 480;
 
 type DeepFilterNet3Node = AudioWorkletNode & { destroy: () => void };
 
@@ -18,6 +20,8 @@ export interface DeepFilterNet3PerfMetrics {
   rtf: number;
   /** Доля кадров окна, обработанных дольше реального времени. */
   overloadRatio: number;
+  /** Сэмплы, пропущенные аудиодвижком: слышны как щелчки и треск. */
+  glitchSamples: number;
   /** Сэмплы, потерянные при переполнении очередей: на слух это ускорение речи. */
   droppedSamples: number;
   lsnr: number;
@@ -145,15 +149,18 @@ export class DeepFilterNet3NoiseSuppressor {
           maxMs: Number(message.maxMs) || 0,
           rtf: Number(message.rtf) || 0,
           overloadRatio: Number(message.overloadRatio) || 0,
+          glitchSamples: Number(message.glitchSamples) || 0,
           droppedSamples: Number(message.droppedSamples) || 0,
           lsnr: Number(message.lsnr) || 0,
           wetRms: Number(message.wetRms) || 0,
           dryRms: Number(message.dryRms) || 0,
         };
         options.onPerf?.(metrics);
-        // Средний rtf сглаживает пики, а рвут звук именно просроченные кадры.
+        // Таймер внутри worklet грубый, поэтому решающий признак — пропуски рендера.
         const overloaded =
-          metrics.rtf > 1 || metrics.overloadRatio >= OVERLOAD_FRAME_RATIO;
+          metrics.glitchSamples >= GLITCH_SAMPLES_LIMIT ||
+          metrics.rtf > 1 ||
+          metrics.overloadRatio >= OVERLOAD_FRAME_RATIO;
         this.overloadStrikes = overloaded ? this.overloadStrikes + 1 : 0;
         if (this.overloadStrikes >= REALTIME_OVERLOAD_STRIKES) {
           this.overloadStrikes = 0;

@@ -285,17 +285,15 @@ export const NoiseSuppressionSettings: React.FC<NoiseSuppressionSettingsProps> =
                 </span>
               </span>
               <span>
-                Просрочено:{' '}
+                Пропуски:{' '}
                 <span
                   className={
-                    (dfnDiagnostics.overloadRatio ?? 0) >= 0.2
+                    (dfnDiagnostics.glitchSamples ?? 0) > 0
                       ? 'text-amber-300'
                       : 'text-foreground'
                   }
                 >
-                  {dfnDiagnostics.overloadRatio !== null
-                    ? `${Math.round(dfnDiagnostics.overloadRatio * 100)}%`
-                    : '—'}
+                  {dfnDiagnostics.glitchSamples ?? '—'}
                 </span>
               </span>
             </div>
@@ -306,9 +304,9 @@ export const NoiseSuppressionSettings: React.FC<NoiseSuppressionSettingsProps> =
               </p>
             )}
             <p className="mt-2 leading-relaxed opacity-80">
-              В паузах wet должен быть близок к нулю при ненулевом dry. Доля
-              просроченных кадров выше 20% означает, что процессор не успевает:
-              звук начнёт рваться, включится автооткат.
+              В паузах wet должен быть близок к нулю при ненулевом dry. Пропуски
+              больше нуля означают, что процессор не успевает: звук щёлкает,
+              включится автооткат.
             </p>
           </div>
         )}

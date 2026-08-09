@@ -10,6 +10,13 @@ const FRAME_SIZE = 480;
 const PRIME_SAMPLES = FRAME_SIZE * 2;
 const FIFO_CAPACITY = 16384;
 const CROSSFADE_SAMPLES = 960;
+/**
+ * Нормализация признаков внутри модели — это скользящее среднее с постоянной
+ * времени в секунду, стартующее с уровня −60..−90 dB. Пока оно не сошлось,
+ * модель переоценивает шум и душит речь, поэтому первые полсекунды обработку
+ * вводим плавно, а не обрываем голос на входе в канал.
+ */
+const STARTUP_FADE_SAMPLES = 24000;
 /** Окно 25 кадров ≈ 250 мс: перегрузку надо замечать за доли секунды, а не за 5 с. */
 const PERF_WINDOW_FRAMES = 25;
 /** Кадр — это 10 мс звука. Дольше считать не успеваем в реальном времени. */
@@ -66,6 +73,12 @@ class DeepFilterNet3Processor extends AudioWorkletProcessor {
     this.cleaned = false;
     this.modelCreated = false;
     this.mix = 0;
+    /** Пока false — обработка вводится медленно, пока модель не прогреется. */
+    this.warmedUp = false;
+    /** Пропущенные аудиодвижком сэмплы: единственный надёжный признак срыва. */
+    this.glitchSamples = 0;
+    this.lastRenderFrame = -1;
+    this.lastRenderSize = 0;
     this.frameOffset = 0;
     this.frame = new Float32Array(FRAME_SIZE);
     this.dryFifo = new SampleFifo();
@@ -137,15 +150,19 @@ class DeepFilterNet3Processor extends AudioWorkletProcessor {
         return;
       }
 
-      module._dfn3_wasm_set_atten_lim(100);
-      module._dfn3_wasm_set_post_filter_beta(0.02);
-      // LSNR-гейт выключен: при -10 модель целиком зануляла кадры с низким SNR,
-      // а это начала слов, тихие согласные и короткие реплики. lsnr = sigmoid*50-15,
-      // поэтому -15 недостижим и стадия apply_gain_zeros не запускается.
-      // Тишину в паузах обеспечивает сама модель плюс встроенный silence-skip.
+      // Модель выдаёт lsnr строго внутри (-15, +35), поэтому оба крайних порога
+      // намеренно выставлены на границы диапазона и отключают обе стадии-шортката:
+      //   min -15 — иначе кадры с низким SNR зануляются целиком, и пропадают
+      //             начала слов, тихие согласные и короткие реплики;
+      //   max  35 — иначе кадры с высоким SNR уходят в эфир вообще без обработки,
+      //             а это ровно щелчки клавиатуры и всплески шума.
       module._dfn3_wasm_set_min_db_thresh(-15);
-      module._dfn3_wasm_set_max_db_erb_thresh(30);
+      module._dfn3_wasm_set_max_db_erb_thresh(35);
       module._dfn3_wasm_set_max_db_df_thresh(20);
+      // Полное подавление звучит «роботом»: оставляем -40 dB, шум на этом уровне
+      // уже неразличим, а речь сохраняет естественный тембр.
+      module._dfn3_wasm_set_atten_lim(40);
+      module._dfn3_wasm_set_post_filter_beta(0.02);
       module._dfn3_wasm_set_hpf(1);
 
       this.inputPointer = module._dfn3_wasm_get_input_ptr();
@@ -219,6 +236,7 @@ class DeepFilterNet3Processor extends AudioWorkletProcessor {
         maxMs: this.perfMaxMs,
         rtf: averageMs / FRAME_BUDGET_MS,
         overloadRatio: this.perfOverloadFrames / this.perfFrames,
+        glitchSamples: this.glitchSamples,
         droppedSamples: this.dryFifo.dropped + this.wetFifo.dropped,
         lsnr: module._dfn3_wasm_get_lsnr(),
         wetRms: Math.sqrt(wetEnergy / FRAME_SIZE),
@@ -228,6 +246,7 @@ class DeepFilterNet3Processor extends AudioWorkletProcessor {
       this.perfTotalMs = 0;
       this.perfMaxMs = 0;
       this.perfOverloadFrames = 0;
+      this.glitchSamples = 0;
     }
   }
 
@@ -235,6 +254,16 @@ class DeepFilterNet3Processor extends AudioWorkletProcessor {
     const input = inputs[0]?.[0];
     const output = outputs[0]?.[0];
     if (!output) return this.alive;
+
+    // В AudioWorklet нет performance.now(), а Date.now() слишком груб для кадра
+    // в 10 мс. Разрыв в currentFrame — прямое свидетельство того, что рендер
+    // не успел и звук уже щёлкнул.
+    if (this.lastRenderFrame >= 0) {
+      const expected = this.lastRenderFrame + this.lastRenderSize;
+      if (currentFrame > expected) this.glitchSamples += currentFrame - expected;
+    }
+    this.lastRenderFrame = currentFrame;
+    this.lastRenderSize = output.length;
 
     for (let index = 0; index < output.length; index += 1) {
       const sample = input ? input[index] || 0 : 0;
@@ -260,8 +289,13 @@ class DeepFilterNet3Processor extends AudioWorkletProcessor {
 
       // wet пустеет только если модель перестала считать — тогда плавно уходим на dry.
       const wet = this.wetFifo.shift();
-      if (wet !== null) this.mix = Math.min(1, this.mix + 1 / CROSSFADE_SAMPLES);
-      else this.mix = Math.max(0, this.mix - 1 / FRAME_SIZE);
+      const fadeStep = this.warmedUp ? 1 / CROSSFADE_SAMPLES : 1 / STARTUP_FADE_SAMPLES;
+      if (wet !== null) {
+        this.mix = Math.min(1, this.mix + fadeStep);
+        if (this.mix >= 1) this.warmedUp = true;
+      } else {
+        this.mix = Math.max(0, this.mix - 1 / FRAME_SIZE);
+      }
       const processed = wet === null ? delayedDry : wet;
       output[index] = delayedDry * (1 - this.mix) + processed * this.mix;
     }

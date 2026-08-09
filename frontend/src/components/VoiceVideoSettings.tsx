@@ -500,18 +500,15 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
                   </span>
                 </span>
                 <span>
-                  Просрочено:{' '}
+                  Пропуски:{' '}
                   <span
                     className={
-                      (diagnostics.overloadRatio ?? 0) >= 0.2
+                      (diagnostics.glitchSamples ?? 0) > 0
                         ? 'text-[#f0b232]'
                         : 'text-[#dbdee1]'
                     }
                   >
-                    {diagnostics.overloadRatio !== null &&
-                    diagnostics.overloadRatio !== undefined
-                      ? `${Math.round(diagnostics.overloadRatio * 100)}%`
-                      : '—'}
+                    {diagnostics.glitchSamples ?? '—'}
                   </span>
                 </span>
               </div>

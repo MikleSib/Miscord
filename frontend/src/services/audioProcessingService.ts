@@ -49,6 +49,8 @@ export interface AudioProcessingDiagnostics {
   rtf: number | null;
   /** Доля кадров, обработанных дольше реального времени: именно они рвут звук. */
   overloadRatio: number | null;
+  /** Пропуски рендера за окно: слышны как щелчки. В норме ноль. */
+  glitchSamples: number | null;
   /** Потерянные сэмплы: на слух это ускоренная речь. В норме всегда ноль. */
   droppedSamples: number | null;
 }
@@ -91,6 +93,7 @@ export class AudioProcessingService {
     dryRms: null,
     rtf: null,
     overloadRatio: null,
+    glitchSamples: null,
     droppedSamples: null,
   };
   private micVAD: MicVAD | null = null;
@@ -691,6 +694,7 @@ export class AudioProcessingService {
     dryRms: number;
     rtf: number;
     overloadRatio: number;
+    glitchSamples: number;
     droppedSamples: number;
   }): void {
     this.diagnostics = {
@@ -700,6 +704,7 @@ export class AudioProcessingService {
       dryRms: metrics.dryRms,
       rtf: metrics.rtf,
       overloadRatio: metrics.overloadRatio,
+      glitchSamples: metrics.glitchSamples,
       droppedSamples: metrics.droppedSamples,
     };
   }
@@ -712,6 +717,7 @@ export class AudioProcessingService {
       dryRms: null,
       rtf: null,
       overloadRatio: null,
+      glitchSamples: null,
       droppedSamples: null,
     };
   }
@@ -736,6 +742,7 @@ export class AudioProcessingService {
             dryRms: null,
             rtf: null,
             overloadRatio: null,
+            glitchSamples: null,
             droppedSamples: null,
           }
         : {}),
