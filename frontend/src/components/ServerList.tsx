@@ -391,7 +391,7 @@ export function ServerList() {
                 value={newServerName}
                 onChange={(e) => setNewServerName(e.target.value)}
                 required
-                className="h-11 w-full rounded-control border border-border bg-surface-deep px-3 text-foreground outline-none focus:border-primary"
+                className="h-11 w-full rounded-control border border-border bg-canvas-deep px-3 text-foreground outline-none focus:border-primary"
               />
             </div>
 

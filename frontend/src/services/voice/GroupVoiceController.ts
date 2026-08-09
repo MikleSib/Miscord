@@ -62,32 +62,53 @@ export class GroupVoiceController {
     this.settings = getVoiceSettingsSnapshot();
     this.applyRuntimeSettings(this.settings);
     this.currentChannelId = channelId;
+
+    // Сигналинг уходит первым: список участников и статус появляются сразу,
+    // пока микрофон и обработка звука ещё готовятся.
+    const joined = this.waitForJoin();
+    unifiedWebSocketService.joinVoiceChannel(channelId, this.isMuted, this.isDeafened);
+    const microphone = this.prepareMicrophone().then(
+      (track) => ({ ok: true as const, track }),
+      (error) => ({ ok: false as const, error }),
+    );
+
     try {
-      this.rawInputStream = await captureAudioStream(this.settings.processing, this.settings.inputDeviceId);
-      this.localStream = await audioProcessingService.initialize(this.rawInputStream, this.processingConfig(this.settings));
-      audioProcessingService.setInputVolume(this.settings.inputVolume);
-      audioProcessingService.setOnSpeechStart(() => this.setLocalSpeaking(true));
-      audioProcessingService.setOnSpeechEnd(() => this.setLocalSpeaking(false));
-      await audioProcessingService.refreshSpeakingDetection();
-      const joined = this.waitForJoin();
-      unifiedWebSocketService.joinVoiceChannel(channelId, this.isMuted, this.isDeafened);
       const payload = await joined;
-      const track = this.localStream.getAudioTracks()[0];
-      if (!track) throw new Error('Микрофон не создал аудиодорожку.');
-      this.transport = this.createTransport();
-      await this.transport.connect(payload.transport.ws_url, payload.transport.ticket, track);
+
       this.participants = new Map(payload.participants.map((item) => [item.user_id, item]));
+      this.callbacks.signalingJoined?.(payload.participants);
       this.callbacks.participantsReceived?.(payload.participants);
       for (const participant of payload.participants) {
         if (participant.is_sharing_screen) this.updateScreenShareState(participant.user_id, true, participant);
       }
+
+      const result = await microphone;
+      if (!result.ok) throw result.error;
+
+      this.transport = this.createTransport();
+      await this.transport.connect(payload.transport.ws_url, payload.transport.ticket, result.track);
       await this.applyTransmitGate();
     } catch (error) {
+      // Микрофон мог открыться уже после ошибки сигналинга — дожидаемся, чтобы освободить его.
+      await microphone;
       this.cleanupMedia();
       if (this.currentChannelId === channelId) unifiedWebSocketService.leaveVoiceChannel(channelId);
       this.currentChannelId = null;
       throw error;
     }
+  }
+
+  /** Захват микрофона и запуск обработки звука. Возвращает готовую аудиодорожку. */
+  private async prepareMicrophone(): Promise<MediaStreamTrack> {
+    this.rawInputStream = await captureAudioStream(this.settings.processing, this.settings.inputDeviceId);
+    audioProcessingService.setOnSpeechStart(() => this.setLocalSpeaking(true));
+    audioProcessingService.setOnSpeechEnd(() => this.setLocalSpeaking(false));
+    // initialize() уже поднимает VAD — повторный refresh только удваивал загрузку модели.
+    this.localStream = await audioProcessingService.initialize(this.rawInputStream, this.processingConfig(this.settings));
+    audioProcessingService.setInputVolume(this.settings.inputVolume);
+    const track = this.localStream.getAudioTracks()[0];
+    if (!track) throw new Error('Микрофон не создал аудиодорожку.');
+    return track;
   }
 
   leaveVoiceChannel(): void {
@@ -267,6 +288,7 @@ export class GroupVoiceController {
   onParticipantLeft(callback: NonNullable<VoiceCallbacks['participantLeft']>): void { this.callbacks.participantLeft = callback; }
   onSpeakingChanged(callback: NonNullable<VoiceCallbacks['speakingChanged']>): void { this.callbacks.speakingChanged = callback; }
   onParticipantsReceived(callback: NonNullable<VoiceCallbacks['participantsReceived']>): void { this.callbacks.participantsReceived = callback; }
+  onSignalingJoined(callback: NonNullable<VoiceCallbacks['signalingJoined']>): void { this.callbacks.signalingJoined = callback; }
   onParticipantStatusChanged(callback: NonNullable<VoiceCallbacks['participantStatusChanged']>): void { this.callbacks.participantStatusChanged = callback; }
   onScreenShareChanged(callback: NonNullable<VoiceCallbacks['screenShareChanged']>): void { this.callbacks.screenShareChanged = callback; }
   onScreenShareChange(callback: NonNullable<VoiceCallbacks['screenShareChanged']>): () => void {
@@ -394,6 +416,7 @@ export class GroupVoiceController {
       display_name: identity.display_name || participant?.display_name,
       avatar_url: identity.avatar_url || participant?.avatar_url,
       is_sharing_screen: sharing,
+      voice_channel_id: this.currentChannelId,
     });
     this.callbacks.screenShareChanged?.(userId, sharing);
   }

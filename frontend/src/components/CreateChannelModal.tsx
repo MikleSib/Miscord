@@ -227,7 +227,7 @@ export function CreateChannelModal({
                       <span className="flex items-center gap-2">
                         <span className="text-[15px] font-semibold text-white">{option.label}</span>
                         {option.disabled && (
-                          <span className="rounded bg-background px-1.5 py-0.5 text-[10px] font-semibold uppercase text-text-quiet">
+                          <span className="rounded bg-canvas-deep px-1.5 py-0.5 text-[10px] font-semibold uppercase text-text-quiet">
                             Скоро
                           </span>
                         )}
@@ -259,7 +259,7 @@ export function CreateChannelModal({
                 onChange={(e) => setChannelName(slugifyChannelName(e.target.value))}
                 disabled={isCreating}
                 placeholder={`${namePrefix}-`}
-                className="h-11 w-full rounded-md border-0 bg-background pl-9 pr-3 text-[15px] text-white outline-none ring-0 placeholder:text-text-quiet focus:ring-2 focus:ring-primary"
+                className="h-11 w-full rounded-md border-0 bg-canvas-deep pl-9 pr-3 text-[15px] text-white outline-none ring-0 placeholder:text-text-quiet focus:ring-2 focus:ring-primary"
               />
             </div>
           </div>

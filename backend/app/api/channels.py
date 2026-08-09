@@ -44,7 +44,11 @@ from app.services.channel_access import (
 )
 from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
 from app.services.miscord_serializers import miscord_channel
+from app.services.voice_presence import voice_presence
+import logging
 import secrets as secrets_mod
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -1435,7 +1439,17 @@ async def get_voice_channel_members(
         )
     )
     voice_members = result.all()
-    
+
+    # Демонстрация экрана живёт только в Redis-presence, в БД её нет.
+    # Без неё клиент, открывший страницу после начала стрима, не покажет «В эфире».
+    sharing_user_ids: set[int] = set()
+    try:
+        for presence in await voice_presence.participants(voice_channel_id):
+            if presence.get("is_sharing_screen"):
+                sharing_user_ids.add(int(presence["user_id"]))
+    except Exception:
+        logger.warning("Не удалось получить presence голосового канала %s", voice_channel_id)
+
     return [
         {
             "id": user.id,
@@ -1449,6 +1463,7 @@ async def get_voice_channel_members(
             "updated_at": user.updated_at,
             "is_muted": voice_user.is_muted,
             "is_deafened": voice_user.is_deafened,
+            "is_sharing_screen": user.id in sharing_user_ids,
         }
         for voice_user, user in voice_members
     ]

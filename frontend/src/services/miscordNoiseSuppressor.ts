@@ -51,6 +51,12 @@ export class MiscordNoiseSuppressor {
     return this.wasmBinaryPromise;
   }
 
+  /** Заранее тянет модуль и WASM, чтобы вход в голосовой канал не ждал загрузку. */
+  async preload(): Promise<void> {
+    if (!MiscordNoiseSuppressor.isSupported()) return;
+    await this.loadWasmBinary();
+  }
+
   async createNode(audioContext: AudioContext): Promise<DestroyableAudioWorkletNode> {
     if (!MiscordNoiseSuppressor.isSupported()) {
       throw new Error('AudioWorklet or WebAssembly is not supported');

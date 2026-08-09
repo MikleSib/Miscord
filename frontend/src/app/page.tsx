@@ -12,6 +12,7 @@ import { HomePageContent } from '../components/HomePageContent'
 import { ScreenShareToast } from '../components/ScreenShareToast'
 import { useVoiceStore } from '../store/slices/voiceSlice'
 import voiceService from '../services/voiceService'
+import { audioProcessingService } from '../services/audioProcessingService'
 import { openScreenShareView } from '../lib/screenShareNavigation'
 import { ScreenShareVideoPool } from '../components/ScreenShareVideoPool'
 import { ScreenShareViewerHost } from '../components/ScreenShareViewerHost'
@@ -58,6 +59,28 @@ export default function HomePage() {
   useEffect(() => {
     setIsMounted(true)
   }, [])
+
+  // Прогреваем нейросети микрофона в простое, чтобы вход в голосовой канал был мгновенным
+  useEffect(() => {
+    if (!isMounted) return
+
+    let cancelled = false
+    const warmUp = () => {
+      if (cancelled) return
+      void audioProcessingService.preloadHeavyAssets()
+    }
+
+    const supportsIdle = typeof window.requestIdleCallback === 'function'
+    const handle = supportsIdle
+      ? window.requestIdleCallback(warmUp, { timeout: 5000 })
+      : window.setTimeout(warmUp, 2000)
+
+    return () => {
+      cancelled = true
+      if (supportsIdle) window.cancelIdleCallback?.(handle as number)
+      else window.clearTimeout(handle as number)
+    }
+  }, [isMounted])
 
   useEffect(() => {
     if (!isMounted) return
@@ -147,7 +170,7 @@ export default function HomePage() {
 
     // Обработчик событий screen_share_start из WebSocket
     const handleScreenShareStartEvent = (event: any) => {
-      const { user_id, username, display_name } = event.detail;
+      const { user_id, username, display_name, voice_channel_id } = event.detail;
       const streamerId = Number(user_id);
       if (!Number.isFinite(streamerId)) return;
 
@@ -157,6 +180,13 @@ export default function HomePage() {
         `User ${streamerId}`;
 
       const isSelf = authUser?.id === streamerId;
+      // Предлагать «Смотреть» имеет смысл только тем, кто уже в этом голосовом канале.
+      const myVoiceChannelId = useVoiceStore.getState().currentVoiceChannelId;
+      const streamerChannelId = Number(voice_channel_id);
+      const isSameVoiceChannel =
+        myVoiceChannelId != null &&
+        Number.isFinite(streamerChannelId) &&
+        streamerChannelId === myVoiceChannelId;
 
       setSharingUsers(prev => {
         if (prev.find(u => u.userId === streamerId)) {
@@ -165,7 +195,7 @@ export default function HomePage() {
           );
         }
 
-        if (!isSelf) {
+        if (!isSelf && isSameVoiceChannel) {
           const toastId = `${streamerId}-${Date.now()}`;
           setToastNotifications((prevToasts) => [
             ...prevToasts,

@@ -73,6 +73,7 @@ export class AudioProcessingService {
     unsupportedConstraints: [],
   };
   private micVAD: MicVAD | null = null;
+  private preloadPromise: Promise<void> | null = null;
   private audioContext: AudioContext | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
   private destinationNode: MediaStreamAudioDestinationNode | null = null;
@@ -141,6 +142,57 @@ export class AudioProcessingService {
         name: 'Стандартное',
       },
     ];
+  }
+
+  /**
+   * Прогревает тяжёлые ассеты (ONNX-рантайм + модель VAD, RNNoise) заранее.
+   * Без этого они грузятся в момент входа в голосовой канал и дают задержку в секунды.
+   */
+  async preloadHeavyAssets(): Promise<void> {
+    if (typeof window === 'undefined') return this.preloadPromise ?? Promise.resolve();
+    if (!this.preloadPromise) {
+      this.preloadPromise = Promise.allSettled([
+        this.miscordNoiseSuppressor.preload(),
+        this.preloadVadRuntime(),
+      ]).then(() => undefined);
+    }
+    return this.preloadPromise;
+  }
+
+  /**
+   * Собирает VAD на беззвучном потоке и сразу разбирает: браузер кэширует
+   * ort-wasm и модель silero, поэтому реальный запуск потом почти мгновенный.
+   */
+  private async preloadVadRuntime(): Promise<void> {
+    if (typeof AudioContext === 'undefined') return;
+
+    let context: AudioContext | null = null;
+    let vad: MicVAD | null = null;
+    try {
+      context = new AudioContext({ sampleRate: 48000 });
+      const silence = context.createMediaStreamDestination();
+      const assetOrigin = `${window.location.origin}/`;
+      vad = await MicVAD.new({
+        getStream: async () => silence.stream,
+        pauseStream: async () => undefined,
+        resumeStream: async () => silence.stream,
+        baseAssetPath: assetOrigin,
+        onnxWASMBasePath: `${assetOrigin}onnx/`,
+      });
+    } catch (error) {
+      console.warn('[Audio] Не удалось прогреть VAD заранее:', error);
+    } finally {
+      try {
+        await vad?.destroy();
+      } catch {
+        // прогрев не критичен
+      }
+      try {
+        await context?.close();
+      } catch {
+        // прогрев не критичен
+      }
+    }
   }
 
   async initialize(

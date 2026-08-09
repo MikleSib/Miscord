@@ -511,7 +511,7 @@ export function HomePageContent() {
               value={friendUsername}
               onChange={(e) => setFriendUsername(e.target.value)}
               placeholder="Например: sava или @sava"
-              className="w-full bg-background text-white rounded px-3 py-2 mb-4 border border-[#393a41] focus:ring-2 focus:ring-[#5865f2]"
+              className="w-full bg-canvas-deep text-white rounded px-3 py-2 mb-4 border border-gray-700 focus:ring-2 focus:ring-primary"
             />
             {addFriendError && <p className="text-red-500 text-sm mb-4">{addFriendError}</p>}
             <div className="flex justify-end">

@@ -39,6 +39,8 @@ export interface VoiceCallbacks {
   participantJoined?: (participant: VoiceParticipant) => void;
   participantLeft?: (userId: number) => void;
   participantsReceived?: (participants: VoiceParticipant[]) => void;
+  /** Сигналинг подтвердил вход: участники известны, медиа ещё договаривается. */
+  signalingJoined?: (participants: VoiceParticipant[]) => void;
   participantStatusChanged?: (userId: number, status: Partial<VoiceParticipant>) => void;
   speakingChanged?: (userId: number | null, speaking: boolean) => void;
   screenShareChanged?: (userId: number, sharing: boolean) => void;

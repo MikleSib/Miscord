@@ -20,12 +20,12 @@ const config: Config = {
         gray: {
           200: '#f5f5f5',
           300: '#cdcdcf',
-          400: '#b5bac1',
-          500: '#8e929b',
-          600: '#4e5058',
-          700: '#3e3f45',
-          800: '#2b2d31',
-          900: '#1e1f22',
+          400: '#999aa1',
+          500: '#7d7e87',
+          600: '#44454a',
+          700: '#414248',
+          800: '#393a41',
+          900: '#2c2d32',
         },
         blue: {
           100: '#dee0fc',
@@ -102,7 +102,10 @@ const config: Config = {
           raised: "hsl(var(--surface-raised))",
           deep: "hsl(var(--surface-deep))",
         },
-        canvas: "#1e1f22",
+        canvas: {
+          DEFAULT: "hsl(var(--background))",
+          deep: "hsl(var(--canvas-deep))",
+        },
         brand: {
           DEFAULT: "#5865f2",
           hover: "#4752c4",

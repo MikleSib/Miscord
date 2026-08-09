@@ -114,10 +114,7 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
         get().setSpeaking(resolvedUserId, isSpeaking);
       });
       
-      // Обработчик получения списка участников
-      optimizedVoiceService.onParticipantsReceived((participants) => {
-        console.log('[OptimizedVoiceSlice] 👥 Получен список участников:', participants);
-        
+      const applyParticipants = (participants: any[]) => {
         // Преобразуем участников, убедившись что is_muted и is_deafened всегда boolean
         const normalizedParticipants: VoiceUser[] = participants.map((p: any) => ({
           user_id: p.user_id,
@@ -127,7 +124,7 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
           is_muted: p.is_muted ?? false,
           is_deafened: p.is_deafened ?? false,
         }));
-        
+
         // Добавляем текущего пользователя если его нет в списке
         const currentUser = useAuthStore.getState().user;
         if (currentUser) {
@@ -143,8 +140,26 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
             });
           }
         }
-        
+
         get().setParticipants(normalizedParticipants);
+      };
+
+      // Обработчик получения списка участников
+      optimizedVoiceService.onParticipantsReceived(applyParticipants);
+
+      // Сигналинг подтвердил вход: показываем канал подключённым, не дожидаясь медиа
+      let signalingApplied = false;
+      optimizedVoiceService.onSignalingJoined((participants) => {
+        if (signalingApplied) return;
+        signalingApplied = true;
+        applyParticipants(participants);
+        set({
+          currentVoiceChannelId: channelId,
+          isConnected: true,
+          isConnecting: false,
+          error: null,
+        });
+        soundService.playJoinSound();
       });
       
       // Обработчик изменения статуса участников
@@ -173,9 +188,12 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
       await optimizedVoiceService.joinVoiceChannel(channelId);
       
       console.log('[OptimizedVoiceSlice] ✅ Успешно подключились к голосовому каналу');
-      
-      // Воспроизводим звук подключения
-      soundService.playJoinSound();
+
+      // Если сигналинг не успел отработать (например, мгновенный ответ) — звук здесь
+      if (!signalingApplied) {
+        signalingApplied = true;
+        soundService.playJoinSound();
+      }
       
       // Добавляем текущего пользователя в список участников
       const currentUser = useAuthStore.getState().user;

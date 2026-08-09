@@ -13,10 +13,18 @@ import {
   useChannelUnreadStore,
 } from '../store/channelUnreadStore';
 import { applyMemberJoined, applyMemberLeft } from './memberSync';
+import { useVoiceStore } from '../store/slices/voiceSlice';
 
 /** Чтобы initializeWebSocket не навешивал обработчики повторно при remount. */
 let notificationHandlersBound = false;
 let reconnectRefetchBound = false;
+
+/** Уведомления о стриме уместны только для тех, кто уже в этом голосовом канале. */
+function isInSameVoiceChannel(voiceChannelId: unknown): boolean {
+  const streamerChannelId = Number(voiceChannelId);
+  if (!Number.isFinite(streamerChannelId)) return false;
+  return useVoiceStore.getState().currentVoiceChannelId === streamerChannelId;
+}
 
 interface AppState {
   // Данные
@@ -950,14 +958,14 @@ export const useStore = create<AppState>()(
 
         // Обработка начала демонстрации экрана
         websocketService.onScreenShareStarted((data) => {
-          console.log('🔔 [Store] Пользователь начал демонстрацию экрана:', data);
-
           const currentUserId = useAuthStore.getState().user?.id;
           const streamerId = Number(data.user_id);
           const isSelf = currentUserId != null && streamerId === currentUserId;
+          const isSameVoiceChannel = isInSameVoiceChannel((data as any).voice_channel_id);
 
           if (
             !isSelf &&
+            isSameVoiceChannel &&
             typeof window !== 'undefined' &&
             'Notification' in window &&
             Notification.permission === 'granted'
@@ -972,20 +980,20 @@ export const useStore = create<AppState>()(
             };
           }
 
-          console.log('🔔 [Store] Отправляем событие screen_share_start с данными:', data);
-          const event = new CustomEvent('screen_share_start', { detail: data });
+          // Событие нужно всем — по нему сайдбар рисует значок «В эфире»
           if (typeof window !== 'undefined') {
-            window.dispatchEvent(event);
+            window.dispatchEvent(new CustomEvent('screen_share_start', { detail: data }));
           }
-          console.log('🔔 [Store] Событие screen_share_start отправлено в DOM');
         });
 
         // Обработка остановки демонстрации экрана
         websocketService.onScreenShareStopped((data) => {
-          console.log('Пользователь остановил демонстрацию экрана:', data);
-          
-          // Показываем уведомление
-          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+          if (
+            isInSameVoiceChannel((data as any).voice_channel_id) &&
+            typeof window !== 'undefined' &&
+            'Notification' in window &&
+            Notification.permission === 'granted'
+          ) {
             new Notification(`Демонстрация экрана`, {
               body: `${data.username} остановил демонстрацию экрана`,
               icon: '/favicon.ico'

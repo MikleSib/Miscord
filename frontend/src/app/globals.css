@@ -4,37 +4,38 @@
 
 @layer base {
   :root {
-    /* Miscord palette — exact DESIGN.md values as HSL components */
-    --background: 225 6% 13%; /* canvas hsl(var(--background)) */
-    --foreground: 210 17% 95%; /* text-strong hsl(var(--foreground)) */
-    --card: 228 6% 18%; /* surface hsl(var(--surface)) */
+    /* Miscord palette — DESIGN.md values as HSL components */
+    --background: 231 7% 21%; /* рабочий холст чата #323339 */
+    --canvas-deep: 225 6% 13%; /* тёмные врезки и поля ввода #1e1f22 */
+    --foreground: 210 17% 95%; /* text-strong #f2f3f5 */
+    --card: 228 6% 18%; /* surface #2b2d31 */
     --card-foreground: 210 17% 95%;
-    --popover: 228 6% 18%; /* surface hsl(var(--surface)) */
+    --popover: 228 6% 18%; /* surface #2b2d31 */
     --popover-foreground: 210 17% 95%;
-    --primary: 235 86% 65%; /* brand hsl(var(--primary)) */
+    --primary: 235 86% 65%; /* brand #5865f2 */
     --primary-foreground: 0 0% 100%;
     --secondary: 228 6% 18%;
     --secondary-foreground: 210 17% 95%;
-    --muted: 230 7% 21%; /* surface-raised hsl(var(--surface-raised)) */
-    --muted-foreground: 220 6% 73%; /* text-muted hsl(var(--muted-foreground)) */
+    --muted: 230 7% 21%; /* surface-raised #313238 */
+    --muted-foreground: 220 6% 73%; /* text-muted #b5bac1 */
     --accent: 230 7% 21%;
     --accent-foreground: 210 17% 95%;
-    --destructive: 359 87% 60%; /* danger hsl(var(--destructive)) */
+    --destructive: 359 87% 60%; /* danger #f23f42 */
     --destructive-foreground: 0 0% 100%;
-    --success: 145 65% 39%; /* hsl(var(--success)) */
+    --success: 145 65% 39%; /* #23a55a */
     --warning: 40 86% 57%;
-    --border: 225 6% 21%; /* border-subtle hsl(var(--border)) */
+    --border: 225 6% 21%; /* border-subtle #303238 */
     --input: 228 6% 18%;
     --ring: 235 86% 65%;
     --rail: 228 6% 18%; /* surface */
     --sidebar: 228 6% 18%; /* surface */
-    --surface: 228 6% 18%; /* hsl(var(--surface)) */
-    --surface-raised: 230 7% 21%; /* hsl(var(--surface-raised)) */
-    --surface-deep: 220 8% 7%; /* hsl(var(--surface-deep)) */
-    --border-control: 230 5% 33%; /* hsl(var(--border-control)) */
+    --surface: 228 6% 18%; /* #2b2d31 */
+    --surface-raised: 230 7% 21%; /* #313238 */
+    --surface-deep: 220 8% 7%; /* #111214 */
+    --border-control: 230 5% 33%; /* #4e5058 */
     --focus-link: 199 100% 49%; /* #00a8fc */
-    --text-body: 210 9% 87%; /* hsl(var(--text-body)) */
-    --text-quiet: 225 5% 58%; /* hsl(var(--text-quiet)) */
+    --text-body: 210 9% 87%; /* #dbdee1 */
+    --text-quiet: 225 5% 58%; /* #8e929b */
     --server-rail-width: 5.75rem;
     --channel-sidebar-width: clamp(18.5rem, calc(100vw - 13.5rem), 22rem);
     --left-dock-width: calc(var(--server-rail-width) + var(--channel-sidebar-width));
@@ -57,7 +58,7 @@
   body {
     width: 100%;
     min-height: 100%;
-    background: hsl(var(--background));
+    background: #323339;
   }
 
   html {
@@ -395,7 +396,7 @@
     width: min(18.5rem, calc(100vw - 2rem));
     padding: 0.9rem 1rem 0.85rem;
     border-radius: 0.5rem;
-    border: 1px solid hsl(var(--background));
+    border: 1px solid hsl(var(--canvas-deep));
     background: hsl(var(--surface-deep));
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
   }
@@ -407,8 +408,8 @@
     bottom: -6px;
     width: 10px;
     height: 10px;
-    border-right: 1px solid hsl(var(--background));
-    border-bottom: 1px solid hsl(var(--background));
+    border-right: 1px solid hsl(var(--canvas-deep));
+    border-bottom: 1px solid hsl(var(--canvas-deep));
     background: hsl(var(--surface-deep));
     transform: rotate(45deg);
   }
@@ -790,13 +791,13 @@
   .voice-device-popover__range::-webkit-slider-runnable-track {
     height: 0.25rem;
     border-radius: 999px;
-    background: linear-gradient(to right, hsl(var(--primary)) var(--voice-volume), hsl(var(--background)) var(--voice-volume));
+    background: linear-gradient(to right, hsl(var(--primary)) var(--voice-volume), hsl(var(--canvas-deep)) var(--voice-volume));
   }
 
   .voice-device-popover__range::-moz-range-track {
     height: 0.25rem;
     border-radius: 999px;
-    background: hsl(var(--background));
+    background: hsl(var(--canvas-deep));
   }
 
   .voice-device-popover__range::-moz-range-progress {

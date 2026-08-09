@@ -189,6 +189,25 @@ export function ChannelSidebar() {
         ...prev,
         [voiceChannelId]: nextMembers
       }));
+
+      // Стрим мог начаться до открытия страницы — берём состояние из ответа API
+      setScreenSharingUsers((prev) => {
+        const next = new Set(prev);
+        let changed = false;
+        for (const member of nextMembers as any[]) {
+          const memberId = member.id ?? member.user_id;
+          if (memberId == null) continue;
+          const sharing = Boolean(member.is_sharing_screen);
+          if (sharing && !next.has(memberId)) {
+            next.add(memberId);
+            changed = true;
+          } else if (!sharing && next.has(memberId)) {
+            next.delete(memberId);
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
     } catch (error) {
       console.error('Ошибка загрузки участников голосового канала:', error);
       // Если ошибка, устанавливаем пустой массив
@@ -944,7 +963,7 @@ export function ChannelSidebar() {
                         >
                           {/* Тёмная левая половина — косой срез справа */}
                           <span
-                            className="relative z-[1] flex items-center bg-background pl-[6px] pr-[10px] tabular-nums tracking-tight"
+                            className="relative z-[1] flex items-center bg-canvas-deep pl-[6px] pr-[10px] tabular-nums tracking-tight"
                             style={{
                               clipPath: 'polygon(0 0, 100% 0, calc(100% - 5px) 100%, 0 100%)',
                             }}
