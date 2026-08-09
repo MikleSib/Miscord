@@ -5,7 +5,7 @@ from urllib.error import HTTPError
 from urllib.request import urlopen
 
 import websockets
-from websockets.exceptions import ConnectionClosed, InvalidStatus
+from websockets.exceptions import ConnectionClosed, InvalidStatus, InvalidStatusCode
 
 
 HTTP_BASE = os.getenv("MISCORD_SMOKE_HTTP", "http://127.0.0.1:3011").rstrip("/")
@@ -35,7 +35,7 @@ async def expect_rejected(path: str) -> None:
             except ConnectionClosed:
                 return
             raise AssertionError(f"Deprecated contract was accepted by {path}: {payload}")
-    except (ConnectionClosed, InvalidStatus):
+    except (ConnectionClosed, InvalidStatus, InvalidStatusCode):
         return
 
 
