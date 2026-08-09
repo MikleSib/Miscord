@@ -31,6 +31,7 @@ from app.websocket.group_voice import (
     refresh_ticket as refresh_group_voice_ticket,
     notify_screen_share_viewer_joined,
     update_voice_state as update_group_voice_state,
+    broadcast_voice,
 )
 from app.services.voice_presence import voice_presence
 
@@ -239,7 +240,13 @@ async def websocket_unified_endpoint(
                         )
 
                     elif msg_type == "voice_speaking":
-                        pass
+                        if current_voice_channel:
+                            await broadcast_voice(manager, current_voice_channel, {
+                                "type": "voice_speaking",
+                                "user_id": user.id,
+                                "is_speaking": bool(message_data.get("is_speaking")),
+                                "voice_channel_id": current_voice_channel,
+                            })
 
                     elif msg_type == "dm_message":
                         await handle_dm_message(user, message_data, db, manager)

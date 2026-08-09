@@ -52,8 +52,67 @@ class WebSocketService {
   }
 
   // Регистрация обработчиков сообщений
-  onChannelInvitation(handler: (data: { channel_id: number; channel_name: string; invited_by: string }) => void) {
+  onChannelInvitation(handler: (data: {
+    channel_id?: number;
+    channel_name?: string;
+    invited_by?: string;
+    code?: string;
+    server_id?: number;
+    inviter_id?: number;
+    inviter_name?: string;
+    invite_url?: string;
+  }) => void) {
+    // Legacy alias + каноническое имя с бэкенда
     this.on('channel_invitation', handler);
+    this.on('server_invite', handler);
+  }
+
+  onServerRemoved(handler: (data: {
+    server_id: number;
+    server_name?: string;
+    kind?: string;
+    reason?: string | null;
+    by?: string;
+  }) => void) {
+    this.on('server_removed', handler);
+  }
+
+  onTextChannelUpdated(handler: (data: {
+    text_channel_id: number;
+    name?: string;
+    position?: number;
+    slow_mode_seconds?: number;
+    updated_by?: { id: number; username: string };
+  }) => void) {
+    this.on('text_channel_updated', handler);
+  }
+
+  onVoiceChannelUpdated(handler: (data: {
+    voice_channel_id: number;
+    name?: string;
+    position?: number;
+    max_users?: number;
+    bitrate?: number;
+    video_quality?: 'auto' | '720p';
+    updated_by?: { id: number; username: string };
+  }) => void) {
+    this.on('voice_channel_updated', handler);
+  }
+
+  onTextChannelDeleted(handler: (data: {
+    text_channel_id: number;
+    server_id: number;
+    deleted_by?: { id: number; username: string };
+  }) => void) {
+    this.on('text_channel_deleted', handler);
+  }
+
+  onVoiceChannelDeleted(handler: (data: {
+    voice_channel_id: number;
+    server_id: number;
+    deleted_by?: { id: number; username: string };
+  }) => void) {
+    this.on('voice_channel_deleted', handler);
   }
 
   onUserJoinedChannel(handler: (data: {
@@ -76,10 +135,6 @@ class WebSocketService {
 
   onUserLeftChannel(handler: (data: { user_id: number; channel_id: number }) => void) {
     this.on('user_left_channel', handler);
-  }
-
-  onChannelUpdated(handler: (data: { channel_id: number; changes: any }) => void) {
-    this.on('channel_updated', handler);
   }
 
   // Новые обработчики для создания каналов

@@ -2,6 +2,7 @@
 
 import React from 'react'
 import { Button } from '../ui/button'
+import { Modal, MODAL_Z_INDEX } from '../ui/modal'
 
 interface ConfirmDialogProps {
   open: boolean
@@ -28,34 +29,36 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
-  if (!open) return null
-
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60" onClick={isPending ? undefined : onCancel} />
-      <div className="relative bg-background border border-border p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
-        <h3 className={danger ? 'text-lg font-semibold mb-4 text-red-500' : 'text-lg font-semibold mb-4'}>
-          {title}
-        </h3>
-        <div className="text-sm text-muted-foreground mb-6">{description}</div>
-        {error && (
-          <div className="mb-4 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-400">
-            {error}
-          </div>
-        )}
-        <div className="flex gap-3 justify-end">
-          <Button variant="outline" onClick={onCancel} disabled={isPending}>
-            Отмена
-          </Button>
-          <Button
-            onClick={onConfirm}
-            disabled={isPending}
-            className={danger ? 'bg-red-500 hover:bg-red-600 text-white' : undefined}
-          >
-            {isPending ? pendingLabel || 'Подождите...' : confirmLabel}
-          </Button>
+    <Modal
+      open={open}
+      onClose={onCancel}
+      title={title}
+      disableClose={isPending}
+      zIndex={MODAL_Z_INDEX.nested}
+      contentClassName="max-w-md border border-border bg-background p-6"
+    >
+      <h3 className={danger ? 'mb-4 text-lg font-semibold text-destructive' : 'mb-4 text-lg font-semibold'}>
+        {title}
+      </h3>
+      <div className="mb-6 text-sm text-muted-foreground">{description}</div>
+      {error && (
+        <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
         </div>
+      )}
+      <div className="flex justify-end gap-3">
+        <Button variant="outline" onClick={onCancel} disabled={isPending}>
+          Отмена
+        </Button>
+        <Button
+          onClick={onConfirm}
+          disabled={isPending}
+          className={danger ? 'bg-destructive text-white hover:bg-destructive/90' : undefined}
+        >
+          {isPending ? pendingLabel || 'Подождите...' : confirmLabel}
+        </Button>
       </div>
-    </div>
+    </Modal>
   )
 }

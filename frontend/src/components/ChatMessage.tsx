@@ -160,8 +160,8 @@ export function ChatMessage({
         'chat-message-row group relative flex items-start gap-3 rounded px-2 py-1',
         showAuthor && 'mt-3',
         showMentionHighlight
-          ? 'bg-[#5865f2]/20 hover:bg-[#5865f2]/25'
-          : 'hover:bg-[#3e3f45]'
+          ? 'bg-primary/20 hover:bg-primary/25'
+          : 'hover:bg-gray-700'
       )}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -226,12 +226,12 @@ export function ChatMessage({
 
       {showMoreMenu && applicationCommands.length > 0 && !isEditing && (
         <div className="absolute right-2 top-11 z-30 min-w-64 rounded-xl border border-white/10 bg-[#111214] p-2 shadow-2xl shadow-black/50">
-          <div className="flex items-center gap-2 px-2 pb-2 pt-1 text-[11px] font-bold uppercase tracking-wider text-[#949ba4]"><Puzzle className="h-3.5 w-3.5" />Приложения</div>
+          <div className="flex items-center gap-2 px-2 pb-2 pt-1 text-[11px] font-bold uppercase tracking-wider text-text-quiet"><Puzzle className="h-3.5 w-3.5" />Приложения</div>
           {applicationCommands.map((command) => (
             <button
               key={`${command.application_id}-${command.id}`}
               type="button"
-              className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm font-medium text-[#dbdee1] hover:bg-[#5865f2] hover:text-white"
+              className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm font-medium text-text-body hover:bg-primary hover:text-white"
               onClick={() => {
                 setShowMoreMenu(false)
                 onApplicationCommand?.(command, message)
@@ -281,12 +281,12 @@ export function ChatMessage({
               {message.author.username}
             </span>
             {(message.author as typeof message.author & { is_webhook?: boolean }).is_webhook && (
-              <span className="rounded bg-[#5865f2] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+              <span className="rounded bg-primary px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
                 WEBHOOK
               </span>
             )}
             {message.author.is_bot && (
-              <span className="rounded bg-[#5865f2] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+              <span className="rounded bg-primary px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
                 BOT
               </span>
             )}
@@ -375,7 +375,7 @@ export function ChatMessage({
                 <button
                   className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs border transition-colors hover:bg-muted ${
                     reaction.currentUserReacted 
-                      ? 'border-[#5865f2] bg-[#5865f2]/20 text-[#f5f5f5]'
+                      ? 'border-primary bg-primary/20 text-[#f5f5f5]'
                       : 'bg-background border-border'
                   }`}
                   onClick={() => handleReaction(reaction.emoji)}

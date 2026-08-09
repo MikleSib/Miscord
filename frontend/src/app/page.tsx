@@ -26,9 +26,11 @@ import SettingsModal from '../components/SettingsModal'
 import authService from '../services/authService'
 import { bindUserProfileSync } from '../lib/userProfileSync'
 import { bindMemberSync } from '../lib/memberSync'
+import { bindServerPermissionsSync } from '../lib/serverPermissions'
 
 bindUserProfileSync()
 bindMemberSync()
+bindServerPermissionsSync()
 
 export default function HomePage() {
   const router = useRouter()

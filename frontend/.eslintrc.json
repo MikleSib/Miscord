@@ -1,0 +1,12 @@
+{
+  "extends": ["next/core-web-vitals"],
+  "rules": {
+    "no-restricted-syntax": [
+      "warn",
+      {
+        "selector": "Literal[value=/(?:bg|text|border|from|to|via|ring|outline|fill|stroke)-\\[[^\\]]*#[0-9a-fA-F]{3,8}\\]/]",
+        "message": "Не используйте произвольные hex в className (bg-[#...]). Берите токены: bg-primary, bg-surface, text-muted-foreground, bg-destructive и т.д."
+      }
+    ]
+  }
+}

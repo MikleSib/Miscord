@@ -491,6 +491,8 @@ class UnifiedWebSocketService {
   }
 
   public onUserSpeaking(handler: (data: { user_id: number; is_speaking: boolean }) => void): void {
+    // Каноническое имя с бэкенда + legacy alias
+    this.on('voice_speaking', handler);
     this.on('user_speaking', handler);
   }
 

@@ -9,22 +9,13 @@ import { useRouter } from 'next/navigation'
 import { cn } from '../lib/utils'
 import { Button } from './ui/button'
 import { Tooltip } from './ui/tooltip'
+import { Slider } from './ui/slider'
+import { UserAvatar } from './ui/user-avatar'
+import { ContextMenu, ContextMenuItem, ContextMenuSeparator } from './ui/context-menu'
 import voiceService from '../services/voiceService'
 import optimizedVoiceService from '../services/optimizedVoiceService'
 import { useScreenSharePickerStore } from '../store/screenSharePickerStore'
 import { Channel, Role, ServerMember } from '../types'
-import {
-  Box,
-  Avatar,
-  Typography,
-  Menu,
-  MenuItem,
-  ListItemIcon,
-  ListItemText,
-  Divider,
-  Slider,
-  Paper,
-} from '@mui/material'
 import channelService from '../services/channelService'
 import { Permissions } from '../lib/permissions'
 import { useServerPermissions } from '../lib/serverPermissions'
@@ -313,8 +304,6 @@ export function ChannelSidebar() {
           ],
         };
       });
-
-      loadVoiceChannelMembers(data.voice_channel_id);
     };
 
     const handleVoiceChannelLeave = (event: any) => {
@@ -329,8 +318,6 @@ export function ChannelSidebar() {
           [channelId]: existing.filter((member) => (member.id ?? member.user_id) !== data.user_id),
         };
       });
-
-      loadVoiceChannelMembers(data.voice_channel_id);
     };
 
     // Обработчики глобальных событий
@@ -854,7 +841,7 @@ export function ChannelSidebar() {
                       mentionCount > 0 && !isSelectedChannel(channel) && "font-semibold text-[#f23f43]"
                     )}>{channel.name}</span>
                     {mentionCount > 0 && !showSettings && (
-                      <span className="ml-auto flex h-5 min-w-5 flex-none items-center justify-center rounded-full bg-[#f23f43] px-1.5 text-[10px] font-bold leading-none text-white">
+                      <span className="ml-auto flex h-5 min-w-5 flex-none items-center justify-center rounded-full bg-destructive px-1.5 text-[10px] font-bold leading-none text-white">
                         {formatMentionBadge(mentionCount)}
                       </span>
                     )}
@@ -929,7 +916,7 @@ export function ChannelSidebar() {
                         size="sm"
                         className={cn(
                           "interactive-row h-9 w-full justify-start gap-2 px-2.5 pr-10 text-muted-foreground",
-                          currentVoiceChannelId === channel.id && "bg-[#23a55a]/10 text-[#23a55a] ring-1 ring-inset ring-[#23a55a]/20"
+                          currentVoiceChannelId === channel.id && "bg-green-500/10 text-green-500 ring-1 ring-inset ring-[#23a55a]/20"
                         )}
                         onClick={() => handleChannelClick(channel)}
                         disabled={isConnecting && currentVoiceChannelId !== channel.id}
@@ -953,11 +940,11 @@ export function ChannelSidebar() {
                       {hasUserLimit && !showVoiceSettings && (
                         <span
                           aria-label={`Участников ${currentCount} из ${userLimit}`}
-                          className="pointer-events-none absolute right-2 top-1/2 flex h-4 -translate-y-1/2 items-stretch overflow-hidden rounded-[8px] text-[12px] font-medium leading-none text-[#b5bac1]"
+                          className="pointer-events-none absolute right-2 top-1/2 flex h-4 -translate-y-1/2 items-stretch overflow-hidden rounded-[8px] text-[12px] font-medium leading-none text-muted-foreground"
                         >
                           {/* Тёмная левая половина — косой срез справа */}
                           <span
-                            className="relative z-[1] flex items-center bg-[#1e1f22] pl-[6px] pr-[10px] tabular-nums tracking-tight"
+                            className="relative z-[1] flex items-center bg-background pl-[6px] pr-[10px] tabular-nums tracking-tight"
                             style={{
                               clipPath: 'polygon(0 0, 100% 0, calc(100% - 5px) 100%, 0 100%)',
                             }}
@@ -965,7 +952,7 @@ export function ChannelSidebar() {
                             {String(currentCount).padStart(2, '0')}
                           </span>
                           {/* Светлая правая половина */}
-                          <span className="-ml-[5px] flex items-center bg-[#2b2d31] pl-[9px] pr-[6px] tabular-nums tracking-tight">
+                          <span className="-ml-[5px] flex items-center bg-surface pl-[9px] pr-[6px] tabular-nums tracking-tight">
                             {String(userLimit).padStart(2, '0')}
                           </span>
                         </span>
@@ -978,7 +965,7 @@ export function ChannelSidebar() {
                         >
                           <button
                             type="button"
-                            className="flex h-6 w-6 items-center justify-center rounded text-[#b5bac1] transition hover:bg-[#35373c] hover:text-white"
+                            className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition hover:bg-[#35373c] hover:text-white"
                             onClick={(e) => {
                               e.stopPropagation();
                               handleChannelSettings(channel);
@@ -1001,7 +988,7 @@ export function ChannelSidebar() {
                                key={participant.user_id}
                                className={cn(
                                  "interactive-row flex cursor-pointer items-center gap-2 overflow-visible px-2 py-1.5",
-                                 voiceMemberProfile?.member.user_id === participant.user_id && "bg-[#393a3f]"
+                                 voiceMemberProfile?.member.user_id === participant.user_id && "bg-gray-800"
                                )}
                                role="button"
                                tabIndex={0}
@@ -1039,8 +1026,7 @@ export function ChannelSidebar() {
                                 isSpeaking={Boolean(speakingUsers[participant.user_id])}
                                 isScreenSharing={isScreenSharing}
                               />
-                              <Typography
-                                variant="caption"
+                              <span
                                 className={cn(
                                   "flex-1 text-xs",
                                   participant.is_deafened ? "text-red-400 line-through" : "text-muted-foreground"
@@ -1048,10 +1034,10 @@ export function ChannelSidebar() {
                               >
                                 {participant.username}
                                 {participant.user_id === user?.id && " (Вы)"}
-                              </Typography>
+                              </span>
 
                               {isScreenSharing && (
-                                <span className="rounded bg-[#da373c] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+                                <span className="rounded bg-destructive px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
                                   В эфире
                                 </span>
                               )}
@@ -1112,243 +1098,108 @@ export function ChannelSidebar() {
       />
 
       {/* Контекстное меню для участников голосового канала */}
-      <Menu
+      <ContextMenu
         open={contextMenu !== null}
+        x={contextMenu?.mouseX ?? 0}
+        y={contextMenu?.mouseY ?? 0}
         onClose={handleContextMenuClose}
-        anchorReference="anchorPosition"
-        anchorPosition={
-          contextMenu !== null
-            ? { top: contextMenu.mouseY, left: contextMenu.mouseX }
-            : undefined
-        }
-        PaperProps={{
-          sx: {
-            backgroundColor: 'rgb(44, 45, 50)',
-            border: '1px solid rgb(62, 63, 69)',
-            borderRadius: '8px',
-            minWidth: '250px',
-            boxShadow: '0 8px 16px rgba(0, 0, 0, 0.24)',
-            '& .MuiMenuItem-root': {
-              color: 'rgb(245, 245, 245)',
-              fontSize: '14px',
-              padding: '8px 12px',
-              '&:hover': {
-                backgroundColor: 'rgb(62, 63, 69)',
-              },
-              '&.Mui-disabled': {
-                color: 'rgb(125, 126, 135)',
-              },
-            },
-            '& .MuiDivider-root': {
-              borderColor: 'rgb(62, 63, 69)',
-              margin: '4px 0',
-            },
-          },
-        }}
       >
         {contextMenu && (
           <>
-            {/* Заголовок с информацией о пользователе */}
-            <Paper
-              sx={{
-                backgroundColor: 'rgb(57, 58, 65)',
-                margin: '8px',
-                padding: '12px',
-                borderRadius: '6px',
-                border: 'none',
-                boxShadow: 'none',
-              }}
-            >
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <Avatar 
-                  sx={{ 
-                    width: 32, 
-                    height: 32, 
-                    fontSize: '14px',
-                    backgroundColor: 'rgb(88, 101, 242)',
-                    fontWeight: 600,
+            <div className="m-2 rounded-panel bg-gray-800 p-3">
+              <div className="flex items-center gap-3">
+                <UserAvatar
+                  user={{
+                    username: contextMenu.participant.username,
+                    display_name: contextMenu.participant.display_name,
+                    avatar_url: contextMenu.participant.avatar_url,
                   }}
-                >
-                  {contextMenu.participant.username[0].toUpperCase()}
-                </Avatar>
-                <Box>
-                  <Typography 
-                    sx={{ 
-                      fontWeight: 600, 
-                      fontSize: '16px', 
-                      color: 'rgb(245, 245, 245)',
-                      lineHeight: 1.2,
-                    }}
-                  >
+                  size={32}
+                />
+                <div className="min-w-0">
+                  <p className="truncate text-[15px] font-semibold text-foreground">
                     {contextMenu.participant.username}
-                  </Typography>
-                  <Typography 
-                    sx={{ 
-                      fontSize: '12px', 
-                      color: 'rgb(153, 154, 161)',
-                      lineHeight: 1,
-                    }}
-                  >
+                  </p>
+                  <p className="text-xs text-text-quiet">
                     {contextMenu.participant.user_id === user?.id ? 'Это вы' : 'Участник'}
-                  </Typography>
-                </Box>
-              </Box>
-            </Paper>
-            
-            {/* Ползунок громкости для других пользователей */}
+                  </p>
+                </div>
+              </div>
+            </div>
+
             {contextMenu.participant.user_id !== user?.id && (
-              <Box sx={{ padding: '8px 16px 12px' }}>
-                <Typography 
-                  sx={{ 
-                    fontSize: '12px', 
-                    color: 'rgb(153, 154, 161)',
-                    marginBottom: '8px',
-                    fontWeight: 500,
-                  }}
-                >
+              <div className="px-4 pb-3 pt-1">
+                <p className="mb-2 text-xs font-medium text-text-quiet">
                   Громкость пользователя: {getParticipantVolume(contextMenu.participant.user_id)}%
-                </Typography>
+                </p>
                 <Slider
-                  value={getParticipantVolume(contextMenu.participant.user_id)}
-                  onChange={(_, value) => setParticipantVolume(contextMenu.participant.user_id, value as number)}
-                  aria-label={`Громкость пользователя ${contextMenu.participant.username}`}
-                  aria-valuetext={`${getParticipantVolume(contextMenu.participant.user_id)} процентов`}
+                  value={[getParticipantVolume(contextMenu.participant.user_id)]}
+                  onValueChange={(value) =>
+                    setParticipantVolume(contextMenu.participant.user_id, value[0] ?? 100)
+                  }
                   min={0}
                   max={100}
                   step={5}
-                  sx={{
-                    color: 'rgb(88, 101, 242)',
-                    height: 6,
-                    '& .MuiSlider-track': {
-                      backgroundColor: 'rgb(88, 101, 242)',
-                      border: 'none',
-                    },
-                    '& .MuiSlider-rail': {
-                      backgroundColor: 'rgb(68, 69, 74)',
-                    },
-                    '& .MuiSlider-thumb': {
-                      backgroundColor: 'rgb(255, 255, 255)',
-                      border: '2px solid rgb(88, 101, 242)',
-                      width: 16,
-                      height: 16,
-                      '&:hover': {
-                        boxShadow: '0 0 0 8px rgba(88, 101, 242, 0.16)',
-                      },
-                    },
-                  }}
+                  aria-label={`Громкость пользователя ${contextMenu.participant.username}`}
                 />
-              </Box>
+              </div>
             )}
-            
-            <Divider />
-            
-            {/* Действия для других пользователей */}
+
+            <ContextMenuSeparator />
+
             {contextMenu.participant.user_id !== user?.id && (
               <>
-                <MenuItem onClick={handleSendMessage}>
-                  <ListItemIcon sx={{ minWidth: '36px' }}>
-                    <Hash size={18} color="rgb(153, 154, 161)" />
-                  </ListItemIcon>
-                  <ListItemText primary="Отправить сообщение" />
-                </MenuItem>
-                
-                <MenuItem onClick={handleViewProfile}>
-                  <ListItemIcon sx={{ minWidth: '36px' }}>
-                    <UserCheck size={18} color="rgb(153, 154, 161)" />
-                  </ListItemIcon>
-                  <ListItemText primary="Посмотреть профиль" />
-                </MenuItem>
-                
-                <Divider />
-                
-                {/* Модерационные действия (пока отключены) */}
-                <MenuItem onClick={handleMuteUser} disabled>
-                  <ListItemIcon sx={{ minWidth: '36px' }}>
-                    <Volume1 size={18} color="rgb(125, 126, 135)" />
-                  </ListItemIcon>
-                  <ListItemText primary="Заглушить пользователя" />
-                </MenuItem>
-                
-                <MenuItem onClick={handleKickUser} disabled>
-                  <ListItemIcon sx={{ minWidth: '36px' }}>
-                    <UserX size={18} color="rgb(218, 62, 68)" />
-                  </ListItemIcon>
-                  <ListItemText 
-                    primary="Исключить из канала" 
-                    primaryTypographyProps={{ color: 'rgb(218, 62, 68)' }}
-                  />
-                </MenuItem>
+                <ContextMenuItem onClick={handleSendMessage}>
+                  <Hash size={18} className="text-text-quiet" />
+                  Отправить сообщение
+                </ContextMenuItem>
+                <ContextMenuItem onClick={handleViewProfile}>
+                  <UserCheck size={18} className="text-text-quiet" />
+                  Посмотреть профиль
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem onClick={handleMuteUser} disabled>
+                  <Volume1 size={18} className="text-text-quiet" />
+                  Заглушить пользователя
+                </ContextMenuItem>
+                <ContextMenuItem onClick={handleKickUser} disabled danger>
+                  <UserX size={18} />
+                  Исключить из канала
+                </ContextMenuItem>
               </>
             )}
-            
-            {/* Действия для себя */}
+
             {contextMenu.participant.user_id === user?.id && (
-              <MenuItem onClick={handleViewProfile}>
-                <ListItemIcon sx={{ minWidth: '36px' }}>
-                  <UserCheck size={18} color="rgb(153, 154, 161)" />
-                </ListItemIcon>
-                <ListItemText primary="Мой профиль" />
-              </MenuItem>
+              <ContextMenuItem onClick={handleViewProfile}>
+                <UserCheck size={18} className="text-text-quiet" />
+                Мой профиль
+              </ContextMenuItem>
             )}
           </>
         )}
-      </Menu>
+      </ContextMenu>
 
       {/* Контекстное меню для заголовка сервера */}
-      <Menu
+      <ContextMenu
         open={!!serverContextMenu}
+        x={serverContextMenu?.mouseX ?? 0}
+        y={serverContextMenu?.mouseY ?? 0}
         onClose={handleServerContextMenuClose}
-        anchorReference="anchorPosition"
-        anchorPosition={
-          serverContextMenu !== null
-            ? { top: serverContextMenu.mouseY, left: serverContextMenu.mouseX }
-            : undefined
-        }
-        PaperProps={{
-          sx: {
-            backgroundColor: 'rgb(44, 45, 50)',
-            border: '1px solid rgb(62, 63, 69)',
-            borderRadius: '8px',
-            minWidth: '200px',
-            boxShadow: '0 8px 16px rgba(0, 0, 0, 0.24)',
-            '& .MuiMenuItem-root': {
-              color: 'rgb(245, 245, 245)',
-              fontSize: '14px',
-              padding: '8px 12px',
-              '&:hover': {
-                backgroundColor: 'rgb(62, 63, 69)',
-              },
-              '&.Mui-disabled': {
-                color: 'rgb(125, 126, 135)',
-              },
-            },
-            '& .MuiDivider-root': {
-              borderColor: 'rgb(62, 63, 69)',
-              margin: '4px 0',
-            },
-          },
-        }}
       >
-        <MenuItem onClick={handleServerSettings}>
-          <ListItemIcon sx={{ minWidth: '36px' }}>
-            <Settings size={18} color="rgb(153, 154, 161)" />
-          </ListItemIcon>
-          <ListItemText primary="Настройки сервера" />
-        </MenuItem>
-        <MenuItem onClick={handleNotificationSettings}>
-          <ListItemIcon sx={{ minWidth: '36px' }}>
-            <Bell size={18} color="rgb(153, 154, 161)" />
-          </ListItemIcon>
-          <ListItemText primary="Настройки уведомлений" />
-        </MenuItem>
-        <Divider />
-        <MenuItem onClick={handleCopyServerId}>
-          <ListItemIcon sx={{ minWidth: '36px' }}>
-            <Copy size={18} color="rgb(153, 154, 161)" />
-          </ListItemIcon>
-          <ListItemText primary="Копировать ID" />
-        </MenuItem>
-      </Menu>
+        <ContextMenuItem onClick={handleServerSettings}>
+          <Settings size={18} className="text-text-quiet" />
+          Настройки сервера
+        </ContextMenuItem>
+        <ContextMenuItem onClick={handleNotificationSettings}>
+          <Bell size={18} className="text-text-quiet" />
+          Настройки уведомлений
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onClick={handleCopyServerId}>
+          <Copy size={18} className="text-text-quiet" />
+          Копировать ID
+        </ContextMenuItem>
+      </ContextMenu>
 
       <ServerNotificationSettingsModal
         isOpen={isNotificationSettingsOpen}

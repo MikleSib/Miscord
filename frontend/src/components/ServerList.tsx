@@ -16,14 +16,7 @@ import { Tooltip } from './ui/tooltip'
 import { cn } from '../lib/utils'
 import { resolveMediaUrl } from '../lib/mediaUrl'
 import { Button } from './ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  TextField,
-  Box,
-  IconButton,
-} from '@mui/material'
+import { Modal } from './ui/modal'
 import channelService from '../services/channelService'
 import { ServerSettingsModal } from './ServerSettingsModal'
 import { ServerNotificationSettingsModal } from './ServerNotificationSettingsModal'
@@ -313,136 +306,114 @@ export function ServerList() {
       </div>
 
       {/* Create Server Modal */}
-      <Dialog 
-        open={isCreateModalOpen} 
+      <Modal
+        open={isCreateModalOpen}
         onClose={() => {
+          if (isCreating) return
           setIsCreateModalOpen(false)
           setCreateStep('template')
           setNewServerName('')
         }}
-        maxWidth="sm"
-        fullWidth
-        PaperProps={{
-          sx: {
-            backgroundColor: '#323339',
-            color: 'white',
-            borderRadius: '8px',
-            minHeight: '500px'
-          }
-        }}
+        title="Создайте свой сервер"
+        contentClassName="max-w-lg min-h-[500px] bg-background text-foreground"
       >
-        <DialogContent sx={{ padding: 0 }}>
-          {createStep === 'template' ? (
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-6">
-                <div>
-                  <h2 className="text-2xl font-bold text-white mb-2">Создайте свой сервер</h2>
-                  <p className="text-[#999aa1] text-sm">Ваш сервер — это место, где вы можете тусоваться со своими друзьями. Создайте сервер и начните общаться.</p>
-                </div>
-                <IconButton
-                  onClick={() => {
-                    setIsCreateModalOpen(false)
-                    setCreateStep('template')
-                    setNewServerName('')
-                  }}
-                  sx={{ color: '#999aa1' }}
-                >
-                  <X size={24} />
-                </IconButton>
+        {createStep === 'template' ? (
+          <div className="p-6">
+            <div className="mb-6 flex items-center justify-between">
+              <div>
+                <h2 className="mb-2 text-2xl font-bold text-foreground">Создайте свой сервер</h2>
+                <p className="text-sm text-text-quiet">
+                  Ваш сервер — это место, где вы можете тусоваться со своими друзьями. Создайте сервер и начните общаться.
+                </p>
               </div>
+              <button
+                type="button"
+                aria-label="Закрыть"
+                onClick={() => {
+                  setIsCreateModalOpen(false)
+                  setCreateStep('template')
+                  setNewServerName('')
+                }}
+                className="rounded p-1 text-text-quiet hover:text-foreground"
+              >
+                <X size={24} />
+              </button>
+            </div>
 
-              <div className="space-y-3">
-                {serverTemplates.map((template) => (
-                  <div
-                    key={template.id}
-                    onClick={() => handleTemplateSelect(template.id)}
-                    className="flex items-center p-4 bg-[#2c2d32] hover:bg-[#3e3f45] rounded-lg cursor-pointer transition-colors group"
-                  >
-                    <div className="flex items-center justify-center w-12 h-12 bg-[#414248] rounded-lg mr-4">
-                      <span className="text-2xl">{template.icon}</span>
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-white text-base">{template.name}</h3>
-                      <p className="text-[#999aa1] text-sm">{template.description}</p>
-                    </div>
-                    <ChevronRight size={20} className="text-[#999aa1] group-hover:text-white transition-colors" />
+            <div className="space-y-3">
+              {serverTemplates.map((template) => (
+                <div
+                  key={template.id}
+                  onClick={() => handleTemplateSelect(template.id)}
+                  className="group flex cursor-pointer items-center rounded-lg bg-surface p-4 transition-colors hover:bg-gray-700"
+                >
+                  <div className="mr-4 flex h-12 w-12 items-center justify-center rounded-lg bg-gray-700">
+                    <span className="text-2xl">{template.icon}</span>
                   </div>
-                ))}
-              </div>
-
-            
-            </div>
-          ) : (
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-6">
-                <div>
-                  <h2 className="text-2xl font-bold text-white mb-2">Создать сервер</h2>
-                  <p className="text-[#999aa1] text-sm">Дайте серверу индивидуальность с именем и значком. Вы всегда можете изменить это позже.</p>
+                  <div className="flex-1">
+                    <h3 className="text-base font-semibold text-foreground">{template.name}</h3>
+                    <p className="text-sm text-text-quiet">{template.description}</p>
+                  </div>
+                  <ChevronRight size={20} className="text-text-quiet transition-colors group-hover:text-foreground" />
                 </div>
-                <IconButton
-                  onClick={() => {
-                    setIsCreateModalOpen(false)
-                    setCreateStep('template')
-                    setNewServerName('')
-                  }}
-                  sx={{ color: '#999aa1' }}
-                >
-                  <X size={24} />
-                </IconButton>
-              </div>
-
-              <div className="mb-6">
-                <TextField
-                  label="Название сервера"
-                  value={newServerName}
-                  onChange={(e) => setNewServerName(e.target.value)}
-                  fullWidth
-                  required
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      backgroundColor: '#1e1f22',
-                      color: 'white',
-                      '& fieldset': {
-                        borderColor: '#393a41',
-                      },
-                      '&:hover fieldset': {
-                        borderColor: '#5865f2',
-                      },
-                      '&.Mui-focused fieldset': {
-                        borderColor: '#5865f2',
-                      },
-                    },
-                    '& .MuiInputLabel-root': {
-                      color: '#999aa1',
-                      '&.Mui-focused': {
-                        color: '#5865f2',
-                      },
-                    },
-                  }}
-                />
-              </div>
-
-              <div className="flex gap-3 justify-end">
-                <Button
-                  variant="outline"
-                  onClick={() => setCreateStep('template')}
-                  disabled={isCreating}
-                  className="bg-transparent border-[#4e5058] text-white hover:bg-[#4e5058] hover:border-[#4e5058]"
-                >
-                  Назад
-                </Button>
-                <Button
-                  onClick={() => handleCreateServer()}
-                  disabled={!newServerName.trim() || isCreating}
-                  className="bg-[#5865f2] hover:bg-[#4752c4] text-white"
-                >
-                  {isCreating ? 'Создание...' : 'Создать'}
-                </Button>
-              </div>
+              ))}
             </div>
-          )}
-        </DialogContent>
-      </Dialog>
+          </div>
+        ) : (
+          <div className="p-6">
+            <div className="mb-6 flex items-center justify-between">
+              <div>
+                <h2 className="mb-2 text-2xl font-bold text-foreground">Создать сервер</h2>
+                <p className="text-sm text-text-quiet">
+                  Дайте серверу индивидуальность с именем и значком. Вы всегда можете изменить это позже.
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Закрыть"
+                onClick={() => {
+                  setIsCreateModalOpen(false)
+                  setCreateStep('template')
+                  setNewServerName('')
+                }}
+                className="rounded p-1 text-text-quiet hover:text-foreground"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="mb-6">
+              <label htmlFor="new-server-name" className="mb-2 block text-xs font-bold uppercase text-text-quiet">
+                Название сервера
+              </label>
+              <input
+                id="new-server-name"
+                value={newServerName}
+                onChange={(e) => setNewServerName(e.target.value)}
+                required
+                className="h-11 w-full rounded-control border border-border bg-surface-deep px-3 text-foreground outline-none focus:border-primary"
+              />
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setCreateStep('template')}
+                disabled={isCreating}
+              >
+                Назад
+              </Button>
+              <Button
+                onClick={() => handleCreateServer()}
+                disabled={!newServerName.trim() || isCreating}
+                className="bg-primary text-white hover:bg-brand-hover"
+              >
+                {isCreating ? 'Создание...' : 'Создать'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Context Menu */}
       {contextMenuOpen && (

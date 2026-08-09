@@ -130,3 +130,7 @@ skills-lock.json
 agent/
 data/
 skills/
+
+# Generated local artifacts
+output/
+

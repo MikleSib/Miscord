@@ -1,14 +1,14 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
-import { createPortal } from 'react-dom'
-import { Hash, Lock, MessageSquare, Smile, Volume2, X } from 'lucide-react'
+import { Hash, Lock, MessageSquare, Volume2, X } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { Permissions } from '../lib/permissions'
 import channelService from '../services/channelService'
 import serverService from '../services/serverService'
 import { Channel } from '../types'
 import { Switch } from './ui/switch'
+import { Modal } from './ui/modal'
 
 type ChannelCreateType = 'text' | 'voice' | 'forum'
 
@@ -21,8 +21,6 @@ interface CreateChannelModalProps {
   categoryLabel?: string
   onCreated: (channel: Channel) => void
 }
-
-const MODAL_Z_INDEX = 110
 
 const TYPE_OPTIONS: Array<{
   id: ChannelCreateType
@@ -67,16 +65,11 @@ export function CreateChannelModal({
   categoryLabel,
   onCreated,
 }: CreateChannelModalProps) {
-  const [mounted, setMounted] = useState(false)
   const [channelType, setChannelType] = useState<ChannelCreateType>(initialType)
   const [channelName, setChannelName] = useState('')
   const [isPrivate, setIsPrivate] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
   const [error, setError] = useState('')
-
-  useEffect(() => {
-    setMounted(true)
-  }, [])
 
   useEffect(() => {
     if (!isOpen) return
@@ -86,15 +79,6 @@ export function CreateChannelModal({
     setError('')
     setIsCreating(false)
   }, [isOpen, initialType])
-
-  useEffect(() => {
-    if (!isOpen) return
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !isCreating) onClose()
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [isOpen, isCreating, onClose])
 
   const canCreate = Boolean(channelName.trim()) && channelType !== 'forum' && !isCreating
 
@@ -167,21 +151,25 @@ export function CreateChannelModal({
     }
   }
 
-  if (!isOpen || !mounted) return null
+  if (!isOpen) return null
 
   const namePrefix = channelType === 'voice' ? 'volume' : 'hash'
 
-  return createPortal(
-    <div className="fixed inset-0 flex items-center justify-center p-4" style={{ zIndex: MODAL_Z_INDEX }}>
-      <div className="absolute inset-0 bg-black/70" onClick={() => !isCreating && onClose()} />
-
-      <div className="relative w-full max-w-[460px] overflow-hidden rounded-xl bg-[#313338] shadow-2xl">
+  return (
+    <Modal
+      open={isOpen}
+      onClose={onClose}
+      title="Создать канал"
+      titleId="create-channel-title"
+      disableClose={isCreating}
+      contentClassName="max-w-[460px] rounded-xl bg-surface-raised shadow-2xl"
+    >
         <div className="px-4 pb-2 pt-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-xl font-bold text-white">Создать канал</h2>
+              <h2 id="create-channel-title" className="text-xl font-bold text-white">Создать канал</h2>
               {categoryLabel && (
-                <p className="mt-0.5 text-xs text-[#b5bac1]">в {categoryLabel}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">в {categoryLabel}</p>
               )}
             </div>
             <button
@@ -189,7 +177,7 @@ export function CreateChannelModal({
               aria-label="Закрыть"
               disabled={isCreating}
               onClick={onClose}
-              className="rounded p-1 text-[#b5bac1] transition hover:text-white disabled:opacity-50"
+              className="rounded p-1 text-muted-foreground transition hover:text-white disabled:opacity-50"
             >
               <X className="h-5 w-5" />
             </button>
@@ -204,7 +192,7 @@ export function CreateChannelModal({
           )}
 
           <div>
-            <p className="mb-2 text-xs font-bold uppercase tracking-wide text-[#b5bac1]">
+            <p className="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">
               Тип канала
             </p>
             <div className="space-y-2">
@@ -218,20 +206,20 @@ export function CreateChannelModal({
                     onClick={() => setChannelType(option.id)}
                     className={cn(
                       'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition',
-                      selected ? 'bg-[#43444b]' : 'bg-[#2b2d31] hover:bg-[#35373c]',
-                      option.disabled && 'cursor-not-allowed opacity-45 hover:bg-[#2b2d31]'
+                      selected ? 'bg-[#43444b]' : 'bg-surface hover:bg-[#35373c]',
+                      option.disabled && 'cursor-not-allowed opacity-45 hover:bg-surface'
                     )}
                   >
                     <span
                       className={cn(
                         'flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2',
-                        selected ? 'border-[#5865f2]' : 'border-[#80848e]'
+                        selected ? 'border-primary' : 'border-[#80848e]'
                       )}
                     >
-                      {selected && <span className="h-2.5 w-2.5 rounded-full bg-[#5865f2]" />}
+                      {selected && <span className="h-2.5 w-2.5 rounded-full bg-primary" />}
                     </span>
 
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center text-[#b5bac1]">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center text-muted-foreground">
                       {option.icon}
                     </span>
 
@@ -239,12 +227,12 @@ export function CreateChannelModal({
                       <span className="flex items-center gap-2">
                         <span className="text-[15px] font-semibold text-white">{option.label}</span>
                         {option.disabled && (
-                          <span className="rounded bg-[#1e1f22] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[#949ba4]">
+                          <span className="rounded bg-background px-1.5 py-0.5 text-[10px] font-semibold uppercase text-text-quiet">
                             Скоро
                           </span>
                         )}
                       </span>
-                      <span className="mt-0.5 block text-sm leading-snug text-[#b5bac1]">
+                      <span className="mt-0.5 block text-sm leading-snug text-muted-foreground">
                         {option.description}
                       </span>
                     </span>
@@ -257,87 +245,63 @@ export function CreateChannelModal({
           <div>
             <label
               htmlFor="create-channel-name"
-              className="mb-2 block text-xs font-bold uppercase tracking-wide text-[#b5bac1]"
+              className="mb-2 block text-xs font-bold uppercase tracking-wide text-muted-foreground"
             >
               Название канала
             </label>
             <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#949ba4]">
-                {namePrefix === 'hash' ? (
-                  <Hash className="h-4 w-4" />
-                ) : (
-                  <Volume2 className="h-4 w-4" />
-                )}
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                {channelType === 'voice' ? <Volume2 className="h-4 w-4" /> : <Hash className="h-4 w-4" />}
               </span>
               <input
                 id="create-channel-name"
-                type="text"
                 value={channelName}
-                onChange={(event) => {
-                  const next =
-                    channelType === 'text'
-                      ? slugifyChannelName(event.target.value)
-                      : event.target.value
-                  setChannelName(next)
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && canCreate) void handleCreate()
-                }}
-                placeholder="новый-канал"
-                autoFocus
-                maxLength={100}
+                onChange={(e) => setChannelName(slugifyChannelName(e.target.value))}
                 disabled={isCreating}
-                className="w-full rounded-md border border-transparent bg-[#1e1f22] py-2.5 pl-9 pr-10 text-[15px] text-[#dbdee1] outline-none placeholder:text-[#6d6f78] focus:border-[#5865f2]"
+                placeholder={`${namePrefix}-`}
+                className="h-11 w-full rounded-md border-0 bg-background pl-9 pr-3 text-[15px] text-white outline-none ring-0 placeholder:text-text-quiet focus:ring-2 focus:ring-primary"
               />
-              <Smile className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#949ba4]" />
             </div>
           </div>
 
-          <div className="rounded-lg">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex min-w-0 items-center gap-2">
-                <Lock className="h-4 w-4 shrink-0 text-[#dbdee1]" />
-                <span className="text-[15px] font-semibold text-white">Приватный канал</span>
+          <div className="flex items-start justify-between gap-4 border-t border-white/5 pt-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 text-[15px] font-semibold text-white">
+                <Lock className="h-4 w-4" />
+                Приватный канал
               </div>
-              <Switch
-                checked={isPrivate}
-                disabled={isCreating}
-                aria-label="Приватный канал"
-                onCheckedChange={setIsPrivate}
-              />
+              <p className="mt-1 text-sm text-muted-foreground">
+                Только выбранные участники и роли смогут просматривать этот канал
+              </p>
             </div>
-            <p className="mt-2 text-sm leading-relaxed text-[#b5bac1]">
-              Только выбранные участники и участники с выбранными ролями смогут просматривать этот
-              канал.
-            </p>
+            <Switch
+              checked={isPrivate}
+              onCheckedChange={setIsPrivate}
+              disabled={isCreating}
+              aria-label="Приватный канал"
+            />
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-3 bg-[#2b2d31] px-4 py-4">
+        <div className="flex items-center justify-end gap-3 bg-background/40 px-4 py-4">
           <button
             type="button"
             disabled={isCreating}
             onClick={onClose}
-            className="rounded-md px-4 py-2 text-sm font-medium text-white transition hover:underline disabled:opacity-50"
+            className="rounded-md px-4 py-2 text-sm font-medium text-white hover:underline disabled:opacity-50"
           >
             Отмена
           </button>
           <button
             type="button"
             disabled={!canCreate}
-            onClick={() => void handleCreate()}
-            className={cn(
-              'rounded-md px-4 py-2 text-sm font-medium transition',
-              canCreate
-                ? 'bg-[#5865f2] text-white hover:bg-[#4752c4]'
-                : 'cursor-not-allowed bg-[#4752c4]/40 text-[#c9cdfb]/70'
-            )}
+            onClick={handleCreate}
+            className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isCreating ? 'Создание...' : 'Создать канал'}
           </button>
         </div>
-      </div>
-    </div>,
-    document.body
+    </Modal>
   )
 }
+

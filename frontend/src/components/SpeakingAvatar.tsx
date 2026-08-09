@@ -30,15 +30,7 @@ export function SpeakingAvatar({
       <UserAvatar
         user={user || undefined}
         size={size}
-        className="speaking-avatar__face"
-        sx={{
-          backgroundColor: !user?.avatar_url ? '#5865f2' : 'transparent',
-          color: 'white',
-          fontWeight: 600,
-          position: 'relative',
-          zIndex: 1,
-          border: '1px solid rgba(255, 255, 255, 0.08)',
-        }}
+        className="speaking-avatar__face relative z-[1] border border-white/10"
       />
     </span>
   )

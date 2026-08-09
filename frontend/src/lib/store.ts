@@ -14,6 +14,10 @@ import {
 } from '../store/channelUnreadStore';
 import { applyMemberJoined, applyMemberLeft } from './memberSync';
 
+/** Чтобы initializeWebSocket не навешивал обработчики повторно при remount. */
+let notificationHandlersBound = false;
+let reconnectRefetchBound = false;
+
 interface AppState {
   // Данные
   servers: Server[];
@@ -35,6 +39,17 @@ interface AppState {
 
   // Действия для каналов
   addChannel: (serverId: number, channel: Channel) => void;
+  updateChannel: (
+    serverId: number,
+    channelId: number,
+    channelType: 'text' | 'voice',
+    updates: Partial<Channel>
+  ) => void;
+  removeChannel: (
+    serverId: number,
+    channelId: number,
+    channelType: 'text' | 'voice'
+  ) => void;
 
   // Сообщения
   sendMessage: (content: string, files: File[]) => Promise<void>;
@@ -238,6 +253,84 @@ export const useStore = create<AppState>()(
           return {
             servers: updatedServers,
             currentServer: updatedCurrentServer,
+          };
+        });
+      },
+
+      updateChannel: (serverId, channelId, channelType, updates) => {
+        set((state) => {
+          const patchChannels = (channels: Channel[]) =>
+            channels.map((channel) =>
+              channel.id === channelId && channel.type === channelType
+                ? { ...channel, ...updates }
+                : channel
+            );
+
+          const updatedServers = state.servers.map((server) =>
+            server.id === serverId
+              ? { ...server, channels: patchChannels(server.channels) }
+              : server
+          );
+
+          const updatedCurrentServer =
+            state.currentServer?.id === serverId
+              ? {
+                  ...state.currentServer,
+                  channels: patchChannels(state.currentServer.channels),
+                }
+              : state.currentServer;
+
+          const updatedCurrentChannel =
+            state.currentChannel?.id === channelId &&
+            state.currentChannel.type === channelType
+              ? { ...state.currentChannel, ...updates }
+              : state.currentChannel;
+
+          return {
+            servers: updatedServers,
+            currentServer: updatedCurrentServer,
+            currentChannel: updatedCurrentChannel,
+          };
+        });
+      },
+
+      removeChannel: (serverId, channelId, channelType) => {
+        set((state) => {
+          const filterChannels = (channels: Channel[]) =>
+            channels.filter(
+              (channel) =>
+                !(channel.id === channelId && channel.type === channelType)
+            );
+
+          const updatedServers = state.servers.map((server) =>
+            server.id === serverId
+              ? { ...server, channels: filterChannels(server.channels) }
+              : server
+          );
+
+          const updatedCurrentServer =
+            state.currentServer?.id === serverId
+              ? {
+                  ...state.currentServer,
+                  channels: filterChannels(state.currentServer.channels),
+                }
+              : state.currentServer;
+
+          const isCurrent =
+            state.currentChannel?.id === channelId &&
+            state.currentChannel.type === channelType;
+
+          let nextChannel: Channel | null = state.currentChannel;
+          if (isCurrent) {
+            const remaining =
+              updatedCurrentServer?.channels.filter((c) => c.type === 'text') ?? [];
+            nextChannel = remaining[0] ?? null;
+          }
+
+          return {
+            servers: updatedServers,
+            currentServer: updatedCurrentServer,
+            currentChannel: nextChannel,
           };
         });
       },
@@ -510,20 +603,49 @@ export const useStore = create<AppState>()(
         registerMentionNotificationListener();
         registerChannelUnreadListener();
         websocketService.connect(token);
+
+        // После разрыва связи догружаем актуальное состояние (нет RESUME)
+        if (!reconnectRefetchBound) {
+          reconnectRefetchBound = true;
+          let wasDisconnected = false;
+          websocketService.onConnectionStatusChange((status) => {
+            if (!status.isConnected) {
+              wasDisconnected = true;
+              return;
+            }
+            if (!wasDisconnected) return;
+            wasDisconnected = false;
+
+            void get().loadServers();
+            const channel = get().currentChannel;
+            if (channel?.type === 'text') {
+              void import('../store/chatStore').then(({ useChatStore }) => {
+                void useChatStore.getState().loadMessageHistory(channel.id);
+              });
+            }
+          });
+        }
+
+        if (notificationHandlersBound) {
+          return;
+        }
+        notificationHandlersBound = true;
         
-        // Обработка приглашения в канал
-        websocketService.onChannelInvitation((data) => {
-          console.log('Получено приглашение в канал:', data);
-          
-          // Показываем уведомление
+        // Приглашение на сервер (server_invite) + legacy channel_invitation
+        websocketService.onChannelInvitation((raw) => {
+          const data = (raw as any)?.data || raw;
+          const inviter = data.inviter_name || data.invited_by || 'Кто-то';
+          const targetName = data.channel_name || data.server_name || 'сервер';
+          console.log('Получено приглашение:', data);
+
           if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-            new Notification(`Приглашение в канал`, {
-              body: `${data.invited_by} пригласил вас в канал "${data.channel_name}"`,
-              icon: '/favicon.ico'
+            new Notification('Приглашение на сервер', {
+              body: `${inviter} пригласил вас на ${targetName}`,
+              icon: '/favicon.ico',
             });
           }
-          
-          // Перезагружаем список серверов
+
+          // Перезагружаем список серверов (после принятия инвайта список обновится и так)
           get().loadServers();
         });
         
@@ -602,38 +724,41 @@ export const useStore = create<AppState>()(
 
         // Обработка удаления сервера
         websocketService.onServerDeleted((data) => {
-          console.log('🔔 Получено событие server_deleted:', data);
-          console.log('🔔 Структура data:', JSON.stringify(data, null, 2));
-          
-          // WebSocket событие имеет структуру: { type: 'server_deleted', data: { server_id, server_name, deleted_by } }
           const eventData = (data as any).data || data;
           const serverId = eventData.server_id;
-          
-          console.log('🔔 Извлеченный server_id:', serverId);
-          
-          const { servers, currentServer } = get();
-          console.log('🔔 Текущее состояние - серверы:', servers.length, 'текущий сервер:', currentServer?.id);
-          
+
           if (serverId) {
             get().removeServer(serverId);
-            
-            const newState = get();
-            console.log('🔔 Новое состояние после removeServer - серверы:', newState.servers.length, 'текущий сервер:', newState.currentServer?.id);
 
             const currentUser = get().user;
             if (currentUser && eventData.deleted_by && eventData.deleted_by.id !== currentUser.id) {
-              console.log('🔔 Показываем уведомление о удалении сервера другим пользователем');
               if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-                new Notification(`Сервер удален`, {
+                new Notification('Сервер удален', {
                   body: `${eventData.deleted_by.username} удалил сервер "${eventData.server_name}"`,
-                  icon: '/favicon.ico'
+                  icon: '/favicon.ico',
                 });
               }
-            } else {
-              console.log('🔔 Сервер удален текущим пользователем, уведомление не показываем');
             }
           } else {
-            console.error('🔔 Не удалось извлечь server_id из события:', data);
+            console.error('Не удалось извлечь server_id из события server_deleted:', data);
+          }
+        });
+
+        // Кик / бан — убрать сервер у текущего пользователя
+        websocketService.onServerRemoved((raw) => {
+          const eventData = (raw as any)?.data || raw;
+          const serverId = eventData.server_id;
+          if (!serverId) return;
+
+          get().removeServer(serverId);
+
+          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+            const kindLabel = eventData.kind === 'ban' ? 'заблокировали на' : 'исключили с';
+            const by = eventData.by ? ` (${eventData.by})` : '';
+            new Notification('Вы больше не на сервере', {
+              body: `Вас ${kindLabel} сервера "${eventData.server_name || serverId}"${by}`,
+              icon: '/favicon.ico',
+            });
           }
         });
         
@@ -706,14 +831,61 @@ export const useStore = create<AppState>()(
           applyMemberLeft(data);
         });
         
-        // Обработка обновления канала
-        websocketService.onChannelUpdated((data) => {
-          console.log('Канал обновлен:', data);
-          
-          const { currentServer } = get();
-          if (currentServer?.id === data.channel_id) {
-            get().loadServerDetails(data.channel_id);
-          }
+        // Обновление / удаление текстовых и голосовых каналов
+        websocketService.onTextChannelUpdated((raw) => {
+          const data = (raw as any)?.data || raw;
+          const channelId = data.text_channel_id;
+          if (!channelId) return;
+
+          const serverId =
+            get().servers.find((server) =>
+              server.channels.some((c) => c.id === channelId && c.type === 'text')
+            )?.id ?? get().currentServer?.id;
+
+          if (!serverId) return;
+
+          get().updateChannel(serverId, channelId, 'text', {
+            name: data.name,
+            position: data.position,
+            slow_mode_seconds: data.slow_mode_seconds,
+          });
+        });
+
+        websocketService.onVoiceChannelUpdated((raw) => {
+          const data = (raw as any)?.data || raw;
+          const channelId = data.voice_channel_id;
+          if (!channelId) return;
+
+          const serverId =
+            get().servers.find((server) =>
+              server.channels.some((c) => c.id === channelId && c.type === 'voice')
+            )?.id ?? get().currentServer?.id;
+
+          if (!serverId) return;
+
+          get().updateChannel(serverId, channelId, 'voice', {
+            name: data.name,
+            position: data.position,
+            max_users: data.max_users,
+            bitrate: data.bitrate,
+            video_quality: data.video_quality,
+          });
+        });
+
+        websocketService.onTextChannelDeleted((raw) => {
+          const data = (raw as any)?.data || raw;
+          const channelId = data.text_channel_id;
+          const serverId = data.server_id;
+          if (!channelId || !serverId) return;
+          get().removeChannel(serverId, channelId, 'text');
+        });
+
+        websocketService.onVoiceChannelDeleted((raw) => {
+          const data = (raw as any)?.data || raw;
+          const channelId = data.voice_channel_id;
+          const serverId = data.server_id;
+          if (!channelId || !serverId) return;
+          get().removeChannel(serverId, channelId, 'voice');
         });
         
         // Обработка присоединения к голосовому каналу
@@ -846,6 +1018,8 @@ export const useStore = create<AppState>()(
 
       // Отключение WebSocket
       disconnectWebSocket: () => {
+        notificationHandlersBound = false;
+        reconnectRefetchBound = false;
         websocketService.fullDisconnect();
       }
     }),

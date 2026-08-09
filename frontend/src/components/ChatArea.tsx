@@ -948,11 +948,11 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
       onDrop={handleDrop}
     >
       {isDraggingFiles && (
-        <div className="pointer-events-none absolute inset-3 z-50 grid place-items-center rounded-2xl border-2 border-dashed border-[#5865f2] bg-[#1e1f22]/90 backdrop-blur-sm">
+        <div className="pointer-events-none absolute inset-3 z-50 grid place-items-center rounded-2xl border-2 border-dashed border-primary bg-background/90 backdrop-blur-sm">
           <div className="text-center">
             <PlusCircle className="mx-auto mb-3 h-10 w-10 text-[#7c86ff]" />
             <p className="text-base font-semibold text-white">Добавить файлы в сообщение</p>
-            <p className="mt-1 text-sm text-[#b5bac1]">Изображения до 10 МиБ, остальные файлы до 20 МиБ</p>
+            <p className="mt-1 text-sm text-muted-foreground">Изображения до 10 МиБ, остальные файлы до 20 МиБ</p>
           </div>
         </div>
       )}
@@ -963,7 +963,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
           <span className="truncate font-semibold">{currentChannel.name}</span>
           <ChevronRight className="mobile-channel-chevron ml-1 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           {currentChannel.type === 'text' && (currentChannel.slow_mode_seconds ?? 0) > 0 && (
-            <span className="ml-3 rounded bg-[#5865f2]/15 px-2 py-0.5 text-xs text-[#949cf7]">
+            <span className="ml-3 rounded bg-primary/15 px-2 py-0.5 text-xs text-[#949cf7]">
               Медленный режим: {formatSlowModeLabel(currentChannel.slow_mode_seconds ?? 0)}
             </span>
           )}
@@ -1070,7 +1070,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
             <button
               type="button"
               onClick={handleJumpToMention}
-              className="absolute bottom-4 right-4 z-20 flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-full bg-[#5865f2] px-3 text-sm font-bold text-white shadow-lg transition hover:bg-[#4752c4] active:scale-95"
+              className="absolute bottom-4 right-4 z-20 flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-full bg-primary px-3 text-sm font-bold text-white shadow-lg transition hover:bg-brand-hover active:scale-95"
               aria-label="Перейти к упоминанию"
             >
               <AtSign className="h-4 w-4" />
@@ -1089,14 +1089,14 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
       {currentChannel.type === 'text' && (
         <div className="chat-area-composer flex-shrink-0 border-t border-border/70 p-3">
           {isSlowModeActive && (
-            <div className="mb-2 rounded-md border border-[#5865f2]/30 bg-[#5865f2]/10 px-3 py-2 text-sm text-[#dbdee1]">
+            <div className="mb-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-text-body">
               {sendLimitHint ||
                 `Подождите ${slowModeRemainingSeconds} сек. — в этом канале включён медленный режим.`}
             </div>
           )}
-          <form onSubmit={handleSendMessage} className="chat-area-composer__surface relative flex flex-col rounded-xl border border-[#3e3f45] bg-[#393a41] p-2">
+          <form onSubmit={handleSendMessage} className="chat-area-composer__surface relative flex flex-col rounded-xl border border-gray-700 bg-gray-800 p-2">
             {attachmentError && (
-              <div className="mb-2 rounded-lg border border-[#da373c]/40 bg-[#da373c]/10 px-3 py-2 text-xs text-[#ffb8ba]">
+              <div className="mb-2 rounded-lg border border-[#da373c]/40 bg-destructive/10 px-3 py-2 text-xs text-[#ffb8ba]">
                 {attachmentError}
               </div>
             )}
@@ -1118,18 +1118,18 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
               />
             )}
             {autocompleteChoices.length > 0 && !mentionQuery && (
-              <div className="absolute bottom-[calc(100%+8px)] left-0 right-0 z-40 max-h-80 overflow-y-auto rounded-xl border border-white/10 bg-[#2b2d31] p-2 shadow-2xl shadow-black/40">
-                <div className="px-2 pb-2 pt-1 text-[11px] font-bold uppercase tracking-wider text-[#949ba4]">Варианты параметра</div>
+              <div className="absolute bottom-[calc(100%+8px)] left-0 right-0 z-40 max-h-80 overflow-y-auto rounded-xl border border-white/10 bg-surface p-2 shadow-2xl shadow-black/40">
+                <div className="px-2 pb-2 pt-1 text-[11px] font-bold uppercase tracking-wider text-text-quiet">Варианты параметра</div>
                 {autocompleteChoices.map((choice, index) => (
                   <button
                     key={`${choice.name}-${String(choice.value)}-${index}`}
                     type="button"
                     onMouseDown={(event) => { event.preventDefault(); applyAutocompleteChoice(choice) }}
                     onMouseEnter={() => setAutocompleteIndex(index)}
-                    className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left transition ${index === autocompleteIndex ? 'bg-[#5865f2] text-white' : 'text-[#dbdee1] hover:bg-[#35373c]'}`}
+                    className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left transition ${index === autocompleteIndex ? 'bg-primary text-white' : 'text-text-body hover:bg-[#35373c]'}`}
                   >
                     <span className="min-w-0 truncate font-medium">{choice.name}</span>
-                    <span className={`max-w-[45%] truncate text-xs ${index === autocompleteIndex ? 'text-white/75' : 'text-[#949ba4]'}`}>{String(choice.value)}</span>
+                    <span className={`max-w-[45%] truncate text-xs ${index === autocompleteIndex ? 'text-white/75' : 'text-text-quiet'}`}>{String(choice.value)}</span>
                   </button>
                 ))}
               </div>

@@ -152,6 +152,7 @@ async def accept_friend_request(db: AsyncSession, request_id: int, current_user_
     return friend_request.user_a
 
 async def reject_friend_request(db: AsyncSession, request_id: int, current_user_id: int):
+    """Отклоняет заявку. Возвращает id другого участника или None, если заявки нет."""
     friend_request_result = await db.execute(
         select(Friendship).filter(
             Friendship.id == request_id,
@@ -165,8 +166,14 @@ async def reject_friend_request(db: AsyncSession, request_id: int, current_user_
     friend_request = friend_request_result.scalar_one_or_none()
 
     if not friend_request:
-        return False
-        
+        return None
+
+    other_user_id = (
+        friend_request.user_b_id
+        if friend_request.user_a_id == current_user_id
+        else friend_request.user_a_id
+    )
+
     await db.delete(friend_request)
     await db.commit()
-    return True
+    return other_user_id

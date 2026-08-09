@@ -88,6 +88,18 @@ async def accept_friend_request(
     friend = await friend_service.accept_friend_request(db, request_id=request_id, current_user_id=current_user.id)
     if not friend:
         raise HTTPException(status_code=404, detail="Friend request not found or you are not the recipient.")
+
+    acceptor_schema = UserSchema.from_orm(current_user)
+    await manager.send_personal_message(
+        {
+            "type": "friend_request_accepted",
+            "data": {
+                "request_id": request_id,
+                "user": jsonable_encoder(acceptor_schema),
+            },
+        },
+        friend.id,
+    )
     return friend
 
 @router.post("/friends/reject/{request_id}")
@@ -99,7 +111,18 @@ async def reject_friend_request(
     """
     Reject a friend request.
     """
-    success = await friend_service.reject_friend_request(db, request_id=request_id, current_user_id=current_user.id)
-    if not success:
+    other_user_id = await friend_service.reject_friend_request(
+        db, request_id=request_id, current_user_id=current_user.id
+    )
+    if other_user_id is None:
         raise HTTPException(status_code=404, detail="Friend request not found or you are not the recipient.")
+
+    if other_user_id:
+        await manager.send_personal_message(
+            {
+                "type": "friend_request_rejected",
+                "data": {"request_id": request_id},
+            },
+            other_user_id,
+        )
     return {"message": "Friend request rejected."}

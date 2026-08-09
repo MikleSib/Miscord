@@ -28,7 +28,7 @@ export function Switch({
   'aria-label': ariaLabel,
   variant = 'success',
 }: SwitchProps) {
-  const onColor = variant === 'brand' ? 'bg-[#5865f2]' : 'bg-[#23a559]'
+  const onColor = variant === 'brand' ? 'bg-primary' : 'bg-[#23a559]'
   const ringColor =
     variant === 'brand' ? 'focus-visible:ring-[#5865f2]/50' : 'focus-visible:ring-[#23a559]/50'
 
@@ -50,7 +50,7 @@ export function Switch({
         ringColor,
         'disabled:cursor-not-allowed disabled:opacity-50',
         'motion-reduce:transition-none',
-        checked ? onColor : 'bg-[#4e5058] hover:bg-[#585b64]',
+        checked ? onColor : 'bg-border-control hover:bg-[#585b64]',
         className
       )}
     >

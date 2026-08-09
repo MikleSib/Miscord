@@ -4,7 +4,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '../store/store';
 import { Button } from './ui/button';
-import { Avatar } from '@mui/material';
 import { UserAvatar } from './ui/user-avatar';
 import { X, Upload, Trash2, User, Mic, Volume2, Bot } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -240,18 +239,14 @@ export default function SettingsModal({
                   <h3 className="text-sm font-medium text-foreground mb-3">Аватар</h3>
                   <div className="flex items-center gap-4">
                     <div className="relative">
-                      <Avatar
-                        src={avatarPreview || user.avatar_url || undefined}
-                        sx={{
-                          width: 80,
-                          height: 80,
-                          fontSize: '32px',
-                          backgroundColor: 'rgb(88, 101, 242)',
-                          fontWeight: 600,
+                      <UserAvatar
+                        user={{
+                          username: user.username,
+                          display_name: displayName,
+                          avatar_url: avatarPreview || user.avatar_url,
                         }}
-                      >
-                        {displayName[0]?.toUpperCase()}
-                      </Avatar>
+                        size={80}
+                      />
                     </div>
 
                     <div className="flex gap-2">

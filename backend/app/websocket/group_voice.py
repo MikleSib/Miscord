@@ -331,7 +331,11 @@ async def update_voice_state(
     payload: dict[str, Any] = {"type": event, "user_id": user.id, field: value}
     if field == "is_sharing_screen":
         payload["username"] = user.display_name or user.username
+        payload["voice_channel_id"] = channel_id
     await broadcast_voice(manager, channel_id, payload)
+    # Sidebar / notifications WS слушают глобальный broadcast, не voice:*
+    if field == "is_sharing_screen":
+        await manager.broadcast(payload)
 
 
 async def notify_screen_share_viewer_joined(

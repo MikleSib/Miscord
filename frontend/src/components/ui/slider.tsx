@@ -8,6 +8,7 @@ interface SliderProps {
   step?: number;
   className?: string;
   disabled?: boolean;
+  'aria-label'?: string;
 }
 
 export const Slider: React.FC<SliderProps> = ({
@@ -18,6 +19,7 @@ export const Slider: React.FC<SliderProps> = ({
   step = 1,
   className = '',
   disabled = false,
+  'aria-label': ariaLabel,
 }) => {
   const sliderRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -83,6 +85,11 @@ export const Slider: React.FC<SliderProps> = ({
   return (
     <div
       ref={sliderRef}
+      role="slider"
+      aria-label={ariaLabel}
+      aria-valuemin={min}
+      aria-valuemax={max}
+      aria-valuenow={value[0]}
       className={`relative h-2 bg-gray-700 rounded-full cursor-pointer select-none ${className} ${
         disabled ? 'opacity-50 cursor-not-allowed' : ''
       }`}
