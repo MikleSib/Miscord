@@ -1,18 +1,13 @@
-﻿'use client'
+'use client'
 
-import { useState, useEffect, useMemo, useRef } from 'react'
-import { Users, MessageSquare, Settings, Check, X, Phone } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { Users, MessageSquare, Settings, Check, X } from 'lucide-react'
 import { User, FriendRequest } from '../types'
 import friendService from '../services/friendService'
 import directMessageService from '../services/directMessageService'
 import websocketService from '../services/websocketService'
 import { DirectMessageArea } from './DirectMessageArea'
 import { UserAvatar } from './ui/user-avatar'
-import { VoiceOverlay } from './VoiceOverlay'
-import p2pVoiceService from '../services/p2pVoiceService'
-import P2PCallUI from './P2PCallUI'
-import P2POutgoingCallUI from './P2POutgoingCallUI'
-import soundService from '../services/soundService'
 import authService from '../services/authService'
 import { consumePendingDirectMessage } from '../lib/dmNavigation'
 import { useDmNotificationStore } from '../store/dmNotificationStore'
@@ -72,15 +67,7 @@ export function HomePageContent() {
   const [selectedFriend, setSelectedFriend] = useState<User | null>(null)
   const [initialMessage, setInitialMessage] = useState<string | null>(null)
   
-  const [currentCall, setCurrentCall] = useState<any>(null);
-  const [isIncomingCall, setIsIncomingCall] = useState(false);
-  const [isOutgoingCall, setIsOutgoingCall] = useState(false);
-  const [caller, setCaller] = useState<User | null>(null);
-  const [callee, setCallee] = useState<User | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [inCall, setInCall] = useState(false);
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
-  const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const setActiveDmView = useDmNotificationStore((state) => state.setActiveView);
   const markDmViewed = useDmNotificationStore((state) => state.markViewed);
 
@@ -133,149 +120,6 @@ export function HomePageContent() {
     window.dispatchEvent(new CustomEvent('miscord:dm-opened', { detail: { open: Boolean(selectedFriend) } }))
   }, [selectedFriend?.id, setActiveDmView])
 
-  const handleCallEnded = () => {
-    setCurrentCall(null);
-    setIsIncomingCall(false);
-    setIsOutgoingCall(false);
-    setCaller(null);
-    setCallee(null);
-    setInCall(false);
-    setRemoteStream(null);
-    soundService.stopAllSounds();
-  };
-  
-  // Регистрация WebSocket обработчиков P2P происходит в конструкторе p2pVoiceService
-  // Не нужно регистрировать их снова здесь, чтобы избежать дублирования
-
-  useEffect(() => {
-    const handleIncomingCall = (event: any) => {
-      const incomingCaller = event.detail;
-      console.log('[HomePageContent] handleIncomingCall:', { incomingCaller, currentUser });
-      if (!currentUser) return;
-      setCaller(incomingCaller);
-      setCallee(currentUser);
-      setIsIncomingCall(true);
-      soundService.playIncomingCallSound();
-      // Сохраняем информацию о звонящем для возможности отклонения
-      p2pVoiceService.setCurrentCaller(incomingCaller);
-    };
-
-    const handleCallAccepted = (event: any) => {
-      const { recipient } = event.detail;
-      console.log('[HomePageContent] handleCallAccepted вызван:', { recipient, caller, currentUser, isOutgoingCall });
-      setIsIncomingCall(false);
-      setIsOutgoingCall(false);
-      soundService.stopAllSounds();
-      setInCall(true);
-      // Инициатор звонка создает offer после подтверждения
-      if (caller?.id === currentUser?.id) {
-          p2pVoiceService.createOffer(recipient.id);
-      }
-      // Показываем уведомление звонящему, что звонок принят
-      if (caller?.id === currentUser?.id) {
-        console.log('Звонок принят получателем!');
-      }
-    };
-
-    const handleAcceptCall = (data: { to: number; from: any }) => {
-      console.log('[HomePageContent] handleAcceptCall вызван:', { data, caller, currentUser, isOutgoingCall });
-      // Это сообщение приходит звонящему (инициатору), когда принимающий поднимает трубку
-      if (currentUser && data.to === currentUser.id) {
-        console.log('[HomePageContent] Звонящий получил подтверждение принятия звонка');
-        setIsOutgoingCall(false);
-        soundService.stopAllSounds();
-        setInCall(true);
-        // Инициатор создает offer для WebRTC соединения
-        p2pVoiceService.createOffer(data.from.id);
-      }
-    };
-
-    const handleCallDeclined = (event: any) => {
-      console.log('[HomePageContent] handleCallDeclined вызван:', { caller, currentUser, isOutgoingCall });
-      soundService.stopAllSounds();
-      setIsOutgoingCall(false);
-      setIsIncomingCall(false);
-      // Показываем уведомление звонящему, что звонок отклонен
-      if (caller?.id === currentUser?.id) {
-        console.log('Звонок отклонен получателем!');
-        // Для звонящего - завершаем звонок полностью
-        handleCallEnded();
-      }
-    };
-
-    const handleCallEndedEvent = (event: any) => {
-      handleCallEnded();
-    };
-
-    const handleRemoteStream = (stream: MediaStream) => {
-      console.log('[HomePageContent] Received remote stream:', stream);
-      setRemoteStream(stream);
-      if (remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject = stream;
-        remoteAudioRef.current.volume = 1.0;
-        remoteAudioRef.current.play().catch(e => console.error('[HomePageContent] Error playing remote audio:', e));
-      }
-    };
-
-    // Обработчики для WebSocket событий P2P звонков
-    const handleP2PIncomingCall = (data: any) => {
-      const event = new CustomEvent('p2p-incoming-call', { detail: data.caller });
-      window.dispatchEvent(event);
-    };
-
-    const handleP2PCallAccepted = (data: any) => {
-      const event = new CustomEvent('p2p-call-accepted', { detail: data });
-      window.dispatchEvent(event);
-    };
-
-    const handleP2PCallDeclined = (data: any) => {
-      const event = new CustomEvent('p2p-call-declined', { detail: data });
-      window.dispatchEvent(event);
-    };
-
-    p2pVoiceService.on('remote_stream_received', handleRemoteStream);
-
-    // Подписываемся на WebSocket события P2P звонков
-    websocketService.onP2PIncomingCall(handleP2PIncomingCall);
-    websocketService.onP2PCallAccepted(handleP2PCallAccepted);
-    websocketService.onP2PCallDeclined(handleP2PCallDeclined);
-    websocketService.onP2PAcceptCall(handleAcceptCall);
-
-    // Слушаем глобальные события вместо прямых WebSocket обработчиков
-    if (typeof window !== 'undefined') {
-      window.addEventListener('p2p-incoming-call', handleIncomingCall);
-      window.addEventListener('p2p-call-accepted', handleCallAccepted);
-      window.addEventListener('p2p-call-declined', handleCallDeclined);
-      window.addEventListener('p2p-call-ended', handleCallEndedEvent);
-    }
-
-    return () => {
-      // Отписываемся от WebSocket событий
-      websocketService.off('p2p-incoming-call', handleP2PIncomingCall);
-      websocketService.off('p2p-call-accepted', handleP2PCallAccepted);
-      websocketService.off('p2p-call-declined', handleP2PCallDeclined);
-      websocketService.off('p2p-accept-call', handleAcceptCall);
-      
-      // Отписываемся от window событий при размонтировании
-      if (typeof window !== 'undefined') {
-        window.removeEventListener('p2p-incoming-call', handleIncomingCall);
-        window.removeEventListener('p2p-call-accepted', handleCallAccepted);
-        window.removeEventListener('p2p-call-declined', handleCallDeclined);
-        window.removeEventListener('p2p-call-ended', handleCallEndedEvent);
-      }
-      p2pVoiceService.off('remote_stream_received', handleRemoteStream);
-    };
-  }, [currentUser, friends, callee]);
-  
-  // useEffect для обработки изменений remoteStream
-  useEffect(() => {
-    if (remoteStream && remoteAudioRef.current) {
-      console.log('[HomePageContent] Setting remote stream to audio element');
-      remoteAudioRef.current.srcObject = remoteStream;
-      remoteAudioRef.current.volume = 1.0;
-      remoteAudioRef.current.play().catch(e => console.error('[HomePageContent] Error playing remote audio in useEffect:', e));
-    }
-  }, [remoteStream]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -477,22 +321,6 @@ export function HomePageContent() {
     }
   };
 
-  const handleCallUser = (user: User) => {
-    if (!currentUser) return;
-    setCallee(user); // кого вызываем
-    setCaller(currentUser); // кто вызывает
-    setIsOutgoingCall(true);
-    soundService.playCallingSound();
-    p2pVoiceService.initiateCall(user.id);
-  };
-  
-  const handleHangUp = () => {
-    const peerId = caller?.id === currentUser?.id ? callee?.id : caller?.id;
-    if (peerId) {
-      p2pVoiceService.hangUp(peerId);
-    }
-    handleCallEnded();
-  };
 
   const openContactChat = (contact: User) => {
     markDmViewed(contact.id)
@@ -519,15 +347,6 @@ export function HomePageContent() {
           className="p-1 text-[#999aa1] hover:text-white"
         >
           <MessageSquare size={20} />
-        </button>
-        <button 
-          onClick={(e) => { 
-            e.stopPropagation(); 
-            handleCallUser(contact); 
-          }} 
-          className="p-1 text-[#999aa1] hover:text-white"
-        >
-          <Phone size={20} />
         </button>
       </div>
     </div>
@@ -611,83 +430,6 @@ export function HomePageContent() {
 
   return (
     <div className="app-home-content flex flex-1 h-full min-w-0">
-      {isIncomingCall && caller && currentUser && (
-        <P2PCallUI
-          caller={caller}
-          callee={currentUser}
-          onAccept={() => {
-            if (caller) {
-              soundService.stopAllSounds();
-              setIsIncomingCall(false);
-              p2pVoiceService.acceptCall(caller.id, caller);
-              setInCall(true); // Сразу переходим в состояние звонка
-            }
-          }}
-          onDecline={() => {
-            console.log('[HomePageContent] onDecline called, caller:', caller);
-            if(caller && caller.id) {
-              console.log('[HomePageContent] Using caller from state:', caller.id);
-              soundService.stopAllSounds();
-              setIsIncomingCall(false);
-              p2pVoiceService.declineCall(caller.id);
-            } else {
-              // Если caller не установлен, используем сохраненную информацию
-              const savedCaller = p2pVoiceService.getCurrentCaller();
-              console.log('[HomePageContent] Using saved caller:', savedCaller);
-              if (savedCaller && savedCaller.id) {
-                console.log('[HomePageContent] Using saved caller id:', savedCaller.id);
-                soundService.stopAllSounds();
-                setIsIncomingCall(false);
-                p2pVoiceService.declineCall(savedCaller.id);
-              } else {
-                console.error('[HomePageContent] No caller information available for decline');
-              }
-            }
-          }}
-        />
-      )}
-
-      {isOutgoingCall && callee && (
-        <P2POutgoingCallUI
-          callee={callee}
-          onCancel={() => {
-            if (callee) {
-              soundService.stopAllSounds();
-              setIsOutgoingCall(false);
-              p2pVoiceService.hangUp(callee.id);
-            }
-          }}
-        />
-      )}
-
-      {inCall && callee && caller && (
-      <VoiceOverlay
-        onHangUp={handleHangUp}
-        participantsList={[
-          {
-            user_id: caller.id,
-            username: caller.username,
-            display_name: caller.username,
-            avatar_url: caller.avatar_url,
-            is_muted: false, // Вам нужно будет управлять этим состоянием
-            is_deafened: false,
-          },
-          {
-            user_id: callee.id,
-            username: callee.username,
-            display_name: callee.username,
-            avatar_url: callee.avatar_url,
-            is_muted: false,
-            is_deafened: false,
-          },
-        ]}
-        channelName={`${caller.username} & ${callee.username}`}
-        serverName="Приватный звонок"
-      />
-      )}
-
-
-
       {/* Friends List and Controls Sidebar */}
       <div className="app-sidebar flex h-full flex-col border-r">
         {/* Top bar for friends page */}
@@ -755,12 +497,6 @@ export function HomePageContent() {
         </div>
       )}
       
-      {/* Скрытый audio элемент для воспроизведения входящего аудио из P2P звонков */}
-      <audio
-        ref={remoteAudioRef}
-        autoPlay
-        style={{ display: 'none' }}
-      />
     </div>
   )
 }

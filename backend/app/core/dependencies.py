@@ -7,7 +7,7 @@ from app.core.security import decode_access_token
 from app.models.user import User
 from app.schemas.user import TokenData
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 security = HTTPBearer()
 
 async def get_current_user(
@@ -41,7 +41,7 @@ async def get_current_user(
     
     return user
 
-optional_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
+optional_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
 
 async def get_optional_user(

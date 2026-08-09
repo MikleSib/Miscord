@@ -664,7 +664,9 @@ export class AudioProcessingService {
         typeof window !== 'undefined' ? `${window.location.origin}/` : '/';
 
       this.micVAD = await MicVAD.new({
-        stream,
+        getStream: async () => stream,
+        pauseStream: async () => undefined,
+        resumeStream: async () => stream,
         baseAssetPath: assetOrigin,
         onnxWASMBasePath: `${assetOrigin}onnx/`,
         onSpeechStart: () => {
@@ -680,10 +682,9 @@ export class AudioProcessingService {
         },
         positiveSpeechThreshold: this.config.speechProbabilityThreshold,
         negativeSpeechThreshold: Math.max(0.05, this.config.speechProbabilityThreshold - 0.15),
-        redemptionFrames: 8,
-        frameSamples: 1536,
-        preSpeechPadFrames: 4,
-        minSpeechFrames: 4,
+        redemptionMs: 768,
+        preSpeechPadMs: 384,
+        minSpeechMs: 384,
       });
 
       await this.micVAD.start();

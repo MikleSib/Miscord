@@ -12,8 +12,6 @@ import {
   registerChannelUnreadListener,
   useChannelUnreadStore,
 } from '../store/channelUnreadStore';
-// Импортируем p2pVoiceService для гарантии инициализации обработчиков до подключения WebSocket
-import p2pVoiceService from '../services/p2pVoiceService';
 import { applyMemberJoined, applyMemberLeft } from './memberSync';
 
 interface AppState {
@@ -508,8 +506,6 @@ export const useStore = create<AppState>()(
 
       // Инициализация WebSocket
       initializeWebSocket: (token: string) => {
-        p2pVoiceService.setCurrentUser(useAuthStore.getState().user);
-        p2pVoiceService.registerWebSocketHandlers();
         registerDmNotificationListener();
         registerMentionNotificationListener();
         registerChannelUnreadListener();

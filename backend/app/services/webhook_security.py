@@ -51,5 +51,4 @@ def decrypt_webhook_token(ciphertext: str) -> str:
 
 
 def webhook_execution_url(webhook_id: int, token: str) -> str:
-    return f"{settings.SERVER_HOST.rstrip('/')}/api/webhooks/{webhook_id}/{token}"
-
+    return f"{settings.SERVER_HOST.rstrip('/')}/api/v1/webhooks/{webhook_id}/{token}"

@@ -52,14 +52,14 @@ def new_public_object_key(namespace: str, extension: str) -> str:
 
 
 def public_media_url(storage_key: str) -> str:
-    return f"/api/media/{quote(full_object_key(storage_key), safe='/')}"
+    return f"/api/v1/media/{quote(full_object_key(storage_key), safe='/')}"
 
 
 def public_object_key_from_url(url: str | None) -> str | None:
     if not url:
         return None
     path = urlparse(url).path
-    marker = "/api/media/"
+    marker = "/api/v1/media/"
     if marker not in path:
         return None
     try:

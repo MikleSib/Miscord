@@ -35,7 +35,7 @@ class VoiceGatewayOpCode(IntEnum):
     CLIENT_DISCONNECT = 13
 
 
-GATEWAY_API_VERSION = 10
+GATEWAY_API_VERSION = 1
 GATEWAY_DEFAULT_ENCODING = "json"
 
 
@@ -62,7 +62,12 @@ def validate_gateway_query(
     encoding: str | None,
     compress: str | None = None,
 ) -> tuple[int, str]:
-    resolved_version = GATEWAY_API_VERSION if version is None else int(version)
+    if version is None:
+        raise BotProtocolError(
+            "missing_gateway_version",
+            f"Gateway version {GATEWAY_API_VERSION} is required",
+        )
+    resolved_version = int(version)
     if resolved_version != GATEWAY_API_VERSION:
         raise BotProtocolError(
             "invalid_gateway_version",

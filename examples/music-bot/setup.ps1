@@ -47,8 +47,8 @@ if (-not (Test-Path -LiteralPath $envPath)) {
         "MISCORD_BOT_TOKEN=$BotToken"
         "MISCORD_APPLICATION_ID=$applicationId"
         "MISCORD_GUILD_ID=$GuildId"
-        "MISCORD_API_BASE=https://miscord.ru/api/v10"
-        "MISCORD_GATEWAY=wss://miscord.ru/gateway?v=10&encoding=json"
+        "MISCORD_API_BASE=https://miscord.ru/api/v1"
+        "MISCORD_GATEWAY=wss://miscord.ru/gateway?v=1&encoding=json"
     )
     [IO.File]::WriteAllLines($envPath, $lines, [Text.UTF8Encoding]::new($false))
     Write-Host "Local configuration saved to the Git-ignored .env file."

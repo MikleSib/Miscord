@@ -40,41 +40,41 @@ export interface UpdateChannelRequest {
 
 class ChannelService {
   async getUserChannels(): Promise<Channel[]> {
-    const response = await api.get<Channel[]>('/api/channels/');
+    const response = await api.get<Channel[]>('/api/v1/channels/');
     return response.data;
   }
 
   async getChannel(channelId: number): Promise<Channel> {
-    const response = await api.get<Channel>(`/api/channels/${channelId}`);
+    const response = await api.get<Channel>(`/api/v1/channels/${channelId}`);
     return response.data;
   }
 
   async joinChannel(channelId: number): Promise<void> {
-    await api.post(`/api/channels/${channelId}/join`);
+    await api.post(`/api/v1/channels/${channelId}/join`);
   }
 
   async createChannel(data: CreateChannelRequest): Promise<BackendChannel> {
-    const response = await api.post<BackendChannel>('/api/channels/', data);
+    const response = await api.post<BackendChannel>('/api/v1/channels/', data);
     return response.data;
   }
 
   async createServer(data: CreateServerRequest): Promise<BackendChannel> {
-    const response = await api.post<BackendChannel>('/api/channels/', data);
+    const response = await api.post<BackendChannel>('/api/v1/channels/', data);
     return response.data;
   }
 
   async getChannels(): Promise<BackendChannel[]> {
-    const response = await api.get<BackendChannel[]>('/api/channels/');
+    const response = await api.get<BackendChannel[]>('/api/v1/channels/');
     return response.data;
   }
 
   async getChannelDetails(channelId: number): Promise<BackendChannel> {
-    const response = await api.get<BackendChannel>(`/api/channels/${channelId}`);
+    const response = await api.get<BackendChannel>(`/api/v1/channels/${channelId}`);
     return response.data;
   }
 
   async createTextChannel(serverId: number, data: CreateTextChannelRequest): Promise<TextChannel> {
-    const response = await api.post<TextChannel>(`/api/channels/${serverId}/text-channels`, {
+    const response = await api.post<TextChannel>(`/api/v1/channels/${serverId}/text-channels`, {
       ...data,
       channel_id: serverId
     });
@@ -82,7 +82,7 @@ class ChannelService {
   }
 
   async createVoiceChannel(serverId: number, data: CreateVoiceChannelRequest): Promise<VoiceChannel> {
-    const response = await api.post<VoiceChannel>(`/api/channels/${serverId}/voice-channels`, {
+    const response = await api.post<VoiceChannel>(`/api/v1/channels/${serverId}/voice-channels`, {
       ...data,
       channel_id: serverId
     });
@@ -90,45 +90,45 @@ class ChannelService {
   }
 
   async inviteUserToServer(serverId: number, username: string): Promise<any> {
-    const response = await api.post(`/api/channels/${serverId}/invite`, null, {
+    const response = await api.post(`/api/v1/channels/${serverId}/invite`, null, {
       params: { username }
     });
     return response.data;
   }
 
   async getServerMembers(serverId: number): Promise<User[]> {
-    const response = await api.get<User[]>(`/api/channels/${serverId}/members`);
+    const response = await api.get<User[]>(`/api/v1/channels/${serverId}/members`);
     return response.data;
   }
 
   async getVoiceChannelMembers(voiceChannelId: number): Promise<User[]> {
-    const response = await api.get<User[]>(`/api/channels/voice/${voiceChannelId}/members`);
+    const response = await api.get<User[]>(`/api/v1/channels/voice/${voiceChannelId}/members`);
     return response.data;
   }
 
   async getFullServerData(): Promise<FullServerData> {
-    const response = await api.get<FullServerData>('/api/channels/full');
+    const response = await api.get<FullServerData>('/api/v1/channels/full');
     return response.data;
   }
 
   async updateServer(serverId: number, data: UpdateServerRequest): Promise<BackendChannel> {
-    const response = await api.put<BackendChannel>(`/api/channels/${serverId}`, data);
+    const response = await api.put<BackendChannel>(`/api/v1/channels/${serverId}`, data);
     return response.data;
   }
 
   async leaveServer(serverId: number): Promise<void> {
-    await api.post(`/api/channels/${serverId}/leave`);
+    await api.post(`/api/v1/channels/${serverId}/leave`);
   }
 
   async deleteServer(serverId: number): Promise<void> {
-    await api.delete(`/api/channels/${serverId}`);
+    await api.delete(`/api/v1/channels/${serverId}`);
   }
 
   async updateTextChannel(
     textChannelId: number,
     data: { name?: string; position?: number; slow_mode_seconds?: number }
   ): Promise<any> {
-    const response = await api.put(`/api/channels/text/${textChannelId}`, data);
+    const response = await api.put(`/api/v1/channels/text/${textChannelId}`, data);
     return response.data;
   }
 
@@ -142,28 +142,28 @@ class ChannelService {
       video_quality?: 'auto' | '720p'
     }
   ): Promise<any> {
-    const response = await api.put(`/api/channels/voice/${voiceChannelId}`, data);
+    const response = await api.put(`/api/v1/channels/voice/${voiceChannelId}`, data);
     return response.data;
   }
 
   async deleteTextChannel(textChannelId: number): Promise<void> {
-    await api.delete(`/api/channels/text/${textChannelId}`);
+    await api.delete(`/api/v1/channels/text/${textChannelId}`);
   }
 
   async deleteVoiceChannel(voiceChannelId: number): Promise<void> {
-    await api.delete(`/api/channels/voice/${voiceChannelId}`);
+    await api.delete(`/api/v1/channels/voice/${voiceChannelId}`);
   }
 
   async getChannelPermissionCatalog(channelKind: 'text' | 'voice'): Promise<ChannelPermissionCatalogItem[]> {
     const response = await api.get<{ permissions: ChannelPermissionCatalogItem[] }>(
-      `/api/channels/permissions/catalog/${channelKind}`
+      `/api/v1/channels/permissions/catalog/${channelKind}`
     );
     return response.data.permissions;
   }
 
   async getChannelPermissionOverwrites(channelKind: 'text' | 'voice', channelId: number): Promise<ChannelPermissionOverwrite[]> {
     const response = await api.get<{ overwrites: ChannelPermissionOverwrite[] }>(
-      `/api/channels/${channelKind}/${channelId}/permission-overwrites`
+      `/api/v1/channels/${channelKind}/${channelId}/permission-overwrites`
     );
     return response.data.overwrites;
   }
@@ -179,7 +179,7 @@ class ChannelService {
     }
   ): Promise<ChannelPermissionOverwrite> {
     const response = await api.put<ChannelPermissionOverwrite>(
-      `/api/channels/${channelKind}/${channelId}/permission-overwrites`,
+      `/api/v1/channels/${channelKind}/${channelId}/permission-overwrites`,
       payload
     );
     return response.data;
@@ -192,7 +192,7 @@ class ChannelService {
     targetId: number
   ): Promise<void> {
     await api.delete(
-      `/api/channels/${channelKind}/${channelId}/permission-overwrites/${targetType}/${targetId}`
+      `/api/v1/channels/${channelKind}/${channelId}/permission-overwrites/${targetType}/${targetId}`
     );
   }
 }

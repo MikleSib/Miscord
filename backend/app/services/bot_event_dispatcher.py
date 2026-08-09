@@ -272,7 +272,7 @@ class BotEventDispatcher:
     async def hello(self, websocket: WebSocket) -> None:
         await self._send(websocket, {
             "op": int(OP_HELLO),
-            "d": {"heartbeat_interval": HEARTBEAT_INTERVAL_MS, "_trace": ["miscord-gateway-v10"]},
+            "d": {"heartbeat_interval": HEARTBEAT_INTERVAL_MS, "_trace": ["miscord-gateway-v1"]},
         })
 
     async def heartbeat_ack(self, websocket: WebSocket) -> None:

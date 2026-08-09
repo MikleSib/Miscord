@@ -25,7 +25,7 @@ class UserUpdate(BaseModel):
         if (
             value.startswith("/static/uploads/")
             or "/static/uploads/" in value
-            or value.startswith("/api/media/")
+            or value.startswith("/api/v1/media/")
         ):
             return value
         raise ValueError("avatar_url должен указывать на /static/uploads/")

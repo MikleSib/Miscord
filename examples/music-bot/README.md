@@ -1,43 +1,20 @@
 # Miscord Music Bot
 
-Рабочий пример голосового бота для Miscord с командами:
+Локальный пример музыкального бота с командами `/play`, `/skip`, `/stop` и `/queue`.
 
-- `/play url` — добавить ссылку YouTube в очередь;
-- `/skip` — пропустить текущий трек;
-- `/stop` — очистить очередь и выйти из голосового канала;
-- `/queue` — показать текущий трек и размер очереди.
-
-Бот получает команды через Miscord Gateway, входит в канал через Gateway opcode `4`, подключается к отдельному Miscord Voice Gateway и передаёт Opus-аудио через WebRTC/DTLS-SRTP.
+Бот получает команды через Main Gateway v1, входит в голосовой канал opcode `4`, открывает один Voice WebSocket v1 и один UDP socket. Opus передаётся как RTP через XChaCha20-Poly1305 в общий Miscord SFU. WebRTC, SDP, ICE и mesh в примере отсутствуют.
 
 ## Требования
 
-- Python 3.11;
-- системные библиотеки, необходимые `aiortc`/PyAV;
-- новый Bot Token после сброса ранее опубликованного токена;
-- у роли бота должны быть права **Просматривать канал**, **Подключаться** и **Говорить**;
-- при установке приложения должен быть включён intent **Состояния голосовых каналов**.
-
-Используйте только контент, который разрешено получать и ретранслировать. YouTube и правообладатели могут ограничивать такое использование независимо от технической возможности.
+- Python 3.11+;
+- новый Bot Token; Client Secret для запуска не нужен;
+- права `VIEW_CHANNEL`, `CONNECT`, `SPEAK` и `USE_APPLICATION_COMMANDS`;
+- intent `GUILD_VOICE_STATES`;
+- используйте только контент, который разрешено получать и ретранслировать.
 
 ## Установка
 
-### Быстрый запуск на Windows
-
-1. Дважды нажмите `setup.cmd`, вставьте Bot Token и при необходимости ID тестового сервера.
-2. После регистрации команд запускайте бота через `start.cmd`.
-3. Не закрывайте окно бота во время прослушивания. Для остановки нажмите `Ctrl+C` или запустите `stop.cmd`.
-
-`setup.cmd` создаёт локальные `.venv` и `.env`. Они исключены из Git. Client Secret не требуется.
-
-### Ручная установка
-
-```bash
-python -m venv .venv
-.venv/bin/pip install -r requirements.txt
-cp .env.example .env
-```
-
-На Windows:
+На Windows запустите `setup.cmd`, затем `start.cmd`. Для ручной установки:
 
 ```powershell
 py -3.11 -m venv .venv
@@ -45,18 +22,14 @@ py -3.11 -m venv .venv
 Copy-Item .env.example .env
 ```
 
-Заполните `.env`. Client Secret для запуска бота не нужен. Не добавляйте `.env` в Git и не отправляйте токен в чат.
+Заполните `.env`, зарегистрируйте команды и запустите бота:
 
-Для быстрого тестирования укажите `MISCORD_GUILD_ID`: команды будут созданы только на выбранном сервере. Если оставить поле пустым, команды создаются глобально.
-
-## Регистрация и запуск
-
-```bash
-python register_commands.py
-python bot.py
+```powershell
+.venv\Scripts\python.exe register_commands.py
+.venv\Scripts\python.exe bot.py
 ```
 
-После запуска войдите в голосовой канал и выполните:
+После запуска войдите в голосовой канал и отправьте:
 
 ```text
 /play url:https://www.youtube.com/watch?v=...
@@ -65,14 +38,14 @@ python bot.py
 ## Voice flow
 
 ```text
-Main Gateway opcode 4
-  -> VOICE_STATE_UPDATE
-  -> VOICE_SERVER_UPDATE
-  -> Voice Gateway Hello / Identify / Ready
-  -> Select Protocol: WebRTC
+Main Gateway v1 opcode 4
+  -> VOICE_STATE_UPDATE + VOICE_SERVER_UPDATE
+  -> Voice Gateway v1 Hello / Identify / Ready
+  -> 74-byte UDP discovery
+  -> Select Protocol: udp + XChaCha20-Poly1305
+  -> Session Description
   -> Speaking
-  -> SDP/ICE signaling
-  -> encrypted Opus audio
+  -> encrypted RTP/Opus -> Miscord SFU
 ```
 
-Управляющие voice opcodes совпадают по назначению с привычным протоколом приложений. Медиатранспорт Miscord использует WebRTC/DTLS-SRTP, чтобы бот сразу работал с текущими клиентами Miscord. Следующий инфраструктурный этап — общий SFU вместо mesh-соединения для каждого слушателя.
+`/stop` отправляет пять silence frames, закрывает текущий producer через выход из канала и очищает player. Следующий `/play` создаёт чистую медиасессию без старого sender и старых RTP counters.

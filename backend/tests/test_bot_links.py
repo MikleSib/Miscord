@@ -104,9 +104,9 @@ def test_bot_media_routes_are_registered():
 
 
 def test_bot_application_update_normalizes_banner_url():
-    payload = BotApplicationUpdate(banner_url="  /api/media/public/bot-banners/banner.webp  ")
+    payload = BotApplicationUpdate(banner_url="  /api/v1/media/public/bot-banners/banner.webp  ")
 
-    assert payload.banner_url == "/api/media/public/bot-banners/banner.webp"
+    assert payload.banner_url == "/api/v1/media/public/bot-banners/banner.webp"
 
 
 def test_bot_application_update_normalizes_administrator_install_permissions():

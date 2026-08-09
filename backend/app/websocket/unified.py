@@ -1,6 +1,6 @@
 from fastapi import WebSocket, WebSocketDisconnect, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, delete
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 import json
 import asyncio
@@ -12,15 +12,11 @@ from app.models import (
     User,
     Message,
     TextChannel,
-    VoiceChannel,
-    VoiceChannelUser,
     Attachment,
     Reaction,
-    ChannelMember,
 )
 from app.core.security import decode_access_token
 from app.websocket.connection_manager import manager
-from app.services import direct_message_service
 from app.services.user_activity_service import user_activity_service
 from app.services.text_channel_visibility import get_visible_text_channel
 from app.services.slow_mode import check_slow_mode
@@ -28,118 +24,22 @@ from app.services.rate_limit import enforce_message_antispam, rate_limit_payload
 from app.services.mentions import notify_message_mentions
 from app.services.message_notifications import notify_channel_message_activity
 from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
-from app.services.miscord_serializers import miscord_voice_state
-from app.services.voice_session import (
-    new_connection_id,
-    is_active_connection,
-    pop_connection_if_current,
-    register_connection,
-    find_user_channels,
-    participant_payload,
-    voice_connections,
+from app.websocket.unified_dm import handle_dm_message, send_message_failure
+from app.websocket.group_voice import (
+    join_voice as join_group_voice,
+    leave_voice as leave_group_voice,
+    refresh_ticket as refresh_group_voice_ticket,
+    update_voice_state as update_group_voice_state,
 )
-from app.core.config import settings
-from app.models import DirectMessage, PendingChatUpload
+from app.services.voice_presence import voice_presence
 
 
-async def _send_message_failure(
-    user_id: int,
-    client_nonce: Optional[str],
-    code: str,
-    message: str,
-    retryable: bool = False,
-    retry_after_seconds: Optional[float] = None,
-) -> None:
-    if not client_nonce:
-        return
-    await manager.send_to_user(user_id, {
-        "type": "message_send_failed",
-        "data": {
-            "client_nonce": client_nonce,
-            "code": code,
-            "message": message,
-            "retryable": retryable,
-            "retry_after_seconds": retry_after_seconds,
-        },
-    })
-
-
-async def _dispatch_bot_voice_state(
-    db: AsyncSession,
-    *,
-    guild_id: int,
-    channel_id: Optional[int],
-    user_id: int,
-    session_id: str,
-    self_mute: bool = False,
-    self_deaf: bool = False,
-) -> None:
-    await bot_event_dispatcher.dispatch_voice_state_update(
-        db,
-        guild_id,
-        miscord_voice_state(
-            guild_id=guild_id,
-            channel_id=channel_id,
-            user_id=user_id,
-            session_id=session_id,
-            self_mute=self_mute,
-            self_deaf=self_deaf,
-        ),
-    )
-
-
-VOICE_OPERATION_LOCK = asyncio.Lock()
-VOICE_DEBUG_METRICS: Dict[str, int] = {
-    "voice_reconnections": 0,
-    "orphan_cleanup_count": 0,
-    "cleanup_calls": 0,
-}
+voice_connections: Dict[int, Dict[int, dict]] = {}
 
 
 def _extract_request_id(message_data: dict) -> Optional[str]:
     request_id = message_data.get("request_id")
     return str(request_id) if request_id is not None else None
-
-
-def _normalize_voice_channel_id(message_data: dict) -> Optional[int]:
-    raw_channel_id = (
-        message_data.get("voice_channel_id")
-        or message_data.get("channel_id")
-        or message_data.get("channelId")
-    )
-    if raw_channel_id is None:
-        return None
-    try:
-        return int(raw_channel_id)
-    except (TypeError, ValueError):
-        return None
-
-
-def _normalize_target_user_id(message_data: dict) -> Optional[int]:
-    raw_target_id = message_data.get("target_user_id")
-    if raw_target_id is None:
-        raw_target_id = message_data.get("target_id")
-    if raw_target_id is None:
-        return None
-    try:
-        return int(raw_target_id)
-    except (TypeError, ValueError):
-        return None
-
-
-def _normalize_bool(value: Any, default: bool = False) -> bool:
-    if value is None:
-        return default
-    return bool(value)
-
-
-def _safe_int(value: Any, default: Optional[int] = None) -> Optional[int]:
-    if value is None:
-        return default
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
 
 
 def _structured_log(user: Optional[User], event: str, **fields: Any) -> None:
@@ -156,34 +56,13 @@ def _structured_log(user: Optional[User], event: str, **fields: Any) -> None:
 
 def _voice_debug_metrics() -> dict:
     return {
-        "voice_reconnections": VOICE_DEBUG_METRICS["voice_reconnections"],
-        "orphan_cleanup_count": VOICE_DEBUG_METRICS["orphan_cleanup_count"],
-        "cleanup_calls": VOICE_DEBUG_METRICS["cleanup_calls"],
+        "protocol_version": 1,
+        "transport": "sfu",
         "active_channels": len(voice_connections),
         "active_sessions": sum(
             len(users) for users in voice_connections.values()
         ),
     }
-
-
-async def _broadcast_voice(
-    channel_id: int,
-    message: dict,
-    exclude_user_id: Optional[int] = None,
-) -> None:
-    participants = list(voice_connections.get(channel_id, {}).items())
-    for uid, info in participants:
-        if exclude_user_id is not None and uid == exclude_user_id:
-            continue
-        ws = info.get("websocket")
-        if not ws:
-            continue
-        try:
-            await ws.send_text(json.dumps(message))
-        except Exception as exc:
-            print(
-                f"[UnifiedWS] broadcast to user={uid} channel={channel_id} failed: {exc}"
-            )
 
 
 async def get_user_by_token_ws(token: str, db: AsyncSession) -> Optional[User]:
@@ -256,6 +135,8 @@ async def websocket_unified_endpoint(
 
                     if msg_type == "ping":
                         await user_activity_service.heartbeat_user(user.id, db)
+                        if current_voice_connection_id:
+                            await voice_presence.touch(current_voice_connection_id)
                         await websocket.send_text(json.dumps({"type": "pong"}))
 
                     elif msg_type == "chat_message":
@@ -265,81 +146,87 @@ async def websocket_unified_endpoint(
                         await handle_typing(user, message_data, manager, current_text_channels, db)
 
                     elif msg_type == "join_voice":
-                        current_voice_channel, current_voice_connection_id = await handle_join_voice(
-                            user,
-                            message_data,
-                            db,
-                            websocket,
-                            ws_id,
-                            manager,
-                            voice_connections,
+                        current_voice_channel, current_voice_connection_id = await join_group_voice(
+                            user=user,
+                            message=message_data,
+                            db=db,
+                            websocket=websocket,
+                            manager=manager,
+                            local_connections=voice_connections,
                             request_id=request_id,
                         )
 
                     elif msg_type == "leave_voice":
-                        current_voice_channel, current_voice_connection_id = await handle_leave_voice(
-                            user,
-                            current_voice_channel,
-                            current_voice_connection_id,
-                            db,
-                            manager,
-                            voice_connections,
-                        )
-
-                    elif msg_type == "voice_offer":
-                        await handle_voice_offer(user, message_data, manager)
-
-                    elif msg_type == "voice_answer":
-                        await handle_voice_answer(user, message_data, manager)
-
-                    elif msg_type == "voice_ice_candidate":
-                        await handle_voice_ice_candidate(user, message_data, manager)
+                        if current_voice_channel:
+                            await leave_group_voice(
+                                user=user,
+                                channel_id=current_voice_channel,
+                                session_id=current_voice_connection_id,
+                                db=db,
+                                manager=manager,
+                                local_connections=voice_connections,
+                            )
+                        current_voice_channel, current_voice_connection_id = None, None
 
                     elif msg_type == "voice_mute":
-                        await handle_voice_mute(
-                            user, message_data, current_voice_channel, db, manager, voice_connections
+                        await update_group_voice_state(
+                            user=user,
+                            channel_id=current_voice_channel,
+                            session_id=current_voice_connection_id,
+                            field="is_muted",
+                            value=bool(message_data.get("is_muted", False)),
+                            db=db,
+                            manager=manager,
+                            local_connections=voice_connections,
                         )
 
                     elif msg_type == "voice_deafen":
-                        await handle_voice_deafen(
-                            user, message_data, current_voice_channel, db, manager, voice_connections
-                        )
-
-                    elif msg_type == "voice_speaking":
-                        await handle_voice_speaking(
-                            user, message_data, current_voice_channel, manager
+                        await update_group_voice_state(
+                            user=user,
+                            channel_id=current_voice_channel,
+                            session_id=current_voice_connection_id,
+                            field="is_deafened",
+                            value=bool(message_data.get("is_deafened", False)),
+                            db=db,
+                            manager=manager,
+                            local_connections=voice_connections,
                         )
 
                     elif msg_type == "screen_share_start":
-                        await handle_screen_share_start(
-                            user, current_voice_channel, manager, voice_connections
+                        await update_group_voice_state(
+                            user=user,
+                            channel_id=current_voice_channel,
+                            session_id=current_voice_connection_id,
+                            field="is_sharing_screen",
+                            value=True,
+                            db=db,
+                            manager=manager,
+                            local_connections=voice_connections,
                         )
 
                     elif msg_type == "screen_share_stop":
-                        await handle_screen_share_stop(
-                            user, current_voice_channel, manager, voice_connections
+                        await update_group_voice_state(
+                            user=user,
+                            channel_id=current_voice_channel,
+                            session_id=current_voice_connection_id,
+                            field="is_sharing_screen",
+                            value=False,
+                            db=db,
+                            manager=manager,
+                            local_connections=voice_connections,
                         )
 
-                    elif msg_type == "p2p-initiate-call":
-                        await handle_p2p_initiate(user, message_data, manager)
+                    elif msg_type == "voice_media_ticket_refresh":
+                        await refresh_group_voice_ticket(
+                            user=user,
+                            channel_id=current_voice_channel,
+                            session_id=current_voice_connection_id,
+                            websocket=websocket,
+                            request_id=request_id,
+                        )
 
-                    elif msg_type == "p2p-accept-call":
-                        await handle_p2p_accept(user, message_data, manager)
-
-                    elif msg_type == "p2p-decline-call":
-                        await handle_p2p_decline(user, message_data, manager)
-
-                    elif msg_type == "p2p-hang-up":
-                        await handle_p2p_hangup(user, message_data, manager)
-
-                    elif msg_type == "p2p-offer":
-                        await handle_p2p_offer(user, message_data, manager)
-
-                    elif msg_type == "p2p-answer":
-                        await handle_p2p_answer(user, message_data, manager)
-
-                    elif msg_type == "p2p-ice-candidate":
-                        await handle_p2p_ice_candidate(user, message_data, manager)
+                    elif msg_type == "voice_speaking":
+                        pass
 
                     elif msg_type == "dm_message":
                         await handle_dm_message(user, message_data, db, manager)
@@ -382,13 +269,13 @@ async def websocket_unified_endpoint(
     finally:
         if user and db:
             if current_voice_channel:
-                await cleanup_voice_connection(
-                    user,
-                    current_voice_channel,
-                    current_voice_connection_id,
-                    db,
-                    manager,
-                    voice_connections,
+                await leave_group_voice(
+                    user=user,
+                    channel_id=current_voice_channel,
+                    session_id=current_voice_connection_id,
+                    db=db,
+                    manager=manager,
+                    local_connections=voice_connections,
                 )
 
             await manager.disconnect(websocket, user.id)
@@ -421,17 +308,17 @@ async def handle_chat_message(
         return
 
     if not text_channel_id:
-        await _send_message_failure(user.id, client_nonce, "invalid_channel", "Канал не указан")
+        await send_message_failure(user.id, client_nonce, "invalid_channel", "Канал не указан")
         return
 
     text_channel = await get_visible_text_channel(db, text_channel_id)
     if not text_channel:
-        await _send_message_failure(user.id, client_nonce, "access_denied", "Канал не найден или недоступен")
+        await send_message_failure(user.id, client_nonce, "access_denied", "Канал не найден или недоступен")
         return
 
     from app.services.channel_access import user_can_access_text_channel
     if not await user_can_access_text_channel(db, user, text_channel, need_send=True):
-        await _send_message_failure(user.id, client_nonce, "access_denied", "Нет права отправлять сообщения в этот канал")
+        await send_message_failure(user.id, client_nonce, "access_denied", "Нет права отправлять сообщения в этот канал")
         await manager.send_to_user(user.id, {
             "type": "error",
             "message": "No access to channel",
@@ -446,7 +333,7 @@ async def handle_chat_message(
         ))).scalar_one_or_none()
         if existing is not None:
             if existing.text_channel_id != text_channel_id or (existing.content or "") != content:
-                await _send_message_failure(user.id, client_nonce, "nonce_conflict", "client_nonce уже использован для другого сообщения")
+                await send_message_failure(user.id, client_nonce, "nonce_conflict", "client_nonce уже использован для другого сообщения")
                 return
             await manager.send_to_user(user.id, {
                 "type": "message_ack",
@@ -461,15 +348,15 @@ async def handle_chat_message(
             PendingChatUpload.owner_id == user.id,
         ))).scalars().all()
         if len(pending_uploads) != len(attachment_upload_ids):
-            await _send_message_failure(user.id, client_nonce, "upload_expired", "Загрузка файла не найдена или истекла", True)
+            await send_message_failure(user.id, client_nonce, "upload_expired", "Загрузка файла не найдена или истекла", True)
             return
         attachments.extend(item.file_url for item in pending_uploads)
 
     if not content and not attachments:
-        await _send_message_failure(user.id, client_nonce, "empty_message", "Сообщение не содержит текста или файлов")
+        await send_message_failure(user.id, client_nonce, "empty_message", "Сообщение не содержит текста или файлов")
         return
     if len(content) > 5000 or len(attachments) > 10:
-        await _send_message_failure(user.id, client_nonce, "validation_error", "Превышен лимит текста или вложений")
+        await send_message_failure(user.id, client_nonce, "validation_error", "Превышен лимит текста или вложений")
         return
 
     allowed, retry_after, limit_message = enforce_message_antispam(
@@ -478,7 +365,7 @@ async def handle_chat_message(
         content=content,
     )
     if not allowed:
-        await _send_message_failure(user.id, client_nonce, "rate_limited", limit_message, True, retry_after)
+        await send_message_failure(user.id, client_nonce, "rate_limited", limit_message, True, retry_after)
         await manager.send_to_user(
             user.id,
             rate_limit_payload(
@@ -492,7 +379,7 @@ async def handle_chat_message(
 
     allowed, retry_after = await check_slow_mode(db, text_channel, user)
     if not allowed:
-        await _send_message_failure(user.id, client_nonce, "slow_mode", "В канале включен медленный режим", True, retry_after)
+        await send_message_failure(user.id, client_nonce, "slow_mode", "В канале включен медленный режим", True, retry_after)
         await manager.send_to_user(user.id, {
             "type": "slow_mode",
             "text_channel_id": text_channel_id,
@@ -617,737 +504,3 @@ async def handle_typing(user: User, message_data: dict, manager, current_channel
             "text_channel_id": text_channel_id,
         })
         await bot_event_dispatcher.dispatch_typing_start(db, int(text_channel_id), user.id)
-
-
-async def handle_join_voice(
-    user: User,
-    message_data: dict,
-    db: AsyncSession,
-    websocket: WebSocket,
-    ws_id: int,
-    manager,
-    voice_connections: dict,
-    request_id: Optional[str] = None,
-) -> tuple[Optional[int], Optional[str]]:
-    voice_channel_id = _normalize_voice_channel_id(message_data)
-    if not voice_channel_id:
-        return None, None
-
-    # prevent concurrent joins/leaves on the same global state:
-    async with VOICE_OPERATION_LOCK:
-        voice_channel_result = await db.execute(
-            select(VoiceChannel).where(VoiceChannel.id == voice_channel_id)
-        )
-        voice_channel = voice_channel_result.scalar_one_or_none()
-        if not voice_channel:
-            await websocket.send_text(json.dumps({"type": "error", "message": "Voice channel not found"}))
-            return None, None
-
-        from app.services.channel_access import user_can_access_voice_channel
-        if not await user_can_access_voice_channel(db, user, voice_channel):
-            await websocket.send_text(
-                json.dumps({"type": "error", "message": "No access to voice channel"})
-            )
-            return None, None
-
-        # remove stale connections on all user channels before proceeding
-        active_user_channels = list(find_user_channels(voice_connections, user.id))
-        for old_channel_id in active_user_channels:
-            if old_channel_id == voice_channel_id:
-                continue
-            await cleanup_voice_connection(
-                user,
-                old_channel_id,
-                None,
-                db,
-                manager,
-                voice_connections,
-                silent=False,
-            )
-
-        # explicit replacement for same channel before presence write/broadcast
-        old_info = voice_connections.get(voice_channel_id, {}).get(user.id)
-        if old_info:
-            VOICE_DEBUG_METRICS["voice_reconnections"] += 1
-            VOICE_DEBUG_METRICS["orphan_cleanup_count"] += 1
-            old_info["connection_id"] = f"replaced:{old_info.get('connection_id')}"
-            try:
-                old_ws = old_info.get("websocket")
-                if old_ws and old_ws is not websocket:
-                    await old_ws.close(code=4000, reason="Replaced by new voice connection")
-            except Exception:
-                pass
-            if voice_channel_id in voice_connections:
-                voice_connections[voice_channel_id].pop(user.id, None)
-
-        await db.execute(
-            delete(VoiceChannelUser).where(
-                and_(
-                    VoiceChannelUser.voice_channel_id == voice_channel_id,
-                    VoiceChannelUser.user_id == user.id,
-                )
-            )
-        )
-        await db.commit()
-
-        active_users_query = await db.execute(
-            select(VoiceChannelUser).where(VoiceChannelUser.voice_channel_id == voice_channel_id)
-        )
-        active_count = len(active_users_query.scalars().all())
-        max_users = int(voice_channel.max_users or 0)
-        if max_users > 0 and active_count >= max_users:
-            await websocket.send_text(json.dumps({"type": "error", "message": "Voice channel is full"}))
-            return None, None
-
-        connection_id = new_connection_id()
-        db.add(VoiceChannelUser(voice_channel_id=voice_channel_id, user_id=user.id))
-        await db.commit()
-
-        await manager.register_channel(websocket, user.id, voice_channel_id)
-        is_muted = _normalize_bool(message_data.get("is_muted"), False)
-        is_deafened = _normalize_bool(message_data.get("is_deafened"), False)
-        register_connection(
-            voice_connections,
-            voice_channel_id,
-            user.id,
-            websocket=websocket,
-            username=user.display_name or user.username,
-            connection_id=connection_id,
-            is_muted=is_muted,
-            is_deafened=is_deafened,
-            is_sharing_screen=False,
-            gateway="unified",
-        )
-
-        participants = []
-        for uid, conn_info in list(voice_connections.get(voice_channel_id, {}).items()):
-            if uid == user.id:
-                continue
-            user_info_result = await db.execute(select(User).where(User.id == uid))
-            user_info = user_info_result.scalar_one_or_none()
-            participants.append(participant_payload(
-                uid,
-                conn_info,
-                display_name=user_info.display_name if user_info else None,
-                avatar_url=user_info.avatar_url if user_info else None,
-            ))
-
-        await websocket.send_text(
-            json.dumps({
-                "type": "voice_participants",
-                "participants": participants,
-                "ice_servers": settings.ICE_SERVERS,
-                "self": {
-                    "user_id": user.id,
-                    "is_muted": is_muted,
-                    "is_deafened": is_deafened,
-                },
-            })
-        )
-
-        await _broadcast_voice(
-            voice_channel_id,
-            {
-                "type": "user_joined_voice",
-                "user_id": user.id,
-                "username": user.display_name or user.username,
-                "display_name": user.display_name,
-                "avatar_url": user.avatar_url,
-                "voice_channel_id": voice_channel_id,
-                "is_muted": is_muted,
-                "is_deafened": is_deafened,
-                "connection_id": connection_id,
-            },
-            exclude_user_id=user.id,
-        )
-
-        await manager.broadcast({
-            "type": "voice_channel_join",
-            "user_id": user.id,
-            "username": user.display_name or user.username,
-            "display_name": user.display_name,
-            "avatar_url": user.avatar_url,
-            "voice_channel_id": voice_channel_id,
-            "voice_channel_name": voice_channel.name,
-            "request_id": request_id,
-        })
-
-        await _dispatch_bot_voice_state(
-            db,
-            guild_id=int(voice_channel.channel_id),
-            channel_id=voice_channel_id,
-            user_id=user.id,
-            session_id=connection_id,
-            self_mute=is_muted,
-            self_deaf=is_deafened,
-        )
-
-        _structured_log(
-            user,
-            "join_voice_ok",
-            voice_channel_id=voice_channel_id,
-            ws_id=ws_id,
-            request_id=request_id,
-            connection_id=connection_id,
-        )
-        return voice_channel_id, connection_id
-
-
-async def handle_leave_voice(
-    user: User,
-    voice_channel_id: Optional[int],
-    connection_id: Optional[str],
-    db: AsyncSession,
-    manager,
-    voice_connections: dict,
-) -> tuple[Optional[int], Optional[str]]:
-    if not voice_channel_id:
-        return None, None
-
-    async with VOICE_OPERATION_LOCK:
-        await cleanup_voice_connection(
-            user,
-            voice_channel_id,
-            connection_id,
-            db,
-            manager,
-            voice_connections,
-            silent=False,
-        )
-    return None, None
-
-
-async def cleanup_voice_connection(
-    user: User,
-    voice_channel_id: int,
-    connection_id: Optional[str],
-    db: AsyncSession,
-    manager,
-    voice_connections: dict,
-    silent: bool = False,
-) -> None:
-    VOICE_DEBUG_METRICS["cleanup_calls"] += 1
-
-    channel_users = voice_connections.get(voice_channel_id, {})
-    removed = None
-    if connection_id is not None:
-        is_current = is_active_connection(
-            voice_connections, voice_channel_id, user.id, connection_id
-        )
-        if not is_current:
-            _structured_log(
-                user,
-                "cleanup_skipped_stale",
-                voice_channel_id=voice_channel_id,
-                connection_id=connection_id,
-            )
-            return
-
-        removed = pop_connection_if_current(
-            voice_connections, voice_channel_id, user.id, connection_id
-        )
-    else:
-        removed = channel_users.pop(user.id, None)
-        if voice_channel_id in voice_connections and not voice_connections[voice_channel_id]:
-            voice_connections.pop(voice_channel_id, None)
-
-    if removed is None and connection_id is not None:
-        _structured_log(
-            user,
-            "cleanup_skipped_stale",
-            voice_channel_id=voice_channel_id,
-            connection_id=connection_id,
-        )
-        return
-
-    removed_ws = removed.get("websocket") if isinstance(removed, dict) else None
-    if removed_ws is not None:
-        await manager.unregister_channel(
-            removed_ws,
-            user.id,
-            voice_channel_id,
-        )
-
-    voice_channel = await db.get(VoiceChannel, voice_channel_id)
-    delete_result = await db.execute(
-        delete(VoiceChannelUser).where(
-            and_(
-                VoiceChannelUser.voice_channel_id == voice_channel_id,
-                VoiceChannelUser.user_id == user.id,
-            )
-        )
-    )
-    await db.commit()
-
-    if voice_channel is not None and (
-        removed is not None or int(getattr(delete_result, "rowcount", 0) or 0) > 0
-    ):
-        removed_connection_id = (
-            str(removed.get("connection_id") or "")
-            if isinstance(removed, dict)
-            else str(connection_id or "")
-        )
-        await _dispatch_bot_voice_state(
-            db,
-            guild_id=int(voice_channel.channel_id),
-            channel_id=None,
-            user_id=user.id,
-            session_id=removed_connection_id,
-        )
-
-    if not silent and removed is not None:
-        await _broadcast_voice(
-            voice_channel_id,
-            {"type": "user_left_voice", "user_id": user.id, "voice_channel_id": voice_channel_id},
-            exclude_user_id=user.id,
-        )
-        await manager.broadcast({
-            "type": "voice_channel_leave",
-            "user_id": user.id,
-            "username": user.display_name or user.username,
-            "voice_channel_id": voice_channel_id,
-        })
-
-    _structured_log(user, "leave_voice", voice_channel_id=voice_channel_id, connection_id=connection_id)
-
-
-async def handle_voice_offer(user: User, message_data: dict, manager):
-    target_id = _normalize_target_user_id(message_data)
-    offer = message_data.get("offer")
-    if target_id is not None and offer:
-        target = next(
-            (
-                users[target_id]
-                for users in voice_connections.values()
-                if target_id in users
-            ),
-            None,
-        )
-        if target and target.get("gateway") == "bot" and target.get("websocket"):
-            try:
-                await target["websocket"].send_json(
-                    {"type": "offer", "from_id": user.id, "offer": offer}
-                )
-            except Exception as exc:
-                print(f"[UnifiedWS] voice offer to bot={target_id} failed: {exc}")
-            return
-        await manager.send_personal_message(
-            {
-                "type": "voice_offer",
-                "from_id": user.id,
-                "offer": offer,
-                "request_id": _extract_request_id(message_data),
-            },
-            target_id
-        )
-
-
-async def handle_voice_answer(user: User, message_data: dict, manager):
-    target_id = _normalize_target_user_id(message_data)
-    answer = message_data.get("answer")
-    if target_id is not None and answer:
-        target = next(
-            (
-                users[target_id]
-                for users in voice_connections.values()
-                if target_id in users
-            ),
-            None,
-        )
-        if target and target.get("gateway") == "bot" and target.get("websocket"):
-            try:
-                await target["websocket"].send_json(
-                    {"type": "answer", "from_id": user.id, "answer": answer}
-                )
-            except Exception as exc:
-                print(f"[UnifiedWS] voice answer to bot={target_id} failed: {exc}")
-            return
-        await manager.send_personal_message(
-            {
-                "type": "voice_answer",
-                "from_id": user.id,
-                "answer": answer,
-                "request_id": _extract_request_id(message_data),
-            },
-            target_id
-        )
-
-
-async def handle_voice_ice_candidate(user: User, message_data: dict, manager):
-    target_id = _normalize_target_user_id(message_data)
-    candidate = message_data.get("candidate")
-    if target_id is not None and candidate:
-        target = next(
-            (
-                users[target_id]
-                for users in voice_connections.values()
-                if target_id in users
-            ),
-            None,
-        )
-        if target and target.get("gateway") == "bot" and target.get("websocket"):
-            try:
-                await target["websocket"].send_json(
-                    {
-                        "type": "ice_candidate",
-                        "from_id": user.id,
-                        "candidate": candidate,
-                    }
-                )
-            except Exception as exc:
-                print(f"[UnifiedWS] voice ICE to bot={target_id} failed: {exc}")
-            return
-        await manager.send_personal_message(
-            {
-                "type": "voice_ice_candidate",
-                "from_id": user.id,
-                "candidate": candidate,
-                "request_id": _extract_request_id(message_data),
-            },
-            target_id
-        )
-
-
-async def handle_voice_mute(
-    user: User,
-    message_data: dict,
-    voice_channel_id: Optional[int],
-    db: AsyncSession,
-    manager,
-    voice_connections: dict,
-):
-    if not voice_channel_id:
-        return
-    is_muted = _normalize_bool(message_data.get("is_muted"), False)
-    if voice_channel_id in voice_connections and user.id in voice_connections[voice_channel_id]:
-        voice_connections[voice_channel_id][user.id]["is_muted"] = is_muted
-
-    voice_user_result = await db.execute(
-        select(VoiceChannelUser).where(
-            and_(
-                VoiceChannelUser.voice_channel_id == voice_channel_id,
-                VoiceChannelUser.user_id == user.id,
-            )
-        )
-    )
-    voice_user_db = voice_user_result.scalar_one_or_none()
-    if voice_user_db:
-        voice_user_db.is_muted = is_muted
-        await db.commit()
-
-    await _broadcast_voice(
-        voice_channel_id,
-        {"type": "user_muted", "user_id": user.id, "is_muted": is_muted},
-        exclude_user_id=user.id,
-    )
-
-    voice_channel = await db.get(VoiceChannel, voice_channel_id)
-    connection = voice_connections.get(voice_channel_id, {}).get(user.id, {})
-    if voice_user_db is not None and voice_channel is not None:
-        await _dispatch_bot_voice_state(
-            db,
-            guild_id=int(voice_channel.channel_id),
-            channel_id=voice_channel_id,
-            user_id=user.id,
-            session_id=str(connection.get("connection_id") or ""),
-            self_mute=is_muted,
-            self_deaf=bool(connection.get("is_deafened", False)),
-        )
-
-
-async def handle_voice_deafen(
-    user: User,
-    message_data: dict,
-    voice_channel_id: Optional[int],
-    db: AsyncSession,
-    manager,
-    voice_connections: dict,
-):
-    if not voice_channel_id:
-        return
-    is_deafened = _normalize_bool(message_data.get("is_deafened"), False)
-    if voice_channel_id in voice_connections and user.id in voice_connections[voice_channel_id]:
-        voice_connections[voice_channel_id][user.id]["is_deafened"] = is_deafened
-
-    voice_user_result = await db.execute(
-        select(VoiceChannelUser).where(
-            and_(
-                VoiceChannelUser.voice_channel_id == voice_channel_id,
-                VoiceChannelUser.user_id == user.id,
-            )
-        )
-    )
-    voice_user_db = voice_user_result.scalar_one_or_none()
-    if voice_user_db:
-        voice_user_db.is_deafened = is_deafened
-        await db.commit()
-
-    await _broadcast_voice(
-        voice_channel_id,
-        {"type": "user_deafened", "user_id": user.id, "is_deafened": is_deafened},
-        exclude_user_id=user.id,
-    )
-
-    voice_channel = await db.get(VoiceChannel, voice_channel_id)
-    connection = voice_connections.get(voice_channel_id, {}).get(user.id, {})
-    if voice_user_db is not None and voice_channel is not None:
-        await _dispatch_bot_voice_state(
-            db,
-            guild_id=int(voice_channel.channel_id),
-            channel_id=voice_channel_id,
-            user_id=user.id,
-            session_id=str(connection.get("connection_id") or ""),
-            self_mute=bool(connection.get("is_muted", False)),
-            self_deaf=is_deafened,
-        )
-
-
-async def handle_voice_speaking(
-    user: User,
-    message_data: dict,
-    voice_channel_id: Optional[int],
-    manager,
-):
-    if not voice_channel_id:
-        return
-    is_speaking = message_data.get("is_speaking", False)
-    await _broadcast_voice(
-        voice_channel_id,
-        {"type": "user_speaking", "user_id": user.id, "is_speaking": bool(is_speaking)},
-        exclude_user_id=user.id,
-    )
-
-
-async def handle_screen_share_start(
-    user: User,
-    voice_channel_id: Optional[int],
-    manager,
-    voice_connections: dict,
-):
-    if not voice_channel_id:
-        return
-    if voice_channel_id in voice_connections and user.id in voice_connections[voice_channel_id]:
-        voice_connections[voice_channel_id][user.id]["is_sharing_screen"] = True
-    await _broadcast_voice(
-        voice_channel_id,
-        {
-            "type": "screen_share_started",
-            "user_id": user.id,
-            "username": user.display_name or user.username,
-        },
-    )
-
-
-async def handle_screen_share_stop(
-    user: User,
-    voice_channel_id: Optional[int],
-    manager,
-    voice_connections: dict,
-):
-    if not voice_channel_id:
-        return
-    if voice_channel_id in voice_connections and user.id in voice_connections[voice_channel_id]:
-        voice_connections[voice_channel_id][user.id]["is_sharing_screen"] = False
-    await _broadcast_voice(
-        voice_channel_id,
-        {
-            "type": "screen_share_stopped",
-            "user_id": user.id,
-            "username": user.display_name or user.username,
-        },
-    )
-
-
-async def handle_p2p_initiate(user: User, message_data: dict, manager):
-    recipient_id = message_data.get("to")
-    if recipient_id:
-        caller_info = {
-            "id": user.id,
-            "username": user.username,
-            "display_name": user.display_name,
-            "avatar_url": user.avatar_url,
-        }
-        await manager.send_personal_message({"type": "p2p-incoming-call", "caller": caller_info}, recipient_id)
-
-
-async def handle_p2p_accept(user: User, message_data: dict, manager):
-    caller_id = message_data.get("to")
-    if caller_id:
-        recipient_info = {
-            "id": user.id,
-            "username": user.username,
-            "display_name": user.display_name,
-            "avatar_url": user.avatar_url,
-        }
-        await manager.send_personal_message(
-            {"type": "p2p-call-accepted", "recipient": recipient_info},
-            caller_id,
-        )
-
-
-async def handle_p2p_decline(user: User, message_data: dict, manager):
-    caller_id = message_data.get("to")
-    if caller_id:
-        recipient_info = {
-            "id": user.id,
-            "username": user.username,
-            "display_name": user.display_name,
-            "avatar_url": user.avatar_url,
-        }
-        await manager.send_personal_message(
-            {"type": "p2p-call-declined", "recipient": recipient_info},
-            caller_id,
-        )
-
-
-async def handle_p2p_hangup(user: User, message_data: dict, manager):
-    recipient_id = message_data.get("to")
-    if recipient_id:
-        await manager.send_personal_message({"type": "p2p-call-ended"}, recipient_id)
-
-
-async def handle_p2p_offer(user: User, message_data: dict, manager):
-    recipient_id = message_data.get("to")
-    offer = message_data.get("offer")
-    if recipient_id and offer:
-        await manager.send_personal_message({
-            "type": "p2p-offer",
-            "from": user.id,
-            "offer": offer,
-        }, recipient_id)
-
-
-async def handle_p2p_answer(user: User, message_data: dict, manager):
-    recipient_id = message_data.get("to")
-    answer = message_data.get("answer")
-    if recipient_id and answer:
-        await manager.send_personal_message({
-            "type": "p2p-answer",
-            "from": user.id,
-            "answer": answer,
-        }, recipient_id)
-
-
-async def handle_p2p_ice_candidate(user: User, message_data: dict, manager):
-    recipient_id = message_data.get("to")
-    candidate = message_data.get("candidate")
-    if recipient_id and candidate:
-        await manager.send_personal_message({
-            "type": "p2p-ice-candidate",
-            "from": user.id,
-            "candidate": candidate,
-        }, recipient_id)
-
-
-async def handle_dm_message(user: User, message_data: dict, db: AsyncSession, manager):
-    recipient_id = message_data.get("recipient_id")
-    content = message_data.get("content", "").strip()
-    attachments = list(message_data.get("attachments", []) or [])
-    attachment_upload_ids = list(dict.fromkeys(str(item) for item in (message_data.get("attachment_upload_ids") or [])))
-    client_nonce = message_data.get("client_nonce")
-    reply_to_id = message_data.get("reply_to_id")
-
-    if (not content and not attachments and not attachment_upload_ids) or not recipient_id:
-        await _send_message_failure(user.id, client_nonce, "invalid_message", "Получатель или содержимое сообщения не указаны")
-        return
-
-    if len(content) > 5000 or len(attachments) + len(attachment_upload_ids) > 10:
-        await _send_message_failure(user.id, client_nonce, "validation_error", "Превышен лимит текста или вложений")
-        return
-
-    if client_nonce is not None and (not isinstance(client_nonce, str) or len(client_nonce) > 64):
-        return
-
-    if client_nonce:
-        existing = (await db.execute(select(DirectMessage).where(
-            DirectMessage.sender_id == user.id,
-            DirectMessage.client_nonce == client_nonce,
-        ))).scalar_one_or_none()
-        if existing is not None:
-            if existing.recipient_id != recipient_id or (existing.content or "") != content:
-                await _send_message_failure(user.id, client_nonce, "nonce_conflict", "client_nonce уже использован для другого сообщения")
-                return
-            await manager.send_to_user(user.id, {
-                "type": "message_ack",
-                "data": {"id": existing.id, "client_nonce": existing.client_nonce},
-            })
-            return
-
-    pending_uploads = []
-    if attachment_upload_ids:
-        pending_uploads = (await db.execute(select(PendingChatUpload).where(
-            PendingChatUpload.id.in_(attachment_upload_ids),
-            PendingChatUpload.owner_id == user.id,
-        ))).scalars().all()
-        if len(pending_uploads) != len(attachment_upload_ids):
-            await _send_message_failure(user.id, client_nonce, "upload_expired", "Загрузка файла не найдена или истекла", True)
-            return
-
-    allowed, retry_after, limit_message = enforce_message_antispam(
-        user.id,
-        dest_key=f"dm:{min(user.id, int(recipient_id))}:{max(user.id, int(recipient_id))}",
-        content=content,
-    )
-    if not allowed:
-        await _send_message_failure(user.id, client_nonce, "rate_limited", limit_message, True, retry_after)
-        await manager.send_to_user(
-            user.id,
-            rate_limit_payload(
-                message=limit_message,
-                retry_after_seconds=retry_after,
-                scope="dm",
-                recipient_id=int(recipient_id),
-            )
-        )
-        return
-
-    db_message = await direct_message_service.create_message(
-        db,
-        sender_id=user.id,
-        recipient_id=recipient_id,
-        content=content if content else None,
-        attachments=attachments,
-        reply_to_id=reply_to_id,
-        client_nonce=client_nonce,
-        pending_uploads=pending_uploads,
-    )
-    author = await db.get(User, user.id)
-
-    message_dict = {
-        "id": db_message.id,
-        "client_nonce": db_message.client_nonce,
-        "content": db_message.content,
-        "timestamp": db_message.timestamp,
-        "sender_id": db_message.sender_id,
-        "recipient_id": db_message.recipient_id,
-        "author": {
-            "id": author.id,
-            "username": author.username,
-            "email": "",
-            "display_name": author.display_name,
-            "avatar_url": author.avatar_url,
-            "is_active": author.is_active,
-            "is_online": author.is_online,
-            "created_at": author.created_at,
-            "updated_at": author.updated_at,
-        },
-        "attachments": [
-            {
-                "id": att.id,
-                "file_url": att.file_url,
-                "message_id": att.dm_message_id,
-            } for att in (db_message.attachments or [])
-        ],
-        "reactions": [],
-        "reply_to": None if not db_message.reply_to else {
-            "id": db_message.reply_to.id,
-            "content": db_message.reply_to.content,
-            "timestamp": db_message.reply_to.timestamp,
-            "sender_id": db_message.reply_to.sender_id,
-            "recipient_id": db_message.reply_to.recipient_id,
-        }
-    }
-
-    message_to_send = {"type": "dm", "data": message_dict}
-    await manager.send_personal_message(message_to_send, recipient_id)
-    await manager.send_personal_message(message_to_send, user.id)

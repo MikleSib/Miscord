@@ -1,23 +1,17 @@
 from __future__ import annotations
 
-import asyncio
-import hashlib
-import hmac
+import json
 import secrets
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Any
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 
+import redis.asyncio as redis
 
-VOICE_SESSION_TTL_SECONDS = 120
+from app.core.config import settings
 
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def _hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 @dataclass
@@ -27,29 +21,40 @@ class BotVoiceSession:
     guild_id: int
     channel_id: int
     session_id: str
-    token_hash: str
     self_mute: bool
     self_deaf: bool
     created_at: datetime
-    expires_at: datetime
-    websocket: Any | None = None
 
-    @property
-    def expired(self) -> bool:
-        return self.expires_at <= _utcnow()
+    def to_json(self) -> str:
+        payload = asdict(self)
+        payload["created_at"] = self.created_at.isoformat()
+        return json.dumps(payload)
+
+    @classmethod
+    def from_json(cls, raw: str) -> "BotVoiceSession":
+        payload = json.loads(raw)
+        payload["created_at"] = datetime.fromisoformat(payload["created_at"])
+        return cls(**payload)
 
 
 class BotVoiceSessionRegistry:
-    """Ephemeral voice credentials shared by the main and voice gateways.
-
-    Voice tokens are intentionally stored as hashes. A token is scoped to one
-    application, bot user, server, channel and session, and expires quickly.
-    """
+    """Redis-backed bot voice routing state; media keys stay in voice-media RAM."""
 
     def __init__(self) -> None:
-        self._sessions: dict[str, BotVoiceSession] = {}
-        self._by_application_guild: dict[tuple[int, int], str] = {}
-        self._lock = asyncio.Lock()
+        self._client: redis.Redis | None = None
+
+    async def client(self) -> redis.Redis:
+        if self._client is None:
+            self._client = redis.from_url(settings.REDIS_URL, decode_responses=True)
+        return self._client
+
+    @staticmethod
+    def _session_key(session_id: str) -> str:
+        return f"voice:v1:bot:session:{session_id}"
+
+    @staticmethod
+    def _guild_key(application_id: int, guild_id: int) -> str:
+        return f"voice:v1:bot:route:{application_id}:{guild_id}"
 
     async def create(
         self,
@@ -60,87 +65,49 @@ class BotVoiceSessionRegistry:
         channel_id: int,
         self_mute: bool,
         self_deaf: bool,
-    ) -> tuple[BotVoiceSession, str]:
-        session_id = secrets.token_urlsafe(24)
-        token = f"mcv_{secrets.token_urlsafe(32)}"
-        now = _utcnow()
+    ) -> BotVoiceSession:
         session = BotVoiceSession(
             application_id=application_id,
             bot_user_id=bot_user_id,
             guild_id=guild_id,
             channel_id=channel_id,
-            session_id=session_id,
-            token_hash=_hash_token(token),
+            session_id=secrets.token_urlsafe(24),
             self_mute=self_mute,
             self_deaf=self_deaf,
-            created_at=now,
-            expires_at=now + timedelta(seconds=VOICE_SESSION_TTL_SECONDS),
+            created_at=_utcnow(),
         )
-        old_socket = None
-        async with self._lock:
-            self._drop_expired_locked(now)
-            key = (application_id, guild_id)
-            old_id = self._by_application_guild.get(key)
-            if old_id:
-                old = self._sessions.pop(old_id, None)
-                old_socket = old.websocket if old else None
-            self._sessions[session_id] = session
-            self._by_application_guild[key] = session_id
-        if old_socket is not None:
-            try:
-                await old_socket.close(code=4000, reason="Voice session replaced")
-            except Exception:
-                pass
-        return session, token
-
-    async def validate(
-        self,
-        *,
-        session_id: str,
-        token: str,
-        application_id: int | None = None,
-        bot_user_id: int | None = None,
-        guild_id: int | None = None,
-    ) -> BotVoiceSession | None:
-        now = _utcnow()
-        async with self._lock:
-            self._drop_expired_locked(now)
-            session = self._sessions.get(session_id)
-            if session is None:
-                return None
-            if application_id is not None and session.application_id != application_id:
-                return None
-            if bot_user_id is not None and session.bot_user_id != bot_user_id:
-                return None
-            if guild_id is not None and session.guild_id != guild_id:
-                return None
-            if not hmac.compare_digest(session.token_hash, _hash_token(token)):
-                return None
-            session.expires_at = now + timedelta(seconds=VOICE_SESSION_TTL_SECONDS)
-            return session
-
-    async def attach(self, session_id: str, websocket: Any) -> BotVoiceSession | None:
-        async with self._lock:
-            session = self._sessions.get(session_id)
-            if session is None or session.expired:
-                return None
-            old_socket = session.websocket
-            session.websocket = websocket
-            session.expires_at = _utcnow() + timedelta(seconds=VOICE_SESSION_TTL_SECONDS)
-        if old_socket is not None and old_socket is not websocket:
-            try:
-                await old_socket.close(code=4000, reason="Voice connection replaced")
-            except Exception:
-                pass
+        client = await self.client()
+        route_key = self._guild_key(application_id, guild_id)
+        old_id = await client.get(route_key)
+        pipeline = client.pipeline(transaction=True)
+        if old_id:
+            pipeline.delete(self._session_key(old_id))
+        pipeline.set(
+            self._session_key(session.session_id),
+            session.to_json(),
+            ex=settings.VOICE_SESSION_TTL_SECONDS,
+        )
+        pipeline.set(route_key, session.session_id, ex=settings.VOICE_SESSION_TTL_SECONDS)
+        await pipeline.execute()
         return session
 
-    async def touch(self, session_id: str) -> bool:
-        async with self._lock:
-            session = self._sessions.get(session_id)
-            if session is None or session.expired:
-                return False
-            session.expires_at = _utcnow() + timedelta(seconds=VOICE_SESSION_TTL_SECONDS)
-            return True
+    async def get(self, session_id: str) -> BotVoiceSession | None:
+        client = await self.client()
+        raw = await client.get(self._session_key(session_id))
+        return BotVoiceSession.from_json(raw) if raw else None
+
+    async def get_for_application_guild(
+        self, application_id: int, guild_id: int,
+    ) -> BotVoiceSession | None:
+        client = await self.client()
+        route_key = self._guild_key(application_id, guild_id)
+        session_id = await client.get(route_key)
+        if not session_id:
+            return None
+        session = await self.get(session_id)
+        if session is None:
+            await client.delete(route_key)
+        return session
 
     async def update_state(
         self,
@@ -149,51 +116,30 @@ class BotVoiceSessionRegistry:
         self_mute: bool,
         self_deaf: bool,
     ) -> BotVoiceSession | None:
-        async with self._lock:
-            session = self._sessions.get(session_id)
-            if session is None or session.expired:
-                return None
-            session.self_mute = self_mute
-            session.self_deaf = self_deaf
-            session.expires_at = _utcnow() + timedelta(seconds=VOICE_SESSION_TTL_SECONDS)
-            return session
-
-    async def detach(self, session_id: str, websocket: Any) -> None:
-        async with self._lock:
-            session = self._sessions.get(session_id)
-            if session is not None and session.websocket is websocket:
-                session.websocket = None
-                session.expires_at = _utcnow() + timedelta(seconds=VOICE_SESSION_TTL_SECONDS)
-
-    async def get_for_application_guild(
-        self, application_id: int, guild_id: int
-    ) -> BotVoiceSession | None:
-        now = _utcnow()
-        async with self._lock:
-            self._drop_expired_locked(now)
-            session_id = self._by_application_guild.get((application_id, guild_id))
-            return self._sessions.get(session_id) if session_id else None
-
-    async def revoke(self, application_id: int, guild_id: int) -> BotVoiceSession | None:
-        socket = None
-        async with self._lock:
-            session_id = self._by_application_guild.pop((application_id, guild_id), None)
-            session = self._sessions.pop(session_id, None) if session_id else None
-            socket = session.websocket if session else None
-        if socket is not None:
-            try:
-                await socket.close(code=4000, reason="Voice session revoked")
-            except Exception:
-                pass
+        session = await self.get(session_id)
+        if session is None:
+            return None
+        session.self_mute = self_mute
+        session.self_deaf = self_deaf
+        client = await self.client()
+        ttl = settings.VOICE_SESSION_TTL_SECONDS
+        pipeline = client.pipeline(transaction=True)
+        pipeline.set(self._session_key(session_id), session.to_json(), ex=ttl)
+        pipeline.expire(self._guild_key(session.application_id, session.guild_id), ttl)
+        await pipeline.execute()
         return session
 
-    def _drop_expired_locked(self, now: datetime) -> None:
-        expired = [session_id for session_id, item in self._sessions.items() if item.expires_at <= now]
-        for session_id in expired:
-            item = self._sessions.pop(session_id)
-            key = (item.application_id, item.guild_id)
-            if self._by_application_guild.get(key) == session_id:
-                self._by_application_guild.pop(key, None)
+    async def revoke(self, application_id: int, guild_id: int) -> BotVoiceSession | None:
+        client = await self.client()
+        route_key = self._guild_key(application_id, guild_id)
+        session_id = await client.get(route_key)
+        session = await self.get(session_id) if session_id else None
+        pipeline = client.pipeline(transaction=True)
+        pipeline.delete(route_key)
+        if session_id:
+            pipeline.delete(self._session_key(session_id))
+        await pipeline.execute()
+        return session
 
 
 registry = BotVoiceSessionRegistry()

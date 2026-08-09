@@ -2,7 +2,7 @@
   "$schema": "https://mintlify.com/docs.json",
   "theme": "maple",
   "name": "Miscord",
-  "description": "Документация для разработчиков Miscord: боты, команды, вебхуки и API v10.",
+  "description": "Документация для разработчиков Miscord: боты, команды, вебхуки и API v1.",
   "colors": {
     "primary": "#5865F2",
     "light": "#7C86F7",

@@ -80,6 +80,7 @@ node_modules/
 .cursor/
 .claude/
 .codex/
+.codex-remote-attachments/
 .skales-backup/
 .tmp-dfn3/
 skills-lock.json

@@ -1,7 +1,7 @@
 'use client'
 
 import { MobileExperience } from '../components/mobile/MobileExperience'
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../store/store'
 import { useStore } from '../lib/store'
@@ -10,18 +10,12 @@ import { ChannelSidebar } from '../components/ChannelSidebar'
 import { ChatArea } from '../components/ChatArea'
 import { HomePageContent } from '../components/HomePageContent'
 import { ScreenShareToast } from '../components/ScreenShareToast'
-import P2PCallUI from '../components/P2PCallUI'
-import P2POutgoingCallUI from '../components/P2POutgoingCallUI'
-import { VoiceOverlay } from '../components/VoiceOverlay'
 import { useVoiceStore } from '../store/slices/voiceSlice'
 import voiceService from '../services/voiceService'
-import websocketService from '../services/websocketService'
 import { openScreenShareView } from '../lib/screenShareNavigation'
 import { ScreenShareVideoPool } from '../components/ScreenShareVideoPool'
 import { ScreenShareViewerHost } from '../components/ScreenShareViewerHost'
 import { ScreenSharePickerModal } from '../components/ScreenSharePickerModal'
-import soundService from '../services/soundService'
-import p2pVoiceService from '../services/p2pVoiceService'
 import { Button } from '../components/ui/button'
 import { Monitor } from 'lucide-react'
 import { useAppInitialization } from '../hooks/redux'
@@ -30,7 +24,6 @@ import { UserProfileBar } from '../components/UserProfileBar'
 import { VoiceConnectionPanel } from '../components/VoiceConnectionPanel'
 import SettingsModal from '../components/SettingsModal'
 import authService from '../services/authService'
-import { User } from '../types'
 import { bindUserProfileSync } from '../lib/userProfileSync'
 import { bindMemberSync } from '../lib/memberSync'
 
@@ -198,161 +191,6 @@ export default function HomePage() {
     };
   }, [authUser]);
 
-  // Состояние для P2P звонков
-  const [isIncomingCall, setIsIncomingCall] = useState(false);
-  const [isOutgoingCall, setIsOutgoingCall] = useState(false);
-  const [currentCaller, setCurrentCaller] = useState<User | null>(null);
-  const currentCallerRef = useRef<User | null>(null);
-  const [currentCallee, setCurrentCallee] = useState<User | null>(null);
-
-  useEffect(() => {
-    currentCallerRef.current = currentCaller
-  }, [currentCaller])
-  const [inCall, setInCall] = useState(false);
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
-  const remoteAudioRef = useRef<HTMLAudioElement>(null);
-
-  // Обработчики P2P звонков - должны работать на всех страницах
-  useEffect(() => {
-    if (!authUser || !currentServer) return;
-
-    const handleIncomingCall = (incomingCaller: any) => {
-      console.log('[HomePage] handleIncomingCall:', { incomingCaller, authUser });
-      // incomingCaller содержит { type: 'p2p-incoming-call', caller: User }
-      // Нам нужен сам объект caller
-      const caller = incomingCaller.caller || incomingCaller;
-      setCurrentCaller(caller);
-      setCurrentCallee(authUser);
-      setIsIncomingCall(true);
-      soundService.playIncomingCallSound();
-      // Сохраняем информацию о звонящем в сервисе
-      p2pVoiceService.setCurrentCaller(caller);
-    };
-
-    const handleCallAccepted = (data: any) => {
-      console.log('[HomePage] handleCallAccepted:', data);
-      setIsIncomingCall(false);
-      setIsOutgoingCall(false);
-      soundService.stopAllSounds();
-      setInCall(true);
-      // Инициатор звонка (caller) создает offer после подтверждения
-      // Если я - инициатор звонка (caller), то я создаю offer для получателя
-      if (currentCallerRef.current?.id === authUser?.id) {
-          p2pVoiceService.createOffer(data.recipient.id);
-      }
-      // Если я - принимающий (callee), то я уже создал peer connection в acceptCall
-      // и жду offer от звонящего
-    };
-
-    const handleCallDeclined = (data: any) => {
-      console.log('[HomePage] handleCallDeclined:', data);
-      soundService.stopAllSounds();
-      setIsOutgoingCall(false);
-      setIsIncomingCall(false);
-      // Показываем уведомление звонящему, что звонок отклонен
-      if (currentCallerRef.current?.id === authUser?.id) {
-        console.log('Звонок отклонен получателем!');
-        // Для звонящего - завершаем звонок полностью
-        handleCallEnded();
-      }
-    };
-
-    const handleCallEnded = (data?: any) => {
-      console.log('[HomePage] handleCallEnded:', data);
-      setIsIncomingCall(false);
-      setIsOutgoingCall(false);
-      setCurrentCaller(null);
-      setCurrentCallee(null);
-      setInCall(false);
-      setRemoteStream(null);
-      soundService.stopAllSounds();
-    };
-
-    const handleRemoteStream = (stream: MediaStream) => {
-      console.log('[HomePage] Received remote stream:', stream);
-      setRemoteStream(stream);
-      if (remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject = stream;
-        remoteAudioRef.current.volume = 1.0;
-        remoteAudioRef.current.play().catch(e => console.error('[HomePage] Error playing remote audio:', e));
-      }
-    };
-
-    websocketService.on('p2p-incoming-call', handleIncomingCall);
-    websocketService.on('p2p-call-accepted', handleCallAccepted);
-    websocketService.on('p2p-call-declined', handleCallDeclined);
-    websocketService.on('p2p-call-ended', handleCallEnded);
-    p2pVoiceService.on('remote_stream_received', handleRemoteStream);
-
-    return () => {
-      websocketService.off('p2p-incoming-call', handleIncomingCall);
-      websocketService.off('p2p-call-accepted', handleCallAccepted);
-      websocketService.off('p2p-call-declined', handleCallDeclined);
-      websocketService.off('p2p-call-ended', handleCallEnded);
-      p2pVoiceService.off('remote_stream_received', handleRemoteStream);
-    };
-  }, [authUser, currentServer]);
-
-  // useEffect для обработки изменений remoteStream
-  useEffect(() => {
-    if (remoteStream && remoteAudioRef.current) {
-      console.log('[HomePage] Setting remote stream to audio element');
-      remoteAudioRef.current.srcObject = remoteStream;
-      remoteAudioRef.current.volume = 1.0;
-      remoteAudioRef.current.play().catch(e => console.error('[HomePage] Error playing remote audio in useEffect:', e));
-    }
-  }, [remoteStream]);
-
-  const handleCallEnded = () => {
-    setIsIncomingCall(false);
-    setIsOutgoingCall(false);
-    setCurrentCaller(null);
-    setCurrentCallee(null);
-    setInCall(false);
-    setRemoteStream(null);
-    soundService.stopAllSounds();
-  };
-
-  const handleAcceptCall = () => {
-    console.log('[HomePage] handleAcceptCall called, currentCaller:', currentCaller, 'authUser:', authUser);
-    if (currentCaller) {
-      console.log('[HomePage] Accepting call from:', currentCaller.id);
-      soundService.stopAllSounds();
-      setIsIncomingCall(false);
-      p2pVoiceService.acceptCall(currentCaller.id, currentCaller);
-      setInCall(true);
-    } else {
-      console.error('[HomePage] No caller information available for accept');
-    }
-  };
-
-  const handleDeclineCall = () => {
-    console.log('[HomePage] handleDeclineCall called, currentCaller:', currentCaller);
-    if (currentCaller && currentCaller.id) {
-      console.log('[HomePage] Declining call from:', currentCaller.id);
-      soundService.stopAllSounds();
-      setIsIncomingCall(false);
-      p2pVoiceService.declineCall(currentCaller.id);
-    } else {
-      console.error('[HomePage] No caller information available for decline');
-    }
-  };
-
-  const handleCancelCall = () => {
-    if (currentCallee) {
-      soundService.stopAllSounds();
-      setIsOutgoingCall(false);
-      p2pVoiceService.hangUp(currentCallee.id);
-    }
-  };
-
-  const handleHangUp = () => {
-    const peerId = currentCaller?.id === authUser?.id ? currentCallee?.id : currentCaller?.id;
-    if (peerId) {
-      p2pVoiceService.hangUp(peerId);
-    }
-    handleCallEnded();
-  };
 
   // Функции для работы с Toast уведомлениями
   const handleViewScreenShare = (userId: number, username: string) => {
@@ -430,56 +268,6 @@ export default function HomePage() {
           <HomePageContent />
         </div>
       )}
-
-      {/* P2P Call UI Components */}
-      {isIncomingCall && currentCaller && authUser && (
-        <P2PCallUI
-          caller={currentCaller}
-          callee={authUser}
-          onAccept={handleAcceptCall}
-          onDecline={handleDeclineCall}
-        />
-      )}
-
-      {isOutgoingCall && currentCallee && (
-        <P2POutgoingCallUI
-          callee={currentCallee}
-          onCancel={handleCancelCall}
-        />
-      )}
-
-      {inCall && currentCallee && currentCaller && (
-        <VoiceOverlay
-          onHangUp={handleHangUp}
-          participantsList={[
-            {
-              user_id: currentCaller.id,
-              username: currentCaller.username,
-              display_name: currentCaller.username,
-              avatar_url: currentCaller.avatar_url,
-              is_muted: false,
-              is_deafened: false,
-            },
-            {
-              user_id: currentCallee.id,
-              username: currentCallee.username,
-              display_name: currentCallee.username,
-              avatar_url: currentCallee.avatar_url,
-              is_muted: false,
-              is_deafened: false,
-            },
-          ]}
-          channelName={`${currentCaller.username} & ${currentCallee.username}`}
-          serverName="Приватный звонок"
-        />
-      )}
-
-      {/* Скрытый audio элемент для воспроизведения входящего аудио из P2P звонков */}
-      <audio
-        ref={remoteAudioRef}
-        autoPlay
-        style={{ display: 'none' }}
-      />
 
       {/* Единый dock: голос + профиль */}
       <div className="user-dock absolute bottom-2 left-2 z-50">

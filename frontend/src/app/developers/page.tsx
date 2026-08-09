@@ -608,7 +608,7 @@ export default function DeveloperPortalPage() {
       return;
     }
     const curl = [
-      `curl -X POST ${window.location.origin}/api/bot/apps/${selected.id}/commands/dispatch \\`,
+      `curl -X POST ${window.location.origin}/api/v1/bot/apps/${selected.id}/commands/dispatch \\`,
       `  -H "Authorization: Bot ${dispatchToken.trim()}" \\`,
       '  -H "Content-Type: application/json" \\',
       `  -d '${payloadText.replace(/'/g, '\\\'')}'`,
@@ -762,7 +762,7 @@ export default function DeveloperPortalPage() {
               <div className="rounded-2xl border border-white/10 bg-[#2b2d31] p-5 md:p-8">
                 <div className="mb-5">
                   <h3 className="text-lg font-bold">OAuth2 и Bot</h3>
-                  <p className="mt-1 text-sm text-[#949ba4]">Redirect URI, Interactions Endpoint URL и привилегированные Gateway Intents доступны в Miscord API v10.</p>
+                  <p className="mt-1 text-sm text-[#949ba4]">Redirect URI, Interactions Endpoint URL и привилегированные Gateway Intents доступны в Miscord API v1.</p>
                 </div>
                 <div className="grid gap-4 lg:grid-cols-2">
                   <label className="grid gap-2 lg:col-span-2">

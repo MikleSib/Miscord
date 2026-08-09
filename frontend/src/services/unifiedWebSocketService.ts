@@ -355,10 +355,12 @@ class UnifiedWebSocketService {
   /**
    * Присоединение к голосовому каналу
    */
-  public joinVoiceChannel(voiceChannelId: number): void {
+  public joinVoiceChannel(voiceChannelId: number, isMuted = false, isDeafened = false): void {
     this.send({
       type: 'join_voice',
-      voice_channel_id: voiceChannelId
+      voice_channel_id: voiceChannelId,
+      is_muted: isMuted,
+      is_deafened: isDeafened,
     });
   }
 
@@ -372,45 +374,7 @@ class UnifiedWebSocketService {
     });
   }
 
-  /**
-   * Отправка WebRTC offer
-   */
-  public sendVoiceOffer(targetUserId: number, voiceChannelId: number, offer: RTCSessionDescriptionInit): void {
-    this.send({
-      type: 'voice_offer',
-      target_user_id: targetUserId,
-      voice_channel_id: voiceChannelId,
-      offer
-    });
-  }
-
-  /**
-   * Отправка WebRTC answer
-   */
-  public sendVoiceAnswer(targetUserId: number, voiceChannelId: number, answer: RTCSessionDescriptionInit): void {
-    this.send({
-      type: 'voice_answer',
-      target_user_id: targetUserId,
-      voice_channel_id: voiceChannelId,
-      answer
-    });
-  }
-
-  /**
-   * Отправка ICE candidate для голосового канала
-   */
-  public sendVoiceIceCandidate(targetUserId: number, voiceChannelId: number, candidate: RTCIceCandidateInit): void {
-    this.send({
-      type: 'voice_ice_candidate',
-      target_user_id: targetUserId,
-      voice_channel_id: voiceChannelId,
-      candidate
-    });
-  }
-
-  /**
-   * Обновление статуса микрофона
-   */
+  /** Update local microphone state. */
   public updateMuteStatus(voiceChannelId: number, isMuted: boolean): void {
     this.send({
       type: 'voice_mute',
@@ -461,82 +425,6 @@ class UnifiedWebSocketService {
     });
   }
 
-  /**
-   * Инициация P2P звонка
-   */
-  public initiateP2PCall(recipientId: number): void {
-    this.send({
-      type: 'p2p-initiate-call',
-      to: recipientId
-    });
-  }
-
-  /**
-   * Принятие P2P звонка
-   */
-  public acceptP2PCall(callerId: number): void {
-    this.send({
-      type: 'p2p-accept-call',
-      to: callerId
-    });
-  }
-
-  /**
-   * Отклонение P2P звонка
-   */
-  public declineP2PCall(callerId: number): void {
-    this.send({
-      type: 'p2p-decline-call',
-      to: callerId
-    });
-  }
-
-  /**
-   * Завершение P2P звонка
-   */
-  public hangupP2PCall(peerId: number): void {
-    this.send({
-      type: 'p2p-hang-up',
-      to: peerId
-    });
-  }
-
-  /**
-   * Отправка P2P WebRTC offer
-   */
-  public sendP2POffer(recipientId: number, offer: RTCSessionDescriptionInit): void {
-    this.send({
-      type: 'p2p-offer',
-      to: recipientId,
-      offer
-    });
-  }
-
-  /**
-   * Отправка P2P WebRTC answer
-   */
-  public sendP2PAnswer(callerId: number, answer: RTCSessionDescriptionInit): void {
-    this.send({
-      type: 'p2p-answer',
-      to: callerId,
-      answer
-    });
-  }
-
-  /**
-   * Отправка P2P ICE candidate
-   */
-  public sendP2PIceCandidate(peerId: number, candidate: RTCIceCandidateInit): void {
-    this.send({
-      type: 'p2p-ice-candidate',
-      to: peerId,
-      candidate
-    });
-  }
-
-  /**
-   * Отправка личного сообщения (DM)
-   */
   public sendDirectMessage(recipientId: number, content: string): void {
     this.send({
       type: 'dm_message',
@@ -592,18 +480,6 @@ class UnifiedWebSocketService {
 
   public onUserLeftVoice(handler: (data: { user_id: number }) => void): void {
     this.on('user_left_voice', handler);
-  }
-
-  public onVoiceOffer(handler: (data: { from_id: number; offer: RTCSessionDescriptionInit }) => void): void {
-    this.on('voice_offer', handler);
-  }
-
-  public onVoiceAnswer(handler: (data: { from_id: number; answer: RTCSessionDescriptionInit }) => void): void {
-    this.on('voice_answer', handler);
-  }
-
-  public onVoiceIceCandidate(handler: (data: { from_id: number; candidate: RTCIceCandidateInit }) => void): void {
-    this.on('voice_ice_candidate', handler);
   }
 
   public onUserMuted(handler: (data: { user_id: number; is_muted: boolean }) => void): void {
@@ -696,35 +572,6 @@ class UnifiedWebSocketService {
   // Статус пользователей
   public onUserStatusChanged(handler: (data: { user_id: number; username: string; is_online: boolean }) => void): void {
     this.on('user_status_changed', handler);
-  }
-
-  // P2P звонки
-  public onP2PIncomingCall(handler: (data: { caller: any }) => void): void {
-    this.on('p2p-incoming-call', handler);
-  }
-
-  public onP2PCallAccepted(handler: (data: { recipient: any }) => void): void {
-    this.on('p2p-call-accepted', handler);
-  }
-
-  public onP2PCallDeclined(handler: (data: { recipient: any }) => void): void {
-    this.on('p2p-call-declined', handler);
-  }
-
-  public onP2PCallEnded(handler: () => void): void {
-    this.on('p2p-call-ended', handler);
-  }
-
-  public onP2POffer(handler: (data: { from: number; offer: RTCSessionDescriptionInit }) => void): void {
-    this.on('p2p-offer', handler);
-  }
-
-  public onP2PAnswer(handler: (data: { from: number; answer: RTCSessionDescriptionInit }) => void): void {
-    this.on('p2p-answer', handler);
-  }
-
-  public onP2PIceCandidate(handler: (data: { from: number; candidate: RTCIceCandidateInit }) => void): void {
-    this.on('p2p-ice-candidate', handler);
   }
 
   // Direct messages

@@ -11,15 +11,15 @@ const ElectronTitleBar: React.FC = () => {
   }
 
   const handleMinimize = () => {
-    window.electronAPI?.minimizeWindow();
+    window.electronAPI?.minimizeWindow?.();
   };
 
   const handleMaximize = () => {
-    window.electronAPI?.maximizeWindow();
+    window.electronAPI?.maximizeWindow?.();
   };
 
   const handleClose = () => {
-    window.electronAPI?.closeWindow();
+    window.electronAPI?.closeWindow?.();
   };
 
   return (

@@ -2,7 +2,7 @@
 
 import { SCREEN_SHARE_VIDEO_POOL_ID } from '../lib/screenShareVideo';
 
-/** Скрытый контейнер для WebRTC-видео — всегда в DOM, пока открыт сервер. */
+/** Скрытый контейнер для удалённых SFU-видеотреков, пока открыт сервер. */
 export function ScreenShareVideoPool() {
   return (
     <div

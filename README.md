@@ -1,146 +1,60 @@
-# Miscord — платформа для общения
+# Miscord
 
-Miscord — самостоятельное веб-приложение для общения с текстовыми и голосовыми каналами.
+Miscord — платформа для текстовых и голосовых сообществ с собственной системой приложений и ботов.
 
-## Возможности
+## Голосовая архитектура
 
-- 🔐 Система регистрации и входа
-- 🏢 Создание серверов (каналов)
-- 💬 Текстовые каналы для общения
-- 🎤 Голосовые каналы с WebRTC
-- 🔔 Уведомления в реальном времени
-- 🌙 Фирменная тёмная тема Miscord
+- Серверные голосовые каналы работают через `voice-media` и mediasoup SFU.
+- Клиент создаёт один send transport и один receive transport.
+- Микрофон, видео экрана и звук экрана публикуются отдельными producers.
+- Боты передают Opus 48 кГц через RTP и зашифрованный UDP.
+- Mesh, старый bot-WebRTC и личные P2P-звонки удалены.
+- DAVE пока не включён; Voice Gateway v1 сообщает `dave_protocol_version: 0`.
 
-## Технологии
+## Протокол v1
 
-### Backend
-- **Python 3.11** с **FastAPI**
-- **PostgreSQL** для хранения данных
-- **Redis** для кеширования и pub/sub
-- **SQLAlchemy** ORM
-- **WebSocket** для реального времени
-- **WebRTC** (aiortc) для голосовой связи
+- REST API: `/api/v1`
+- Main Gateway: `/gateway?v=1&encoding=json`
+- Voice Gateway ботов: `/ws/voice-gateway?v=1`
+- Media WebSocket клиентов: `/ws/media`
 
-### Frontend
-- **React 18** с **TypeScript**
-- **Material-UI** для компонентов
-- **Redux Toolkit** для управления состоянием
-- **WebSocket** для чата
-- **WebRTC** для голосовой связи
+Версии Main Gateway без `v=1`, Voice Gateway без `v=1`, а также старые `v8`, `v10` и `/api/v10` не поддерживаются.
 
-## Быстрый старт
+## Локальный запуск
 
-### Предварительные требования
-
-- Docker и Docker Compose
-- Git
-
-### Установка и запуск
-
-1. Клонируйте репозиторий:
-```bash
-git clone <repository-url>
-cd Miscord
-```
-
-2. Запустите приложение с помощью Docker Compose:
-```bash
-docker-compose up -d
-```
-
-3. Приложение будет доступно:
-   - Frontend: http://localhost:3000
-   - Backend API: http://localhost:8000
-   - API документация: http://localhost:8000/docs
-
-### Первоначальная настройка
-
-1. Откройте http://localhost:3000
-2. Зарегистрируйте новый аккаунт
-3. Создайте свой первый сервер
-4. Пригласите друзей и начните общение!
-
-## Структура проекта
-
-```
-Miscord/
-├── backend/               # Backend на FastAPI
-│   ├── app/
-│   │   ├── api/          # API эндпоинты
-│   │   ├── core/         # Конфигурация и безопасность
-│   │   ├── db/           # Подключение к БД
-│   │   ├── models/       # SQLAlchemy модели
-│   │   ├── schemas/      # Pydantic схемы
-│   │   ├── services/     # Бизнес-логика
-│   │   └── websocket/    # WebSocket обработчики
-│   ├── main.py           # Точка входа
-│   ├── requirements.txt  # Python зависимости
-│   └── Dockerfile
-├── frontend/             # Frontend на React
-│   ├── src/
-│   │   ├── components/   # React компоненты
-│   │   ├── pages/        # Страницы приложения
-│   │   ├── services/     # API сервисы
-│   │   ├── store/        # Redux store
-│   │   ├── types/        # TypeScript типы
-│   │   └── utils/        # Утилиты
-│   ├── package.json      # NPM зависимости
-│   └── Dockerfile
-└── docker-compose.yml    # Docker конфигурация
-```
-
-## API Endpoints
-
-### Аутентификация
-- `POST /api/auth/register` - Регистрация
-- `POST /api/auth/login` - Вход
-
-### Каналы
-- `GET /api/channels` - Список каналов пользователя
-- `POST /api/channels` - Создать канал
-- `GET /api/channels/{id}` - Информация о канале
-- `POST /api/channels/{id}/join` - Присоединиться к каналу
-
-### WebSocket
-- `/ws/chat/{channel_id}` - Подключение к чату
-- `/ws/voice/{voice_channel_id}` - Подключение к голосовому каналу
-
-## Разработка
-
-### Backend разработка
+Требуются Docker и Docker Compose.
 
 ```bash
-cd backend
-python -m venv venv
-source venv/bin/activate  # На Windows: venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn main:app --reload
+docker compose -f docker-compose.yml -f docker-compose.local.yml build
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
 ```
 
-### Frontend разработка
+После запуска Miscord доступен на `http://127.0.0.1:3011`.
+
+Проверка состояния:
 
 ```bash
-cd frontend
-npm install
-npm start
+docker compose -f docker-compose.yml -f docker-compose.local.yml ps
+curl http://127.0.0.1:3011/api/v1/health
 ```
 
-## Переменные окружения
+Локальный Compose использует отдельное имя проекта, отдельные volumes PostgreSQL/Redis и только тестовые секреты.
 
-### Backend (.env)
-```
-DATABASE_URL=postgresql://miscord_user:miscord_password@localhost:5432/miscord
-REDIS_URL=redis://localhost:6379
-SECRET_KEY=your-secret-key-here
-CORS_ORIGINS=["http://localhost:3000"]
+## Структура
+
+- `backend/` — FastAPI, REST v1, Main Gateway и выдача одноразовых media tickets.
+- `frontend/` — Next.js-клиент и единый `GroupVoiceController`.
+- `voice-media/` — Node.js 22, mediasoup SFU, Voice Gateway и UDP edge ботов.
+- `examples/music-bot/` — локальный музыкальный бот без aiortc.
+- `docs/` — документация API, webhook и bot voice v1.
+- `nginx/` — локальный HTTP/WebSocket reverse proxy.
+
+## Тесты
+
+```bash
+cd backend && pytest -q
+cd frontend && npm run build && npm run test:voice
+cd voice-media && npm run build && npm test
 ```
 
-### Frontend (.env)
-```
-REACT_APP_API_URL=http://localhost:8000
-REACT_APP_WS_URL=ws://localhost:8000
-```
-
-## Лицензия
-
-MIT License
+Production-развёртывание выполняется только после отдельного разрешения и обязательных локальных проверок.

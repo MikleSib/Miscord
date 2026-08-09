@@ -23,6 +23,11 @@ services:
       - "6379:6379"
     networks:
       - miscord_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
   backend:
     build: ./backend
@@ -30,6 +35,9 @@ services:
     environment:
       DATABASE_URL: postgresql://miscord_user:miscord_password@postgres:5432/miscord
       REDIS_URL: redis://redis:6379
+      VOICE_MEDIA_JWT_SECRET: ${VOICE_MEDIA_JWT_SECRET:-local-voice-media-secret-change-me-32-bytes}
+      VOICE_MEDIA_WS_URL: ${VOICE_MEDIA_WS_URL:-wss://miscord.ru/ws/media}
+      VOICE_MEDIA_AUDIENCE: miscord-voice-media
       ENVIRONMENT: ${ENVIRONMENT:-development}
       SERVER_HOST: ${SERVER_HOST:-https://miscord.ru}
       WEBHOOKS_ENABLED: "true"
@@ -62,7 +70,7 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./backend:/app
       - media_data:/app/static/uploads
@@ -71,6 +79,51 @@ services:
     networks:
       - miscord_network
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --no-access-log
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 10s
+      timeout: 6s
+      retries: 12
+      start_period: 20s
+
+  voice-media:
+    build: ./voice-media
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${ENVIRONMENT:-development}
+      REDIS_URL: redis://redis:6379
+      VOICE_MEDIA_JWT_SECRET: ${VOICE_MEDIA_JWT_SECRET:-local-voice-media-secret-change-me-32-bytes}
+      VOICE_MEDIA_AUDIENCE: miscord-voice-media
+      VOICE_MEDIA_ANNOUNCED_ADDRESS: ${VOICE_MEDIA_ANNOUNCED_ADDRESS:-127.0.0.1}
+      VOICE_MEDIA_WORKERS: ${VOICE_MEDIA_WORKERS:-12}
+      VOICE_MEDIA_WEBRTC_PORT_MIN: "20000"
+      VOICE_MEDIA_WEBRTC_PORT_MAX: "20015"
+      VOICE_MEDIA_BOT_UDP_PORT_MIN: "20100"
+      VOICE_MEDIA_BOT_UDP_PORT_MAX: "20103"
+    expose:
+      - "3001"
+    ports:
+      - "20000-20015:20000-20015/udp"
+      - "20000-20015:20000-20015/tcp"
+      - "20100-20103:20100-20103/udp"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - miscord_network
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,noexec,nosuid
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 6s
+      retries: 12
+      start_period: 20s
 
   frontend:
     build: 
@@ -117,6 +170,7 @@ services:
     depends_on:
       - frontend
       - backend
+      - voice-media
     networks:
       - miscord_network
     restart: unless-stopped
@@ -142,10 +196,10 @@ services:
       --lt-cred-mech
       --user=${TURN_USERNAME:-miscord}:${TURN_PASSWORD:-change-this-turn-password}
       --realm=${TURN_REALM:-miscord.ru}
-      --external-ip=${TURN_EXTERNAL_IP:?Set TURN_EXTERNAL_IP in .env}
+      --external-ip=${TURN_EXTERNAL_IP:-127.0.0.1}
       --listening-port=3478
       --min-port=49152
-      --max-port=49252
+      --max-port=53247
       --no-software-attribute
       --log-file=stdout
 

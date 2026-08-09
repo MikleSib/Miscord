@@ -294,28 +294,6 @@ async def _role_target_allowed(db: AsyncSession, principal: BotPrincipal, guild_
         raise MISSING_PERMISSIONS()
 
 
-@router.get("/gateway")
-async def get_gateway(request: Request):
-    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.client.host
-    proto = (request.headers.get("x-forwarded-proto") or request.url.scheme).split(",", 1)[0].strip()
-    return {"url": f"{'wss' if proto == 'https' else 'ws'}://{host}/gateway"}
-
-
-@router.get("/gateway/bot")
-async def get_gateway_bot(request: Request, principal: BotPrincipal = Depends(get_miscord_bot)):
-    payload = await get_gateway(request)
-    payload.update({
-        "shards": 1,
-        "session_start_limit": {
-            "total": 1000,
-            "remaining": await bot_event_dispatcher.identify_remaining(principal.application.id),
-            "reset_after": 60_000,
-            "max_concurrency": 1,
-        },
-    })
-    return payload
-
-
 @router.get("/users/@me")
 async def get_current_user(identity: tuple[User, BotPrincipal | OAuthPrincipal] = Depends(get_miscord_identity)):
     return miscord_user(identity[0])
@@ -748,7 +726,7 @@ def _miscord_webhook(webhook: Webhook, token: str | None = None) -> dict[str, An
     }
     if token is not None:
         payload["token"] = token
-        payload["url"] = f"{settings.SERVER_HOST.rstrip('/')}/api/v10/webhooks/{webhook.id}/{token}"
+        payload["url"] = f"{settings.SERVER_HOST.rstrip('/')}/api/v1/webhooks/{webhook.id}/{token}"
     return payload
 
 

@@ -12,6 +12,7 @@ class ConnectionManager:
         self.active_connections: Dict[int, List[WebSocket]] = {}
         # Соединения по каналам {channel_id: {user_id: websocket}}
         self.channel_connections: Dict[int, Dict[int, WebSocket]] = {}
+        self.voice_channel_connections: Dict[int, Dict[int, WebSocket]] = {}
         self.redis_client = None
         self.pubsub_task = None
 
@@ -36,7 +37,7 @@ class ConnectionManager:
             try:
                 pubsub = self.redis_client.pubsub()
                 # Подписываемся на личные сообщения, сообщения каналов и broadcast
-                await pubsub.psubscribe("user:*", "channel:*", "broadcast")
+                await pubsub.psubscribe("user:*", "channel:*", "voice:*", "broadcast")
                 print("Subscribed to user:*, channel:* patterns and broadcast channel in Redis")
                 
                 while True:
@@ -70,6 +71,11 @@ class ConnectionManager:
                             if channel_id in self.channel_connections:
                                 print(f"Redis: Forwarding message to channel {channel_id}")
                                 await self._send_to_channel_str(channel_id, data)
+
+                        elif raw_channel.startswith("voice:"):
+                            channel_id = int(raw_channel.split(':', 1)[1])
+                            if channel_id in self.voice_channel_connections:
+                                await self._send_to_voice_channel_str(channel_id, data)
             
             except Exception as e:
                 print(f"Error in Redis listener: {e}. Reconnecting in 5 seconds...")
@@ -105,6 +111,20 @@ class ConnectionManager:
             del channel_users[user_id]
         if not channel_users:
             del self.channel_connections[channel_id]
+
+    async def register_voice(self, websocket: WebSocket, user_id: int, channel_id: int):
+        if channel_id not in self.voice_channel_connections:
+            self.voice_channel_connections[channel_id] = {}
+        self.voice_channel_connections[channel_id][user_id] = websocket
+
+    async def unregister_voice(self, websocket: WebSocket, user_id: int, channel_id: int):
+        channel_users = self.voice_channel_connections.get(channel_id)
+        if not channel_users:
+            return
+        if channel_users.get(user_id) is websocket:
+            del channel_users[user_id]
+        if not channel_users:
+            del self.voice_channel_connections[channel_id]
 
     async def disconnect(self, websocket: WebSocket, user_id: int, channel_id: int = None):
         """Отключение WebSocket."""
@@ -143,6 +163,12 @@ class ConnectionManager:
             # Fallback для локальной разработки без Redis
             print(f"[ConnectionManager] Redis недоступен, отправка локально")
             await self._send_to_channel_str(channel_id, json.dumps(message))
+
+    async def send_to_voice_channel(self, channel_id: int, message: dict):
+        if self.redis_client:
+            await self.redis_client.publish(f"voice:{channel_id}", json.dumps(message))
+        else:
+            await self._send_to_voice_channel_str(channel_id, json.dumps(message))
 
     async def send_to_user(self, user_id: int, message: dict):
         """Отправка сообщения-словаря конкретному пользователю (локально)."""
@@ -184,6 +210,19 @@ class ConnectionManager:
             print(f"[ConnectionManager] Отправлено {sent_count} сообщений в канал {channel_id}")
         else:
             print(f"[ConnectionManager] Канал {channel_id} не найден в channel_connections!")
+
+    async def _send_to_voice_channel_str(self, channel_id: int, message_str: str):
+        channel = self.voice_channel_connections.get(channel_id, {})
+        disconnected_users = []
+        for user_id, websocket in list(channel.items()):
+            try:
+                await websocket.send_text(message_str)
+            except Exception:
+                disconnected_users.append(user_id)
+        for user_id in disconnected_users:
+            channel.pop(user_id, None)
+        if not channel and channel_id in self.voice_channel_connections:
+            del self.voice_channel_connections[channel_id]
 
     async def broadcast(self, message: dict):
         """Рассылка всем пользователям на всех инстансах (если есть Redis)."""

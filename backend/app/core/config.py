@@ -20,6 +20,13 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379"
 
+    # Miscord Voice v1 media plane
+    VOICE_MEDIA_JWT_SECRET: str = ""
+    VOICE_MEDIA_WS_URL: str = ""
+    VOICE_MEDIA_AUDIENCE: str = "miscord-voice-media"
+    VOICE_MEDIA_TICKET_TTL_SECONDS: int = 60
+    VOICE_SESSION_TTL_SECONDS: int = 120
+
     # Incoming webhooks
     WEBHOOKS_ENABLED: bool = True
     WEBHOOK_FILES_ENABLED: bool = True
@@ -88,6 +95,8 @@ class Settings(BaseSettings):
             raise RuntimeError("WEBHOOK_TOKEN_ENCRYPTION_KEY is required when webhooks are enabled in production.")
         if self.BOT_PLATFORM_ENABLED and env in {"production", "prod"} and not self.BOT_SECRET_ENCRYPTION_KEY:
             raise RuntimeError("BOT_SECRET_ENCRYPTION_KEY is required when the bot platform is enabled in production.")
+        if env in {"production", "prod"} and not self.VOICE_MEDIA_JWT_SECRET:
+            raise RuntimeError("VOICE_MEDIA_JWT_SECRET is required for Miscord Voice v1 in production.")
         if self.S3_ENABLED:
             required = {
                 "S3_BUCKET": self.S3_BUCKET,

@@ -54,7 +54,7 @@ def main() -> None:
     token = os.environ["MISCORD_BOT_TOKEN"].strip()
     application_id = os.getenv("MISCORD_APPLICATION_ID", "").strip() or application_id_from_token(token)
     guild_id = os.getenv("MISCORD_GUILD_ID", "").strip()
-    api_base = os.getenv("MISCORD_API_BASE", "https://miscord.ru/api/v10").rstrip("/")
+    api_base = os.getenv("MISCORD_API_BASE", "https://miscord.ru/api/v1").rstrip("/")
     headers = {"Authorization": f"Bot {token}", "Content-Type": "application/json"}
     scope = f"/guilds/{guild_id}" if guild_id else ""
 

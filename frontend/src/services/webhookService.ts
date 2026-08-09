@@ -8,14 +8,14 @@ import type {
 class WebhookService {
   async list(channelId: number): Promise<IncomingWebhook[]> {
     const response = await api.get<IncomingWebhook[]>(
-      '/api/channels/text/' + channelId + '/webhooks',
+      '/api/v1/channels/text/' + channelId + '/webhooks',
     )
     return response.data
   }
 
   async create(channelId: number, name = 'Captain Hook'): Promise<IncomingWebhook> {
     const response = await api.post<IncomingWebhook>(
-      '/api/channels/text/' + channelId + '/webhooks',
+      '/api/v1/channels/text/' + channelId + '/webhooks',
       { name },
     )
     return response.data
@@ -26,7 +26,7 @@ class WebhookService {
     payload: WebhookUpdatePayload,
   ): Promise<IncomingWebhook> {
     const response = await api.patch<IncomingWebhook>(
-      '/api/webhooks/' + webhookId,
+      '/api/v1/webhooks/' + webhookId,
       payload,
     )
     return response.data
@@ -36,25 +36,25 @@ class WebhookService {
     const form = new FormData()
     form.append('avatar', avatar)
     const response = await api.post<IncomingWebhook>(
-      '/api/webhooks/' + webhookId + '/avatar',
+      '/api/v1/webhooks/' + webhookId + '/avatar',
       form,
     )
     return response.data
   }
 
   async remove(webhookId: number): Promise<void> {
-    await api.delete('/api/webhooks/' + webhookId)
+    await api.delete('/api/v1/webhooks/' + webhookId)
   }
 
   async resetToken(webhookId: number): Promise<WebhookExecutionUrl> {
     const response = await api.post<WebhookExecutionUrl>(
-      '/api/webhooks/' + webhookId + '/reset-token',
+      '/api/v1/webhooks/' + webhookId + '/reset-token',
     )
     return response.data
   }
 
   async test(webhookId: number): Promise<void> {
-    await api.post('/api/webhooks/' + webhookId + '/test')
+    await api.post('/api/v1/webhooks/' + webhookId + '/test')
   }
 }
 

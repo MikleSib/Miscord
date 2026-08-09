@@ -15,15 +15,21 @@ from app.schemas.bot_protocol import (
 from app.services.bot_event_dispatcher import INTENT_GUILD_VOICE_STATES, dispatcher
 
 
-def test_validate_gateway_query_uses_defaults():
-    version, encoding = validate_gateway_query(None, None)
-    assert version == GATEWAY_API_VERSION
-    assert encoding == GATEWAY_DEFAULT_ENCODING
+def test_validate_gateway_query_requires_v1():
+    with pytest.raises(BotProtocolError) as exc:
+        validate_gateway_query(None, None)
+    assert exc.value.code == "missing_gateway_version"
 
 
 def test_validate_gateway_query_invalid_version():
     with pytest.raises(BotProtocolError) as exc:
         validate_gateway_query(9, GATEWAY_DEFAULT_ENCODING)
+    assert exc.value.code == "invalid_gateway_version"
+
+
+def test_validate_gateway_query_rejects_v10():
+    with pytest.raises(BotProtocolError) as exc:
+        validate_gateway_query(10, GATEWAY_DEFAULT_ENCODING)
     assert exc.value.code == "invalid_gateway_version"
 
 

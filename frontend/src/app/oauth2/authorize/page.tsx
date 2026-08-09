@@ -64,7 +64,7 @@ function OAuthAuthorizationContent() {
       return
     }
     let cancelled = false
-    api.get<OAuthPreview>('/api/oauth2/authorize', { params: query })
+    api.get<OAuthPreview>('/api/v1/oauth2/authorize', { params: query })
       .then(({ data }) => {
         if (cancelled) return
         setPreview(data)
@@ -92,7 +92,7 @@ function OAuthAuthorizationContent() {
     setSubmitting(true)
     setError('')
     try {
-      const { data } = await api.post<{ authorized?: boolean; location?: string | null }>('/api/oauth2/authorize', {
+      const { data } = await api.post<{ authorized?: boolean; location?: string | null }>('/api/v1/oauth2/authorize', {
         ...query,
         client_id: preview.application.id,
         scope: preview.scopes.join(' '),

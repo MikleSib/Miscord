@@ -1,6 +1,6 @@
 'use client'
 
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, Suspense, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { ArrowRight, Eye, EyeOff, Loader2, LockKeyhole, MessagesSquare, User } from 'lucide-react'
@@ -14,7 +14,7 @@ function safeRedirectPath(value: string | null): string {
   return value
 }
 
-export default function LoginPage() {
+function LoginPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const redirectTo = safeRedirectPath(searchParams.get('redirect'))
@@ -192,5 +192,13 @@ export default function LoginPage() {
         </section>
       </div>
     </main>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<main className="auth-shell" aria-busy="true" />}>
+      <LoginPageContent />
+    </Suspense>
   )
 }

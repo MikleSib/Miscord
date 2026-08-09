@@ -7,7 +7,7 @@ class AuthService {
     formData.append('username', credentials.username);
     formData.append('password', credentials.password);
     
-    const response = await api.post<AuthTokens>('/api/auth/login', formData, {
+    const response = await api.post<AuthTokens>('/api/v1/auth/login', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -20,17 +20,17 @@ class AuthService {
   }
 
   async register(data: RegisterData): Promise<User> {
-    const response = await api.post<User>('/api/auth/register', data);
+    const response = await api.post<User>('/api/v1/auth/register', data);
     return response.data;
   }
 
   async getCurrentUser(): Promise<User> {
-    const response = await api.get<User>('/api/auth/me');
+    const response = await api.get<User>('/api/v1/auth/me');
     return response.data;
   }
 
   async updateProfile(data: { display_name: string }): Promise<User> {
-    const response = await api.put<User>('/api/auth/profile', data);
+    const response = await api.put<User>('/api/v1/auth/profile', data);
     return response.data;
   }
 
@@ -38,7 +38,7 @@ class AuthService {
     const formData = new FormData();
     formData.append('avatar', file);
     
-    const response = await api.post<{ avatar_url: string }>('/api/auth/avatar', formData, {
+    const response = await api.post<{ avatar_url: string }>('/api/v1/auth/avatar', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -47,7 +47,7 @@ class AuthService {
   }
 
   async deleteAvatar(): Promise<void> {
-    await api.delete('/api/auth/avatar');
+    await api.delete('/api/v1/auth/avatar');
   }
 
   logout(): void {

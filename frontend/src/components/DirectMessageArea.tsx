@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect, useRef } from 'react'
 import { DirectMessage, User } from '../types'
@@ -13,8 +13,7 @@ import { OutgoingMessageCard } from './OutgoingMessageCard'
 import { useOutgoingMessageStore } from '../store/outgoingMessageStore'
 import api from '../services/api'
 import { useAuthStore } from '../store/store'
-import p2pVoiceService from '../services/p2pVoiceService'
-import { Phone, PhoneOff, Send, X, Clock, PlusCircle, Smile, Reply, Trash2, Edit } from 'lucide-react'
+import { Send, X, Clock, PlusCircle, Smile, Reply, Trash2, Edit } from 'lucide-react'
 import { UserAvatar } from './ui/user-avatar'
 import { MediaLightbox, MediaLightboxItem } from './MediaLightbox'
 import { MessageContent } from './MessageContent'
@@ -372,7 +371,7 @@ export function DirectMessageArea({
     // Для отправленных сообщений
     try {
       console.log('Удаление отправленного сообщения:', messageId);
-      await api.delete(`/api/dms/${messageId}`);
+      await api.delete(`/api/v1/dms/${messageId}`);
       // Удаляем из UI сразу (оптимистично)
       setMessages((prev) => prev.filter(m => m.id !== messageId));
     } catch (error: any) {
@@ -404,7 +403,7 @@ export function DirectMessageArea({
     
     try {
       console.log('Добавление реакции:', emoji, 'к сообщению', messageId);
-      await api.post(`/api/dms/${messageId}/reactions`, { emoji });
+      await api.post(`/api/v1/dms/${messageId}/reactions`, { emoji });
       setShowEmojiPicker(null);
     } catch (error) {
       console.error('Ошибка добавления реакции:', error);
@@ -461,14 +460,6 @@ export function DirectMessageArea({
         <div className="flex items-center">
           <UserAvatar user={friend} />
           <h2 className="text-white font-semibold ml-3">{friend.username}</h2>
-        </div>
-        <div className="flex items-center gap-4">
-          <button onClick={() => p2pVoiceService.initiateCall(friend.id)} className="p-2 text-gray-400 hover:text-white">
-            <Phone />
-          </button>
-          <button onClick={() => p2pVoiceService.hangUp(friend.id)} className="p-2 text-gray-400 hover:text-white">
-            <PhoneOff />
-          </button>
         </div>
       </div>
 

@@ -76,12 +76,6 @@ export function applyUserProfileUpdate(update: UserProfileUpdate, options?: { em
     })
   }
 
-  if (voice.p2pPeer?.id === user_id) {
-    useVoiceStore.setState({
-      p2pPeer: { ...voice.p2pPeer, ...patch },
-    })
-  }
-
   if (options?.emitEvent !== false && typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('user_profile_updated', { detail: update }))
   }

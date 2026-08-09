@@ -146,7 +146,7 @@ def attachment_url(attachment_id: int, filename: str | None, expires: int | None
     clean_name = safe_filename(filename)
     payload = f"{attachment_id}:{expires}:{clean_name}".encode("utf-8")
     signature = hmac.new(_signing_key(), payload, hashlib.sha256).hexdigest()
-    return f"/api/attachments/{attachment_id}/{expires}/{signature}/{clean_name}"
+    return f"/api/v1/attachments/{attachment_id}/{expires}/{signature}/{clean_name}"
 
 
 def verify_attachment_signature(attachment_id: int, expires: int, signature: str, filename: str) -> bool:

@@ -42,7 +42,7 @@ def miscord_permissions_to_legacy(value: int | None) -> int:
 
 
 class Permission(IntFlag):
-    # Miscord API v10 permission values. Aliases at the bottom preserve the
+    # Miscord API v1 permission values. Aliases at the bottom preserve the
     # existing Miscord names while public APIs use canonical Miscord names.
     CREATE_INSTANT_INVITE = 1 << 0
     KICK_MEMBERS = 1 << 1

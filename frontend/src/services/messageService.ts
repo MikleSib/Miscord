@@ -7,12 +7,12 @@ export interface MessageUpdateData {
 export const messageService = {
   // Удаление сообщения
   async deleteMessage(messageId: number): Promise<void> {
-    await api.delete(`/api/channels/messages/${messageId}`);
+    await api.delete(`/api/v1/channels/messages/${messageId}`);
   },
 
   // Редактирование сообщения
   async editMessage(messageId: number, data: MessageUpdateData): Promise<any> {
-    const response = await api.put(`/api/channels/messages/${messageId}`, data);
+    const response = await api.put(`/api/v1/channels/messages/${messageId}`, data);
     return response.data;
   }
-}; 
+};

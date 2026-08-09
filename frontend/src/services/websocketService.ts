@@ -175,31 +175,6 @@ class WebSocketService {
     this.on('user_profile_updated', handler);
   }
 
-  // P2P call events
-  onP2PIncomingCall(handler: (data: { caller: any }) => void) {
-    this.on('p2p-incoming-call', handler);
-  }
-
-  onP2PCallAccepted(handler: (data: { recipient: any }) => void) {
-    this.on('p2p-call-accepted', handler);
-  }
-
-  onP2PCallDeclined(handler: (data: { recipient: any }) => void) {
-    this.on('p2p-call-declined', handler);
-  }
-
-  onP2PCallEnded(handler: () => void) {
-    this.on('p2p-call-ended', handler);
-  }
-
-  onP2PAcceptCall(handler: (data: { to: number; from: any }) => void) {
-    this.on('p2p-accept-call', handler);
-  }
-
-  onP2PIceCandidate(handler: (data: { from: number; candidate: RTCIceCandidateInit }) => void) {
-    this.on('p2p-ice-candidate', handler);
-  }
-
   connect(token: string) {
     if (typeof window === 'undefined') {
       return;
@@ -351,7 +326,7 @@ class WebSocketService {
       this.listeners[event].forEach(handler => handler(data));
     } else if (process.env.NODE_ENV === 'development') {
       // Логируем только критичные необработанные события
-      if (event.startsWith('p2p-') || event === 'error') {
+      if (event === 'error') {
         console.warn('[WS] ⚠️ Нет обработчика для события:', event);
       }
     }

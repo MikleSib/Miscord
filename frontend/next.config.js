@@ -6,6 +6,7 @@ const nextConfig = {
   // Sharing `.next` makes dev serve stale HTML after a production build.
   distDir: process.env.NODE_ENV === 'development' ? '.next-dev' : '.next',
   output: process.env.ELECTRON ? 'export' : 'standalone',
+  outputFileTracingRoot: __dirname,
   trailingSlash: true,
   images: {
     unoptimized: true

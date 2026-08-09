@@ -14,7 +14,7 @@ class UploadService {
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await api.post('/api/upload', formData, {
+    const response = await api.post('/api/v1/upload', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -26,7 +26,7 @@ class UploadService {
   }
 
   async deleteUpload(uploadId: string): Promise<void> {
-    await api.delete(`/api/uploads/${uploadId}`)
+    await api.delete(`/api/v1/uploads/${uploadId}`)
   }
 
   async uploadFiles(files: File[], concurrency = 3): Promise<UploadedChatFile[]> {

@@ -41,12 +41,12 @@ class ServerService {
   // --- Права ---
 
   async getPermissionCatalog(): Promise<PermissionCatalog> {
-    const response = await api.get<PermissionCatalog>('/api/servers/permissions/catalog');
+    const response = await api.get<PermissionCatalog>('/api/v1/servers/permissions/catalog');
     return response.data;
   }
 
   async getMyMembership(serverId: number): Promise<ServerMembershipInfo> {
-    const response = await api.get<ServerMembershipInfo>(`/api/servers/${serverId}/me`);
+    const response = await api.get<ServerMembershipInfo>(`/api/v1/servers/${serverId}/me`);
     return response.data;
   }
 
@@ -54,7 +54,7 @@ class ServerService {
 
   async getNotificationSettings(serverId: number): Promise<ServerNotificationSettings> {
     const response = await api.get<ServerNotificationSettings>(
-      `/api/servers/${serverId}/me/notifications`
+      `/api/v1/servers/${serverId}/me/notifications`
     );
     return response.data;
   }
@@ -64,7 +64,7 @@ class ServerService {
     data: Partial<Omit<ServerNotificationSettings, 'server_id' | 'channel_overrides'>>
   ): Promise<ServerNotificationSettings> {
     const response = await api.patch<ServerNotificationSettings>(
-      `/api/servers/${serverId}/me/notifications`,
+      `/api/v1/servers/${serverId}/me/notifications`,
       data
     );
     return response.data;
@@ -76,7 +76,7 @@ class ServerService {
     level: ChannelNotificationLevel
   ): Promise<ServerNotificationSettings> {
     const response = await api.put<ServerNotificationSettings>(
-      `/api/servers/${serverId}/me/notifications/channels/${textChannelId}`,
+      `/api/v1/servers/${serverId}/me/notifications/channels/${textChannelId}`,
       { level }
     );
     return response.data;
@@ -87,7 +87,7 @@ class ServerService {
     textChannelId: number
   ): Promise<ServerNotificationSettings> {
     const response = await api.delete<ServerNotificationSettings>(
-      `/api/servers/${serverId}/me/notifications/channels/${textChannelId}`
+      `/api/v1/servers/${serverId}/me/notifications/channels/${textChannelId}`
     );
     return response.data;
   }
@@ -96,7 +96,7 @@ class ServerService {
 
   async getMembers(serverId: number): Promise<{ members: ServerMember[]; owner_id: number }> {
     const response = await api.get<{ members: ServerMember[]; owner_id: number; server_id: number }>(
-      `/api/servers/${serverId}/members`
+      `/api/v1/servers/${serverId}/members`
     );
     return response.data;
   }
@@ -106,47 +106,47 @@ class ServerService {
     userId: number,
     nickname: string | null
   ): Promise<{ nickname: string | null }> {
-    const response = await api.patch(`/api/servers/${serverId}/members/${userId}`, { nickname });
+    const response = await api.patch(`/api/v1/servers/${serverId}/members/${userId}`, { nickname });
     return response.data;
   }
 
   async kickMember(serverId: number, userId: number, reason?: string): Promise<void> {
-    await api.delete(`/api/servers/${serverId}/members/${userId}`, {
+    await api.delete(`/api/v1/servers/${serverId}/members/${userId}`, {
       params: reason ? { reason } : undefined,
     });
   }
 
   async transferOwnership(serverId: number, userId: number): Promise<void> {
-    await api.post(`/api/servers/${serverId}/transfer-ownership`, { user_id: userId });
+    await api.post(`/api/v1/servers/${serverId}/transfer-ownership`, { user_id: userId });
   }
 
   // --- Баны ---
 
   async getBans(serverId: number): Promise<ServerBan[]> {
-    const response = await api.get<{ bans: ServerBan[] }>(`/api/servers/${serverId}/bans`);
+    const response = await api.get<{ bans: ServerBan[] }>(`/api/v1/servers/${serverId}/bans`);
     return response.data.bans;
   }
 
   async banMember(serverId: number, userId: number, reason?: string): Promise<void> {
-    await api.post(`/api/servers/${serverId}/bans`, {
+    await api.post(`/api/v1/servers/${serverId}/bans`, {
       user_id: userId,
       reason: reason || null,
     });
   }
 
   async unbanMember(serverId: number, userId: number): Promise<void> {
-    await api.delete(`/api/servers/${serverId}/bans/${userId}`);
+    await api.delete(`/api/v1/servers/${serverId}/bans/${userId}`);
   }
 
   // --- Роли ---
 
   async getRoles(serverId: number): Promise<Role[]> {
-    const response = await api.get<{ roles: Role[] }>(`/api/servers/${serverId}/roles`);
+    const response = await api.get<{ roles: Role[] }>(`/api/v1/servers/${serverId}/roles`);
     return response.data.roles;
   }
 
   async createRole(serverId: number, data: CreateRoleRequest): Promise<Role> {
-    const response = await api.post<Role>(`/api/servers/${serverId}/roles`, {
+    const response = await api.post<Role>(`/api/v1/servers/${serverId}/roles`, {
       name: data.name,
       color: data.color ?? null,
       permissions: data.permissions ?? 0,
@@ -155,25 +155,25 @@ class ServerService {
   }
 
   async updateRole(serverId: number, roleId: number, data: UpdateRoleRequest): Promise<Role> {
-    const response = await api.patch<Role>(`/api/servers/${serverId}/roles/${roleId}`, data);
+    const response = await api.patch<Role>(`/api/v1/servers/${serverId}/roles/${roleId}`, data);
     return response.data;
   }
 
   async deleteRole(serverId: number, roleId: number): Promise<void> {
-    await api.delete(`/api/servers/${serverId}/roles/${roleId}`);
+    await api.delete(`/api/v1/servers/${serverId}/roles/${roleId}`);
   }
 
   async reorderRoles(serverId: number, roleIds: number[]): Promise<void> {
-    await api.patch(`/api/servers/${serverId}/roles/reorder`, { role_ids: roleIds });
+    await api.patch(`/api/v1/servers/${serverId}/roles/reorder`, { role_ids: roleIds });
   }
 
   async addMemberRole(serverId: number, userId: number, roleId: number): Promise<{ role_ids: number[] }> {
-    const response = await api.put(`/api/servers/${serverId}/members/${userId}/roles/${roleId}`);
+    const response = await api.put(`/api/v1/servers/${serverId}/members/${userId}/roles/${roleId}`);
     return response.data;
   }
 
   async removeMemberRole(serverId: number, userId: number, roleId: number): Promise<{ role_ids: number[] }> {
-    const response = await api.delete(`/api/servers/${serverId}/members/${userId}/roles/${roleId}`);
+    const response = await api.delete(`/api/v1/servers/${serverId}/members/${userId}/roles/${roleId}`);
     return response.data;
   }
 
@@ -181,27 +181,27 @@ class ServerService {
 
   async getInvites(serverId: number): Promise<{ invites: ServerInvite[]; can_manage: boolean }> {
     const response = await api.get<{ invites: ServerInvite[]; can_manage: boolean }>(
-      `/api/servers/${serverId}/invites`
+      `/api/v1/servers/${serverId}/invites`
     );
     return response.data;
   }
 
   async createInvite(serverId: number, data: CreateInviteRequest): Promise<ServerInvite> {
-    const response = await api.post<ServerInvite>(`/api/servers/${serverId}/invites`, data);
+    const response = await api.post<ServerInvite>(`/api/v1/servers/${serverId}/invites`, data);
     return response.data;
   }
 
   async deleteInvite(code: string): Promise<void> {
-    await api.delete(`/api/servers/invites/${code}`);
+    await api.delete(`/api/v1/servers/invites/${code}`);
   }
 
   async getInvitePreview(code: string): Promise<InvitePreview> {
-    const response = await api.get<InvitePreview>(`/api/servers/invites/${code}`);
+    const response = await api.get<InvitePreview>(`/api/v1/servers/invites/${code}`);
     return response.data;
   }
 
   async acceptInvite(code: string): Promise<{ server_id: number; already_member: boolean }> {
-    const response = await api.post(`/api/servers/invites/${code}/accept`);
+    const response = await api.post(`/api/v1/servers/invites/${code}/accept`);
     return response.data;
   }
 
@@ -212,7 +212,7 @@ class ServerService {
     query: AuditLogQuery = {}
   ): Promise<{ entries: AuditLogEntry[]; has_more: boolean }> {
     const response = await api.get<{ entries: AuditLogEntry[]; has_more: boolean }>(
-      `/api/servers/${serverId}/audit-logs`,
+      `/api/v1/servers/${serverId}/audit-logs`,
       { params: query }
     );
     return response.data;

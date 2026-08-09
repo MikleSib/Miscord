@@ -1,106 +1,75 @@
-from datetime import timedelta
-from pathlib import Path
-import sys
-
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from app.services.bot_voice_sessions import BotVoiceSessionRegistry
 
-from app.services.bot_voice_sessions import BotVoiceSessionRegistry, _utcnow
+
+@pytest.fixture
+def registry():
+    return BotVoiceSessionRegistry()
 
 
 @pytest.mark.asyncio
-async def test_voice_token_is_scoped_and_never_stored_in_plaintext():
-    registry = BotVoiceSessionRegistry()
-    session, token = await registry.create(
-        application_id=1,
-        bot_user_id=2,
-        guild_id=3,
-        channel_id=4,
+async def test_bot_voice_session_is_stored_and_resolved_through_redis(registry):
+    session = await registry.create(
+        application_id=901,
+        bot_user_id=902,
+        guild_id=903,
+        channel_id=904,
         self_mute=False,
         self_deaf=True,
     )
-
-    assert token.startswith("mcv_")
-    assert token not in session.token_hash
-    assert await registry.validate(
-        session_id=session.session_id,
-        token=token,
-        application_id=1,
-        bot_user_id=2,
-        guild_id=3,
-    ) is session
-    assert await registry.validate(
-        session_id=session.session_id,
-        token=token,
-        application_id=99,
-    ) is None
-    assert await registry.validate(
-        session_id=session.session_id,
-        token="mcv_wrong",
-    ) is None
+    try:
+        loaded = await registry.get_for_application_guild(901, 903)
+        assert loaded is not None
+        assert loaded.session_id == session.session_id
+        assert loaded.channel_id == 904
+        assert loaded.self_deaf is True
+    finally:
+        await registry.revoke(901, 903)
 
 
 @pytest.mark.asyncio
-async def test_new_session_replaces_previous_application_guild_session():
-    registry = BotVoiceSessionRegistry()
-    old, old_token = await registry.create(
-        application_id=10,
-        bot_user_id=20,
-        guild_id=30,
-        channel_id=40,
+async def test_replacing_route_removes_previous_session(registry):
+    first = await registry.create(
+        application_id=911,
+        bot_user_id=912,
+        guild_id=913,
+        channel_id=914,
         self_mute=False,
         self_deaf=False,
     )
-    new, _ = await registry.create(
-        application_id=10,
-        bot_user_id=20,
-        guild_id=30,
-        channel_id=41,
-        self_mute=False,
-        self_deaf=False,
-    )
-
-    assert old.session_id != new.session_id
-    assert await registry.validate(session_id=old.session_id, token=old_token) is None
-    assert await registry.get_for_application_guild(10, 30) is new
-
-
-@pytest.mark.asyncio
-async def test_expired_session_is_rejected():
-    registry = BotVoiceSessionRegistry()
-    session, token = await registry.create(
-        application_id=1,
-        bot_user_id=2,
-        guild_id=3,
-        channel_id=4,
-        self_mute=False,
-        self_deaf=False,
-    )
-    session.expires_at = _utcnow() - timedelta(seconds=1)
-
-    assert await registry.validate(session_id=session.session_id, token=token) is None
-
-
-@pytest.mark.asyncio
-async def test_connected_session_state_can_change_without_rotating_credentials():
-    registry = BotVoiceSessionRegistry()
-    session, token = await registry.create(
-        application_id=1,
-        bot_user_id=2,
-        guild_id=3,
-        channel_id=4,
-        self_mute=False,
-        self_deaf=True,
-    )
-
-    updated = await registry.update_state(
-        session.session_id,
+    second = await registry.create(
+        application_id=911,
+        bot_user_id=912,
+        guild_id=913,
+        channel_id=915,
         self_mute=True,
         self_deaf=False,
     )
+    try:
+        assert await registry.get(first.session_id) is None
+        loaded = await registry.get_for_application_guild(911, 913)
+        assert loaded is not None and loaded.session_id == second.session_id
+    finally:
+        await registry.revoke(911, 913)
 
-    assert updated is session
-    assert updated.self_mute is True
-    assert updated.self_deaf is False
-    assert await registry.validate(session_id=session.session_id, token=token) is session
+
+@pytest.mark.asyncio
+async def test_update_and_revoke_cleanup(registry):
+    session = await registry.create(
+        application_id=921,
+        bot_user_id=922,
+        guild_id=923,
+        channel_id=924,
+        self_mute=False,
+        self_deaf=False,
+    )
+    updated = await registry.update_state(
+        session.session_id,
+        self_mute=True,
+        self_deaf=True,
+    )
+    assert updated is not None and updated.self_mute and updated.self_deaf
+    removed = await registry.revoke(921, 923)
+    assert removed is not None and removed.session_id == session.session_id
+    assert await registry.get(session.session_id) is None

@@ -16,7 +16,7 @@ export interface OnlineUsersResponse {
 
 export const onlineUsersService = {
   async getOnlineUsers(): Promise<OnlineUsersResponse> {
-    const response = await api.get('/api/channels/online-users');
+    const response = await api.get('/api/v1/channels/online-users');
     return response.data;
   }
-}; 
+};

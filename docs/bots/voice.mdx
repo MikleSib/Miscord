@@ -1,22 +1,22 @@
 ---
 title: "Голосовые подключения"
-description: "Подключение приложения к голосовому каналу через Gateway и Miscord Voice Gateway."
+description: "Подключение приложения к Miscord Voice Gateway v1 и передача зашифрованного Opus через UDP."
 icon: "audio-lines"
 ---
 
-Голосовое подключение использует два WebSocket-соединения:
+Голосовой бот использует два соединения:
 
-1. основной Gateway управляет состоянием приложения;
-2. Miscord Voice Gateway выполняет voice handshake и WebRTC-сигнализацию.
+1. основной Gateway `wss://miscord.ru/gateway?v=1&encoding=json` управляет состоянием;
+2. Voice Gateway `wss://miscord.ru/ws/voice-gateway?v=1` согласует UDP-медиасессию.
 
-Медиатрафик передаётся как Opus через WebRTC/DTLS-SRTP и не проходит через основной Gateway.
+Аудио передаётся как RTP/Opus через зашифрованный UDP в общий SFU. Offer, answer, ICE и mesh-соединения не поддерживаются.
 
 ## Требования
 
-- приложение установлено на сервер с областью `bot`;
-- роль приложения имеет права `VIEW_CHANNEL`, `CONNECT` и `SPEAK`;
-- при установке включён intent `GUILD_VOICE_STATES` (`1 << 7`);
-- Gateway-сессия идентифицирована Bot Token.
+- приложение установлено с областями `bot` и `applications.commands`;
+- роль бота имеет `VIEW_CHANNEL` и `CONNECT`;
+- для отправки аудио требуется `SPEAK`, но бот без него может подключиться для прослушивания;
+- включён intent `GUILD_VOICE_STATES` (`1 << 7`).
 
 ## Запрос на подключение
 
@@ -34,46 +34,32 @@ icon: "audio-lines"
 }
 ```
 
-Для выхода передайте `channel_id: null`.
-
-Если проверка прав и лимита канала прошла, основной Gateway отправит два события:
-
-```json
-{
-  "op": 0,
-  "t": "VOICE_STATE_UPDATE",
-  "d": {
-    "guild_id": "SERVER_ID",
-    "channel_id": "VOICE_CHANNEL_ID",
-    "user_id": "BOT_USER_ID",
-    "session_id": "VOICE_SESSION_ID",
-    "self_mute": false,
-    "self_deaf": true
-  }
-}
-```
+Для выхода передайте `channel_id: null`. После успешной проверки основной Gateway отправит `VOICE_STATE_UPDATE` и `VOICE_SERVER_UPDATE`:
 
 ```json
 {
   "op": 0,
   "t": "VOICE_SERVER_UPDATE",
   "d": {
-    "token": "SHORT_LIVED_VOICE_TOKEN",
+    "token": "ONE_TIME_MEDIA_TICKET",
     "guild_id": "SERVER_ID",
-    "endpoint": "miscord.ru/ws/voice-gateway?v=8"
+    "endpoint": "miscord.ru/ws/voice-gateway?v=1"
   }
 }
 ```
 
 <Warning>
-  Voice Token является одноразовым короткоживущим секретом. Не сохраняйте его и не выводите в логи.
+  Media Ticket одноразовый и живёт 60 секунд. Не сохраняйте и не выводите его в лог.
 </Warning>
 
 ## Voice Gateway handshake
 
-Подключитесь к `wss://` + `endpoint`. Сервер первым отправляет opcode `8` Hello с `heartbeat_interval`.
-
-Ответьте opcode `0` Identify:
+1. Подключитесь к `wss://` + `endpoint` и получите opcode `8` Hello.
+2. Отправьте opcode `0` Identify.
+3. Получите opcode `2` Ready с `ssrc`, `ip`, `port` и `modes`.
+4. Выполните UDP discovery.
+5. Отправьте opcode `1` Select Protocol с `protocol: "udp"`.
+6. Получите opcode `4` Session Description с 32-байтовым ключом.
 
 ```json
 {
@@ -82,57 +68,71 @@ icon: "audio-lines"
     "server_id": "SERVER_ID",
     "user_id": "BOT_USER_ID",
     "session_id": "VOICE_SESSION_ID",
-    "token": "SHORT_LIVED_VOICE_TOKEN",
+    "token": "ONE_TIME_MEDIA_TICKET",
     "max_dave_protocol_version": 0
   }
 }
 ```
 
-Opcode `2` Ready содержит `ssrc`, список `ice_servers`, участников и транспорт `webrtc`.
-
-Выберите протокол:
-
 ```json
 {
   "op": 1,
   "d": {
-    "protocol": "webrtc",
-    "data": { "mode": "webrtc_dtls_srtp" }
+    "protocol": "udp",
+    "data": {
+      "address": "DISCOVERED_ADDRESS",
+      "port": 50000,
+      "mode": "aead_xchacha20_poly1305_rtpsize"
+    }
   }
 }
 ```
 
-Перед передачей аудио отправьте opcode `5` Speaking. Heartbeat отправляется opcode `3`, подтверждение приходит opcode `6`.
+## UDP discovery
 
-| Opcode | Направление | Назначение |
-| --- | --- | --- |
-| `0` | клиент → сервер | Identify |
-| `1` | клиент → сервер | Select Protocol |
-| `2` | сервер → клиент | Ready |
-| `3` | клиент → сервер | Heartbeat |
-| `4` | сервер → клиент | Session Description |
-| `5` | оба | Speaking |
-| `6` | сервер → клиент | Heartbeat ACK |
-| `7` | клиент → сервер | Resume |
-| `8` | сервер → клиент | Hello |
-| `9` | сервер → клиент | Resumed |
-| `11` | сервер → клиент | Client Connect |
-| `13` | сервер → клиент | Client Disconnect |
+Отправьте на `ip:port` из Ready пакет длиной 74 байта:
 
-## WebRTC-сигнализация
+- `uint16be type = 1`;
+- `uint16be length = 70`;
+- `uint32be ssrc`;
+- 66 нулевых байт.
 
-SDP и ICE передаются в том же Voice WebSocket как Miscord media extension:
+Ответ также имеет длину 74 байта: `type = 2`, `length = 70`, тот же SSRC, нуль-терминированный IP в байтах `8..71` и `uint16be port` в байтах `72..73`.
 
-```json
-{
-  "type": "offer",
-  "target_id": "USER_ID",
-  "offer": { "type": "offer", "sdp": "..." }
-}
-```
+## RTP и шифрование
 
-Аналогично используются типы `answer`, `ice_candidate` и `request_offer`. Меньший `user_id` создаёт offer, что предотвращает одновременные конфликтующие предложения.
+- Opus: 48 кГц, stereo, 20 мс, 960 samples;
+- RTP payload type: `120`;
+- SSRC берётся только из Ready и всегда является случайным `uint32`;
+- обязательный режим: `aead_xchacha20_poly1305_rtpsize`;
+- `aead_aes256_gcm_rtpsize` доступен, когда его поддерживает media-node;
+- RTP header используется как AAD, шифруется только payload;
+- к пакету добавляется четырёхбайтовый big-endian counter;
+- сервер проверяет UDP tuple, SSRC и anti-replay окно.
+
+Перед первым RTP отправьте Speaking opcode `5`. При остановке передайте пять Opus silence frames `F8 FF FE`, затем Speaking `0`. Это предотвращает обрыв последнего аудиофрейма и зависший статус речи.
+
+## Heartbeat и Resume
+
+Heartbeat отправляется opcode `3`, подтверждение приходит opcode `6`. Для восстановления управляющего WebSocket используйте opcode `7` Resume с `server_id`, `session_id`, `token` и последним `seq_ack`. При доступном bounded-буфере сервер ответит opcode `9` Resumed, иначе закроет соединение и потребуется новый Identify.
+
+| Opcode | Назначение |
+| --- | --- |
+| `0` | Identify |
+| `1` | Select Protocol |
+| `2` | Ready |
+| `3` | Heartbeat |
+| `4` | Session Description |
+| `5` | Speaking |
+| `6` | Heartbeat ACK |
+| `7` | Resume |
+| `8` | Hello |
+| `9` | Resumed |
+| `11` | Client Connect |
+| `13` | Client Disconnect |
+
+Текущий транспорт сообщает `dave_protocol_version: 0`. DAVE/MLS является отдельным следующим этапом и не меняет SFU-топологию.
 
 <Card title="Готовый Music Bot" icon="music" href="/bots/music">
-  Пример очереди, slash-команд, YouTube-резолвера и Opus/WebRTC-передачи.
+  Пример slash-команд, YouTube-резолвера и зашифрованной RTP/Opus-передачи через один UDP socket.
 </Card>
