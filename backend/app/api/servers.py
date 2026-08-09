@@ -63,6 +63,7 @@ from app.services.notification_settings import (
     upsert_channel_override,
     upsert_settings as upsert_notification_settings,
 )
+from app.services.server_invites import find_reusable_invite
 from app.services.audit_service import AuditAction, log_audit
 from app.services.bot_event_dispatcher import (
     INTENT_GUILD_INVITES,
@@ -1588,6 +1589,18 @@ async def create_server_invite(
     expires_at = None
     if payload.max_age_seconds:
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=payload.max_age_seconds)
+
+    if not payload.unique:
+        reusable_invite = await find_reusable_invite(
+            db,
+            server_id=server_id,
+            inviter_id=current_user.id,
+            target_text_channel_id=target_channel_id,
+            max_age_seconds=payload.max_age_seconds,
+            max_uses=payload.max_uses,
+        )
+        if reusable_invite is not None:
+            return _serialize_invite(reusable_invite, inviter=current_user)
 
     invite = Invite(
         code=await _generate_invite_code(db),

@@ -28,6 +28,7 @@ export interface CreateInviteRequest {
   max_age_seconds?: number | null;
   max_uses?: number | null;
   target_text_channel_id?: number | null;
+  unique?: boolean;
 }
 
 export interface AuditLogQuery {

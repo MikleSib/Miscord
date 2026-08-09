@@ -114,6 +114,7 @@ export function ServerInvitesTab({ server }: ServerInvitesTabProps) {
       const invite = await serverService.createInvite(server.id, {
         max_age_seconds: maxAge || null,
         max_uses: maxUses || null,
+        unique: true,
       })
       setInvites((current) => [invite, ...current])
       void handleCopy(invite.code)
@@ -326,5 +327,4 @@ function describeExpiry(invite: ServerInvite): string {
 
   return `Осталось ${Math.round(hours / 24)} дн`
 }
-
 

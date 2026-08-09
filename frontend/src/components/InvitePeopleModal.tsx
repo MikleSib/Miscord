@@ -1,10 +1,10 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, Copy, Loader2, X } from 'lucide-react'
 
-import serverService from '../services/serverService'
+import { getOrCreateDefaultInvite } from '../services/defaultInviteService'
 import { Server } from '../types'
 
 interface InvitePeopleModalProps {
@@ -21,10 +21,15 @@ export function InvitePeopleModal({ isOpen, onClose, server }: InvitePeopleModal
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
+  const onCloseRef = useRef(onClose)
 
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
 
   useEffect(() => {
     if (!isOpen) return
@@ -36,10 +41,7 @@ export function InvitePeopleModal({ isOpen, onClose, server }: InvitePeopleModal
       setCopied(false)
       setLink('')
       try {
-        const invite = await serverService.createInvite(server.id, {
-          max_age_seconds: 60 * 60 * 24 * 7,
-          max_uses: null,
-        })
+        const invite = await getOrCreateDefaultInvite(server.id)
         if (cancelled) return
         const nextLink =
           typeof window === 'undefined'
@@ -58,14 +60,14 @@ export function InvitePeopleModal({ isOpen, onClose, server }: InvitePeopleModal
     void createInvite()
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') onCloseRef.current()
     }
     document.addEventListener('keydown', onKeyDown)
     return () => {
       cancelled = true
       document.removeEventListener('keydown', onKeyDown)
     }
-  }, [isOpen, onClose, server.id])
+  }, [isOpen, server.id])
 
   const handleCopy = async () => {
     if (!link) return

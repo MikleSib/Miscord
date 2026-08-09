@@ -48,6 +48,7 @@ class InviteCreate(BaseModel):
     max_age_seconds: Optional[int] = None  # None или 0 — бессрочно
     max_uses: Optional[int] = None  # None или 0 — без ограничений
     target_text_channel_id: Optional[int] = None
+    unique: bool = False
 
 
 # --- Уведомления ---
