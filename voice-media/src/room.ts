@@ -137,7 +137,11 @@ export class Room extends EventEmitter {
       appData: { sessionId: peer.claims.session_id, direction },
     });
     if (direction === 'send') await transport.setMaxIncomingBitrate(config.maxIncomingBitrate);
+    transport.on('icestatechange', (state) => {
+      metrics.transportStateTransitions.inc({ kind: 'ice', state });
+    });
     transport.on('dtlsstatechange', (state) => {
+      metrics.transportStateTransitions.inc({ kind: 'dtls', state });
       if (state === 'closed' || state === 'failed') transport.close();
     });
     transport.on('routerclose', () => peer.transports.delete(transport.id));

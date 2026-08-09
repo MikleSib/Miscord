@@ -108,8 +108,9 @@ export class MediaGateway {
       }
     });
 
-    socket.on('close', () => {
+    socket.on('close', (code) => {
       clearTimeout(identifyTimer);
+      metrics.mediaSocketCloses.inc({ code: String(code) });
       if (peer && room) room.removePeer(peer.claims.session_id);
     });
     socket.on('error', () => socket.close());

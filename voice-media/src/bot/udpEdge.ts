@@ -222,8 +222,15 @@ export class UdpEdge {
         this.send(discoveryResponse(session.ssrc, remote.address, remote.port), remote);
         return;
       }
-      this.byRemote.get(this.remoteKey(remote))?.acceptPacket(packet, remote);
+      const session = this.byRemote.get(this.remoteKey(remote));
+      if (!session) {
+        metrics.botUdpPacketsDropped.inc();
+        return;
+      }
+      session.acceptPacket(packet, remote);
+      metrics.botUdpPacketsAccepted.inc();
     } catch {
+      metrics.botUdpPacketsDropped.inc();
       // Invalid, replayed, unauthenticated and wrong-tuple packets are dropped.
     }
   }

@@ -10,6 +10,24 @@ export const metrics = {
   producers: new client.Gauge({ name: 'miscord_voice_producers', help: 'Active media producers' }),
   consumers: new client.Gauge({ name: 'miscord_voice_consumers', help: 'Active media consumers' }),
   botSessions: new client.Gauge({ name: 'miscord_voice_bot_sessions', help: 'Active UDP bot sessions' }),
+  botUdpPacketsAccepted: new client.Counter({
+    name: 'miscord_voice_bot_udp_packets_accepted_total',
+    help: 'Authenticated bot RTP packets accepted by the SFU',
+  }),
+  botUdpPacketsDropped: new client.Counter({
+    name: 'miscord_voice_bot_udp_packets_dropped_total',
+    help: 'Bot UDP packets rejected after discovery',
+  }),
+  mediaSocketCloses: new client.Counter({
+    name: 'miscord_voice_media_socket_closes_total',
+    help: 'Media WebSocket closes by status code',
+    labelNames: ['code'],
+  }),
+  transportStateTransitions: new client.Counter({
+    name: 'miscord_voice_transport_state_transitions_total',
+    help: 'WebRTC transport state transitions',
+    labelNames: ['kind', 'state'],
+  }),
   authFailures: new client.Counter({ name: 'miscord_voice_auth_failures_total', help: 'Rejected media tickets' }),
   workerDeaths: new client.Counter({ name: 'miscord_voice_worker_deaths_total', help: 'Unexpected mediasoup worker deaths' }),
   rpcDuration: new client.Histogram({
