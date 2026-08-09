@@ -50,13 +50,7 @@ export function buildAudioCaptureConstraints(
     constraints.echoCancellation = { ideal: processing.echoCancellation };
   }
   if (supported.autoGainControl) {
-    const usesNeuralDenoiser =
-      processing.noiseSuppression &&
-      (processing.noiseSuppressionEngine === 'miscord-ai' ||
-        processing.noiseSuppressionEngine === 'deepfilternet3');
-    constraints.autoGainControl = {
-      ideal: usesNeuralDenoiser ? false : processing.autoGainControl,
-    };
+    constraints.autoGainControl = { ideal: processing.autoGainControl };
   }
   if (supported.noiseSuppression) {
     constraints.noiseSuppression = {

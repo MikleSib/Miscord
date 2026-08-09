@@ -41,8 +41,7 @@ export function getEffectiveProcessingSettings(
       noiseSuppression: true,
       noiseSuppressionEngine: 'deepfilternet3',
       echoCancellation: true,
-      // Браузерный AGC выключается при нейросети в applyCaptureConstraints.
-      autoGainControl: false,
+      autoGainControl: true,
       voiceConditioning: true,
     };
   }

@@ -1,11 +1,19 @@
 ﻿import '/audio/deepfilternet3/dfn3-glue.js';
 
 const FRAME_SIZE = 480;
-const MODEL_DELAY_FRAMES = 4; // DF_ORDER - 1
-const START_DELAY_SAMPLES = FRAME_SIZE * MODEL_DELAY_FRAMES;
+/**
+ * Запас в два кадра: очередь обработанного звука пополняется пачками по 480,
+ * а расходуется по одному сэмплу, поэтому меньший запас периодически пустеет.
+ * Обе очереди заполняются тишиной заранее — иначе первые кадры пришлось бы
+ * отдавать без задержки, а потом повторять их же уже задержанными.
+ */
+const PRIME_SAMPLES = FRAME_SIZE * 2;
 const FIFO_CAPACITY = 16384;
 const CROSSFADE_SAMPLES = 960;
-const PERF_WINDOW_FRAMES = 100;
+/** Окно 25 кадров ≈ 250 мс: перегрузку надо замечать за доли секунды, а не за 5 с. */
+const PERF_WINDOW_FRAMES = 25;
+/** Кадр — это 10 мс звука. Дольше считать не успеваем в реальном времени. */
+const FRAME_BUDGET_MS = 10;
 
 class SampleFifo {
   constructor() {
@@ -13,13 +21,24 @@ class SampleFifo {
     this.readIndex = 0;
     this.writeIndex = 0;
     this.length = 0;
+    /** Отброшенные при переполнении сэмплы: на слух это ускорение речи. */
+    this.dropped = 0;
   }
 
   push(sample) {
     this.buffer[this.writeIndex] = sample;
     this.writeIndex = (this.writeIndex + 1) % FIFO_CAPACITY;
-    if (this.length < FIFO_CAPACITY) this.length += 1;
-    else this.readIndex = (this.readIndex + 1) % FIFO_CAPACITY;
+    if (this.length < FIFO_CAPACITY) {
+      this.length += 1;
+    } else {
+      this.readIndex = (this.readIndex + 1) % FIFO_CAPACITY;
+      this.dropped += 1;
+    }
+  }
+
+  prime(count) {
+    this.clear();
+    for (let index = 0; index < count; index += 1) this.push(0);
   }
 
   shift() {
@@ -34,6 +53,7 @@ class SampleFifo {
     this.readIndex = 0;
     this.writeIndex = 0;
     this.length = 0;
+    this.dropped = 0;
   }
 }
 
@@ -53,6 +73,7 @@ class DeepFilterNet3Processor extends AudioWorkletProcessor {
     this.perfFrames = 0;
     this.perfTotalMs = 0;
     this.perfMaxMs = 0;
+    this.perfOverloadFrames = 0;
     this.now =
       typeof globalThis.performance !== 'undefined' && typeof performance.now === 'function'
         ? () => performance.now()
@@ -116,10 +137,13 @@ class DeepFilterNet3Processor extends AudioWorkletProcessor {
         return;
       }
 
-      // Штатные пороги upstream DeepFilterNet3.
       module._dfn3_wasm_set_atten_lim(100);
       module._dfn3_wasm_set_post_filter_beta(0.02);
-      module._dfn3_wasm_set_min_db_thresh(-10);
+      // LSNR-гейт выключен: при -10 модель целиком зануляла кадры с низким SNR,
+      // а это начала слов, тихие согласные и короткие реплики. lsnr = sigmoid*50-15,
+      // поэтому -15 недостижим и стадия apply_gain_zeros не запускается.
+      // Тишину в паузах обеспечивает сама модель плюс встроенный silence-skip.
+      module._dfn3_wasm_set_min_db_thresh(-15);
       module._dfn3_wasm_set_max_db_erb_thresh(30);
       module._dfn3_wasm_set_max_db_df_thresh(20);
       module._dfn3_wasm_set_hpf(1);
@@ -127,6 +151,12 @@ class DeepFilterNet3Processor extends AudioWorkletProcessor {
       this.inputPointer = module._dfn3_wasm_get_input_ptr();
       this.outputPointer = module._dfn3_wasm_get_output_ptr();
       this.initializing = false;
+      // Обе очереди стартуют с одинакового запаса тишины: dry и wet остаются
+      // выровненными по времени, а звук не дублируется на первых кадрах.
+      this.dryFifo.prime(PRIME_SAMPLES);
+      this.wetFifo.prime(PRIME_SAMPLES);
+      this.frameOffset = 0;
+      this.mix = 0;
       this.ready = true;
       this.port.postMessage({ type: 'ready' });
     } catch (error) {
@@ -178,13 +208,18 @@ class DeepFilterNet3Processor extends AudioWorkletProcessor {
     this.perfFrames += 1;
     this.perfTotalMs += durationMs;
     this.perfMaxMs = Math.max(this.perfMaxMs, durationMs);
+    // Средний rtf прячет периодические просадки, поэтому считаем и сами просадки.
+    if (durationMs > FRAME_BUDGET_MS) this.perfOverloadFrames += 1;
+
     if (this.perfFrames === PERF_WINDOW_FRAMES) {
       const averageMs = this.perfTotalMs / this.perfFrames;
       this.port.postMessage({
         type: 'perf',
         averageMs,
         maxMs: this.perfMaxMs,
-        rtf: averageMs / 10,
+        rtf: averageMs / FRAME_BUDGET_MS,
+        overloadRatio: this.perfOverloadFrames / this.perfFrames,
+        droppedSamples: this.dryFifo.dropped + this.wetFifo.dropped,
         lsnr: module._dfn3_wasm_get_lsnr(),
         wetRms: Math.sqrt(wetEnergy / FRAME_SIZE),
         dryRms: Math.sqrt(dryEnergy / FRAME_SIZE),
@@ -192,6 +227,7 @@ class DeepFilterNet3Processor extends AudioWorkletProcessor {
       this.perfFrames = 0;
       this.perfTotalMs = 0;
       this.perfMaxMs = 0;
+      this.perfOverloadFrames = 0;
     }
   }
 
@@ -216,12 +252,13 @@ class DeepFilterNet3Processor extends AudioWorkletProcessor {
         this.frameOffset = 0;
       }
 
-      if (this.dryFifo.length <= START_DELAY_SAMPLES) {
+      const delayedDry = this.dryFifo.shift();
+      if (delayedDry === null) {
         output[index] = sample;
         continue;
       }
 
-      const delayedDry = this.dryFifo.shift();
+      // wet пустеет только если модель перестала считать — тогда плавно уходим на dry.
       const wet = this.wetFifo.shift();
       if (wet !== null) this.mix = Math.min(1, this.mix + 1 / CROSSFADE_SAMPLES);
       else this.mix = Math.max(0, this.mix - 1 / FRAME_SIZE);

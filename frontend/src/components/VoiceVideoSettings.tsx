@@ -499,6 +499,21 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
                     {diagnostics.rtf?.toFixed(2) ?? '—'}
                   </span>
                 </span>
+                <span>
+                  Просрочено:{' '}
+                  <span
+                    className={
+                      (diagnostics.overloadRatio ?? 0) >= 0.2
+                        ? 'text-[#f0b232]'
+                        : 'text-[#dbdee1]'
+                    }
+                  >
+                    {diagnostics.overloadRatio !== null &&
+                    diagnostics.overloadRatio !== undefined
+                      ? `${Math.round(diagnostics.overloadRatio * 100)}%`
+                      : '—'}
+                  </span>
+                </span>
               </div>
             )}
         </div>

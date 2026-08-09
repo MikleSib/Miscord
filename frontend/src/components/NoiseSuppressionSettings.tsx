@@ -284,10 +284,31 @@ export const NoiseSuppressionSettings: React.FC<NoiseSuppressionSettingsProps> =
                   {dfnDiagnostics.rtf?.toFixed(2) ?? '—'}
                 </span>
               </span>
+              <span>
+                Просрочено:{' '}
+                <span
+                  className={
+                    (dfnDiagnostics.overloadRatio ?? 0) >= 0.2
+                      ? 'text-amber-300'
+                      : 'text-foreground'
+                  }
+                >
+                  {dfnDiagnostics.overloadRatio !== null
+                    ? `${Math.round(dfnDiagnostics.overloadRatio * 100)}%`
+                    : '—'}
+                </span>
+              </span>
             </div>
+            {(dfnDiagnostics.droppedSamples ?? 0) > 0 && (
+              <p className="mt-1.5 text-amber-300">
+                Потеряно сэмплов: {dfnDiagnostics.droppedSamples} — речь звучит
+                ускоренно
+              </p>
+            )}
             <p className="mt-2 leading-relaxed opacity-80">
-              В паузах wet должен быть близок к нулю при ненулевом dry. RTF &gt; 1
-              значит модель не успевает — возможен автооткат.
+              В паузах wet должен быть близок к нулю при ненулевом dry. Доля
+              просроченных кадров выше 20% означает, что процессор не успевает:
+              звук начнёт рваться, включится автооткат.
             </p>
           </div>
         )}

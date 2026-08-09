@@ -29,7 +29,7 @@ describe('voice processing profiles', () => {
       noiseSuppression: true,
       noiseSuppressionEngine: 'deepfilternet3',
       echoCancellation: true,
-      autoGainControl: false,
+      autoGainControl: true,
       voiceConditioning: true,
     });
   });

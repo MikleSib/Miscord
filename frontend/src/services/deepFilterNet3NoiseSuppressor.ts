@@ -1,12 +1,14 @@
 // Public audio assets are served as immutable, so changing the query version is
 // required whenever the worklet implementation changes.
-const WORKLET_PATH = '/audio/deepfilternet3/dfn3-worklet.js?v=2026-08-10-wet-only';
+const WORKLET_PATH = '/audio/deepfilternet3/dfn3-worklet.js?v=2026-08-10-primed-fifo';
 const PROCESSOR_NAME = 'miscord-deepfilternet3';
 const WASM_PATH = '/audio/deepfilternet3/dfn3.wasm';
 const WEIGHTS_PATH = '/audio/deepfilternet3/dfn3_weights.bin';
 
-/** Окно perf ≈ 1 с; 5 окон подряд с rtf > 1 ≈ 5 с устойчивой перегрузки. */
-const REALTIME_OVERLOAD_STRIKES = 5;
+/** Окно perf ≈ 250 мс; 4 окна подряд ≈ 1 с устойчивой перегрузки. */
+const REALTIME_OVERLOAD_STRIKES = 4;
+/** Доля кадров, не уложившихся в реальное время, после которой окно считается плохим. */
+const OVERLOAD_FRAME_RATIO = 0.2;
 
 type DeepFilterNet3Node = AudioWorkletNode & { destroy: () => void };
 
@@ -14,6 +16,10 @@ export interface DeepFilterNet3PerfMetrics {
   averageMs: number;
   maxMs: number;
   rtf: number;
+  /** Доля кадров окна, обработанных дольше реального времени. */
+  overloadRatio: number;
+  /** Сэмплы, потерянные при переполнении очередей: на слух это ускорение речи. */
+  droppedSamples: number;
   lsnr: number;
   wetRms: number;
   dryRms: number;
@@ -138,12 +144,17 @@ export class DeepFilterNet3NoiseSuppressor {
           averageMs: Number(message.averageMs) || 0,
           maxMs: Number(message.maxMs) || 0,
           rtf: Number(message.rtf) || 0,
+          overloadRatio: Number(message.overloadRatio) || 0,
+          droppedSamples: Number(message.droppedSamples) || 0,
           lsnr: Number(message.lsnr) || 0,
           wetRms: Number(message.wetRms) || 0,
           dryRms: Number(message.dryRms) || 0,
         };
         options.onPerf?.(metrics);
-        this.overloadStrikes = metrics.rtf > 1 ? this.overloadStrikes + 1 : 0;
+        // Средний rtf сглаживает пики, а рвут звук именно просроченные кадры.
+        const overloaded =
+          metrics.rtf > 1 || metrics.overloadRatio >= OVERLOAD_FRAME_RATIO;
+        this.overloadStrikes = overloaded ? this.overloadStrikes + 1 : 0;
         if (this.overloadStrikes >= REALTIME_OVERLOAD_STRIKES) {
           this.overloadStrikes = 0;
           // Callback сам решает, откатываться ли (учитывая autoFallback).

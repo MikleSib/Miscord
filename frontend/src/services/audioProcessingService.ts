@@ -47,10 +47,14 @@ export interface AudioProcessingDiagnostics {
   dryRms: number | null;
   /** Real-time factor: >1 значит модель не успевает. */
   rtf: number | null;
+  /** Доля кадров, обработанных дольше реального времени: именно они рвут звук. */
+  overloadRatio: number | null;
+  /** Потерянные сэмплы: на слух это ускоренная речь. В норме всегда ноль. */
+  droppedSamples: number | null;
 }
 
-/** ~+3.8 dB — прежнее makeup-усиление, перенесено до нейросети. */
-const NEURAL_INPUT_MAKEUP = 1.55;
+/** ~+2.3 dB после нейросети: компенсирует мягкий компрессор, не задирая остаток шума. */
+const NEURAL_OUTPUT_MAKEUP = 1.3;
 
 export interface AudioProcessingServiceOptions {
   publishRuntimeStatus?: boolean;
@@ -86,6 +90,8 @@ export class AudioProcessingService {
     wetRms: null,
     dryRms: null,
     rtf: null,
+    overloadRatio: null,
+    droppedSamples: null,
   };
   private micVAD: MicVAD | null = null;
   private preloadPromise: Promise<void> | null = null;
@@ -347,20 +353,21 @@ export class AudioProcessingService {
     this.highPassNode.Q.value = 0.72;
 
     if (this.usesNeuralEngine()) {
-      // После нейросети не поднимаем остаточный шум: мягкий компрессор и makeup ≈ 1.
-      this.compressorNode.threshold.value = -18;
-      this.compressorNode.knee.value = 12;
-      this.compressorNode.ratio.value = 1.3;
+      // Мягче обычного, чтобы не поднимать остаток шума, но громкость речи держим
+      // после модели: усиление до неё грозит клиппингом и ничего не даёт по SNR.
+      this.compressorNode.threshold.value = -20;
+      this.compressorNode.knee.value = 14;
+      this.compressorNode.ratio.value = 1.4;
       this.compressorNode.attack.value = 0.005;
       this.compressorNode.release.value = 0.22;
-      this.makeupGainNode.gain.value = 1;
+      this.makeupGainNode.gain.value = NEURAL_OUTPUT_MAKEUP;
     } else {
       this.compressorNode.threshold.value = -26;
       this.compressorNode.knee.value = 18;
       this.compressorNode.ratio.value = 1.8;
       this.compressorNode.attack.value = 0.003;
       this.compressorNode.release.value = 0.18;
-      this.makeupGainNode.gain.value = NEURAL_INPUT_MAKEUP;
+      this.makeupGainNode.gain.value = 1.55;
     }
 
     this.applyInputVolumeGain();
@@ -431,13 +438,9 @@ export class AudioProcessingService {
 
   private applyInputVolumeGain(): void {
     if (!this.inputGainNode) return;
-    const normalized = linearGain(this.inputVolumePercent);
-    // Для нейросети прежнее makeup (+3.8 dB) перенесено сюда — до модели.
-    const neuralBoost =
-      this.config.voiceConditioning && this.usesNeuralEngine()
-        ? NEURAL_INPUT_MAKEUP
-        : 1;
-    this.inputGainNode.gain.value = normalized * neuralBoost;
+    // На вход модели подаём сигнал как есть: предусиление только рискует клиппингом,
+    // а на оценку SNR внутри сети не влияет.
+    this.inputGainNode.gain.value = linearGain(this.inputVolumePercent);
   }
 
   /** Громкость микрофона в процентах (по умолчанию 100). */
@@ -620,8 +623,6 @@ export class AudioProcessingService {
     if (!track) return;
 
     const usesBrowserDenoiser = enabled && engine === 'browser';
-    const usesNeuralDenoiser =
-      enabled && (engine === 'miscord-ai' || engine === 'deepfilternet3');
     const supported = navigator.mediaDevices.getSupportedConstraints();
     const unsupported = [
       !supported.echoCancellation ? 'echoCancellation' : null,
@@ -637,11 +638,10 @@ export class AudioProcessingService {
         noiseSuppression: supported.noiseSuppression
           ? usesBrowserDenoiser
           : undefined,
-        // AGC браузера мешает нейросети: шумовой фон «дышит» и хуже чистится.
+        // AGC оставляем пользовательской настройкой: без него тихие микрофоны
+        // уходят к порогу слышимости, и нейросеть режет тихую речь.
         autoGainControl: supported.autoGainControl
-          ? usesNeuralDenoiser
-            ? false
-            : this.config.autoGainControl
+          ? this.config.autoGainControl
           : undefined,
         channelCount: supported.channelCount ? 1 : undefined,
       });
@@ -690,6 +690,8 @@ export class AudioProcessingService {
     wetRms: number;
     dryRms: number;
     rtf: number;
+    overloadRatio: number;
+    droppedSamples: number;
   }): void {
     this.diagnostics = {
       ...this.diagnostics,
@@ -697,6 +699,8 @@ export class AudioProcessingService {
       wetRms: metrics.wetRms,
       dryRms: metrics.dryRms,
       rtf: metrics.rtf,
+      overloadRatio: metrics.overloadRatio,
+      droppedSamples: metrics.droppedSamples,
     };
   }
 
@@ -707,6 +711,8 @@ export class AudioProcessingService {
       wetRms: null,
       dryRms: null,
       rtf: null,
+      overloadRatio: null,
+      droppedSamples: null,
     };
   }
 
@@ -724,7 +730,14 @@ export class AudioProcessingService {
         : null,
       activeEngine: engine,
       ...(engine !== 'deepfilternet3'
-        ? { lsnr: null, wetRms: null, dryRms: null, rtf: null }
+        ? {
+            lsnr: null,
+            wetRms: null,
+            dryRms: null,
+            rtf: null,
+            overloadRatio: null,
+            droppedSamples: null,
+          }
         : {}),
     };
     if (this.publishRuntimeStatus) {
