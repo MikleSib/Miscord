@@ -4,7 +4,7 @@ import { useCallback, type KeyboardEvent, type RefObject } from 'react'
 import { toggleInlineMarker } from '../lib/markdown'
 import { resizeChatComposer } from '../lib/chatComposer'
 
-/** Ctrl/Cmd + клавиша → маркер разметки, как в Discord. */
+/** Ctrl/Cmd + клавиша → маркер разметки редактора Miscord. */
 const PLAIN_SHORTCUTS: Record<string, string> = {
   b: '**',
   i: '*',
