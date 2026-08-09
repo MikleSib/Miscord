@@ -180,11 +180,11 @@ export class MediaGateway {
         return;
       }
       case 'resume_consumer':
-        await requireConsumer(peer, request.consumer_id).resume();
+        await room.setConsumerUserPaused(requireConsumer(peer, request.consumer_id), false);
         reply(socket, request);
         return;
       case 'pause_consumer':
-        await requireConsumer(peer, request.consumer_id).pause();
+        await room.setConsumerUserPaused(requireConsumer(peer, request.consumer_id), true);
         reply(socket, request);
         return;
       case 'close_consumer':

@@ -101,6 +101,10 @@ export class BotMediaSession {
     this.cipher = new RtpCipher(this.mode, this.secretKey);
   }
 
+  async setSpeaking(speaking: boolean): Promise<void> {
+    await this.room.setExternalProducerSpeaking(this.producer.id, speaking);
+  }
+
   acceptPacket(packet: Buffer, remote: RemoteTuple): void {
     if (!this.remote || this.remote.address !== remote.address || this.remote.port !== remote.port) {
       throw new Error('Unexpected UDP source');

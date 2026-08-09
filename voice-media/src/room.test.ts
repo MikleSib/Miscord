@@ -37,6 +37,7 @@ class FakeProducer extends EventEmitter {
 
 class FakeConsumer extends EventEmitter {
   readonly kind = 'audio';
+  readonly appData: Record<string, unknown> = {};
   readonly pause = vi.fn(async () => undefined);
   readonly resume = vi.fn(async () => undefined);
 
@@ -143,6 +144,27 @@ describe('Room SFU limits', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(consumers.slice(0, 4).every((consumer) => consumer.resume.mock.calls.length === 1)).toBe(true);
     expect(consumers[4]!.pause).toHaveBeenCalledOnce();
+    room.close();
+  });
+
+  it('uses bot Speaking state and preserves a listener deafen pause', async () => {
+    const room = await Room.create(500, 'epoch-1');
+    const botClaims = { ...claims(30), is_bot: true };
+    const bot = room.addPeer(botClaims, socket());
+    const listener = addPeer(room, 31);
+    const producer = new FakeProducer('bot-mic', 'microphone');
+    const consumer = new FakeConsumer('bot-consumer', producer.id);
+
+    await room.addProducer(bot, {} as never, producer as never, 'microphone');
+    room.addConsumer(listener, consumer as never);
+    await room.setExternalProducerSpeaking(producer.id, true);
+    expect(consumer.resume).toHaveBeenCalledOnce();
+
+    await room.setConsumerUserPaused(consumer as never, true);
+    await room.setExternalProducerSpeaking(producer.id, false);
+    await room.setExternalProducerSpeaking(producer.id, true);
+    expect(consumer.pause).toHaveBeenCalled();
+    expect(consumer.resume).toHaveBeenCalledOnce();
     room.close();
   });
 });

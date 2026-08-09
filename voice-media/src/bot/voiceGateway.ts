@@ -91,6 +91,7 @@ class VoiceConnection implements VoiceSender {
       }
       case OP.SPEAKING:
         this.record.speaking = Number(data.speaking ?? 0) !== 0;
+        await this.record.media.setSpeaking(this.record.speaking);
         return;
       default:
         throw new VoiceCloseError(4002, 'Unsupported voice opcode');

@@ -39,6 +39,8 @@ export class Room extends EventEmitter {
   readonly peers = new Map<string, Peer>();
   readonly directTransports = new Map<string, DirectTransport>();
   private readonly audioObserver: AudioLevelObserver;
+  private observedMicrophones = new Set<string>();
+  private externalMicrophones = new Set<string>();
   private activeMicrophones = new Set<string>();
   private onEmptyCallback?: () => void;
 
@@ -58,10 +60,13 @@ export class Room extends EventEmitter {
     this.workerPid = workerPid;
     this.audioObserver = audioObserver;
     audioObserver.on('volumes', (volumes) => {
-      const active = volumes.slice(0, config.maxActiveSpeakers).map(({ producer }) => producer.id);
-      void this.setActiveMicrophones(new Set(active));
+      this.observedMicrophones = new Set(volumes.map(({ producer }) => producer.id));
+      void this.refreshActiveMicrophones();
     });
-    audioObserver.on('silence', () => void this.setActiveMicrophones(new Set()));
+    audioObserver.on('silence', () => {
+      this.observedMicrophones.clear();
+      void this.refreshActiveMicrophones();
+    });
     metrics.rooms.inc();
   }
 
@@ -184,6 +189,9 @@ export class Room extends EventEmitter {
   private removeProducer(peer: Peer, producer: Producer, source: MediaSource): void {
     if (!peer.producers.delete(producer.id)) return;
     if (peer.sourceProducers.get(source) === producer.id) peer.sourceProducers.delete(source);
+    this.observedMicrophones.delete(producer.id);
+    this.externalMicrophones.delete(producer.id);
+    this.activeMicrophones.delete(producer.id);
     metrics.producers.dec();
     this.broadcast('producer_closed', {
       producer_id: producer.id,
@@ -194,6 +202,8 @@ export class Room extends EventEmitter {
   }
 
   addConsumer(peer: Peer, consumer: Consumer): void {
+    consumer.appData.userPaused = false;
+    consumer.appData.activityPaused = false;
     peer.consumers.set(consumer.id, consumer);
     workerPool.adjustConsumers(this.workerPid, 1);
     metrics.consumers.inc();
@@ -208,6 +218,18 @@ export class Room extends EventEmitter {
       cleanup();
     });
     consumer.on('@close', cleanup);
+  }
+
+  async setConsumerUserPaused(consumer: Consumer, paused: boolean): Promise<void> {
+    consumer.appData.userPaused = paused;
+    await this.applyConsumerPauseState(consumer);
+  }
+
+  async setExternalProducerSpeaking(producerId: string, speaking: boolean): Promise<void> {
+    if (!this.producerOwner(producerId)) return;
+    if (speaking) this.externalMicrophones.add(producerId);
+    else this.externalMicrophones.delete(producerId);
+    await this.refreshActiveMicrophones();
   }
 
   async createDirectTransport(sessionId: string): Promise<DirectTransport> {
@@ -241,9 +263,12 @@ export class Room extends EventEmitter {
     metrics.rooms.dec();
   }
 
-  private async setActiveMicrophones(active: Set<string>): Promise<void> {
+  private async refreshActiveMicrophones(): Promise<void> {
+    const active = new Set(
+      [...this.externalMicrophones, ...this.observedMicrophones].slice(0, config.maxActiveSpeakers),
+    );
     this.activeMicrophones = active;
-    const users = [...active].map((producerId) => {
+    const users = [...this.activeMicrophones].map((producerId) => {
       const peer = this.producerOwner(producerId);
       return peer ? Number(peer.claims.sub) : null;
     }).filter((value): value is number => value !== null);
@@ -253,10 +278,16 @@ export class Room extends EventEmitter {
         const owner = this.producerOwner(consumer.producerId);
         const source = owner?.producers.get(consumer.producerId)?.appData.source;
         if (source !== 'microphone') continue;
-        if (active.has(consumer.producerId)) await consumer.resume().catch(() => undefined);
-        else await consumer.pause().catch(() => undefined);
+        consumer.appData.activityPaused = !this.activeMicrophones.has(consumer.producerId);
+        await this.applyConsumerPauseState(consumer);
       }
     }
+  }
+
+  private async applyConsumerPauseState(consumer: Consumer): Promise<void> {
+    const paused = Boolean(consumer.appData.userPaused) || Boolean(consumer.appData.activityPaused);
+    if (paused) await consumer.pause().catch(() => undefined);
+    else await consumer.resume().catch(() => undefined);
   }
 }
 
