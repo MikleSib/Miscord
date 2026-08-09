@@ -39,9 +39,10 @@ export function getEffectiveProcessingSettings(
   if (profile === 'isolation') {
     return {
       noiseSuppression: true,
-      noiseSuppressionEngine: 'miscord-ai',
+      noiseSuppressionEngine: 'deepfilternet3',
       echoCancellation: true,
-      autoGainControl: true,
+      // Браузерный AGC выключается при нейросети в applyCaptureConstraints.
+      autoGainControl: false,
       voiceConditioning: true,
     };
   }
@@ -64,7 +65,7 @@ export function migrateLegacyProfile(
   engine: NoiseSuppressionEngine,
 ): VoiceProcessingProfile {
   if (!enabled) return 'studio';
-  if (engine === 'miscord-ai') return 'isolation';
+  if (engine === 'miscord-ai' || engine === 'deepfilternet3') return 'isolation';
   return 'custom';
 }
 

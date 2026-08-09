@@ -42,18 +42,21 @@ export const NoiseSuppressionSettings: React.FC<NoiseSuppressionSettingsProps> =
   const setEngine = useNoiseSuppressionStore((state) => state.setEngine);
   const setAutoFallback = useNoiseSuppressionStore((state) => state.setAutoFallback);
   const [isApplying, setIsApplying] = useState(false);
+  const [dfnDiagnostics, setDfnDiagnostics] = useState(() =>
+    audioProcessingService.getDiagnostics(),
+  );
   const [supportedEngines, setSupportedEngines] = useState<
     ReturnType<typeof audioProcessingService.getSupportedEngines>
   >([
     {
-      engine: 'miscord-ai',
-      supported: false,
-      name: 'Miscord AI',
-    },
-    {
       engine: 'deepfilternet3',
       supported: false,
       name: 'DeepFilterNet3',
+    },
+    {
+      engine: 'miscord-ai',
+      supported: false,
+      name: 'Miscord AI',
     },
     {
       engine: 'browser',
@@ -65,6 +68,14 @@ export const NoiseSuppressionSettings: React.FC<NoiseSuppressionSettingsProps> =
   useEffect(() => {
     setSupportedEngines(audioProcessingService.getSupportedEngines());
   }, []);
+
+  useEffect(() => {
+    if (activeEngine !== 'deepfilternet3' && engine !== 'deepfilternet3') return;
+    const id = window.setInterval(() => {
+      setDfnDiagnostics(audioProcessingService.getDiagnostics());
+    }, 500);
+    return () => window.clearInterval(id);
+  }, [activeEngine, engine]);
 
   useEffect(() => {
     if (currentEngine && currentEngine !== engine) {
@@ -160,14 +171,14 @@ export const NoiseSuppressionSettings: React.FC<NoiseSuppressionSettingsProps> =
               <span className="min-w-0 flex-1">
                 <span className="flex flex-wrap items-center gap-2">
                   <span className="font-medium text-foreground">{name}</span>
-                  {isMiscordAI && (
+                  {isDeepFilterNet3 && (
                     <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-300">
                       Рекомендуется
                     </span>
                   )}
-                  {isDeepFilterNet3 && (
+                  {isMiscordAI && (
                     <span className="rounded-full bg-sky-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-300">
-                      Тестовый
+                      Лёгкий AI
                     </span>
                   )}
                   {!supported && (
@@ -178,7 +189,7 @@ export const NoiseSuppressionSettings: React.FC<NoiseSuppressionSettingsProps> =
                   {isMiscordAI
                     ? 'Локальная нейросеть RNNoise отделяет речь от постоянного и импульсного шума.'
                     : isDeepFilterNet3
-                      ? 'Локальный DeepFilterNet3 C/WASM. Тестовое подавление сложного фонового шума.'
+                      ? 'Локальный DeepFilterNet3 C/WASM — сильное подавление сложного фонового шума.'
                       : 'Встроенная обработка WebRTC с минимальной нагрузкой на систему.'}
                 </span>
                 <span className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
@@ -233,6 +244,53 @@ export const NoiseSuppressionSettings: React.FC<NoiseSuppressionSettingsProps> =
           </div>
         </div>
       )}
+
+      {activeEngine === 'deepfilternet3' &&
+        dfnDiagnostics.rtf !== null && (
+          <div className="mt-3 rounded-lg border border-border bg-background/35 px-3.5 py-3 text-[11px] text-muted-foreground">
+            <p className="mb-1.5 font-medium text-foreground">Диагностика DeepFilterNet3</p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
+              <span>
+                LSNR:{' '}
+                <span className="text-foreground">
+                  {dfnDiagnostics.lsnr?.toFixed(1) ?? '—'} dB
+                </span>
+              </span>
+              <span>
+                Выход (wet):{' '}
+                <span className="text-foreground">
+                  {dfnDiagnostics.wetRms !== null
+                    ? dfnDiagnostics.wetRms.toExponential(2)
+                    : '—'}
+                </span>
+              </span>
+              <span>
+                Вход (dry):{' '}
+                <span className="text-foreground">
+                  {dfnDiagnostics.dryRms !== null
+                    ? dfnDiagnostics.dryRms.toExponential(2)
+                    : '—'}
+                </span>
+              </span>
+              <span>
+                RTF:{' '}
+                <span
+                  className={
+                    (dfnDiagnostics.rtf ?? 0) > 1
+                      ? 'text-amber-300'
+                      : 'text-foreground'
+                  }
+                >
+                  {dfnDiagnostics.rtf?.toFixed(2) ?? '—'}
+                </span>
+              </span>
+            </div>
+            <p className="mt-2 leading-relaxed opacity-80">
+              В паузах wet должен быть близок к нулю при ненулевом dry. RTF &gt; 1
+              значит модель не успевает — возможен автооткат.
+            </p>
+          </div>
+        )}
 
       <p className="mt-4 flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
         <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0" />

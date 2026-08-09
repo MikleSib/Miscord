@@ -22,14 +22,14 @@ describe('voice processing profiles', () => {
     });
   });
 
-  it('enables the full Miscord AI isolation preset', () => {
+  it('enables the full DeepFilterNet3 isolation preset', () => {
     expect(
       getEffectiveProcessingSettings('isolation', DEFAULT_CUSTOM_PROCESSING),
     ).toEqual({
       noiseSuppression: true,
-      noiseSuppressionEngine: 'miscord-ai',
+      noiseSuppressionEngine: 'deepfilternet3',
       echoCancellation: true,
-      autoGainControl: true,
+      autoGainControl: false,
       voiceConditioning: true,
     });
   });
@@ -51,10 +51,10 @@ describe('legacy migration', () => {
     expect(migrateLegacyProfile(false, 'miscord-ai')).toBe('studio');
   });
 
-  it('maps Miscord AI to Isolation and other engines to Custom', () => {
+  it('maps neural engines to Isolation and browser to Custom', () => {
     expect(migrateLegacyProfile(true, 'miscord-ai')).toBe('isolation');
+    expect(migrateLegacyProfile(true, 'deepfilternet3')).toBe('isolation');
     expect(migrateLegacyProfile(true, 'browser')).toBe('custom');
-    expect(migrateLegacyProfile(true, 'deepfilternet3')).toBe('custom');
   });
 });
 

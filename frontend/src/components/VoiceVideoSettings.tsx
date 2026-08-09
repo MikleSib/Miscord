@@ -37,7 +37,7 @@ const PROFILE_COPY: Record<
 > = {
   isolation: {
     title: 'Изоляция голоса',
-    description: 'Miscord AI, эхоподавление, AGC и обработка голоса.',
+    description: 'DeepFilterNet3, эхоподавление и обработка голоса.',
   },
   studio: {
     title: 'Студия',
@@ -51,7 +51,7 @@ const PROFILE_COPY: Record<
 
 const ENGINE_LABELS: Record<NoiseSuppressionEngine, string> = {
   'miscord-ai': 'Miscord AI',
-  deepfilternet3: 'DeepFilterNet3 (экспериментально)',
+  deepfilternet3: 'DeepFilterNet3',
   browser: 'Браузерный',
 };
 
@@ -119,9 +119,16 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
     message: string | null;
     engine: string | null;
   } | null>(null);
+  const [diagnosticsTick, setDiagnosticsTick] = useState(0);
   const [isRecordingPTT, setIsRecordingPTT] = useState(false);
   const micTestRef = useRef(new MicTestSession());
   const callStateBeforeTestRef = useRef<SavedCallState | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const id = window.setInterval(() => setDiagnosticsTick((value) => value + 1), 500);
+    return () => window.clearInterval(id);
+  }, [isOpen]);
 
   const effectiveProcessing = useMemo(
     () => getEffectiveProcessingSettings(profile, customSettings),
@@ -310,7 +317,11 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
           activeRuntimeEngine,
       };
   const displayedLevel = isTesting ? testLevel : callLevel;
-  const diagnostics = optimizedVoiceService.getDiagnostics();
+  const diagnostics = useMemo(
+    () => optimizedVoiceService.getDiagnostics(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- опрос метрик DFN3
+    [diagnosticsTick, shownRuntime.status, shownRuntime.engine],
+  );
 
   return (
     <div className="mx-auto max-w-[760px] pb-16 text-[#dbdee1]">
@@ -451,6 +462,45 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
               Браузер не поддерживает: {diagnostics.unsupportedConstraints.join(', ')}
             </p>
           )}
+          {diagnostics.activeEngine === 'deepfilternet3' &&
+            diagnostics.rtf !== null && (
+              <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-[#b5bac1] sm:grid-cols-4">
+                <span>
+                  LSNR:{' '}
+                  <span className="text-[#dbdee1]">
+                    {diagnostics.lsnr?.toFixed(1) ?? '—'} dB
+                  </span>
+                </span>
+                <span>
+                  wet:{' '}
+                  <span className="text-[#dbdee1]">
+                    {diagnostics.wetRms !== null
+                      ? diagnostics.wetRms.toExponential(2)
+                      : '—'}
+                  </span>
+                </span>
+                <span>
+                  dry:{' '}
+                  <span className="text-[#dbdee1]">
+                    {diagnostics.dryRms !== null
+                      ? diagnostics.dryRms.toExponential(2)
+                      : '—'}
+                  </span>
+                </span>
+                <span>
+                  RTF:{' '}
+                  <span
+                    className={
+                      (diagnostics.rtf ?? 0) > 1
+                        ? 'text-[#f0b232]'
+                        : 'text-[#dbdee1]'
+                    }
+                  >
+                    {diagnostics.rtf?.toFixed(2) ?? '—'}
+                  </span>
+                </span>
+              </div>
+            )}
         </div>
       </section>
 

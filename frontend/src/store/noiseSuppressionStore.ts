@@ -30,7 +30,7 @@ export const useNoiseSuppressionStore = create<NoiseSuppressionState>()(
   persist(
     (set) => ({
       enabled: true,
-      engine: 'miscord-ai',
+      engine: 'deepfilternet3',
       autoFallback: true,
       runtimeStatus: 'idle',
       runtimeMessage: null,
@@ -43,33 +43,35 @@ export const useNoiseSuppressionStore = create<NoiseSuppressionState>()(
     }),
     {
       name: 'miscord-noise-suppression',
-      // v4: Miscord AI всегда дефолт для новых / после миграции без engine
-      version: 4,
+      // v5: DeepFilterNet3 — движок по умолчанию для всех
+      version: 5,
       partialize: (state) => ({
         enabled: state.enabled,
         engine: state.engine,
         autoFallback: state.autoFallback,
       }),
-      migrate: (persistedState: any) => {
-        const engine =
+      migrate: (persistedState: any, fromVersion: number) => {
+        const previousEngine =
           persistedState?.engine === 'gtcrn'
             ? 'deepfilternet3'
             : persistedState?.engine === 'browser' ||
                 persistedState?.engine === 'deepfilternet3' ||
                 persistedState?.engine === 'miscord-ai'
               ? persistedState.engine
-              : 'miscord-ai'
+              : 'deepfilternet3';
+
+        // При апгрейде до v5 переводим всех на DeepFilterNet3 как новый дефолт.
+        const engine = fromVersion < 5 ? 'deepfilternet3' : previousEngine;
 
         return {
           ...persistedState,
-          // Если настройки ещё не задавались — включаем Miscord AI
           enabled: typeof persistedState?.enabled === 'boolean' ? persistedState.enabled : true,
           engine,
           autoFallback:
             typeof persistedState?.autoFallback === 'boolean'
               ? persistedState.autoFallback
               : true,
-        }
+        };
       },
     }
   )

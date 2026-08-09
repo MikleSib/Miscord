@@ -3,7 +3,24 @@ const PROCESSOR_NAME = 'miscord-deepfilternet3';
 const WASM_PATH = '/audio/deepfilternet3/dfn3.wasm';
 const WEIGHTS_PATH = '/audio/deepfilternet3/dfn3_weights.bin';
 
+/** Окно perf ≈ 1 с; 5 окон подряд с rtf > 1 ≈ 5 с устойчивой перегрузки. */
+const REALTIME_OVERLOAD_STRIKES = 5;
+
 type DeepFilterNet3Node = AudioWorkletNode & { destroy: () => void };
+
+export interface DeepFilterNet3PerfMetrics {
+  averageMs: number;
+  maxMs: number;
+  rtf: number;
+  lsnr: number;
+  wetRms: number;
+  dryRms: number;
+}
+
+export interface DeepFilterNet3CreateOptions {
+  onPerf?: (metrics: DeepFilterNet3PerfMetrics) => void;
+  onRealtimeOverload?: () => void;
+}
 
 export class DeepFilterNet3NoiseSuppressor {
   private node: DeepFilterNet3Node | null = null;
@@ -13,6 +30,9 @@ export class DeepFilterNet3NoiseSuppressor {
   private ready = false;
   private generation = 0;
   private overloadStrikes = 0;
+  private preloadPromise: Promise<void> | null = null;
+  private cachedWasm: ArrayBuffer | null = null;
+  private cachedWeights: ArrayBuffer | null = null;
 
   static isSupported(): boolean {
     if (typeof window === 'undefined' || typeof WebAssembly === 'undefined' || typeof AudioWorkletNode === 'undefined' || typeof AudioContext === 'undefined' || !('audioWorklet' in AudioContext.prototype)) return false;
@@ -30,19 +50,60 @@ export class DeepFilterNet3NoiseSuppressor {
     return response.arrayBuffer();
   }
 
-  async createNode(audioContext: AudioContext): Promise<DeepFilterNet3Node> {
+  /** Заранее тянет WASM и веса (~8.5 МБ), чтобы вход в голос не ждал сеть. */
+  async preload(): Promise<void> {
+    if (!DeepFilterNet3NoiseSuppressor.isSupported()) return;
+    if (!this.preloadPromise) {
+      this.preloadPromise = (async () => {
+        const [wasmBinary, weightsBinary] = await Promise.all([
+          this.loadAsset(WASM_PATH),
+          this.loadAsset(WEIGHTS_PATH),
+        ]);
+        this.cachedWasm = wasmBinary;
+        this.cachedWeights = weightsBinary;
+      })().catch((error) => {
+        this.preloadPromise = null;
+        console.warn('[DeepFilterNet3] Не удалось прогреть ассеты:', error);
+      });
+    }
+    await this.preloadPromise;
+  }
+
+  private async getAssets(): Promise<{ wasmBinary: ArrayBuffer; weightsBinary: ArrayBuffer }> {
+    if (this.cachedWasm && this.cachedWeights) {
+      return {
+        wasmBinary: this.cachedWasm.slice(0),
+        weightsBinary: this.cachedWeights.slice(0),
+      };
+    }
+    const [wasmBinary, weightsBinary] = await Promise.all([
+      this.loadAsset(WASM_PATH),
+      this.loadAsset(WEIGHTS_PATH),
+    ]);
+    this.cachedWasm = wasmBinary;
+    this.cachedWeights = weightsBinary;
+    return {
+      wasmBinary: wasmBinary.slice(0),
+      weightsBinary: weightsBinary.slice(0),
+    };
+  }
+
+  async createNode(
+    audioContext: AudioContext,
+    options: DeepFilterNet3CreateOptions = {},
+  ): Promise<DeepFilterNet3Node> {
     if (!DeepFilterNet3NoiseSuppressor.isSupported()) throw new Error('AudioWorklet, WebAssembly или SIMD не поддерживается');
     if (audioContext.sampleRate !== 48000) throw new Error(`DeepFilterNet3 требует 48 кГц на входе (получено ${audioContext.sampleRate} Гц)`);
     this.destroy();
     const generation = ++this.generation;
     this.ready = false;
+    this.overloadStrikes = 0;
     this.readyPromise = new Promise<void>((resolve, reject) => {
       this.resolveReady = resolve;
       this.rejectReady = reject;
     });
-    const [wasmBinary, weightsBinary] = await Promise.all([
-      this.loadAsset(WASM_PATH),
-      this.loadAsset(WEIGHTS_PATH),
+    const [{ wasmBinary, weightsBinary }] = await Promise.all([
+      this.getAssets(),
       audioContext.audioWorklet.addModule(WORKLET_PATH),
     ]);
     if (generation !== this.generation) throw new Error('Инициализация DeepFilterNet3 отменена');
@@ -62,11 +123,34 @@ export class DeepFilterNet3NoiseSuppressor {
     node.port.onmessage = (event: MessageEvent) => {
       const message = event.data;
       if (generation !== this.generation) return;
-      if (message?.type === 'ready') { this.ready = true; this.overloadStrikes = 0; this.resolveReady?.(); this.resolveReady = null; this.rejectReady = null; }
+      if (message?.type === 'ready') {
+        this.ready = true;
+        this.overloadStrikes = 0;
+        this.resolveReady?.();
+        this.resolveReady = null;
+        this.rejectReady = null;
+      }
       if (message?.type === 'error') this.fail(new Error(message.message || 'Ошибка DeepFilterNet3'));
       if (message?.type === 'perf') {
-        this.overloadStrikes = message.rtf > 1 ? this.overloadStrikes + 1 : 0;
-        if (this.overloadStrikes >= 3) this.fail(new Error('DeepFilterNet3 устойчиво не успевает обрабатывать звук в реальном времени'));
+        const metrics: DeepFilterNet3PerfMetrics = {
+          averageMs: Number(message.averageMs) || 0,
+          maxMs: Number(message.maxMs) || 0,
+          rtf: Number(message.rtf) || 0,
+          lsnr: Number(message.lsnr) || 0,
+          wetRms: Number(message.wetRms) || 0,
+          dryRms: Number(message.dryRms) || 0,
+        };
+        options.onPerf?.(metrics);
+        this.overloadStrikes = metrics.rtf > 1 ? this.overloadStrikes + 1 : 0;
+        if (this.overloadStrikes >= REALTIME_OVERLOAD_STRIKES) {
+          this.overloadStrikes = 0;
+          // Callback сам решает, откатываться ли (учитывая autoFallback).
+          if (options.onRealtimeOverload) {
+            options.onRealtimeOverload();
+          } else {
+            this.fail(new Error('DeepFilterNet3 устойчиво не успевает обрабатывать звук в реальном времени'));
+          }
+        }
       }
     };
     node.destroy = () => this.destroy();
@@ -109,6 +193,7 @@ export class DeepFilterNet3NoiseSuppressor {
     this.rejectReady = null;
     this.readyPromise = null;
     this.ready = false;
+    this.overloadStrikes = 0;
   }
 }
 

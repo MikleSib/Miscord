@@ -116,13 +116,13 @@ class DeepFilterNet3Processor extends AudioWorkletProcessor {
         return;
       }
 
-      // Как в upstream: без лимита ослабления, лёгкий post-filter.
+      // Штатные пороги upstream DeepFilterNet3.
       module._dfn3_wasm_set_atten_lim(100);
       module._dfn3_wasm_set_post_filter_beta(0.02);
-      module._dfn3_wasm_set_min_db_thresh(-15);
-      module._dfn3_wasm_set_max_db_erb_thresh(35);
+      module._dfn3_wasm_set_min_db_thresh(-10);
+      module._dfn3_wasm_set_max_db_erb_thresh(30);
       module._dfn3_wasm_set_max_db_df_thresh(20);
-      module._dfn3_wasm_set_hpf(0);
+      module._dfn3_wasm_set_hpf(1);
 
       this.inputPointer = module._dfn3_wasm_get_input_ptr();
       this.outputPointer = module._dfn3_wasm_get_output_ptr();
@@ -170,12 +170,8 @@ class DeepFilterNet3Processor extends AudioWorkletProcessor {
       const wetSample = module.HEAPF32[outputOffset + index];
       wetEnergy += wetSample * wetSample;
       dryEnergy += this.frame[index] * this.frame[index];
-    }
-
-    // Если модель занулила кадр из-за LSNR-гейта, не глушим речь — отдаём dry.
-    const useDryFallback = wetEnergy < 1e-10 && dryEnergy > 1e-6;
-    for (let index = 0; index < FRAME_SIZE; index += 1) {
-      this.wetFifo.push(useDryFallback ? this.frame[index] : module.HEAPF32[outputOffset + index]);
+      // Нули на выходе — штатный результат LSNR-гейта модели, не сбой.
+      this.wetFifo.push(wetSample);
     }
 
     const durationMs = this.now() - startedAt;

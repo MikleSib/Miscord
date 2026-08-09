@@ -96,7 +96,8 @@ export function ChannelSidebar() {
   const [channelSearch, setChannelSearch] = useState('')
   const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false)
   const [selectedChannelForSettings, setSelectedChannelForSettings] = useState<Channel | null>(null)
-  const [hoveredChannel, setHoveredChannel] = useState<number | null>(null)
+  // id уникален только внутри типа: текстовый и голосовой канал могут иметь один id
+  const [hoveredChannel, setHoveredChannel] = useState<string | null>(null)
   const [voiceMemberProfile, setVoiceMemberProfile] = useState<{
     member: ServerMember;
     roles: Role[];
@@ -824,8 +825,9 @@ export function ChannelSidebar() {
                 const hasUnread =
                   mentionCount === 0 &&
                   channelUnreadPending.some((item) => item.textChannelId === channel.id)
+                const hoverKey = `text:${channel.id}`
                 const showSettings =
-                  hoveredChannel === channel.id &&
+                  hoveredChannel === hoverKey &&
                   currentServer &&
                   canManageChannels
 
@@ -833,7 +835,7 @@ export function ChannelSidebar() {
                 <div
                   key={channel.id}
                   className="relative group"
-                  onMouseEnter={() => setHoveredChannel(channel.id)}
+                  onMouseEnter={() => setHoveredChannel(hoverKey)}
                   onMouseLeave={() => setHoveredChannel(null)}
                 >
                   <Button
@@ -919,7 +921,8 @@ export function ChannelSidebar() {
                 const channelParticipants = getChannelParticipants(channel.id);
                 const userLimit = channel.max_users ?? 0
                 const hasUserLimit = userLimit > 0
-                const isHovered = hoveredChannel === channel.id
+                const hoverKey = `voice:${channel.id}`
+                const isHovered = hoveredChannel === hoverKey
                 const showVoiceSettings = isHovered && canManageChannels
                 const currentCount = channelParticipants.length
 
@@ -927,7 +930,7 @@ export function ChannelSidebar() {
                   <div key={channel.id}>
                     <div
                       className="relative group"
-                      onMouseEnter={() => setHoveredChannel(channel.id)}
+                      onMouseEnter={() => setHoveredChannel(hoverKey)}
                       onMouseLeave={() => setHoveredChannel(null)}
                     >
                       <Button
