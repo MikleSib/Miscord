@@ -13,7 +13,7 @@ from sqlalchemy import delete, text, update
 
 from app.core.config import settings
 from app.db.database import engine, Base
-from app.api import auth, channels, channel_permissions, servers, uploads, reactions, friends, direct_messages, embeds, webhooks, attachment_files, bot_apps, bot_platform, bot_client, bot_oauth, miscord_api, miscord_gateway, miscord_interactions
+from app.api import auth, channels, channel_categories, channel_permissions, message_pins, message_search, servers, uploads, reactions, friends, direct_messages, embeds, webhooks, attachment_files, bot_apps, bot_platform, bot_client, bot_oauth, miscord_api, miscord_gateway, miscord_interactions
 from app.core.miscord_errors import MiscordAPIError
 from app.services.webhook_rate_limit import Bucket, consume, rate_headers
 from app.websocket import chat
@@ -83,6 +83,18 @@ async def lifespan(app: FastAPI):
         await conn.execute(text("ALTER TABLE bot_commands ADD COLUMN IF NOT EXISTS default_member_permissions BIGINT"))
         await conn.execute(text("ALTER TABLE bot_commands ADD COLUMN IF NOT EXISTS allowed_user_ids JSON NOT NULL DEFAULT '[]'::json"))
         await conn.execute(text("ALTER TABLE bot_commands ADD COLUMN IF NOT EXISTS allowed_role_ids JSON NOT NULL DEFAULT '[]'::json"))
+        await conn.execute(text("ALTER TABLE text_channels ADD COLUMN IF NOT EXISTS category_id INTEGER REFERENCES channel_categories(id) ON DELETE SET NULL"))
+        await conn.execute(text("ALTER TABLE voice_channels ADD COLUMN IF NOT EXISTS category_id INTEGER REFERENCES channel_categories(id) ON DELETE SET NULL"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_text_channels_category ON text_channels(category_id)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_voice_channels_category ON voice_channels(category_id)"))
+        await conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS pinned BOOLEAN NOT NULL DEFAULT false"))
+        await conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS pinned_at TIMESTAMP"))
+        await conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS pinned_by_id INTEGER REFERENCES users(id)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_messages_pinned ON messages(text_channel_id) WHERE pinned"))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_messages_content_fts "
+            "ON messages USING GIN (to_tsvector('russian', coalesce(content, '')))"
+        ))
         await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_messages_author_client_nonce ON messages(author_id, client_nonce) WHERE client_nonce IS NOT NULL"))
         await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_direct_messages_sender_client_nonce ON direct_messages(sender_id, client_nonce) WHERE client_nonce IS NOT NULL"))
         # Execution URLs are intentionally one-time. Existing encrypted copies
@@ -225,6 +237,9 @@ async def miscord_api_rate_limit_middleware(request: Request, call_next):
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(channels.router, prefix="/api/v1/channels", tags=["channels"])
 app.include_router(channel_permissions.router, prefix="/api/v1/channels", tags=["channel-permissions"])
+app.include_router(message_pins.router, prefix="/api/v1/channels", tags=["message-pins"])
+app.include_router(message_search.router, prefix="/api/v1/channels", tags=["message-search"])
+app.include_router(channel_categories.router, prefix="/api/v1/channels", tags=["channel-categories"])
 app.include_router(servers.router, prefix="/api/v1/servers", tags=["server-management"])
 app.include_router(uploads.router, prefix="/api/v1", tags=["uploads"])
 app.include_router(reactions.router, prefix="/api/v1", tags=["reactions"])

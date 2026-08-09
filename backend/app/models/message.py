@@ -38,8 +38,12 @@ class Message(Base):
     is_edited: Mapped[bool] = Column(Boolean, default=False)
     is_deleted: Mapped[bool] = Column(Boolean, default=False)
     reply_to_id: Mapped[Optional[int]] = Column(Integer, ForeignKey("messages.id"), nullable=True)
-    
+    pinned: Mapped[bool] = Column(Boolean, nullable=False, default=False, server_default="false")
+    pinned_at: Mapped[Optional[datetime]] = Column(DateTime, nullable=True)
+    pinned_by_id: Mapped[Optional[int]] = Column(Integer, ForeignKey("users.id"), nullable=True)
+
     author: Mapped[Optional["User"]] = relationship("User", foreign_keys=[author_id])
+    pinned_by: Mapped[Optional["User"]] = relationship("User", foreign_keys=[pinned_by_id])
     text_channel: Mapped["TextChannel"] = relationship("TextChannel")
     attachments: Mapped[List["Attachment"]] = relationship("Attachment", back_populates="message", cascade="all, delete-orphan")
     reactions: Mapped[List["Reaction"]] = relationship("Reaction", back_populates="message", cascade="all, delete-orphan")

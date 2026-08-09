@@ -18,6 +18,9 @@ import { UserAvatar } from './ui/user-avatar'
 import { MediaLightbox, MediaLightboxItem } from './MediaLightbox'
 import { MessageContent } from './MessageContent'
 import { MessageLinkEmbeds } from './MessageLinkEmbeds'
+import { useComposerFormatting } from '../hooks/useComposerFormatting'
+import { EmojiPickerPopover } from './emoji/EmojiPickerPopover'
+import { ComposerEmojiButton } from './emoji/ComposerEmojiButton'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 
@@ -57,6 +60,7 @@ export function DirectMessageArea({
       message.conversation.id === friend.id &&
       !messages.some((saved) => saved.client_nonce === message.clientNonce),
   )
+  const applyFormattingShortcut = useComposerFormatting(messageInputRef, setNewMessage)
   const [lightboxItem, setLightboxItem] = useState<MediaLightboxItem | null>(null)
   const [replyingTo, setReplyingTo] = useState<DirectMessage | null>(null)
   const [hoveredMessageId, setHoveredMessageId] = useState<number | string | null>(null)
@@ -414,7 +418,6 @@ export function DirectMessageArea({
     setShowEmojiPicker(showEmojiPicker === messageId ? null : messageId);
   }
 
-  const quickEmojis = ['вќ¤пёЏ', 'рџ‘Ќ', 'рџ‚', 'рџ®', 'рџў', 'рџ™Џ', 'рџ‘Џ', 'рџ”Ґ'];
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "auto" })
@@ -578,23 +581,12 @@ export function DirectMessageArea({
                 </div>
               )}
 
-              {/* Emoji Picker */}
-              {showEmojiPicker === msg.id && (
-                <div className="absolute top-8 right-12 bg-[#1e1f22] border border-[#3e3f45] rounded-lg shadow-xl p-2 z-10">
-                  <div className="grid grid-cols-4 gap-1">
-                    {quickEmojis.map((emoji) => (
-                      <button
-                        key={emoji}
-                        onClick={() => handleAddReaction(msg.id, emoji)}
-                        className="text-2xl p-2 hover:bg-[#2c2d32] rounded transition-colors"
-                        title={emoji}
-                      >
-                        {emoji}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <EmojiPickerPopover
+                open={showEmojiPicker === msg.id}
+                onClose={() => setShowEmojiPicker(null)}
+                onSelect={(emoji) => void handleAddReaction(msg.id, emoji)}
+                className="right-12 top-8"
+              />
 
               {isCurrentUser && showAuthor && <UserAvatar user={messageUser as User} />}
               {isCurrentUser && !showAuthor && <div className="w-10" />}
@@ -680,6 +672,7 @@ export function DirectMessageArea({
               onChange={(e) => setNewMessage(e.target.value)}
               onPaste={handlePaste}
               onKeyDown={(e) => {
+                if (applyFormattingShortcut(e)) return
                 if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault()
                   e.currentTarget.form?.requestSubmit()
@@ -689,6 +682,12 @@ export function DirectMessageArea({
               placeholder={replyingTo ? 'Напишите ответ...' : `Написать @${friend.username}`}
               className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none py-3"
               disabled={isSending || isRateLimited}
+            />
+            <ComposerEmojiButton
+              inputRef={messageInputRef}
+              setValue={setNewMessage}
+              disabled={isSending || isRateLimited}
+              className="mr-2"
             />
             <button 
               type="submit" 

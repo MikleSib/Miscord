@@ -23,6 +23,7 @@ MESSAGE_ACK = "message_ack"
 MESSAGE_SEND_FAILED = "message_send_failed"
 TYPING = "typing"
 REACTION_UPDATED = "reaction_updated"
+CHANNEL_PINS_UPDATED = "channel_pins_updated"
 
 # DM
 DM = "dm"
@@ -42,6 +43,10 @@ TEXT_CHANNEL_DELETED = "text_channel_deleted"
 VOICE_CHANNEL_DELETED = "voice_channel_deleted"
 USER_JOINED_CHANNEL = "user_joined_channel"
 USER_LEFT_CHANNEL = "user_left_channel"
+CHANNEL_CATEGORY_CREATED = "channel_category_created"
+CHANNEL_CATEGORY_UPDATED = "channel_category_updated"
+CHANNEL_CATEGORY_DELETED = "channel_category_deleted"
+CHANNEL_POSITIONS_UPDATED = "channel_positions_updated"
 
 # Роли / участники
 SERVER_MEMBER_UPDATED = "server_member_updated"
@@ -108,6 +113,7 @@ USER_GATEWAY_EVENTS: frozenset[str] = frozenset(
         MESSAGE_SEND_FAILED,
         TYPING,
         REACTION_UPDATED,
+        CHANNEL_PINS_UPDATED,
         DM,
         DM_DELETED,
         DM_REACTION_UPDATED,
@@ -123,6 +129,10 @@ USER_GATEWAY_EVENTS: frozenset[str] = frozenset(
         VOICE_CHANNEL_DELETED,
         USER_JOINED_CHANNEL,
         USER_LEFT_CHANNEL,
+        CHANNEL_CATEGORY_CREATED,
+        CHANNEL_CATEGORY_UPDATED,
+        CHANNEL_CATEGORY_DELETED,
+        CHANNEL_POSITIONS_UPDATED,
         SERVER_MEMBER_UPDATED,
         SERVER_MEMBER_ROLES_UPDATED,
         SERVER_ROLE_CREATED,

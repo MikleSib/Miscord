@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
-import { ChevronRight, Hash, Send, PlusCircle, X, Users, AtSign } from 'lucide-react'
+import { ChevronRight, Hash, Send, PlusCircle, Pin, X, Users, AtSign } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { useAuthStore } from '../store/store'
 import { useChatStore } from '../store/chatStore'
@@ -51,11 +51,18 @@ import {
   useNotificationSettingsStore,
 } from '../store/notificationSettingsStore'
 import { useResponsiveLayout } from '../hooks/useResponsiveLayout'
+import { useComposerFormatting } from '../hooks/useComposerFormatting'
+import { ComposerEmojiButton } from './emoji/ComposerEmojiButton'
+import { usePinnedMessages } from './pins/usePinnedMessages'
+import { ChatAreaHeader } from './chat/ChatAreaHeader'
+import type { SearchResultMessage } from '../services/searchService'
+import { EmojiAutocomplete } from './emoji/EmojiAutocomplete'
+import { useShortcodeAutocomplete } from './emoji/useShortcodeAutocomplete'
 
 const localizedCommandName = (command: MiscordApplicationCommand) => command.name_localizations?.ru || command.name
 
 export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSidebar: boolean, setShowUserSidebar: (v: boolean) => void }) {
-  const { currentChannel, currentServer } = useStore()
+  const { currentChannel, currentServer, selectChannel } = useStore()
   const { user, token } = useAuthStore()
   const viewport = useResponsiveLayout()
   const { 
@@ -66,6 +73,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     error: chatError,
     loadMessageHistory,
     loadOlderMessages,
+    ensureMessageLoaded,
     addMessage,
     updateMessageReactions,
     updateSingleReaction,
@@ -78,6 +86,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   }, [currentChannel]);
   
   const [messageInput, setMessageInput] = useState('')
+  const [showPinnedPanel, setShowPinnedPanel] = useState(false)
   const [files, setFiles] = useState<File[]>([])
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [isDraggingFiles, setIsDraggingFiles] = useState(false)
@@ -130,6 +139,13 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
 
   const channelIdForMentions =
     currentChannel?.type === 'text' ? currentChannel.id : null
+  const {
+    pinnedMessages,
+    pinnedIds,
+    canManagePins,
+    pinsError,
+    setPinned,
+  } = usePinnedMessages(channelIdForMentions)
   const channelMentions = useMentionNotificationStore(
     (state): PendingMention[] => {
       if (channelIdForMentions == null) return []
@@ -141,6 +157,13 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   )
   const markMentionRead = useMentionNotificationStore((state) => state.markMessageRead)
   const addMentionNotification = useMentionNotificationStore((state) => state.addMention)
+
+  const applyFormattingShortcut = useComposerFormatting(messageInputRef, setMessageInput)
+  const shortcodeAutocomplete = useShortcodeAutocomplete(
+    messageInput,
+    messageInputRef,
+    setMessageInput,
+  )
 
   const mentionCandidates = useMemo(
     () => toMentionCandidates(mentionMembers),
@@ -574,6 +597,30 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     return true
   }, [])
 
+  /** Догружает историю канала, если сообщение ещё не в списке, и подсвечивает его. */
+  const jumpToMessage = useCallback(async (messageId: number) => {
+    if (scrollToMention(messageId)) return true
+
+    const loaded = await ensureMessageLoaded(messageId)
+    if (!loaded) return false
+
+    // Ждём отрисовку догруженной страницы
+    return new Promise<boolean>((resolve) => {
+      requestAnimationFrame(() => resolve(scrollToMention(messageId)))
+    })
+  }, [ensureMessageLoaded, scrollToMention])
+
+  const handleJumpToSearchResult = useCallback(async (message: SearchResultMessage) => {
+    const targetChannelId = message.text_channel_id ?? message.channelId
+    if (targetChannelId && targetChannelId !== currentChannel?.id) {
+      selectChannel(targetChannelId, 'text')
+      // Канал переключился — история грузится заново, ждём её перед прыжком
+      window.setTimeout(() => void jumpToMessage(message.id), 450)
+      return
+    }
+    await jumpToMessage(message.id)
+  }, [currentChannel?.id, jumpToMessage, selectChannel])
+
   /** Каждый клик ведёт к следующему непрочитанному упоминанию. */
   const handleJumpToMention = useCallback(() => {
     const target = channelMentions[0]
@@ -642,6 +689,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     const active = getActiveMentionQuery(value, caret)
     setMentionQuery(active)
     setMentionIndex(0)
+    shortcodeAutocomplete.syncCaret(caret)
   }
 
   const applyMention = (candidate: MentionCandidate) => {
@@ -779,6 +827,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     if (value.startsWith('/')) {
       setMentionQuery(null)
       setSlashIndex(0)
+      shortcodeAutocomplete.syncCaret(caret)
       if (selectedSlashCommand && !value.startsWith(`/${localizedCommandName(selectedSlashCommand)}`)) setSelectedSlashCommand(null)
     } else {
       setSelectedSlashCommand(null)
@@ -790,6 +839,8 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   }
 
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (applyFormattingShortcut(e)) return
+    if (!mentionQuery && shortcodeAutocomplete.handleKeyDown(e)) return
     if (autocompleteChoices.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault()
@@ -956,31 +1007,21 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
           </div>
         </div>
       )}
-      {/* Channel Header */}
-      <div className="app-header chat-area-header flex h-12 flex-shrink-0 items-center justify-between border-b px-4">
-        <div className="chat-area-header__title flex min-w-0 items-center">
-          <Hash className="w-5 h-5 text-muted-foreground mr-2" />
-          <span className="truncate font-semibold">{currentChannel.name}</span>
-          <ChevronRight className="mobile-channel-chevron ml-1 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-          {currentChannel.type === 'text' && (currentChannel.slow_mode_seconds ?? 0) > 0 && (
-            <span className="ml-3 rounded bg-primary/15 px-2 py-0.5 text-xs text-[#949cf7]">
-              Медленный режим: {formatSlowModeLabel(currentChannel.slow_mode_seconds ?? 0)}
-            </span>
-          )}
-        </div>
-        <div className="chat-area-header__actions flex items-center space-x-2">
-          <Tooltip content={showUserSidebar ? 'Скрыть список участников' : 'Показать список участников'}>
-            <button
-              className="interactive-row flex items-center p-2 text-muted-foreground hover:text-foreground"
-              onClick={() => setShowUserSidebar(!showUserSidebar)}
-              aria-label={showUserSidebar ? 'Скрыть список участников' : 'Показать список участников'}
-            >
-              <Users className="w-6 h-6 text-muted-foreground" />
-            </button>
-          </Tooltip>
-        </div>
-      </div>
-
+      <ChatAreaHeader
+        channel={currentChannel}
+        serverId={currentServer?.id ?? null}
+        showUserSidebar={showUserSidebar}
+        onToggleUserSidebar={() => setShowUserSidebar(!showUserSidebar)}
+        showPinnedPanel={showPinnedPanel}
+        onTogglePinnedPanel={() => setShowPinnedPanel((previous) => !previous)}
+        onClosePinnedPanel={() => setShowPinnedPanel(false)}
+        pinnedMessages={pinnedMessages}
+        canManagePins={canManagePins}
+        pinsError={pinsError}
+        onUnpin={(messageId) => void setPinned(messageId, false)}
+        onJumpToMessage={scrollToMention}
+        onJumpToSearchResult={(message) => void handleJumpToSearchResult(message)}
+      />
 
 
       {/* Messages */}
@@ -1043,6 +1084,9 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
                     replyAuthorColor={getMemberColor(msg.reply_to?.author?.id)}
                     applicationCommands={applicationCommands.commands.filter((command) => command.type === 2 || command.type === 3)}
                     onApplicationCommand={handleContextApplicationCommand}
+                    isPinned={pinnedIds.has(msg.id)}
+                    canPin={canManagePins}
+                    onTogglePin={setPinned}
                   />
                 </React.Fragment>
               )
@@ -1106,6 +1150,14 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
                 selectedIndex={mentionIndex}
                 onSelect={applyMention}
                 onHover={setMentionIndex}
+              />
+            )}
+            {!mentionQuery && (
+              <EmojiAutocomplete
+                entries={shortcodeAutocomplete.entries}
+                selectedIndex={shortcodeAutocomplete.selectedIndex}
+                onSelect={shortcodeAutocomplete.apply}
+                onHover={shortcodeAutocomplete.setSelectedIndex}
               />
             )}
             {slashQuery !== null && !mentionQuery && (
@@ -1196,6 +1248,12 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
                 className="chat-area-composer__input min-w-0 flex-1 bg-transparent text-sm outline-none"
                 disabled={isLoading || isSlowModeActive}
                 autoComplete="off"
+              />
+              <ComposerEmojiButton
+                inputRef={messageInputRef}
+                setValue={setMessageInput}
+                disabled={isLoading || isSlowModeActive}
+                className="mr-1"
               />
               <Button
                 type="submit"

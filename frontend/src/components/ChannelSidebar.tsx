@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Hash, Volume2, ChevronDown, Settings, Plus, Mic, MicOff, Headphones, PhoneOff, VolumeX, Monitor, MonitorOff, UserX, UserCheck, Shield, Volume1, LogOut, Copy, UserPlus, Bell, Search } from 'lucide-react'
+import { Hash, Volume2, ChevronDown, Settings, Plus, FolderPlus, Mic, MicOff, Headphones, PhoneOff, VolumeX, Monitor, MonitorOff, UserX, UserCheck, Shield, Volume1, LogOut, Copy, UserPlus, Bell, Search } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { useVoiceStore } from '../store/slices/voiceSlice'
 import { useAuthStore } from '../store/store'
@@ -36,6 +36,15 @@ import {
   formatMentionBadge,
 } from '../store/mentionNotificationStore'
 import { useChannelUnreadStore } from '../store/channelUnreadStore'
+import { useChannelCategoryStore } from '../store/channelCategoryStore'
+import { useChannelCategories } from './channels/useChannelCategories'
+import { ChannelGroupList } from './channels/ChannelGroupList'
+import { VoiceParticipantList } from './channels/VoiceParticipantList'
+import {
+  buildPlacementsForMove,
+  groupChannelsByCategory,
+  type ChannelGroup,
+} from '../lib/channelGrouping'
 
 export function ChannelSidebar() {
   const { currentServer, currentChannel, selectChannel, addChannel, loadServers, updateServer } = useStore()
@@ -103,6 +112,17 @@ export function ChannelSidebar() {
     roles: Role[];
     anchorRect: DOMRect;
   } | null>(null)
+  const [draggingChannel, setDraggingChannel] = useState<Channel | null>(null)
+  const [dropCategoryKey, setDropCategoryKey] = useState<string | null>(null)
+  const {
+    categories,
+    createCategory,
+    renameCategory,
+    deleteCategory,
+    moveChannels,
+  } = useChannelCategories(currentServer?.id ?? null)
+  const collapsedCategories = useChannelCategoryStore((state) => state.collapsed)
+  const toggleCategoryCollapsed = useChannelCategoryStore((state) => state.toggle)
 
   useEffect(() => {
     setChannelSearch('')
@@ -745,6 +765,54 @@ export function ChannelSidebar() {
     (channel) => channel.type === 'voice' && channel.name.toLocaleLowerCase('ru').includes(normalizedChannelSearch),
   )
 
+  const isSearching = normalizedChannelSearch.length > 0
+  const dropEmptyGroups = (groups: ChannelGroup[]) =>
+    isSearching ? groups.filter((group) => group.channels.length > 0) : groups
+  const textGroups = dropEmptyGroups(groupChannelsByCategory(textChannels, categories))
+  const voiceGroups = dropEmptyGroups(groupChannelsByCategory(voiceChannels, categories))
+  const serverId = currentServer.id
+
+  const handleDropOnCategory = (
+    groups: ChannelGroup[],
+    categoryId: number | null,
+    index: number,
+  ) => {
+    const channel = draggingChannel
+    setDraggingChannel(null)
+    setDropCategoryKey(null)
+    if (!channel || channel.category_id === categoryId) return
+    void moveChannels(buildPlacementsForMove(groups, channel, categoryId, index))
+  }
+
+  const handleDeleteCategory = (categoryId: number, name: string) => {
+    if (!window.confirm(`Удалить категорию «${name}»? Каналы останутся на сервере.`)) return
+    void deleteCategory(categoryId)
+  }
+
+  const handleCreateCategory = () => {
+    const name = window.prompt('Название категории')
+    if (name?.trim()) void createCategory(name)
+  }
+
+  /** Общие пропсы для обоих списков каналов: текстового и голосового. */
+  const groupListProps = {
+    serverId,
+    canManage: Boolean(canManageChannels),
+    isSearching,
+    collapsedCategories,
+    draggingChannel,
+    dropCategoryKey,
+    onDragStart: setDraggingChannel,
+    onDragEnd: () => {
+      setDraggingChannel(null)
+      setDropCategoryKey(null)
+    },
+    onDropTargetChange: setDropCategoryKey,
+    onToggleCategory: (categoryId: number) => toggleCategoryCollapsed(serverId, categoryId),
+    onRenameCategory: (categoryId: number, name: string) => void renameCategory(categoryId, name),
+    onDeleteCategory: handleDeleteCategory,
+  }
+
   return (
     <>
       <div className="app-sidebar flex h-full flex-col border-r">
@@ -805,20 +873,42 @@ export function ChannelSidebar() {
             <div className="mb-1 px-3">
               <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground uppercase">
                 <span>Текстовые каналы</span>
-                <Tooltip content="Создать канал">
-                  <button
-                    type="button"
-                    aria-label="Создать канал"
-                    onClick={() => openCreateChannelModal('text')}
-                    className="rounded p-0.5 text-muted-foreground transition hover:bg-secondary/60 hover:text-foreground"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </button>
-                </Tooltip>
+                <div className="flex items-center gap-0.5">
+                  {canManageChannels && (
+                    <Tooltip content="Создать категорию">
+                      <button
+                        type="button"
+                        aria-label="Создать категорию"
+                        onClick={handleCreateCategory}
+                        className="rounded p-0.5 text-muted-foreground transition hover:bg-secondary/60 hover:text-foreground"
+                      >
+                        <FolderPlus className="h-4 w-4" />
+                      </button>
+                    </Tooltip>
+                  )}
+                  <Tooltip content="Создать канал">
+                    <button
+                      type="button"
+                      aria-label="Создать канал"
+                      onClick={() => openCreateChannelModal('text')}
+                      className="rounded p-0.5 text-muted-foreground transition hover:bg-secondary/60 hover:text-foreground"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </button>
+                  </Tooltip>
+                </div>
               </div>
             </div>
             <div className="space-y-0.5 px-3">
-              {textChannels.map((channel) => {
+              <ChannelGroupList
+                {...groupListProps}
+                groups={textGroups}
+                kind="text"
+                onCreateChannel={() => openCreateChannelModal('text')}
+                onDropChannel={(categoryId, index) =>
+                  handleDropOnCategory(textGroups, categoryId, index)
+                }
+                renderChannel={(channel) => {
                 const mentionCount = mentionPending.filter(
                   (item) => item.textChannelId === channel.id
                 ).length
@@ -890,8 +980,9 @@ export function ChannelSidebar() {
                     </Tooltip>
                   )}
                 </div>
-              )})}
-              {textChannels.length === 0 && (
+              )}}
+              />
+              {textChannels.length === 0 && textGroups.length === 0 && (
                 <div className="px-2 py-2 text-xs text-muted-foreground">
                   Нет текстовых каналов
                 </div>
@@ -917,7 +1008,15 @@ export function ChannelSidebar() {
               </div>
             </div>
             <div className="space-y-0.5 px-3">
-              {voiceChannels.map((channel) => {
+              <ChannelGroupList
+                {...groupListProps}
+                groups={voiceGroups}
+                kind="voice"
+                onCreateChannel={() => openCreateChannelModal('voice')}
+                onDropChannel={(categoryId, index) =>
+                  handleDropOnCategory(voiceGroups, categoryId, index)
+                }
+                renderChannel={(channel) => {
                 const channelParticipants = getChannelParticipants(channel.id);
                 const userLimit = channel.max_users ?? 0
                 const hasUserLimit = userLimit > 0
@@ -1000,87 +1099,24 @@ export function ChannelSidebar() {
                       )}
                     </div>
                     
-                    {/* Участники голосового канала */}
-                    {channelParticipants.length > 0 && (
-                      <div className="ml-6 mt-1 space-y-1">
-                        {channelParticipants.map((participant) => {
-                          const isScreenSharing = screenSharingUsers.has(participant.user_id);
-                          return (
-                             <div
-                               key={participant.user_id}
-                               className={cn(
-                                 "interactive-row flex cursor-pointer items-center gap-2 overflow-visible px-2 py-1.5",
-                                 voiceMemberProfile?.member.user_id === participant.user_id && "bg-gray-800"
-                               )}
-                               role="button"
-                               tabIndex={0}
-                               aria-haspopup="dialog"
-                               aria-expanded={voiceMemberProfile?.member.user_id === participant.user_id}
-                               onClick={(event) => {
-                                 void openVoiceMemberProfile(
-                                   participant,
-                                   event.currentTarget.getBoundingClientRect()
-                                 )
-                               }}
-                               onKeyDown={(event) => {
-                                 if (event.key !== 'Enter' && event.key !== ' ') return
-                                 event.preventDefault()
-                                 void openVoiceMemberProfile(
-                                   participant,
-                                   event.currentTarget.getBoundingClientRect()
-                                 )
-                               }}
-                               onContextMenu={(e) => handleParticipantContextMenu(e, participant)}
-                              onMouseEnter={(e) => {
-                                if (!isScreenSharing) return;
-                                scheduleStreamHoverPreview(
-                                  participant,
-                                  e.currentTarget.getBoundingClientRect()
-                                );
-                              }}
-                              onMouseLeave={() => {
-                                if (!isScreenSharing) return;
-                                hideStreamHoverPreview();
-                              }}
-                            >
-                              <SpeakingAvatar
-                                user={participant}
-                                isSpeaking={Boolean(speakingUsers[participant.user_id])}
-                                isScreenSharing={isScreenSharing}
-                              />
-                              <span
-                                className={cn(
-                                  "flex-1 text-xs",
-                                  participant.is_deafened ? "text-red-400 line-through" : "text-muted-foreground"
-                                )}
-                              >
-                                {participant.username}
-                                {participant.user_id === user?.id && " (Вы)"}
-                              </span>
-
-                              {isScreenSharing && (
-                                <span className="rounded bg-destructive px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
-                                  В эфире
-                                </span>
-                              )}
-                              
-                              <div className="flex gap-1">
-                                {participant.is_muted && (
-                                  <MicOff key="muted" className="w-3 h-3 text-red-400" />
-                                )}
-                                {participant.is_deafened && (
-                                  <Headphones key="deafened" className="w-3 h-3 text-red-400" />
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                    <VoiceParticipantList
+                      participants={channelParticipants}
+                      currentUserId={user?.id}
+                      speakingUsers={speakingUsers}
+                      screenSharingUsers={screenSharingUsers}
+                      activeProfileUserId={voiceMemberProfile?.member.user_id ?? null}
+                      onOpenProfile={(participant, anchorRect) => {
+                        void openVoiceMemberProfile(participant, anchorRect)
+                      }}
+                      onContextMenu={handleParticipantContextMenu}
+                      onStreamHoverStart={scheduleStreamHoverPreview}
+                      onStreamHoverEnd={hideStreamHoverPreview}
+                    />
                   </div>
                 );
-              })}
-              {voiceChannels.length === 0 && (
+              }}
+              />
+              {voiceChannels.length === 0 && voiceGroups.length === 0 && (
                 <div className="px-2 py-2 text-xs text-muted-foreground">
                   Нет голосовых каналов
                 </div>
@@ -1113,6 +1149,7 @@ export function ChannelSidebar() {
         onClose={() => setIsCreateChannelModalOpen(false)}
         serverId={currentServer.id}
         initialType={createChannelInitialType}
+        categories={categories}
         categoryLabel={
           createChannelInitialType === 'voice' ? 'Голосовые каналы' : 'Текстовые каналы'
         }

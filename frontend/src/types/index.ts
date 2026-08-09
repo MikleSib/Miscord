@@ -206,6 +206,7 @@ export interface Channel {
   type: 'text' | 'voice';
   serverId: number;
   position?: number;
+  category_id?: number | null;
   slow_mode_seconds?: number;
   max_users?: number; // Для голосовых каналов, 0 = без лимита
   bitrate?: number; // кбит/с, 8–96
@@ -252,6 +253,8 @@ export interface Message {
   channelId?: number; // Для сообщений в каналах
   is_edited?: boolean;
   is_deleted?: boolean;
+  pinned?: boolean;
+  pinned_at?: string | null;
   attachments: Attachment[];
   reactions?: Reaction[];
   reply_to?: Message; // Ответ на сообщение
@@ -312,6 +315,7 @@ export interface TextChannel {
   name: string;
   channel_id: number;
   position: number;
+  category_id?: number | null;
   slow_mode_seconds?: number;
   created_at?: string;
 }
@@ -321,6 +325,7 @@ export interface VoiceChannel {
   name: string;
   channel_id: number;
   position: number;
+  category_id?: number | null;
   max_users: number;
   bitrate?: number;
   video_quality?: 'auto' | '720p';

@@ -7,6 +7,7 @@ import { Permissions } from '../lib/permissions'
 import channelService from '../services/channelService'
 import serverService from '../services/serverService'
 import { Channel } from '../types'
+import type { ChannelCategory } from '../services/categoryService'
 import { Switch } from './ui/switch'
 import { Modal } from './ui/modal'
 
@@ -19,6 +20,8 @@ interface CreateChannelModalProps {
   /** С какой вкладки открыли — текст или голос */
   initialType?: 'text' | 'voice'
   categoryLabel?: string
+  categories?: ChannelCategory[]
+  initialCategoryId?: number | null
   onCreated: (channel: Channel) => void
 }
 
@@ -63,10 +66,13 @@ export function CreateChannelModal({
   serverId,
   initialType = 'text',
   categoryLabel,
+  categories = [],
+  initialCategoryId = null,
   onCreated,
 }: CreateChannelModalProps) {
   const [channelType, setChannelType] = useState<ChannelCreateType>(initialType)
   const [channelName, setChannelName] = useState('')
+  const [categoryId, setCategoryId] = useState<number | null>(initialCategoryId)
   const [isPrivate, setIsPrivate] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
   const [error, setError] = useState('')
@@ -75,10 +81,11 @@ export function CreateChannelModal({
     if (!isOpen) return
     setChannelType(initialType)
     setChannelName('')
+    setCategoryId(initialCategoryId)
     setIsPrivate(false)
     setError('')
     setIsCreating(false)
-  }, [isOpen, initialType])
+  }, [isOpen, initialType, initialCategoryId])
 
   const canCreate = Boolean(channelName.trim()) && channelType !== 'forum' && !isCreating
 
@@ -111,6 +118,7 @@ export function CreateChannelModal({
         const response = await channelService.createTextChannel(serverId, {
           name,
           position: 0,
+          category_id: categoryId,
         })
         created = {
           id: response.id,
@@ -118,12 +126,14 @@ export function CreateChannelModal({
           type: 'text',
           serverId,
           position: response.position,
+          category_id: response.category_id ?? categoryId,
           slow_mode_seconds: response.slow_mode_seconds ?? 0,
         }
       } else {
         const response = await channelService.createVoiceChannel(serverId, {
           name,
           position: 0,
+          category_id: categoryId,
           max_users: 0,
           bitrate: 64,
           video_quality: 'auto',
@@ -134,6 +144,7 @@ export function CreateChannelModal({
           type: 'voice',
           serverId,
           position: response.position,
+          category_id: response.category_id ?? categoryId,
           max_users: response.max_users ?? 0,
           bitrate: response.bitrate ?? 64,
           video_quality: response.video_quality === '720p' ? '720p' : 'auto',
@@ -263,6 +274,33 @@ export function CreateChannelModal({
               />
             </div>
           </div>
+
+          {categories.length > 0 && (
+            <div>
+              <label
+                htmlFor="create-channel-category"
+                className="mb-2 block text-xs font-bold uppercase tracking-wide text-muted-foreground"
+              >
+                Категория
+              </label>
+              <select
+                id="create-channel-category"
+                value={categoryId ?? ''}
+                disabled={isCreating}
+                onChange={(event) =>
+                  setCategoryId(event.target.value ? Number(event.target.value) : null)
+                }
+                className="h-11 w-full rounded-md border-0 bg-canvas-deep px-3 text-[15px] text-white outline-none focus:ring-2 focus:ring-primary"
+              >
+                <option value="">Без категории</option>
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div className="flex items-start justify-between gap-4 border-t border-white/5 pt-4">
             <div className="min-w-0 flex-1">

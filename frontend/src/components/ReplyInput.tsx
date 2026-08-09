@@ -4,6 +4,7 @@ import React from 'react'
 import { X } from 'lucide-react'
 import { Message } from '../types'
 import { Button } from './ui/button'
+import { previewMessageText } from '../lib/markdown'
 
 interface ReplyInputProps {
   replyingTo: Message | null;
@@ -19,13 +20,7 @@ export function ReplyInput({ replyingTo, onCancelReply }: ReplyInputProps) {
         <span className="text-xs text-muted-foreground">Отвечаете пользователю</span>
         <span className="text-sm font-medium">{replyingTo.author.username}</span>
         <span className="text-xs text-muted-foreground">
-          {replyingTo.content ? 
-            (replyingTo.content.length > 50 ? 
-              replyingTo.content.substring(0, 50) + '...' : 
-              replyingTo.content
-            ) : 
-            'Вложение'
-          }
+          {previewMessageText(replyingTo.content) || 'Вложение'}
         </span>
       </div>
       <Button

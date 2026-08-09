@@ -20,6 +20,7 @@ export const GatewayEvents = {
   MESSAGE_SEND_FAILED: 'message_send_failed',
   TYPING: 'typing',
   REACTION_UPDATED: 'reaction_updated',
+  CHANNEL_PINS_UPDATED: 'channel_pins_updated',
 
   DM: 'dm',
   DM_DELETED: 'dm_deleted',
@@ -37,6 +38,10 @@ export const GatewayEvents = {
   VOICE_CHANNEL_DELETED: 'voice_channel_deleted',
   USER_JOINED_CHANNEL: 'user_joined_channel',
   USER_LEFT_CHANNEL: 'user_left_channel',
+  CHANNEL_CATEGORY_CREATED: 'channel_category_created',
+  CHANNEL_CATEGORY_UPDATED: 'channel_category_updated',
+  CHANNEL_CATEGORY_DELETED: 'channel_category_deleted',
+  CHANNEL_POSITIONS_UPDATED: 'channel_positions_updated',
 
   SERVER_MEMBER_UPDATED: 'server_member_updated',
   SERVER_MEMBER_ROLES_UPDATED: 'server_member_roles_updated',

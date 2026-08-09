@@ -24,6 +24,7 @@ class TextChannelBase(BaseModel):
     name: str
     position: int = 0
     slow_mode_seconds: int = 0
+    category_id: Optional[int] = None
 
 class TextChannelCreate(TextChannelBase):
     channel_id: int
@@ -31,6 +32,7 @@ class TextChannelCreate(TextChannelBase):
 class VoiceChannelBase(BaseModel):
     name: str
     position: int = 0
+    category_id: Optional[int] = None
     max_users: int = 0  # 0 = без лимита
     bitrate: int = 64
     video_quality: str = "auto"
@@ -62,6 +64,7 @@ class VoiceChannelCreate(VoiceChannelBase):
 class TextChannelUpdate(BaseModel):
     name: Optional[str] = None
     position: Optional[int] = None
+    category_id: Optional[int] = None
     slow_mode_seconds: Optional[int] = None
 
     @field_validator("slow_mode_seconds")
@@ -76,6 +79,7 @@ class TextChannelUpdate(BaseModel):
 class VoiceChannelUpdate(BaseModel):
     name: Optional[str] = None
     position: Optional[int] = None
+    category_id: Optional[int] = None
     max_users: Optional[int] = None
     bitrate: Optional[int] = None
     video_quality: Optional[str] = None

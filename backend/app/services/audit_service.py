@@ -31,6 +31,11 @@ class AuditAction:
     INVITE_CREATE = "invite_create"
     INVITE_DELETE = "invite_delete"
     OWNERSHIP_TRANSFER = "ownership_transfer"
+    MESSAGE_PIN = "message_pin"
+    MESSAGE_UNPIN = "message_unpin"
+    CHANNEL_CATEGORY_CREATE = "channel_category_create"
+    CHANNEL_CATEGORY_UPDATE = "channel_category_update"
+    CHANNEL_CATEGORY_DELETE = "channel_category_delete"
 
 
 async def log_audit(

@@ -14,11 +14,13 @@ export interface CreateServerRequest {
 export interface CreateTextChannelRequest {
   name: string;
   position: number;
+  category_id?: number | null;
 }
 
 export interface CreateVoiceChannelRequest {
   name: string;
   position: number;
+  category_id?: number | null;
   max_users?: number;
   bitrate?: number;
   video_quality?: 'auto' | '720p';

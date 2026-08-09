@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from app.db.database import get_db
 from app.models import (
-    Channel, ChannelMember, TextChannel, VoiceChannel, User, ChannelType,
+    Channel, ChannelCategory, ChannelMember, TextChannel, VoiceChannel, User, ChannelType,
     VoiceChannelUser, Message, Reaction, Role, MemberRole, ServerBan, Invite, AuditLog, Attachment,
     ChannelPermissionOverwrite, ChannelKind,
 )
@@ -51,6 +51,26 @@ import secrets as secrets_mod
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+async def _validated_category_id(
+    db: AsyncSession, server_id: int, category_id: Optional[int]
+) -> Optional[int]:
+    """Категория обязана принадлежать тому же серверу."""
+    if category_id is None:
+        return None
+    result = await db.execute(
+        select(ChannelCategory.id).where(
+            ChannelCategory.id == category_id,
+            ChannelCategory.server_id == server_id,
+        )
+    )
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Категория не принадлежит этому серверу",
+        )
+    return category_id
 
 
 async def _delete_server_text_messages(db: AsyncSession, server_id: int) -> None:
@@ -177,6 +197,7 @@ async def get_full_server_data(
                 "id": tc.id,
                 "name": tc.name,
                 "position": tc.position,
+                "category_id": tc.category_id,
                 "slow_mode_seconds": tc.slow_mode_seconds,
                 "created_at": tc.created_at
             })
@@ -191,6 +212,7 @@ async def get_full_server_data(
                 "id": vc.id,
                 "name": vc.name,
                 "position": vc.position,
+                "category_id": vc.category_id,
                 "max_users": vc.max_users,
                 "bitrate": int(getattr(vc, "bitrate", 64) or 64),
                 "video_quality": getattr(vc, "video_quality", None) or "auto",
@@ -633,7 +655,14 @@ async def get_channel_details(
             "updated_at": channel.owner.updated_at
         } if channel.owner else None,
         "channels": [
-            {"id": tc.id, "name": tc.name, "type": "text", "position": tc.position, "slow_mode_seconds": tc.slow_mode_seconds}
+            {
+                "id": tc.id,
+                "name": tc.name,
+                "type": "text",
+                "position": tc.position,
+                "category_id": tc.category_id,
+                "slow_mode_seconds": tc.slow_mode_seconds,
+            }
             for tc in text_channels
         ] + [
             {
@@ -641,6 +670,7 @@ async def get_channel_details(
                 "name": vc.name,
                 "type": "voice",
                 "position": vc.position,
+                "category_id": vc.category_id,
                 "max_users": vc.max_users,
                 "bitrate": int(getattr(vc, "bitrate", 64) or 64),
                 "video_quality": getattr(vc, "video_quality", None) or "auto",
@@ -820,7 +850,8 @@ async def create_text_channel(
     new_text_channel = TextChannel(
         name=channel_data.name,
         channel_id=channel_id,
-        position=channel_data.position
+        position=channel_data.position,
+        category_id=await _validated_category_id(db, channel_id, channel_data.category_id),
     )
     db.add(new_text_channel)
     await db.commit()
@@ -877,6 +908,7 @@ async def create_voice_channel(
         name=channel_data.name,
         channel_id=channel_id,
         position=channel_data.position,
+        category_id=await _validated_category_id(db, channel_id, channel_data.category_id),
         max_users=channel_data.max_users,
         bitrate=channel_data.bitrate,
         video_quality=channel_data.video_quality,

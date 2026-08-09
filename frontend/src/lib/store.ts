@@ -880,6 +880,22 @@ export const useStore = create<AppState>()(
           });
         });
 
+        // Перестановка каналов и смена категории приходят одним пакетом
+        websocketService.on('channel_positions_updated', (raw: any) => {
+          const data = raw?.data || raw;
+          const serverId = data?.server_id;
+          const channels = Array.isArray(data?.channels) ? data.channels : [];
+          if (!serverId || channels.length === 0) return;
+
+          for (const item of channels) {
+            if (!item?.id || (item.type !== 'text' && item.type !== 'voice')) continue;
+            get().updateChannel(serverId, item.id, item.type, {
+              position: item.position,
+              category_id: item.category_id ?? null,
+            });
+          }
+        });
+
         websocketService.onTextChannelDeleted((raw) => {
           const data = (raw as any)?.data || raw;
           const channelId = data.text_channel_id;

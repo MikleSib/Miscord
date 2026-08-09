@@ -91,6 +91,20 @@ TEXT_CHANNEL_PERMISSIONS = [
         description="Позволяет участникам отправлять сообщения в ветках этого канала.",
         group="text",
     ),
+    ChannelPermissionCatalogItem(
+        key="MANAGE_MESSAGES",
+        value=int(Permission.MANAGE_MESSAGES),
+        label="Управлять сообщениями",
+        description="Позволяет участникам удалять сообщения других участников в этом канале.",
+        group="text",
+    ),
+    ChannelPermissionCatalogItem(
+        key="PIN_MESSAGES",
+        value=int(Permission.PIN_MESSAGES),
+        label="Закреплять сообщения",
+        description="Позволяет участникам закреплять и откреплять сообщения в этом канале.",
+        group="text",
+    ),
 ]
 
 VOICE_CHANNEL_PERMISSIONS = [

@@ -25,6 +25,8 @@ interface ChatState {
   loadMessageHistory: (channelId: number) => Promise<void>;
   /** Следующая пачка старее (при скролле вверх) */
   loadOlderMessages: () => Promise<number>;
+  /** Догружает историю, пока нужное сообщение не окажется в списке. */
+  ensureMessageLoaded: (messageId: number, maxPages?: number) => Promise<boolean>;
   updateMessageReactions: (messageId: number, reactions: Reaction[]) => void;
   updateSingleReaction: (messageId: number, emoji: string, reaction: Reaction) => void;
   deleteMessage: (messageId: number) => void;
@@ -166,6 +168,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set({ isLoadingOlder: false });
       return 0;
     }
+  },
+
+  ensureMessageLoaded: async (messageId, maxPages = 12) => {
+    for (let page = 0; page <= maxPages; page += 1) {
+      const state = get();
+      if (state.messages.some((message) => message.id === messageId)) return true;
+      // Сообщение старше загруженного окна — дальше идти некуда
+      if (!state.hasMoreOlder) return false;
+      if (state.messages.length > 0 && state.messages[0].id < messageId) return false;
+
+      const loaded = await get().loadOlderMessages();
+      if (loaded === 0) return get().messages.some((message) => message.id === messageId);
+    }
+    return get().messages.some((message) => message.id === messageId);
   },
 
   updateMessageReactions: (messageId, reactions) =>

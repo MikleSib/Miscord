@@ -179,6 +179,13 @@ PERMISSION_CATALOG = [
         "group": "text",
     },
     {
+        "key": "PIN_MESSAGES",
+        "value": int(Permission.PIN_MESSAGES),
+        "label": "Закреплять сообщения",
+        "description": "Закреплять и откреплять сообщения в канале.",
+        "group": "text",
+    },
+    {
         "key": "CREATE_INVITE",
         "value": int(Permission.CREATE_INVITE),
         "label": "Создавать приглашения",

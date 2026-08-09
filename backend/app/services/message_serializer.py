@@ -78,6 +78,8 @@ def serialize_channel_message(message, *, include_reply: bool = True) -> dict[st
         "is_edited": message.is_edited,
         "is_deleted": message.is_deleted,
         "reply_to_id": message.reply_to_id,
+        "pinned": bool(getattr(message, "pinned", False)),
+        "pinned_at": _utc_isoformat(getattr(message, "pinned_at", None)),
         "author": serialize_author(message),
         "attachments": serialized_attachments,
         "reactions": [],

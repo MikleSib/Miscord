@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useEffect, useRef, useState } from 'react'
-import { Reply, Smile, Trash2, Edit3, Puzzle } from 'lucide-react'
+import { Reply, Smile, Trash2, Edit3, Pin, PinOff, Puzzle } from 'lucide-react'
 import { Message, User } from '../types'
 import { UserAvatar } from './ui/user-avatar'
 import { Button } from './ui/button'
@@ -17,6 +17,8 @@ import { ManagedMessageAttachments } from './ManagedMessageAttachments'
 import { MessageAttachmentGallery } from './MessageAttachmentGallery'
 import { RichWebhookEmbed } from '../types/webhook'
 import { contentMentionsUser } from '../lib/mentions'
+import { previewMessageText } from '../lib/markdown'
+import { EmojiPickerPopover } from './emoji/EmojiPickerPopover'
 import { useMentionNotificationStore } from '../store/mentionNotificationStore'
 import { cn } from '../lib/utils'
 import { ApplicationMessageComponents } from './ApplicationMessageComponents'
@@ -36,10 +38,10 @@ interface ChatMessageProps {
   replyAuthorColor?: string | null;
   applicationCommands?: MiscordApplicationCommand[];
   onApplicationCommand?: (command: MiscordApplicationCommand, message: Message) => void;
+  isPinned?: boolean;
+  canPin?: boolean;
+  onTogglePin?: (messageId: number, pinned: boolean) => void;
 }
-
-// Список доступных эмодзи для реакций
-const AVAILABLE_EMOJIS = ['😀', '😂', '❤️', '👍', '👎', '😢', '😡', '😮', '🎉', '🔥'];
 
 export function ChatMessage({
   message,
@@ -53,6 +55,9 @@ export function ChatMessage({
   replyAuthorColor,
   applicationCommands = [],
   onApplicationCommand,
+  isPinned = false,
+  canPin = false,
+  onTogglePin,
 }: ChatMessageProps) {
   const [isHovered, setIsHovered] = useState(false)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
@@ -195,6 +200,19 @@ export function ChatMessage({
               <Reply className="w-4 h-4" />
             </Button>
           </Tooltip>
+          {canPin && onTogglePin && !message.is_deleted && (
+            <Tooltip content={isPinned ? 'Открепить' : 'Закрепить'}>
+              <Button
+                size="sm"
+                variant="ghost"
+                className={cn('h-8 px-2', isPinned && 'text-[#f0b232]')}
+                onClick={() => onTogglePin(message.id, !isPinned)}
+                aria-label={isPinned ? 'Открепить сообщение' : 'Закрепить сообщение'}
+              >
+                {isPinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
+              </Button>
+            </Tooltip>
+          )}
           {canEditDelete && (
             <>
               <Tooltip content="Редактировать">
@@ -243,22 +261,12 @@ export function ChatMessage({
         </div>
       )}
 
-      {/* Emoji picker */}
-      {showEmojiPicker && (
-        <div className="absolute top-10 right-2 bg-background border border-border rounded-lg shadow-lg p-2 grid grid-cols-5 gap-1 z-20">
-          {AVAILABLE_EMOJIS.map((emoji) => (
-            <Tooltip key={emoji} content={`Реакция ${emoji}`}>
-              <button
-                className="w-8 h-8 text-lg hover:bg-muted rounded transition-colors"
-                onClick={() => handleReaction(emoji)}
-                aria-label={`Реакция ${emoji}`}
-              >
-                {emoji}
-              </button>
-            </Tooltip>
-          ))}
-        </div>
-      )}
+      <EmojiPickerPopover
+        open={showEmojiPicker}
+        onClose={() => setShowEmojiPicker(false)}
+        onSelect={handleReaction}
+        className="right-2 top-10"
+      />
 
       {/* Avatar */}
       {showAuthor ? (
@@ -298,6 +306,11 @@ export function ChatMessage({
             {message.is_edited && (
               <span className="text-xs text-muted-foreground">(изменено)</span>
             )}
+            {isPinned && (
+              <Tooltip content="Закреплённое сообщение">
+                <Pin className="h-3 w-3 text-[#f0b232]" aria-label="Закреплено" />
+              </Tooltip>
+            )}
           </div>
         )}
 
@@ -310,11 +323,9 @@ export function ChatMessage({
             >
               {message.reply_to.author.username}
             </span>: {
-              message.reply_to.is_deleted 
+              message.reply_to.is_deleted
                 ? 'Сообщение удалено'
-                : message.reply_to.content && message.reply_to.content.length > 50 
-                  ? message.reply_to.content.substring(0, 50) + '...'
-                  : message.reply_to.content || 'Вложение'
+                : previewMessageText(message.reply_to.content) || 'Вложение'
             }
           </div>
         )}

@@ -25,8 +25,23 @@ class Channel(Base):
     owner = relationship("User", back_populates="owned_channels")
     text_channels = relationship("TextChannel", back_populates="channel", cascade="all, delete-orphan")
     voice_channels = relationship("VoiceChannel", back_populates="channel", cascade="all, delete-orphan")
+    categories = relationship("ChannelCategory", back_populates="server", cascade="all, delete-orphan")
     members = relationship("ChannelMember", back_populates="channel", cascade="all, delete-orphan")
     roles = relationship("Role", back_populates="server", cascade="all, delete-orphan")
+
+class ChannelCategory(Base):
+    """Группа каналов внутри сервера (визуальная, права не наследуются)."""
+
+    __tablename__ = "channel_categories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    server_id = Column(Integer, ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, index=True)
+    position = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    server = relationship("Channel", back_populates="categories")
+
 
 class TextChannel(Base):
     __tablename__ = "text_channels"
@@ -34,6 +49,7 @@ class TextChannel(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False)
+    category_id = Column(Integer, ForeignKey("channel_categories.id", ondelete="SET NULL"), nullable=True, index=True)
     position = Column(Integer, default=0)
     slow_mode_seconds = Column(Integer, default=0, nullable=False, server_default="0")
     is_hidden = Column(Boolean, default=False, nullable=False, server_default="false")
@@ -51,6 +67,7 @@ class VoiceChannel(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False)
+    category_id = Column(Integer, ForeignKey("channel_categories.id", ondelete="SET NULL"), nullable=True, index=True)
     position = Column(Integer, default=0)
     # 0 = без лимита (∞)
     max_users = Column(Integer, default=0)
