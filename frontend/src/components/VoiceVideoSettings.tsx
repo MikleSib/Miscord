@@ -404,6 +404,8 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
             {!autoDetectSensitivity && (
               <SensitivitySlider
                 value={vadSensitivity}
+                inputLevel={testLevel}
+                monitoring={isTesting}
                 onChange={(value) =>
                   voiceSettingsController.setVADSensitivity(value)
                 }

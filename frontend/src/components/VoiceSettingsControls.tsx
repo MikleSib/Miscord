@@ -2,6 +2,7 @@ import React from 'react';
 import { ChevronDown } from 'lucide-react';
 import { Slider } from './ui/slider';
 import { Switch } from './ui/switch';
+import { meterLevelToDbfs } from './voiceSensitivityMeter';
 
 interface DeviceSelectProps {
   icon: React.ReactNode;
@@ -79,13 +80,20 @@ export const LabeledSlider: React.FC<LabeledSliderProps> = ({
 interface SensitivitySliderProps {
   value: number;
   onChange: (value: number) => void;
+  inputLevel?: number;
+  monitoring?: boolean;
 }
 
 export const SensitivitySlider: React.FC<SensitivitySliderProps> = ({
   value,
   onChange,
+  inputLevel = 0,
+  monitoring = false,
 }) => {
   const normalized = Math.max(0, Math.min(100, value));
+  const inputDbfs = meterLevelToDbfs(inputLevel);
+  const inputPosition = inputDbfs + 100;
+  const isPassing = inputDbfs >= normalized - 100;
   return (
     <label className="block py-1">
       <span className="mb-3 flex items-center justify-between gap-4 text-sm">
@@ -100,6 +108,22 @@ export const SensitivitySlider: React.FC<SensitivitySliderProps> = ({
             background: `linear-gradient(to right, #f0b232 0 ${normalized}%, #23a55a ${normalized}% 100%)`,
           }}
         />
+        {monitoring && (
+          <>
+            <span
+              aria-hidden="true"
+              className={`absolute left-0 top-1/2 h-1 -translate-y-1/2 rounded-full transition-[width,background-color] duration-75 ${
+                isPassing ? 'bg-[#57f287]' : 'bg-[#ffd166]'
+              }`}
+              style={{ width: `${inputPosition}%` }}
+            />
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute top-1/2 z-10 h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white transition-[left] duration-75"
+              style={{ left: `${inputPosition}%` }}
+            />
+          </>
+        )}
         <input
           type="range"
           min={0}
@@ -120,6 +144,18 @@ export const SensitivitySlider: React.FC<SensitivitySliderProps> = ({
       <span className="mt-2 block text-sm text-[#949ba4]">
         Звук тише порога не слышен другим участникам. Небольшая задержка закрытия сохраняет окончания слов.
       </span>
+      {monitoring && (
+        <span className="mt-2 flex items-center gap-2 text-sm tabular-nums text-[#b5bac1]">
+          <span
+            aria-hidden="true"
+            className={`h-2 w-2 rounded-full ${
+              isPassing ? 'bg-[#57f287]' : 'bg-[#f0b232]'
+            }`}
+          />
+          Текущий голос: {Math.round(inputDbfs)} dBFS ·{' '}
+          {isPassing ? 'передаётся' : 'ниже порога'}
+        </span>
+      )}
     </label>
   );
 };
