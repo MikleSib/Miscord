@@ -91,10 +91,11 @@ describe('Miscord AI live pipeline policy', () => {
     expect(worklet).toContain('const INFERENCE_OVERLOAD_MS = 2.5');
     expect(worklet).toContain('_dfn3_wasm_set_min_db_thresh(-10)');
     expect(worklet).toContain('_dfn3_wasm_set_max_db_erb_thresh(30)');
+    expect(worklet).toContain('_dfn3_wasm_set_atten_lim(UNLIMITED_ATTENUATION_DB)');
     expect(worklet).toContain('_dfn3_wasm_set_post_filter_beta(0)');
     expect(worklet).toContain('_dfn3_wasm_set_hpf(0)');
     expect(worklet).not.toContain('AGC_OUTPUT_COMPRESSION_DB');
-    expect(suppressor).toContain('dfn3-worklet.js?v=2026-08-10-natural-voice');
+    expect(suppressor).toContain('dfn3-worklet.js?v=2026-08-11-attenuation-contract');
     expect(base).toContain('const NEURAL_OUTPUT_MAKEUP = 1;');
     expect(base).toContain('if (this.usesNeuralEngine())');
     expect(base).toContain('if (this.config.autoGainControl)');

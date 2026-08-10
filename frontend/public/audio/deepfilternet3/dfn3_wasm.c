@@ -107,6 +107,8 @@ EXPORT float dfn3_wasm_get_lsnr(void) {
 
 EXPORT void dfn3_wasm_set_atten_lim(float db) {
     if (!g_state) return;
+    /* Public API is in dB: 100 dB = unlimited suppression, 0 dB = passthrough.
+       DFN3State::atten_lim stores the resulting linear dry-mix coefficient. */
     float lim = fabsf(db);
     if (lim >= 100.0f) {
         g_state->atten_lim = 0.0f;  /* no limit */

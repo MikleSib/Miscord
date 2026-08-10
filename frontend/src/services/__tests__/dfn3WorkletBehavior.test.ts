@@ -147,13 +147,15 @@ describe('DeepFilterNet3 AudioWorklet streaming behavior', () => {
     expect(energy).toBeCloseTo(0.64, 5);
   });
 
-  it('uses the natural-speech runtime defaults without a second HPF or WASM AGC', async () => {
+  it('uses unlimited attenuation with natural-speech defaults and no duplicate DSP', async () => {
     const { module } = await createProcessor();
 
     expect(module._dfn3_wasm_set_min_db_thresh).toHaveBeenCalledWith(-10);
     expect(module._dfn3_wasm_set_max_db_erb_thresh).toHaveBeenCalledWith(30);
     expect(module._dfn3_wasm_set_max_db_df_thresh).toHaveBeenCalledWith(20);
-    expect(module._dfn3_wasm_set_atten_lim).toHaveBeenCalledWith(0);
+    // The exported setter accepts dB: 0 dB is passthrough, while 100 dB
+    // disables the attenuation limit and lets the model suppress noise.
+    expect(module._dfn3_wasm_set_atten_lim).toHaveBeenCalledWith(100);
     expect(module._dfn3_wasm_set_post_filter_beta).toHaveBeenCalledWith(0);
     expect(module._dfn3_wasm_set_hpf).toHaveBeenCalledWith(0);
     expect(module._dfn3_wasm_agc_init).not.toHaveBeenCalled();

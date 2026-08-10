@@ -2,6 +2,12 @@
 
 const FRAME_SIZE = 480;
 /**
+ * The WASM setter accepts an attenuation limit in dB, not the internal
+ * linear mix coefficient. 100 dB means unlimited suppression; 0 dB means
+ * full dry passthrough.
+ */
+const UNLIMITED_ATTENUATION_DB = 100;
+/**
  * Запас в два кадра: очередь обработанного звука пополняется пачками по 480,
  * а расходуется по одному сэмплу, поэтому меньший запас периодически пустеет.
  * Обе очереди заполняются тишиной заранее — иначе первые кадры пришлось бы
@@ -157,7 +163,7 @@ class DeepFilterNet3Processor extends AudioWorkletProcessor {
       module._dfn3_wasm_set_min_db_thresh(-10);
       module._dfn3_wasm_set_max_db_erb_thresh(30);
       module._dfn3_wasm_set_max_db_df_thresh(20);
-      module._dfn3_wasm_set_atten_lim(0);
+      module._dfn3_wasm_set_atten_lim(UNLIMITED_ATTENUATION_DB);
       module._dfn3_wasm_set_post_filter_beta(0);
       // Низ уже фильтруется один раз в Web Audio. Встроенный HPF и оба WASM AGC
       // выключены: второй фильтр истончал тембр, а +18 dB поднимали дыхание.
