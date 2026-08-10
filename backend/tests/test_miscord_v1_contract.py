@@ -1,5 +1,6 @@
 import pytest
 from pydantic import ValidationError
+from starlette.routing import Match
 
 from app.core.permissions import (
     Permission,
@@ -141,6 +142,27 @@ def test_split_interaction_routes_retain_required_helpers():
     assert route_globals["_command_context"] is not None
     assert route_globals["_deliver"] is not None
     assert route_globals["_validate_modal_submission"] is not None
+
+
+def test_interaction_webhook_route_precedes_legacy_numeric_message_route():
+    from main import app
+
+    scope = {
+        "type": "http",
+        "http_version": "1.1",
+        "method": "PATCH",
+        "scheme": "https",
+        "path": "/api/v1/webhooks/1440571664852648415/token/messages/@original",
+        "raw_path": b"/api/v1/webhooks/1440571664852648415/token/messages/@original",
+        "query_string": b"",
+        "headers": [],
+        "client": ("127.0.0.1", 12345),
+        "server": ("miscord.test", 443),
+        "root_path": "",
+    }
+    route = next(route for route in app.routes if route.matches(scope)[0] is Match.FULL)
+
+    assert route.endpoint.__module__ == "app.api.miscord_api_webhooks"
 
 
 def test_message_contract_accepts_multipart_attachment_metadata():
