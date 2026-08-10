@@ -286,11 +286,11 @@ export class MediaGateway {
         reply(socket, request);
         return;
       case 'pause_producer':
-        await requireOwnProducer(peer, request.producer_id).pause();
+        await room.setProducerSelfMuted(peer, requireOwnProducer(peer, request.producer_id), true);
         reply(socket, request);
         return;
       case 'resume_producer':
-        await requireOwnProducer(peer, request.producer_id).resume();
+        await room.setProducerSelfMuted(peer, requireOwnProducer(peer, request.producer_id), false);
         reply(socket, request);
         return;
       case 'set_speaking':

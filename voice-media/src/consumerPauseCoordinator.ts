@@ -9,6 +9,7 @@ interface Waiter {
 interface PauseState {
   desiredUser: boolean;
   desiredActivity: boolean;
+  desiredServer: boolean;
   appliedPaused: boolean;
   requestedVersion: number;
   completedVersion: number;
@@ -24,6 +25,7 @@ export class ConsumerPauseCoordinator {
     this.states.set(consumer, {
       desiredUser: Boolean(consumer.appData.userPaused),
       desiredActivity: Boolean(consumer.appData.activityPaused),
+      desiredServer: Boolean(consumer.appData.serverPaused),
       appliedPaused: Boolean(consumer.paused),
       requestedVersion: 0,
       completedVersion: 0,
@@ -45,6 +47,10 @@ export class ConsumerPauseCoordinator {
 
   setActivityPaused(consumer: Consumer, paused: boolean): Promise<void> {
     return this.request(consumer, (state) => { state.desiredActivity = paused; });
+  }
+
+  setServerPaused(consumer: Consumer, paused: boolean): Promise<void> {
+    return this.request(consumer, (state) => { state.desiredServer = paused; });
   }
 
   private request(consumer: Consumer, update: (state: PauseState) => void): Promise<void> {
@@ -74,7 +80,8 @@ export class ConsumerPauseCoordinator {
       const version = state.requestedVersion;
       const desiredUser = state.desiredUser;
       const desiredActivity = state.desiredActivity;
-      const desiredPaused = desiredUser || desiredActivity;
+      const desiredServer = state.desiredServer;
+      const desiredPaused = desiredUser || desiredActivity || desiredServer;
       try {
         if (state.appliedPaused !== desiredPaused) {
           if (desiredPaused) await consumer.pause();
@@ -84,6 +91,7 @@ export class ConsumerPauseCoordinator {
         state.appliedPaused = desiredPaused;
         consumer.appData.userPaused = desiredUser;
         consumer.appData.activityPaused = desiredActivity;
+        consumer.appData.serverPaused = desiredServer;
         this.settle(state, version);
       } catch (error) {
         this.settle(state, version, error);

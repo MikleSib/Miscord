@@ -9,8 +9,11 @@ export interface VoiceParticipant {
   username: string
   is_muted?: boolean
   is_deafened?: boolean
+  server_muted?: boolean
+  server_deafened?: boolean
   avatar_url?: string | null
   display_name?: string
+  is_bot?: boolean
 }
 
 interface VoiceParticipantListProps {

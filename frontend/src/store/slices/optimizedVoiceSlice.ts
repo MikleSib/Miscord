@@ -103,6 +103,9 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
           avatar_url: participant.avatar_url,
           is_muted: participant.is_muted || false,
           is_deafened: participant.is_deafened || false,
+          server_muted: participant.server_muted ?? false,
+          server_deafened: participant.server_deafened ?? false,
+          is_bot: participant.is_bot ?? false,
         });
       });
 
@@ -128,6 +131,9 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
           avatar_url: p.avatar_url,
           is_muted: p.is_muted ?? false,
           is_deafened: p.is_deafened ?? false,
+          server_muted: p.server_muted ?? false,
+          server_deafened: p.server_deafened ?? false,
+          is_bot: p.is_bot ?? false,
         }));
 
         // Добавляем текущего пользователя если его нет в списке
@@ -421,4 +427,27 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
 // Экспортируем как дефолтный для обратной совместимости
 export const useVoiceStore = useOptimizedVoiceStore;
 export default useOptimizedVoiceStore;
+
+unifiedWebSocketService.on('voice_moderation_update', (data: {
+  server_muted?: boolean; server_deafened?: boolean; is_muted?: boolean; is_deafened?: boolean
+}) => {
+  const userId = useAuthStore.getState().user?.id
+  if (!userId) return
+  const state = useOptimizedVoiceStore.getState()
+  const participant = state.participants.find((item) => item.user_id === userId)
+  if (participant) state.updateParticipant({ ...participant, ...data })
+})
+
+unifiedWebSocketService.on('voice_moderation_disconnect', (data: { voice_channel_id?: number }) => {
+  const state = useOptimizedVoiceStore.getState()
+  if (!data.voice_channel_id || state.currentVoiceChannelId === data.voice_channel_id) {
+    state.disconnectFromVoiceChannel()
+  }
+})
+
+unifiedWebSocketService.on('voice_moderation_move', (data: { target_channel_id?: number }) => {
+  if (data.target_channel_id) {
+    void useOptimizedVoiceStore.getState().connectToVoiceChannel(data.target_channel_id)
+  }
+})
 

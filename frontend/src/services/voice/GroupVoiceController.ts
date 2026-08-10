@@ -406,8 +406,8 @@ export class GroupVoiceController {
       this.removeRemoteUser(user_id);
       this.callbacks.participantLeft?.(user_id);
     });
-    unifiedWebSocketService.onUserMuted((data) => this.callbacks.participantStatusChanged?.(data.user_id, { is_muted: data.is_muted }));
-    unifiedWebSocketService.onUserDeafened((data) => this.callbacks.participantStatusChanged?.(data.user_id, { is_deafened: data.is_deafened }));
+    unifiedWebSocketService.onUserMuted((data) => this.callbacks.participantStatusChanged?.(data.user_id, { is_muted: data.is_muted, server_muted: data.server_muted }));
+    unifiedWebSocketService.onUserDeafened((data) => this.callbacks.participantStatusChanged?.(data.user_id, { is_deafened: data.is_deafened, server_deafened: data.server_deafened }));
     unifiedWebSocketService.onUserSpeaking((data) => this.setRemoteSpeaking(data.user_id, data.is_speaking));
     unifiedWebSocketService.onScreenShareStarted((data) => this.updateScreenShareState(data.user_id, true, data));
     unifiedWebSocketService.onScreenShareStopped((data) => {

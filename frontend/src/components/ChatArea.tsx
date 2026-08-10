@@ -29,6 +29,7 @@ import { resetChatComposer, resizeChatComposer } from '../lib/chatComposer'
 import { PendingAttachmentPreview } from './PendingAttachmentPreview'
 import { OutgoingMessageCard } from './OutgoingMessageCard'
 import { useOutgoingMessageStore } from '../store/outgoingMessageStore'
+import { useChatComposerIntentStore } from '../store/chatComposerIntentStore'
 import reactionService from '../services/reactionService'
 import serverService from '../services/serverService'
 import botService from '../services/botService'
@@ -95,6 +96,8 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   }, [currentChannel]);
 
   const [messageInput, setMessageInput] = useState('')
+  const mentionIntent = useChatComposerIntentStore((state) => state.mention)
+  const consumeMentionIntent = useChatComposerIntentStore((state) => state.consumeMention)
   const [showPinnedPanel, setShowPinnedPanel] = useState(false)
   const [files, setFiles] = useState<File[]>([])
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
@@ -145,6 +148,14 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   const programmaticScrollRef = useRef(false)
   /** Чтобы скролл вверх не запросил одну пачку несколько раз подряд */
   const loadingOlderLockRef = useRef(false)
+
+  useEffect(() => {
+    if (!mentionIntent || currentChannel?.type !== 'text' || currentChannel.id !== mentionIntent.channelId) return
+    const token = `<@${mentionIntent.userId}> `
+    setMessageInput((current) => current ? `${current.trimEnd()} ${token}` : token)
+    consumeMentionIntent(mentionIntent.id)
+    window.requestAnimationFrame(() => messageInputRef.current?.focus())
+  }, [mentionIntent, currentChannel?.id, currentChannel?.type, consumeMentionIntent])
 
   const channelIdForMentions =
     currentChannel?.type === 'text' ? currentChannel.id : null
@@ -489,4 +500,3 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     handleReaction, TypingIndicator,
   }} />
 }
-

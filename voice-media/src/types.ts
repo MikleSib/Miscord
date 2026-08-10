@@ -14,6 +14,8 @@ export interface MediaClaims {
   is_bot?: boolean;
   self_mute?: boolean;
   self_deaf?: boolean;
+  server_mute?: boolean;
+  server_deaf?: boolean;
   can_speak?: boolean;
   application_id?: number;
   guild_id?: number;

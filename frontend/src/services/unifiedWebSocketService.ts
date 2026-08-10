@@ -494,11 +494,11 @@ class UnifiedWebSocketService {
     this.on('user_left_voice', handler);
   }
 
-  public onUserMuted(handler: (data: { user_id: number; is_muted: boolean }) => void): void {
+  public onUserMuted(handler: (data: { user_id: number; is_muted: boolean; server_muted?: boolean }) => void): void {
     this.on('user_muted', handler);
   }
 
-  public onUserDeafened(handler: (data: { user_id: number; is_deafened: boolean }) => void): void {
+  public onUserDeafened(handler: (data: { user_id: number; is_deafened: boolean; server_deafened?: boolean }) => void): void {
     this.on('user_deafened', handler);
   }
 
@@ -597,4 +597,3 @@ class UnifiedWebSocketService {
 // Экспорт singleton экземпляра
 export const unifiedWebSocketService = new UnifiedWebSocketService();
 export default unifiedWebSocketService;
-

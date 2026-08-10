@@ -40,6 +40,7 @@ import { useChannelCategoryStore } from '../store/channelCategoryStore'
 import { useChannelCategories } from './channels/useChannelCategories'
 import { ChannelGroupList } from './channels/ChannelGroupList'
 import { VoiceParticipantList } from './channels/VoiceParticipantList'
+import { VoiceParticipantContextMenu } from './voice/VoiceParticipantContextMenu'
 
 export function ChannelSidebarView({ model }: { model: any }) {
   const {
@@ -55,8 +56,8 @@ export function ChannelSidebarView({ model }: { model: any }) {
     toggleCategoryCollapsed, voiceMemberProfileRequestRef, openVoiceMemberProfile, handleVoiceProfileMemberUpdated, loadingChannelsRef, previousVoiceChannelIdRef,
     loadVoiceChannelMembers, handleLogout, handleMuteToggle, handleDeafenToggle, handleDisconnect, handleScreenShareToggle,
     handleViewScreenShare, clearStreamHoverTimer, showStreamHoverPreview, scheduleStreamHoverPreview, hideStreamHoverPreview, keepStreamHoverPreview,
-    isSelectedChannel, handleChannelClick, getChannelParticipants, handleParticipantContextMenu, handleContextMenuClose, handleMuteUser,
-    handleKickUser, handleViewProfile, handleSendMessage, getParticipantVolume, setParticipantVolume, openCreateChannelModal,
+    isSelectedChannel, handleChannelClick, getChannelParticipants, handleParticipantContextMenu, handleContextMenuClose,
+    getParticipantVolume, setParticipantVolume, handleVoiceParticipantUpdated, handleVoiceParticipantRemoved, openCreateChannelModal,
     handleChannelCreated, handleServerHeaderContextMenu, handleServerContextMenuClose, handleServerSettings, handleNotificationSettings, handleChannelSettings,
     handleChannelUpdate, handleChannelDelete, handleCopyServerId, normalizedChannelSearch, textChannels, voiceChannels,
     isSearching, textGroups, voiceGroups, serverId, handleDropOnCategory,
@@ -358,7 +359,7 @@ export function ChannelSidebarView({ model }: { model: any }) {
                       onOpenProfile={(participant, anchorRect) => {
                         void openVoiceMemberProfile(participant, anchorRect)
                       }}
-                      onContextMenu={handleParticipantContextMenu}
+                      onContextMenu={(event, participant) => handleParticipantContextMenu(event, participant, channel.id)}
                       onStreamHoverStart={scheduleStreamHoverPreview}
                       onStreamHoverEnd={hideStreamHoverPreview}
                     />
@@ -406,87 +407,18 @@ export function ChannelSidebarView({ model }: { model: any }) {
         onCreated={handleChannelCreated}
       />
 
-      {/* Контекстное меню для участников голосового канала */}
-      <ContextMenu
-        open={contextMenu !== null}
-        x={contextMenu?.mouseX ?? 0}
-        y={contextMenu?.mouseY ?? 0}
+      <VoiceParticipantContextMenu
+        target={contextMenu}
+        server={currentServer}
+        currentUserId={user?.id}
+        volume={contextMenu ? getParticipantVolume(contextMenu.participant.user_id) : 100}
+        onVolumeChange={setParticipantVolume}
         onClose={handleContextMenuClose}
-      >
-        {contextMenu && (
-          <>
-            <div className="m-2 rounded-panel bg-gray-800 p-3">
-              <div className="flex items-center gap-3">
-                <UserAvatar
-                  user={{
-                    username: contextMenu.participant.username,
-                    display_name: contextMenu.participant.display_name,
-                    avatar_url: contextMenu.participant.avatar_url,
-                  }}
-                  size={32}
-                />
-                <div className="min-w-0">
-                  <p className="truncate text-[15px] font-semibold text-foreground">
-                    {contextMenu.participant.username}
-                  </p>
-                  <p className="text-xs text-text-quiet">
-                    {contextMenu.participant.user_id === user?.id ? 'Это вы' : 'Участник'}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {contextMenu.participant.user_id !== user?.id && (
-              <div className="px-4 pb-3 pt-1">
-                <p className="mb-2 text-xs font-medium text-text-quiet">
-                  Громкость пользователя: {getParticipantVolume(contextMenu.participant.user_id)}%
-                </p>
-                <Slider
-                  value={[getParticipantVolume(contextMenu.participant.user_id)]}
-                  onValueChange={(value) =>
-                    setParticipantVolume(contextMenu.participant.user_id, value[0] ?? 100)
-                  }
-                  min={0}
-                  max={100}
-                  step={5}
-                  aria-label={`Громкость пользователя ${contextMenu.participant.username}`}
-                />
-              </div>
-            )}
-
-            <ContextMenuSeparator />
-
-            {contextMenu.participant.user_id !== user?.id && (
-              <>
-                <ContextMenuItem onClick={handleSendMessage}>
-                  <Hash size={18} className="text-text-quiet" />
-                  Отправить сообщение
-                </ContextMenuItem>
-                <ContextMenuItem onClick={handleViewProfile}>
-                  <UserCheck size={18} className="text-text-quiet" />
-                  Посмотреть профиль
-                </ContextMenuItem>
-                <ContextMenuSeparator />
-                <ContextMenuItem onClick={handleMuteUser} disabled>
-                  <Volume1 size={18} className="text-text-quiet" />
-                  Заглушить пользователя
-                </ContextMenuItem>
-                <ContextMenuItem onClick={handleKickUser} disabled danger>
-                  <UserX size={18} />
-                  Исключить из канала
-                </ContextMenuItem>
-              </>
-            )}
-
-            {contextMenu.participant.user_id === user?.id && (
-              <ContextMenuItem onClick={handleViewProfile}>
-                <UserCheck size={18} className="text-text-quiet" />
-                Мой профиль
-              </ContextMenuItem>
-            )}
-          </>
-        )}
-      </ContextMenu>
+        onOpenProfile={(participant, anchorRect) => void openVoiceMemberProfile(participant, anchorRect)}
+        onParticipantUpdated={handleVoiceParticipantUpdated}
+        onParticipantRemoved={handleVoiceParticipantRemoved}
+        onMemberUpdated={handleVoiceProfileMemberUpdated}
+      />
 
       {/* Контекстное меню для заголовка сервера */}
       <ContextMenu

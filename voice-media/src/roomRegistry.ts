@@ -39,6 +39,16 @@ export class RoomRegistry {
     return this.rooms.size;
   }
 
+  async moderateSession(
+    sessionId: string,
+    command: { server_muted?: boolean; server_deafened?: boolean; disconnect?: boolean },
+  ): Promise<boolean> {
+    for (const room of this.rooms.values()) {
+      if (await room.moderatePeer(sessionId, command)) return true;
+    }
+    return false;
+  }
+
   close(): void {
     if (this.closed) return;
     this.closed = true;

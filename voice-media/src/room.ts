@@ -27,6 +27,9 @@ export interface Peer {
   producers: Map<string, Producer>;
   consumers: Map<string, Consumer>;
   sourceProducers: Map<MediaSource, string>;
+  selfMuted: boolean;
+  serverMuted: boolean;
+  serverDeafened: boolean;
 }
 
 function notify(socket: WebSocket, type: string, data: Record<string, unknown>): void {
@@ -138,6 +141,9 @@ export class Room extends EventEmitter {
       producers: new Map(),
       consumers: new Map(),
       sourceProducers: new Map(),
+      selfMuted: Boolean(claims.self_mute),
+      serverMuted: Boolean(claims.server_mute),
+      serverDeafened: Boolean(claims.server_deaf),
     };
     this.peers.set(claims.session_id, peer);
     metrics.peers.inc();
@@ -252,6 +258,7 @@ export class Room extends EventEmitter {
     try {
       if (source === 'microphone') {
         await this.audioObserver.addProducer({ producerId: producer.id });
+        if (peer.selfMuted || peer.serverMuted) await producer.pause();
         await this.activityRefresh.request(false);
       }
       if (
@@ -307,6 +314,7 @@ export class Room extends EventEmitter {
     }
     consumer.appData.userPaused = false;
     consumer.appData.activityPaused = false;
+    consumer.appData.serverPaused = peer.serverDeafened && consumer.kind === 'audio';
     this.consumerPauses.register(consumer);
     const source = producer.appData.source;
     const activityPaused = source === 'microphone'
@@ -330,10 +338,51 @@ export class Room extends EventEmitter {
     if (activityPaused) {
       void this.setConsumerActivityPaused(consumer, true).catch(() => this.scheduleActivityRetry());
     }
+    if (peer.serverDeafened && consumer.kind === 'audio') {
+      void this.consumerPauses.setServerPaused(consumer, true).catch(() => undefined);
+    }
   }
 
   async setConsumerUserPaused(consumer: Consumer, paused: boolean): Promise<void> {
     await this.consumerPauses.setUserPaused(consumer, paused);
+  }
+
+  async setProducerSelfMuted(peer: Peer, producer: Producer, muted: boolean): Promise<void> {
+    peer.selfMuted = muted;
+    if (muted || peer.serverMuted) await producer.pause();
+    else await producer.resume();
+  }
+
+  async moderatePeer(
+    sessionId: string,
+    command: { server_muted?: boolean; server_deafened?: boolean; disconnect?: boolean },
+  ): Promise<boolean> {
+    const peer = this.peers.get(sessionId);
+    if (!peer) return false;
+    if (typeof command.server_muted === 'boolean') {
+      peer.serverMuted = command.server_muted;
+      const microphoneId = peer.sourceProducers.get('microphone');
+      const microphone = microphoneId ? peer.producers.get(microphoneId) : undefined;
+      if (microphone) {
+        if (peer.serverMuted || peer.selfMuted) await microphone.pause();
+        else await microphone.resume();
+      }
+    }
+    if (typeof command.server_deafened === 'boolean') {
+      peer.serverDeafened = command.server_deafened;
+      await Promise.all([...peer.consumers.values()]
+        .filter((consumer) => consumer.kind === 'audio')
+        .map((consumer) => this.consumerPauses.setServerPaused(consumer, peer.serverDeafened)));
+    }
+    notify(peer.socket, 'moderation_state', {
+      server_muted: peer.serverMuted,
+      server_deafened: peer.serverDeafened,
+    });
+    if (command.disconnect) {
+      try { peer.socket.close(4014, 'Disconnected by moderator'); } catch { /* already closed */ }
+      this.removePeer(sessionId, peer);
+    }
+    return true;
   }
 
   async setExternalProducerSpeaking(producerId: string, speaking: boolean): Promise<void> {

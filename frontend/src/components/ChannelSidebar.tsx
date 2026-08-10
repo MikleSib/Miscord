@@ -63,6 +63,7 @@ export function ChannelSidebar() {
     toggleMute,
     toggleDeafen,
     speakingUsers,
+    updateParticipant,
     isConnecting,
     setError
   } = useVoiceStore()
@@ -81,6 +82,7 @@ export function ChannelSidebar() {
   const [contextMenu, setContextMenu] = useState<{
     mouseX: number;
     mouseY: number;
+    voiceChannelId: number;
     participant: any;
   } | null>(null);
 
@@ -261,6 +263,9 @@ export function ChannelSidebar() {
         avatar_url: member.avatar_url,
         is_muted: Boolean(member.is_muted),
         is_deafened: Boolean(member.is_deafened),
+        server_muted: Boolean(member.server_muted),
+        server_deafened: Boolean(member.server_deafened),
+        is_bot: Boolean(member.is_bot),
       };
     };
 
@@ -290,6 +295,9 @@ export function ChannelSidebar() {
         avatar_url: participant.avatar_url,
         is_muted: Boolean(participant.is_muted),
         is_deafened: Boolean(participant.is_deafened),
+        server_muted: Boolean(participant.server_muted),
+        server_deafened: Boolean(participant.server_deafened),
+        is_bot: Boolean(participant.is_bot),
       });
     }
 
@@ -301,6 +309,9 @@ export function ChannelSidebar() {
         avatar_url: user.avatar_url,
         is_muted: false,
         is_deafened: false,
+        server_muted: false,
+        server_deafened: false,
+        is_bot: false,
       });
     } else if (user && byId.has(user.id)) {
       // Свои mute/deafen — из актуального voice store
@@ -326,7 +337,7 @@ export function ChannelSidebar() {
   }
 
   // Обработка правого клика по участнику
-  const handleParticipantContextMenu = (event: React.MouseEvent, participant: any) => {
+  const handleParticipantContextMenu = (event: React.MouseEvent, participant: any, voiceChannelId: number) => {
     event.preventDefault();
     event.stopPropagation();
 
@@ -337,8 +348,9 @@ export function ChannelSidebar() {
       [participant.user_id]: currentVolumes[participant.user_id] ?? normalizedVolume,
     }))
     setContextMenu({
-      mouseX: event.clientX,
-      mouseY: event.clientY,
+      mouseX: event.clientX || event.currentTarget.getBoundingClientRect().right,
+      mouseY: event.clientY || event.currentTarget.getBoundingClientRect().top,
+      voiceChannelId,
       participant: participant,
     });
   };
@@ -346,29 +358,6 @@ export function ChannelSidebar() {
   // Закрытие контекстного меню
   const handleContextMenuClose = () => {
     setContextMenu(null);
-  };
-
-  // Действия контекстного меню
-  const handleMuteUser = () => {
-
-    // TODO: Реализовать заглушение пользователя
-    handleContextMenuClose();
-  };
-
-  const handleKickUser = () => {
-    // TODO: Реализовать исключение пользователя
-    handleContextMenuClose();
-  };
-
-  const handleViewProfile = () => {
-    // TODO: Реализовать просмотр профиля
-    handleContextMenuClose();
-  };
-
-  const handleSendMessage = () => {
-    console.log('Отправить сообщение:', contextMenu?.participant.username);
-    // TODO: Реализовать отправку личного сообщения
-    handleContextMenuClose();
   };
 
   // Получение громкости участника (по умолчанию 100%)
@@ -382,6 +371,30 @@ export function ChannelSidebar() {
       [userId]: normalizedVolume,
     }))
     optimizedVoiceService.setParticipantVolume(userId, normalizedVolume)
+  }
+
+  const handleVoiceParticipantUpdated = (channelId: number, participant: any) => {
+    setVoiceChannelMembers((current) => ({
+      ...current,
+      [channelId]: (current[channelId] || []).map((item) =>
+        (item.id ?? item.user_id) === participant.user_id ? { ...item, ...participant } : item
+      ),
+    }))
+    if (channelId === currentVoiceChannelId) {
+      const current = participants.find((item) => item.user_id === participant.user_id)
+      if (current) updateParticipant({ ...current, ...participant })
+    }
+    setContextMenu((current) => {
+      if (!current || current.participant.user_id !== participant.user_id) return current
+      return { ...current, participant: { ...current.participant, ...participant } }
+    })
+  }
+
+  const handleVoiceParticipantRemoved = (channelId: number, userId: number) => {
+    setVoiceChannelMembers((current) => ({
+      ...current,
+      [channelId]: (current[channelId] || []).filter((item) => (item.id ?? item.user_id) !== userId),
+    }))
   }
   const openCreateChannelModal = (type: 'text' | 'voice') => {
     setCreateChannelInitialType(type)
@@ -531,8 +544,8 @@ export function ChannelSidebar() {
     toggleCategoryCollapsed, voiceMemberProfileRequestRef, openVoiceMemberProfile, handleVoiceProfileMemberUpdated, loadingChannelsRef, previousVoiceChannelIdRef,
     loadVoiceChannelMembers, handleLogout, handleMuteToggle, handleDeafenToggle, handleDisconnect, handleScreenShareToggle,
     handleViewScreenShare, clearStreamHoverTimer, showStreamHoverPreview, scheduleStreamHoverPreview, hideStreamHoverPreview, keepStreamHoverPreview,
-    isSelectedChannel, handleChannelClick, getChannelParticipants, handleParticipantContextMenu, handleContextMenuClose, handleMuteUser,
-    handleKickUser, handleViewProfile, handleSendMessage, getParticipantVolume, setParticipantVolume, openCreateChannelModal,
+    isSelectedChannel, handleChannelClick, getChannelParticipants, handleParticipantContextMenu, handleContextMenuClose,
+    getParticipantVolume, setParticipantVolume, handleVoiceParticipantUpdated, handleVoiceParticipantRemoved, openCreateChannelModal,
     handleChannelCreated, handleServerHeaderContextMenu, handleServerContextMenuClose, handleServerSettings, handleNotificationSettings, handleChannelSettings,
     handleChannelUpdate, handleChannelDelete, handleCopyServerId, normalizedChannelSearch, textChannels, voiceChannels,
     isSearching, textGroups, voiceGroups, serverId, handleDropOnCategory,

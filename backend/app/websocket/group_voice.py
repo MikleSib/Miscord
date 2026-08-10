@@ -95,6 +95,8 @@ def public_participant(payload: dict[str, Any]) -> dict[str, Any]:
         "avatar_url": payload.get("avatar_url"),
         "is_muted": bool(payload.get("is_muted")),
         "is_deafened": bool(payload.get("is_deafened")),
+        "server_muted": bool(payload.get("server_muted")),
+        "server_deafened": bool(payload.get("server_deafened")),
         "is_sharing_screen": bool(payload.get("is_sharing_screen")),
         "is_bot": bool(payload.get("is_bot")),
         "connection_id": payload.get("session_id"),
@@ -187,6 +189,10 @@ async def join_voice(
         "avatar_url": user.avatar_url,
         "is_muted": is_muted,
         "is_deafened": is_deafened,
+        "self_muted": is_muted,
+        "self_deafened": is_deafened,
+        "server_muted": False,
+        "server_deafened": False,
         "is_sharing_screen": False,
         "is_bot": False,
     }
@@ -206,6 +212,8 @@ async def join_voice(
         avatar_url=user.avatar_url,
         self_mute=is_muted,
         self_deaf=is_deafened,
+        server_mute=False,
+        server_deaf=False,
     )
     await websocket.send_text(json.dumps({
         "type": "voice_joined",
@@ -314,21 +322,33 @@ async def update_voice_state(
     connection = local_connections.get(channel_id, {}).get(user.id)
     if connection:
         connection[field] = value
-    if session_id:
+    effective_value = value
+    presence = await voice_presence.get_for_user(user.id) if session_id else None
+    if field == "is_muted" and presence:
+        effective_value = value or bool(presence.get("server_muted", False))
+        await voice_presence.update(session_id, self_muted=value, is_muted=effective_value)
+    elif field == "is_deafened" and presence:
+        effective_value = value or bool(presence.get("server_deafened", False))
+        await voice_presence.update(session_id, self_deafened=value, is_deafened=effective_value)
+    elif session_id:
         await voice_presence.update(session_id, **{field: value})
     if field in {"is_muted", "is_deafened"}:
         row = await db.scalar(select(VoiceChannelUser).where(
             and_(VoiceChannelUser.voice_channel_id == channel_id, VoiceChannelUser.user_id == user.id)
         ))
         if row:
-            setattr(row, field, value)
+            setattr(row, field, effective_value)
             await db.commit()
     event = {
         "is_muted": "user_muted",
         "is_deafened": "user_deafened",
         "is_sharing_screen": "screen_share_started" if value else "screen_share_stopped",
     }[field]
-    payload: dict[str, Any] = {"type": event, "user_id": user.id, field: value}
+    payload: dict[str, Any] = {"type": event, "user_id": user.id, field: effective_value}
+    if presence and field == "is_muted":
+        payload["server_muted"] = bool(presence.get("server_muted", False))
+    if presence and field == "is_deafened":
+        payload["server_deafened"] = bool(presence.get("server_deafened", False))
     if field == "is_sharing_screen":
         payload["username"] = user.display_name or user.username
         payload["voice_channel_id"] = channel_id
@@ -378,8 +398,10 @@ async def refresh_ticket(
         username=user.display_name or user.username,
         display_name=user.display_name,
         avatar_url=user.avatar_url,
-        self_mute=bool(presence.get("is_muted")),
-        self_deaf=bool(presence.get("is_deafened")),
+        self_mute=bool(presence.get("self_muted", presence.get("is_muted", False))),
+        self_deaf=bool(presence.get("self_deafened", presence.get("is_deafened", False))),
+        server_mute=bool(presence.get("server_muted", False)),
+        server_deaf=bool(presence.get("server_deafened", False)),
     )
     await websocket.send_text(json.dumps({
         "type": "voice_media_ticket_refresh",

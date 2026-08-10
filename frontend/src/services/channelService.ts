@@ -108,6 +108,35 @@ class ChannelService {
     return response.data;
   }
 
+  async moderateVoiceMember(
+    voiceChannelId: number,
+    userId: number,
+    data: { server_muted?: boolean; server_deafened?: boolean },
+  ): Promise<User> {
+    const response = await api.patch<User>(
+      `/api/v1/channels/voice/${voiceChannelId}/members/${userId}`,
+      data,
+    );
+    return response.data;
+  }
+
+  async getMyVoiceChannelPermissions(voiceChannelId: number): Promise<number> {
+    const response = await api.get<{ permissions: number }>(
+      `/api/v1/channels/voice/${voiceChannelId}/permissions/@me`,
+    );
+    return response.data.permissions;
+  }
+
+  async moveVoiceMember(voiceChannelId: number, userId: number, targetChannelId: number): Promise<void> {
+    await api.post(`/api/v1/channels/voice/${voiceChannelId}/members/${userId}/move`, {
+      target_channel_id: targetChannelId,
+    });
+  }
+
+  async disconnectVoiceMember(voiceChannelId: number, userId: number): Promise<void> {
+    await api.delete(`/api/v1/channels/voice/${voiceChannelId}/members/${userId}`);
+  }
+
   async getFullServerData(): Promise<FullServerData> {
     const response = await api.get<FullServerData>('/api/v1/channels/full');
     return response.data;

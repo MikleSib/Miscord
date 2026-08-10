@@ -67,8 +67,10 @@ async def get_voice_channel_members(
     # Демонстрация экрана живёт только в Redis-presence, в БД её нет.
     # Без неё клиент, открывший страницу после начала стрима, не покажет «В эфире».
     sharing_user_ids: set[int] = set()
+    presence_by_user: dict[int, dict] = {}
     try:
         for presence in await voice_presence.participants(voice_channel_id):
+            presence_by_user[int(presence["user_id"])] = presence
             if presence.get("is_sharing_screen"):
                 sharing_user_ids.add(int(presence["user_id"]))
     except Exception:
@@ -82,11 +84,14 @@ async def get_voice_channel_members(
             "display_name": user.display_name,
             "is_active": user.is_active,
             "is_online": user.is_online,
+            "is_bot": bool(user.is_bot),
             "avatar_url": user.avatar_url,
             "created_at": user.created_at,
             "updated_at": user.updated_at,
             "is_muted": voice_user.is_muted,
             "is_deafened": voice_user.is_deafened,
+            "server_muted": bool(presence_by_user.get(user.id, {}).get("server_muted", False)),
+            "server_deafened": bool(presence_by_user.get(user.id, {}).get("server_deafened", False)),
             "is_sharing_screen": user.id in sharing_user_ids,
         }
         for voice_user, user in voice_members

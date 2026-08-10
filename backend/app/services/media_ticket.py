@@ -38,6 +38,8 @@ def create_media_ticket(
     guild_id: int | None = None,
     self_mute: bool = False,
     self_deaf: bool = False,
+    server_mute: bool = False,
+    server_deaf: bool = False,
     can_speak: bool = True,
 ) -> tuple[str, str]:
     now = datetime.now(timezone.utc)
@@ -61,6 +63,8 @@ def create_media_ticket(
         "is_bot": is_bot,
         "self_mute": self_mute,
         "self_deaf": self_deaf,
+        "server_mute": server_mute,
+        "server_deaf": server_deaf,
         "can_speak": can_speak,
     }
     if application_id is not None:

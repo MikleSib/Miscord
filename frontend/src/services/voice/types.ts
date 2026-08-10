@@ -7,6 +7,8 @@ export interface VoiceParticipant {
   avatar_url?: string;
   is_muted?: boolean;
   is_deafened?: boolean;
+  server_muted?: boolean;
+  server_deafened?: boolean;
   is_sharing_screen?: boolean;
   is_bot?: boolean;
 }

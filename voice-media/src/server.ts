@@ -11,6 +11,7 @@ import { workerPool } from './workerPool.js';
 
 let shuttingDown = false;
 const revokeSubscriber = ticketVerifier.redis.duplicate();
+const moderationSubscriber = ticketVerifier.redis.duplicate();
 
 const server = http.createServer(async (request, response) => {
   const url = new URL(request.url ?? '/', 'http://voice-media.local');
@@ -45,6 +46,21 @@ async function start(): Promise<void> {
   await revokeSubscriber.connect();
   await revokeSubscriber.subscribe('voice:v1:bot:revoke');
   revokeSubscriber.on('message', (_channel, sessionId) => botVoiceGateway.revoke(sessionId));
+  await moderationSubscriber.connect();
+  await moderationSubscriber.subscribe('voice:v1:human:moderate');
+  moderationSubscriber.on('message', (_channel, raw) => {
+    try {
+      const command = JSON.parse(raw) as {
+        session_id?: string;
+        server_muted?: boolean;
+        server_deafened?: boolean;
+        disconnect?: boolean;
+      };
+      if (command.session_id) void rooms.moderateSession(command.session_id, command).catch(() => undefined);
+    } catch {
+      // Invalid internal pub/sub payloads are ignored and never reach a room.
+    }
+  });
   await workerPool.start();
   await udpEdge.start();
   await new Promise<void>((resolve) => server.listen(config.httpPort, config.listenIp, resolve));
@@ -68,6 +84,7 @@ async function shutdown(signal: string): Promise<void> {
   await workerPool.close();
   await ticketVerifier.close();
   await revokeSubscriber.quit();
+  await moderationSubscriber.quit();
   process.exit(0);
 }
 
