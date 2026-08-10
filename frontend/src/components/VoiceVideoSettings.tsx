@@ -28,6 +28,7 @@ import {
   DeviceSelect,
   Divider,
   LabeledSlider,
+  SensitivitySlider,
   SettingSwitch,
 } from './VoiceSettingsControls';
 import {
@@ -508,7 +509,7 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
           <span>
             <span className="block font-semibold">Определение голосовой активности</span>
             <span className="text-sm text-[#949ba4]">
-              Определяет, когда вы говорите, для индикатора активности и выбора голосов в канале. Обработанный звук передаётся непрерывно, чтобы не обрезать начало слов.
+              Передаёт голос только после срабатывания порога. Короткая задержка закрытия сохраняет окончания слов.
             </span>
           </span>
         </label>
@@ -540,8 +541,7 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
               }
             />
             {!autoDetectSensitivity && (
-              <LabeledSlider
-                label={`Чувствительность · ${vadSensitivity - 100} dBFS`}
+              <SensitivitySlider
                 value={vadSensitivity}
                 onChange={(value) =>
                   voiceSettingsController.setVADSensitivity(value)

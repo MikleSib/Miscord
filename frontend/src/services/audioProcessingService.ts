@@ -236,11 +236,13 @@ export class AudioProcessingService extends AudioProcessingServiceBase {
     };
   }
 
-  updateVADThresholds(sensitivity: number): void {
+  updateVADThresholds(sensitivity: number, automatic = false): void {
     const normalized = Math.max(0, Math.min(100, sensitivity)) / 100;
-    this.config.speechProbabilityThreshold = 0.1 + 0.8 * normalized;
-    if (this.micVAD && this.destinationNode) {
-      void this.reinitializeVAD(this.destinationNode.stream);
+    this.config.speechProbabilityThreshold = automatic
+      ? 0.35
+      : 0.1 + 0.8 * normalized;
+    if (this.micVAD && this.analysisDestinationNode) {
+      void this.reinitializeVAD(this.analysisDestinationNode.stream);
     }
   }
 
@@ -363,14 +365,13 @@ export class AudioProcessingService extends AudioProcessingServiceBase {
     }
   }
 
-  analyzeVolume(stream: MediaStream): void {
+  public analyzeVolume(stream: MediaStream): void {
     if (!this.audioContext) return;
     if (this.volumeAnimationFrame !== null) cancelAnimationFrame(this.volumeAnimationFrame);
     this.analyserSource?.disconnect();
     this.analyser?.disconnect();
-    const analysisStream = this.destinationNode?.stream ?? stream;
     this.analyser = this.audioContext.createAnalyser();
-    this.analyserSource = this.audioContext.createMediaStreamSource(analysisStream);
+    this.analyserSource = this.audioContext.createMediaStreamSource(stream);
     this.analyser.fftSize = 256;
     this.analyser.smoothingTimeConstant = 0.72;
     this.analyserSource.connect(this.analyser);
@@ -386,8 +387,10 @@ export class AudioProcessingService extends AudioProcessingServiceBase {
         const sample = (value - 128) / 128;
         sumSquares += sample * sample;
       }
-      this.currentVolume = Math.min(100, Math.sqrt(sumSquares / data.length) * 220);
+      const rms = Math.sqrt(sumSquares / data.length);
+      this.currentVolume = Math.min(100, rms * 220);
       this.onVolumeChange?.(this.currentVolume / 100);
+      this.onInputLevel?.(20 * Math.log10(Math.max(rms, 0.000001)));
       if (!this.config.vadEnabled && !this.muted) {
         if (this.currentVolume > 8) {
           speechFrames += 1;
@@ -426,9 +429,13 @@ export class AudioProcessingService extends AudioProcessingServiceBase {
     this.onVolumeChange = callback;
   }
 
+  setOnInputLevel(callback: (dbfs: number) => void): void {
+    this.onInputLevel = callback;
+  }
+
   async refreshSpeakingDetection(): Promise<void> {
-    if (this.config.vadEnabled && this.destinationNode?.stream) {
-      await this.reinitializeVAD(this.destinationNode.stream);
+    if (this.config.vadEnabled && this.analysisDestinationNode?.stream) {
+      await this.reinitializeVAD(this.analysisDestinationNode.stream);
     }
   }
 
@@ -485,12 +492,14 @@ export class AudioProcessingService extends AudioProcessingServiceBase {
       this.highPassNode, this.dryGainNode, this.wetGainNode, this.compressorNode,
       this.makeupGainNode, this.muteGainNode, this.aiNode,
       this.deepFilterNet3Node, this.destinationNode,
+      this.analysisDestinationNode,
     ];
     const frame = this.volumeAnimationFrame;
 
     this.audioContext = null;
     this.sourceNode = null;
     this.destinationNode = null;
+    this.analysisDestinationNode = null;
     this.inputGainNode = null;
     this.highPassNode = null;
     this.dryGainNode = null;

@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   destroyHook: null as (() => Promise<void>) | null,
   speechStart: null as (() => void) | null,
   speechEnd: null as (() => void) | null,
+  inputLevel: null as ((dbfs: number) => void) | null,
   transports: [] as any[],
   events: [] as string[],
   setInputDeviceId: vi.fn(),
@@ -17,6 +18,7 @@ vi.mock('../../audioProcessingService', () => ({
   audioProcessingService: {
     setOnSpeechStart: vi.fn((callback) => { mocks.speechStart = callback; }),
     setOnSpeechEnd: vi.fn((callback) => { mocks.speechEnd = callback; }),
+    setOnInputLevel: vi.fn((callback) => { mocks.inputLevel = callback; }),
     initialize: mocks.initialize,
     destroy: mocks.destroy,
     setInputVolume: vi.fn(),
@@ -66,7 +68,6 @@ vi.mock('../sfuTransport', () => ({
     constructor() { mocks.transports.push(this); }
   },
 }));
-
 vi.mock('../../../store/store', () => ({ useAuthStore: { getState: () => ({ user: null }) } }));
 vi.mock('../../../store/audioDeviceStore', () => ({
   useAudioDeviceStore: { getState: () => ({ setOutputVolume: vi.fn(), setInputDeviceId: mocks.setInputDeviceId }) },
@@ -81,7 +82,6 @@ vi.mock('../../../lib/screenShareQuality', () => ({
 vi.mock('../../../lib/screenShareVideo', () => ({ SCREEN_SHARE_VIDEO_POOL_ID: 'pool' }));
 vi.mock('../screenShareEvents', () => ({ dispatchScreenShareState: vi.fn() }));
 vi.mock('../screenShareSounds', () => ({ playScreenShareSound: vi.fn() }));
-
 import { GroupVoiceController } from '../GroupVoiceController';
 function stream(label: string, deviceId?: string): MediaStream {
   const track = {
@@ -443,7 +443,7 @@ describe('GroupVoiceController lifecycle', () => {
     const switching = controller.switchInputDevice('mic-settings');
     await vi.waitFor(() => expect(mocks.capture).toHaveBeenCalledTimes(2));
     controller.setInputMode('push-to-talk');
-    controller.setVADSensitivity(73);
+    controller.setAutoDetectSensitivity(false); controller.setVADSensitivity(73);
     await controller.setMuted(true);
     await controller.setMuted(false);
     capture.resolve(raw);

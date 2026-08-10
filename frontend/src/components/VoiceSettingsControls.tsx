@@ -76,6 +76,54 @@ export const LabeledSlider: React.FC<LabeledSliderProps> = ({
   </label>
 );
 
+interface SensitivitySliderProps {
+  value: number;
+  onChange: (value: number) => void;
+}
+
+export const SensitivitySlider: React.FC<SensitivitySliderProps> = ({
+  value,
+  onChange,
+}) => {
+  const normalized = Math.max(0, Math.min(100, value));
+  return (
+    <label className="block py-1">
+      <span className="mb-3 flex items-center justify-between gap-4 text-sm">
+        <span className="font-semibold text-[#dbdee1]">Порог передачи</span>
+        <span className="tabular-nums text-[#b5bac1]">{normalized - 100} dBFS</span>
+      </span>
+      <span className="group relative block h-6">
+        <span
+          aria-hidden="true"
+          className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full"
+          style={{
+            background: `linear-gradient(to right, #f0b232 0 ${normalized}%, #23a55a ${normalized}% 100%)`,
+          }}
+        />
+        <input
+          type="range"
+          min={0}
+          max={100}
+          step={1}
+          value={normalized}
+          onChange={(event) => onChange(Number(event.currentTarget.value))}
+          aria-label="Порог передачи микрофона"
+          aria-valuetext={`${normalized - 100} децибел относительно полной шкалы`}
+          className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+        />
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_1px_4px_rgba(0,0,0,0.55)] transition-transform group-focus-within:scale-125"
+          style={{ left: `${normalized}%` }}
+        />
+      </span>
+      <span className="mt-2 block text-sm text-[#949ba4]">
+        Звук тише порога не слышен другим участникам. Небольшая задержка закрытия сохраняет окончания слов.
+      </span>
+    </label>
+  );
+};
+
 interface SettingSwitchProps {
   title: string;
   description: string;
@@ -94,7 +142,7 @@ export const SettingSwitch: React.FC<SettingSwitchProps> = ({
       <p className="font-semibold text-[#dbdee1]">{title}</p>
       <p className="text-sm text-[#949ba4]">{description}</p>
     </div>
-    <Switch checked={checked} onCheckedChange={onChange} />
+    <Switch checked={checked} onCheckedChange={onChange} aria-label={title} />
   </div>
 );
 

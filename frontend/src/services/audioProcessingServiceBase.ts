@@ -38,6 +38,7 @@ export abstract class AudioProcessingServiceBase {
   protected audioContext: AudioContext | null = null;
   protected sourceNode: MediaStreamAudioSourceNode | null = null;
   protected destinationNode: MediaStreamAudioDestinationNode | null = null;
+  protected analysisDestinationNode: MediaStreamAudioDestinationNode | null = null;
   protected inputGainNode: GainNode | null = null;
   protected highPassNode: BiquadFilterNode | null = null;
   protected dryGainNode: GainNode | null = null;
@@ -62,6 +63,7 @@ export abstract class AudioProcessingServiceBase {
   protected onSpeechStart?: () => void;
   protected onSpeechEnd?: () => void;
   protected onVolumeChange?: (volume: number) => void;
+  protected onInputLevel?: (dbfs: number) => void;
 
   constructor(options: AudioProcessingServiceOptions = {}) {
     this.publishRuntimeStatus = options.publishRuntimeStatus ?? true;
@@ -82,6 +84,7 @@ export abstract class AudioProcessingServiceBase {
     pipelineGeneration?: number,
     lifecycleGeneration?: number,
   ): Promise<void>;
+  protected abstract analyzeVolume(stream: MediaStream): void;
   protected abstract setRuntimeStatus(
     status: NoiseSuppressionRuntimeStatus,
     message: string | null,
@@ -170,9 +173,11 @@ export abstract class AudioProcessingServiceBase {
         !this.destinationNode
       ) return stream;
       const processedStream = this.destinationNode.stream;
+      const analysisStream = this.analysisDestinationNode?.stream ?? processedStream;
+      this.analyzeVolume(analysisStream);
       if (this.config.vadEnabled) {
         await this.initializeVAD(
-          processedStream,
+          analysisStream,
           generation,
           lifecycleRequest,
         );
@@ -202,7 +207,9 @@ export abstract class AudioProcessingServiceBase {
     this.audioContext = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
     this.sourceNode = this.audioContext.createMediaStreamSource(stream);
     this.destinationNode = this.audioContext.createMediaStreamDestination();
+    this.analysisDestinationNode = this.audioContext.createMediaStreamDestination();
     configureMonoDestination(this.destinationNode);
+    configureMonoDestination(this.analysisDestinationNode);
     this.inputGainNode = this.audioContext.createGain();
     this.highPassNode = this.audioContext.createBiquadFilter();
     this.dryGainNode = this.audioContext.createGain();
@@ -277,6 +284,7 @@ export abstract class AudioProcessingServiceBase {
       !this.sourceNode || !this.inputGainNode || !this.highPassNode ||
       !this.dryGainNode || !this.wetGainNode || !this.compressorNode ||
       !this.makeupGainNode || !this.muteGainNode || !this.destinationNode
+      || !this.analysisDestinationNode
     ) throw new Error('Audio graph nodes are incomplete');
 
     this.sourceNode.connect(this.inputGainNode);
@@ -285,6 +293,7 @@ export abstract class AudioProcessingServiceBase {
     this.dryGainNode.connect(this.compressorNode);
     this.wetGainNode.connect(this.compressorNode);
     this.compressorNode.connect(this.makeupGainNode);
+    this.makeupGainNode.connect(this.analysisDestinationNode);
     this.makeupGainNode.connect(this.muteGainNode);
     this.muteGainNode.connect(this.destinationNode);
   }

@@ -14,6 +14,7 @@ import { GroupVoiceMonitor } from './groupVoiceMonitor';
 import { GroupVoiceOutputSwitch } from './groupVoiceOutputSwitch';
 import { attachScreenMedia, GroupVoiceScreenLifecycle, removeScreenMedia, type StartScreenShareOptions } from './groupVoiceScreen';
 import { buildGroupVoiceProcessingConfig } from './groupVoiceProcessing';
+import { GroupVoiceActivityGate } from './groupVoiceActivityGate';
 import { SfuTransport } from './sfuTransport';
 import type { RemoteMedia, VoiceCallbacks, VoiceJoinedPayload, VoiceParticipant } from './types';
 import { VoiceLifecycle, type AssertCurrentVoiceLifecycle } from './voiceLifecycle';
@@ -49,6 +50,7 @@ export class GroupVoiceController {
   private readonly lifecycle = new VoiceLifecycle();
   private readonly outputSwitch = new GroupVoiceOutputSwitch();
   private readonly screenLifecycle = new GroupVoiceScreenLifecycle();
+  private readonly activityGate = new GroupVoiceActivityGate(() => { void this.applyTransmitGate(); });
   constructor() {
     this.bindGatewayEvents();
     if (typeof window !== 'undefined') {
@@ -101,8 +103,8 @@ export class GroupVoiceController {
       assertCurrent();
 
       this.transport = this.createTransport();
-      const initiallyGated = this.isTransmitGated();
-      audioProcessingService.setMuted(this.monitor.active ? false : initiallyGated);
+      const initiallyGated = this.isTransportGated();
+      audioProcessingService.setMuted(this.monitor.active ? false : this.isTransmitGated());
       await this.transport.setMicrophoneMuted(initiallyGated);
       await this.transport.setDeafened(this.isDeafened);
       await this.transport.connect(
@@ -131,6 +133,7 @@ export class GroupVoiceController {
   private async prepareMicrophone(assertCurrent: AssertCurrentVoiceLifecycle) {
     audioProcessingService.setOnSpeechStart(() => this.setLocalSpeaking(true));
     audioProcessingService.setOnSpeechEnd(() => this.setLocalSpeaking(false));
+    audioProcessingService.setOnInputLevel((dbfs) => this.activityGate.updateInputLevel(dbfs));
     const input = await prepareGroupVoiceInput({
       getSettings: () => ({ ...this.settings, inputDeviceId: this.inputState.desiredDeviceId }),
       getRevision: () => this.inputState.revision,
@@ -160,7 +163,6 @@ export class GroupVoiceController {
       () => { this.settings = { ...this.settings, inputDeviceId: this.inputState.appliedDeviceId }; },
     );
   }
-
   leaveVoiceChannel(): Promise<void> {
     this.joinWaiter.reject(new Error('Подключение отменено.'));
     this.preemptOwnedMedia();
@@ -169,7 +171,6 @@ export class GroupVoiceController {
     this.settings = { ...this.settings, inputDeviceId: this.inputState.appliedDeviceId };
     return this.lifecycle.cancelAndRun(() => this.leaveVoiceChannelNow(true));
   }
-
   private async leaveVoiceChannelNow(resetState: boolean): Promise<void> {
     const channelId = this.currentChannelId;
     if (channelId !== null) unifiedWebSocketService.leaveVoiceChannel(channelId);
@@ -179,23 +180,19 @@ export class GroupVoiceController {
     this.speakingUsers.clear();
     if (resetState) { this.isMuted = false; this.isDeafened = false; }
   }
-
   async setMuted(muted: boolean): Promise<void> {
     this.isMuted = muted;
     audioProcessingService.setMuted(muted);
     if (this.currentChannelId !== null) unifiedWebSocketService.updateMuteStatus(this.currentChannelId, muted);
     await this.applyTransmitGate();
   }
-
   async setDeafened(deafened: boolean): Promise<void> {
     this.isDeafened = deafened;
     await this.transport?.setDeafened(deafened);
     if (this.currentChannelId !== null) unifiedWebSocketService.updateDeafenStatus(this.currentChannelId, deafened);
   }
-
   toggleMute(): void { void this.setMuted(!this.isMuted); }
   toggleDeafen(): void { void this.setDeafened(!this.isDeafened); }
-
   async switchInputDevice(deviceId: string): Promise<void> {
     const revision = this.inputState.request(deviceId);
     if (this.inputState.joining) return this.inputState.waitFor(revision);
@@ -229,7 +226,6 @@ export class GroupVoiceController {
     });
     this.inputState.resolve(revision);
   }
-
   async setOutputDevice(deviceId: string): Promise<void> {
     this.settings = { ...this.settings, outputDeviceId: deviceId };
     this.outputDeviceWarning = null;
@@ -248,12 +244,10 @@ export class GroupVoiceController {
       if (key.startsWith(`${userId}:`)) element.volume = volume * this.settings.outputVolume / 100;
     }
   }
-
   setInputVolume(value: number): void {
     this.settings = { ...this.settings, inputVolume: value };
     audioProcessingService.setInputVolume(value);
   }
-
   setOutputVolume(value: number): void {
     this.settings = { ...this.settings, outputVolume: value };
     useAudioDeviceStore.getState().setOutputVolume(value);
@@ -262,19 +256,20 @@ export class GroupVoiceController {
       element.volume = (this.participantVolumes.get(userId) ?? 1) * clamp(value / 100);
     }
   }
-
   setInputMode(mode: 'voice-activity' | 'push-to-talk'): void {
     this.settings = { ...this.settings, inputMode: mode };
+    this.configureActivityGate();
     void this.applyTransmitGate();
   }
-
   setVADSensitivity(value: number): void {
     this.settings = { ...this.settings, vadSensitivity: value };
-    audioProcessingService.updateVADThresholds(value);
+    this.configureActivityGate();
+    audioProcessingService.updateVADThresholds(value, this.settings.autoDetectSensitivity);
   }
-
   setAutoDetectSensitivity(enabled: boolean): void {
     this.settings = { ...this.settings, autoDetectSensitivity: enabled };
+    this.configureActivityGate();
+    audioProcessingService.updateVADThresholds(this.settings.vadSensitivity, enabled);
   }
 
   setPTTKey(key: string): void { this.settings = { ...this.settings, pttKey: key }; }
@@ -287,7 +282,7 @@ export class GroupVoiceController {
     audioProcessingService.updateConfig(buildGroupVoiceProcessingConfig(this.settings));
     this.setInputVolume(settings.inputVolume);
     this.setOutputVolume(settings.outputVolume);
-    audioProcessingService.updateVADThresholds(settings.vadSensitivity);
+    audioProcessingService.updateVADThresholds(settings.vadSensitivity, settings.autoDetectSensitivity);
     if (deviceChanged) await this.switchInputDevice(settings.inputDeviceId);
     await this.setOutputDevice(settings.outputDeviceId);
     await this.applyTransmitGate();
@@ -374,7 +369,7 @@ export class GroupVoiceController {
       unsupportedConstraints: this.outputDeviceWarning ? [...diagnostics.unsupportedConstraints, 'setSinkId'] : diagnostics.unsupportedConstraints,
       outputDeviceWarning: this.outputDeviceWarning,
       vadThresholdDbfs: sensitivityToDbfs(this.settings.vadSensitivity),
-      transmitGateOpen: !this.isMuted && (this.settings.inputMode !== 'push-to-talk' || this.pttActive),
+      transmitGateOpen: !this.isTransmitGated(),
     };
   }
 
@@ -436,11 +431,13 @@ export class GroupVoiceController {
 
   private applyRuntimeSettings(settings: VoiceSettingsSnapshot): void {
     this.settings = settings;
-    audioProcessingService.updateVADThresholds(settings.vadSensitivity);
+    this.configureActivityGate();
+    audioProcessingService.updateVADThresholds(settings.vadSensitivity, settings.autoDetectSensitivity);
   }
 
   private setLocalSpeaking(speaking: boolean): void {
     this.isSpeaking = speaking;
+    this.activityGate.updateNeuralSpeech(speaking);
     if (this.currentChannelId !== null) unifiedWebSocketService.updateSpeakingStatus(this.currentChannelId, speaking);
     this.sendLocalSpeakingHint();
     this.callbacks.speakingChanged?.(null, speaking);
@@ -489,10 +486,12 @@ export class GroupVoiceController {
     const gated = this.isTransmitGated();
     audioProcessingService.setMuted(this.monitor.active ? false : gated);
     this.sendLocalSpeakingHint();
-    await this.transport?.setMicrophoneMuted(gated);
+    await this.transport?.setMicrophoneMuted(this.isTransportGated());
   }
 
-  private isTransmitGated(): boolean { return this.isMuted || this.monitor.active || (this.settings.inputMode === 'push-to-talk' && !this.pttActive); }
+  private isTransportGated(): boolean { return this.isMuted || this.monitor.active || (this.settings.inputMode === 'push-to-talk' && !this.pttActive); }
+  private isTransmitGated(): boolean { return this.isTransportGated() || (this.settings.inputMode === 'voice-activity' && !this.activityGate.isOpen()); }
+  private configureActivityGate(): void { this.activityGate.configure({ automatic: this.settings.autoDetectSensitivity, sensitivity: this.settings.vadSensitivity }); }
 
   private handlePttDown = (event: KeyboardEvent): void => {
     if (this.settings.inputMode !== 'push-to-talk' || event.repeat || event.code !== this.settings.pttKey) return;
@@ -556,6 +555,7 @@ export class GroupVoiceController {
     this.joinWaiter.reject(new Error('Подключение отменено.'));
     this.detachActiveTransport();
     if (this.isSpeaking) { this.isSpeaking = false; this.callbacks.speakingChanged?.(null, false); }
+    this.activityGate.reset();
     this.rawInputStream?.getTracks().forEach((track) => track.stop());
     this.rawInputStream = null;
     this.localStream = null;

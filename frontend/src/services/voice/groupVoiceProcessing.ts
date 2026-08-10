@@ -11,6 +11,8 @@ export function buildGroupVoiceProcessingConfig(settings: VoiceSettingsSnapshot)
     useAdvancedNoiseSuppression:
       settings.processing.noiseSuppression &&
       settings.processing.noiseSuppressionEngine !== 'browser',
-    speechProbabilityThreshold: Math.min(0.9, Math.max(0.1, settings.vadSensitivity / 100)),
+    speechProbabilityThreshold: settings.autoDetectSensitivity
+      ? 0.35
+      : Math.min(0.9, Math.max(0.1, settings.vadSensitivity / 100)),
   };
 }
