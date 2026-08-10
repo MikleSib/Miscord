@@ -13,7 +13,7 @@ from sqlalchemy import delete, text, update
 
 from app.core.config import settings
 from app.db.database import engine
-from app.api import auth, channels, channel_categories, channel_permissions, community_forums, community_notifications, community_polls, community_templates, community_threads, message_pins, message_search, servers, uploads, reactions, friends, direct_messages, embeds, webhooks, attachment_files, bot_apps, bot_platform, bot_client, bot_oauth, miscord_api, miscord_gateway, miscord_interactions
+from app.api import auth, channels, channel_categories, channel_permissions, community_forums, community_imports, community_notifications, community_polls, community_templates, community_threads, message_pins, message_search, servers, uploads, reactions, friends, direct_messages, embeds, webhooks, attachment_files, bot_apps, bot_platform, bot_client, bot_oauth, miscord_api, miscord_gateway, miscord_interactions
 from app.core.miscord_errors import MiscordAPIError
 from app.services.webhook_rate_limit import Bucket, consume, rate_headers
 from app.websocket.connection_manager import manager
@@ -222,6 +222,7 @@ app.include_router(community_forums.router, prefix="/api/v1/channels", tags=["fo
 app.include_router(community_polls.router, prefix="/api/v1", tags=["polls"])
 app.include_router(community_notifications.router, prefix="/api/v1", tags=["notifications"])
 app.include_router(community_templates.router, prefix="/api/v1", tags=["server-templates"])
+app.include_router(community_imports.router, prefix="/api/v1", tags=["server-imports"])
 app.include_router(channel_permissions.router, prefix="/api/v1/channels", tags=["channel-permissions"])
 app.include_router(message_pins.router, prefix="/api/v1/channels", tags=["message-pins"])
 app.include_router(message_search.router, prefix="/api/v1/channels", tags=["message-search"])

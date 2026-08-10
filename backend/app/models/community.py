@@ -158,6 +158,38 @@ class ServerTemplate(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
 
+class ExternalServerImport(Base):
+    __tablename__ = "external_server_imports"
+
+    id = Column(String(36), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    provider = Column(String(24), nullable=False, server_default="discord")
+    source_kind = Column(String(16), nullable=False)
+    external_server_id = Column(String(32), nullable=True, index=True)
+    status = Column(String(24), nullable=False, server_default="pending")
+    display_name = Column(String(100), nullable=True)
+    definition = Column(JSONB, nullable=True)
+    warnings = Column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    oauth_state_hash = Column(String(64), nullable=True, unique=True)
+    oauth_access_token = Column(Text, nullable=True)
+    oauth_refresh_token = Column(Text, nullable=True)
+    oauth_expires_at = Column(DateTime(timezone=True), nullable=True)
+    created_server_id = Column(Integer, ForeignKey("channels.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+
+    __table_args__ = (
+        CheckConstraint("provider IN ('discord')", name="ck_external_import_provider"),
+        CheckConstraint("source_kind IN ('template', 'oauth')", name="ck_external_import_source_kind"),
+        CheckConstraint(
+            "status IN ('pending', 'awaiting_oauth', 'awaiting_bot', 'scanning', 'ready', 'creating', 'completed', 'failed', 'cancelled')",
+            name="ck_external_import_status",
+        ),
+        Index("ix_external_import_owner_status", "user_id", "status", "created_at"),
+    )
+
+
 class OutboxEvent(Base):
     __tablename__ = "outbox_events"
 

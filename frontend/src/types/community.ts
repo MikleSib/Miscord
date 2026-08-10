@@ -108,3 +108,32 @@ export interface ServerTemplatePreview extends ServerTemplateSummary {
   }>
   roles: Array<{ key: string; name: string; color?: string | null; position: number }>
 }
+
+export type ServerImportStatus =
+  | 'pending' | 'awaiting_oauth' | 'awaiting_bot' | 'scanning'
+  | 'ready' | 'creating' | 'completed' | 'failed' | 'cancelled'
+
+export interface ServerImport {
+  id: string
+  provider: 'discord'
+  source_kind: 'template' | 'oauth'
+  external_server_id: string | null
+  status: ServerImportStatus
+  name: string | null
+  warnings: string[]
+  created_server_id: number | null
+  expires_at: string
+  bot_install_url?: string
+  preview: null | {
+    roles: Array<{ key: string; name: string; color?: string | null; position: number }>
+    categories: Array<{ key: string; name: string; position: number }>
+    channels: Array<{
+      key: string
+      type: 'text' | 'voice' | 'forum'
+      name: string
+      category_key?: string | null
+      position: number
+    }>
+    overwrite_count: number
+  }
+}

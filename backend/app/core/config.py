@@ -34,8 +34,17 @@ class Settings(BaseSettings):
     POLLS_ENABLED: bool = False
     INBOX_ENABLED: bool = False
     SERVER_TEMPLATES_ENABLED: bool = False
+    SERVER_IMPORTS_ENABLED: bool = True
     OUTBOX_POLL_INTERVAL_SECONDS: float = 0.25
     OUTBOX_BATCH_SIZE: int = 100
+
+    # External server import. Public template imports work without OAuth.
+    # ID-based imports require a dedicated provider application and bot.
+    DISCORD_IMPORT_CLIENT_ID: str = ""
+    DISCORD_IMPORT_CLIENT_SECRET: str = ""
+    DISCORD_IMPORT_BOT_TOKEN: str = ""
+    EXTERNAL_IMPORT_ENCRYPTION_KEY: str = ""
+    EXTERNAL_IMPORT_TTL_HOURS: int = 24
 
     # Incoming webhooks
     WEBHOOKS_ENABLED: bool = True
@@ -105,6 +114,15 @@ class Settings(BaseSettings):
             raise RuntimeError("WEBHOOK_TOKEN_ENCRYPTION_KEY is required when webhooks are enabled in production.")
         if self.BOT_PLATFORM_ENABLED and env in {"production", "prod"} and not self.BOT_SECRET_ENCRYPTION_KEY:
             raise RuntimeError("BOT_SECRET_ENCRYPTION_KEY is required when the bot platform is enabled in production.")
+        import_oauth_values = (
+            self.DISCORD_IMPORT_CLIENT_ID,
+            self.DISCORD_IMPORT_CLIENT_SECRET,
+            self.DISCORD_IMPORT_BOT_TOKEN,
+        )
+        if any(import_oauth_values) and not all(import_oauth_values):
+            raise RuntimeError("All DISCORD_IMPORT_* OAuth settings must be configured together.")
+        if all(import_oauth_values) and env in {"production", "prod"} and not self.EXTERNAL_IMPORT_ENCRYPTION_KEY:
+            raise RuntimeError("EXTERNAL_IMPORT_ENCRYPTION_KEY is required for ID-based imports in production.")
         if env in {"production", "prod"} and not self.VOICE_MEDIA_JWT_SECRET:
             raise RuntimeError("VOICE_MEDIA_JWT_SECRET is required for Miscord Voice v1 in production.")
         if self.S3_ENABLED:

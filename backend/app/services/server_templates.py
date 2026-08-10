@@ -140,7 +140,7 @@ async def snapshot_server(db: AsyncSession, server: Channel) -> dict[str, Any]:
 def _validate_definition(definition: dict[str, Any]) -> None:
     if not isinstance(definition, dict):
         raise HTTPException(status_code=400, detail="Шаблон повреждён")
-    limits = {"roles": 100, "categories": 50, "channels": 100, "overwrites": 1000}
+    limits = {"roles": 250, "categories": 100, "channels": 500, "overwrites": 10000}
     for key, limit in limits.items():
         value = definition.get(key, [])
         if not isinstance(value, list) or len(value) > limit:
