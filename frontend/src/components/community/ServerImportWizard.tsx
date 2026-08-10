@@ -103,7 +103,7 @@ export function ServerImportWizard({ onBack, onCreated }: {
       </div>
       <label htmlFor="external-server-source" className="mt-6 block text-xs font-bold uppercase tracking-wide text-text-quiet">{mode === 'template' ? 'Официальная ссылка-шаблон или код' : 'ID исходного сервера'}</label>
       <div className="mt-2 flex gap-2">
-        <input id="external-server-source" value={source} onChange={(event) => setSource(event.target.value)} placeholder={mode === 'template' ? 'https://discord.new/…' : '823212361677537281'} className="h-11 min-w-0 flex-1 rounded-md bg-canvas-deep px-3 outline-none focus:ring-2 focus:ring-primary" />
+        <input id="external-server-source" value={source} onChange={(event) => setSource(event.target.value)} placeholder={mode === 'template' ? 'https://…/template-code' : '823212361677537281'} className="h-11 min-w-0 flex-1 rounded-md bg-canvas-deep px-3 outline-none focus:ring-2 focus:ring-primary" />
         <button type="button" onClick={() => void preview()} disabled={loading || !source.trim()} className="inline-flex h-11 items-center justify-center rounded-md bg-primary px-5 text-sm font-semibold text-white disabled:opacity-50">{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Продолжить'}</button>
       </div>
       <p className="mt-3 text-xs leading-5 text-text-quiet">ID используется только как адрес. Для защиты от копирования чужих закрытых серверов владелец должен подтвердить доступ.</p>

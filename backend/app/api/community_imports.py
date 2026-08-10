@@ -15,7 +15,7 @@ from app.core.dependencies import get_current_active_user
 from app.db.database import get_db
 from app.models import ExternalServerImport, User
 from app.schemas.server_import import CreateImportedServerRequest, OAuthImportRequest, TemplateImportRequest
-from app.services.discord_import_client import (
+from app.services.external_source_client import (
     bot_install_url,
     exchange_oauth_code,
     extract_template_code,
@@ -26,7 +26,7 @@ from app.services.discord_import_client import (
     oauth_authorize_url,
     oauth_configured,
 )
-from app.services.discord_import_normalizer import normalize_discord_guild, template_source
+from app.services.external_source_normalizer import normalize_source_guild, template_source
 from app.services.external_import_security import state_hash
 from app.services.server_imports import import_payload, locked_owned_import, new_import, owned_import, utcnow
 from app.services.server_templates import instantiate_template
@@ -40,7 +40,7 @@ def _require_feature() -> None:
 
 
 def _redirect_uri() -> str:
-    return f"{settings.SERVER_HOST.rstrip('/')}/api/v1/server-imports/discord/oauth/callback"
+    return f"{settings.SERVER_HOST.rstrip('/')}/api/v1/server-imports/external/oauth/callback"
 
 
 def _install_url(item: ExternalServerImport) -> str | None:
@@ -49,7 +49,7 @@ def _install_url(item: ExternalServerImport) -> str | None:
     return None
 
 
-@router.post("/server-imports/discord/template", status_code=201)
+@router.post("/server-imports/external/template", status_code=201)
 async def preview_public_template(
     request: TemplateImportRequest,
     user: User = Depends(get_current_active_user),
@@ -62,7 +62,7 @@ async def preview_public_template(
         source, external_id, name = template_source(source_payload)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Официальный шаблон не содержит структуру сервера") from exc
-    definition, warnings = normalize_discord_guild(source)
+    definition, warnings = normalize_source_guild(source)
     item = new_import(user_id=user.id, source_kind="template", external_server_id=external_id)
     item.status = "ready"
     item.display_name = name
@@ -74,7 +74,7 @@ async def preview_public_template(
     return import_payload(item)
 
 
-@router.post("/server-imports/discord/oauth/start", status_code=201)
+@router.post("/server-imports/external/oauth/start", status_code=201)
 async def start_oauth_import(
     request: OAuthImportRequest,
     user: User = Depends(get_current_active_user),
@@ -97,7 +97,7 @@ async def start_oauth_import(
     }
 
 
-@router.get("/server-imports/discord/oauth/callback", response_class=HTMLResponse)
+@router.get("/server-imports/external/oauth/callback", response_class=HTMLResponse)
 async def oauth_callback(
     code: str = Query(min_length=2, max_length=2048),
     state: str = Query(min_length=16, max_length=256),
@@ -158,7 +158,7 @@ async def scan_import(
     await db.commit()
     try:
         snapshot = await fetch_guild_snapshot(item.external_server_id)
-        definition, warnings = normalize_discord_guild(snapshot)
+        definition, warnings = normalize_source_guild(snapshot)
         if not await leave_import_guild(item.external_server_id):
             warnings.append("Временного импортера не удалось удалить автоматически — удалите его в настройках исходного сервера")
         item.status = "ready"

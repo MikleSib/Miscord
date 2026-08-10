@@ -7,14 +7,14 @@ from unittest.mock import AsyncMock
 
 from app.api import community_imports
 from app.schemas.server_import import OAuthImportRequest, TemplateImportRequest
-from app.services.discord_import_client import extract_template_code
-from app.services.discord_import_normalizer import normalize_discord_guild, template_source
+from app.services.external_source_client import PRIMARY_HOST, TEMPLATE_HOST, extract_template_code
+from app.services.external_source_normalizer import normalize_source_guild, template_source
 
 
 def test_template_code_accepts_only_official_hosts() -> None:
     assert extract_template_code("abc_123") == "abc_123"
-    assert extract_template_code("https://discord.new/abc_123") == "abc_123"
-    assert extract_template_code("https://discord.com/template/abc_123?x=1") == "abc_123"
+    assert extract_template_code(f"https://{TEMPLATE_HOST}/abc_123") == "abc_123"
+    assert extract_template_code(f"https://{PRIMARY_HOST}/template/abc_123?x=1") == "abc_123"
     with pytest.raises(HTTPException):
         extract_template_code("https://attacker.invalid/template/abc_123")
 
@@ -57,7 +57,7 @@ def test_normalizer_maps_structure_and_materializes_category_permissions() -> No
             },
         ],
     }
-    definition, warnings = normalize_discord_guild(source)
+    definition, warnings = normalize_source_guild(source)
     assert [role["name"] for role in definition["roles"]] == ["@everyone", "Mods"]
     assert definition["roles"][1]["color"] == "#23a55a"
     assert definition["categories"] == [{"key": "category:10", "name": "Private", "position": 0}]
@@ -75,7 +75,7 @@ def test_external_import_routes_are_v1_only() -> None:
     from main import app
 
     paths = {route.path for route in app.routes}
-    assert "/api/v1/server-imports/discord/template" in paths
+    assert "/api/v1/server-imports/external/template" in paths
     assert not any(path.startswith("/api/v10/server-imports") for path in paths)
 
 

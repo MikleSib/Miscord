@@ -115,7 +115,7 @@ export type ServerImportStatus =
 
 export interface ServerImport {
   id: string
-  provider: 'discord'
+  provider: 'community_source'
   source_kind: 'template' | 'oauth'
   external_server_id: string | null
   status: ServerImportStatus

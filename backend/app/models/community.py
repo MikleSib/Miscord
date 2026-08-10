@@ -163,7 +163,7 @@ class ExternalServerImport(Base):
 
     id = Column(String(36), primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    provider = Column(String(24), nullable=False, server_default="discord")
+    provider = Column(String(24), nullable=False, server_default="community_source")
     source_kind = Column(String(16), nullable=False)
     external_server_id = Column(String(32), nullable=True, index=True)
     status = Column(String(24), nullable=False, server_default="pending")
@@ -180,7 +180,7 @@ class ExternalServerImport(Base):
     expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
 
     __table_args__ = (
-        CheckConstraint("provider IN ('discord')", name="ck_external_import_provider"),
+        CheckConstraint("provider IN ('community_source')", name="ck_external_import_provider"),
         CheckConstraint("source_kind IN ('template', 'oauth')", name="ck_external_import_source_kind"),
         CheckConstraint(
             "status IN ('pending', 'awaiting_oauth', 'awaiting_bot', 'scanning', 'ready', 'creating', 'completed', 'failed', 'cancelled')",

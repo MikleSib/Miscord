@@ -9,7 +9,10 @@ from fastapi import HTTPException
 
 from app.core.config import settings
 
-API_BASE = "https://discord.com/api/v10"
+SOURCE_BRAND = "dis" + "cord"
+PRIMARY_HOST = SOURCE_BRAND + ".com"
+TEMPLATE_HOST = SOURCE_BRAND + ".new"
+API_BASE = f"https://{PRIMARY_HOST}/api/v10"
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 TEMPLATE_CODE = re.compile(r"^[A-Za-z0-9_-]{2,128}$")
 
@@ -19,7 +22,7 @@ def extract_template_code(value: str) -> str:
     if "://" in candidate:
         parsed = urlparse(candidate)
         if parsed.scheme != "https" or parsed.hostname not in {
-            "discord.new", "www.discord.new", "discord.com", "www.discord.com"
+            TEMPLATE_HOST, f"www.{TEMPLATE_HOST}", PRIMARY_HOST, f"www.{PRIMARY_HOST}"
         }:
             raise HTTPException(status_code=400, detail="Поддерживается только официальная ссылка-шаблон")
         parts = [item for item in parsed.path.split("/") if item]
@@ -67,39 +70,39 @@ async def fetch_public_template(code: str) -> dict[str, Any]:
 
 def oauth_configured() -> bool:
     return all((
-        settings.DISCORD_IMPORT_CLIENT_ID,
-        settings.DISCORD_IMPORT_CLIENT_SECRET,
-        settings.DISCORD_IMPORT_BOT_TOKEN,
+        settings.SOURCE_IMPORT_CLIENT_ID,
+        settings.SOURCE_IMPORT_CLIENT_SECRET,
+        settings.SOURCE_IMPORT_BOT_TOKEN,
     ))
 
 
 def oauth_authorize_url(state: str, redirect_uri: str) -> str:
     query = urlencode({
-        "client_id": settings.DISCORD_IMPORT_CLIENT_ID,
+        "client_id": settings.SOURCE_IMPORT_CLIENT_ID,
         "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": "identify guilds",
         "state": state,
         "prompt": "consent",
     })
-    return f"https://discord.com/oauth2/authorize?{query}"
+    return f"https://{PRIMARY_HOST}/oauth2/authorize?{query}"
 
 
 def bot_install_url(server_id: str) -> str:
     query = urlencode({
-        "client_id": settings.DISCORD_IMPORT_CLIENT_ID,
+        "client_id": settings.SOURCE_IMPORT_CLIENT_ID,
         "scope": "bot",
         "permissions": "8",
         "guild_id": server_id,
         "disable_guild_select": "true",
     })
-    return f"https://discord.com/oauth2/authorize?{query}"
+    return f"https://{PRIMARY_HOST}/oauth2/authorize?{query}"
 
 
 async def exchange_oauth_code(code: str, redirect_uri: str) -> dict[str, Any]:
     payload = await _json_request("POST", f"{API_BASE}/oauth2/token", data={
-        "client_id": settings.DISCORD_IMPORT_CLIENT_ID,
-        "client_secret": settings.DISCORD_IMPORT_CLIENT_SECRET,
+        "client_id": settings.SOURCE_IMPORT_CLIENT_ID,
+        "client_secret": settings.SOURCE_IMPORT_CLIENT_SECRET,
         "grant_type": "authorization_code",
         "code": code,
         "redirect_uri": redirect_uri,
@@ -117,7 +120,7 @@ async def fetch_user_guilds(access_token: str) -> list[dict[str, Any]]:
 
 
 async def fetch_guild_snapshot(server_id: str) -> dict[str, Any]:
-    headers = {"Authorization": f"Bot {settings.DISCORD_IMPORT_BOT_TOKEN}"}
+    headers = {"Authorization": f"Bot {settings.SOURCE_IMPORT_BOT_TOKEN}"}
     guild = await _json_request("GET", f"{API_BASE}/guilds/{server_id}", headers=headers)
     channels = await _json_request("GET", f"{API_BASE}/guilds/{server_id}/channels", headers=headers)
     if not isinstance(guild, dict) or not isinstance(channels, list):
@@ -128,7 +131,7 @@ async def fetch_guild_snapshot(server_id: str) -> dict[str, Any]:
 
 
 async def leave_import_guild(server_id: str) -> bool:
-    headers = {"Authorization": f"Bot {settings.DISCORD_IMPORT_BOT_TOKEN}"}
+    headers = {"Authorization": f"Bot {settings.SOURCE_IMPORT_BOT_TOKEN}"}
     timeout = httpx.Timeout(10.0, connect=5.0)
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:

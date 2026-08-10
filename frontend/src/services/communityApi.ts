@@ -79,9 +79,9 @@ export const communityApi = {
   deleteServerTemplate: async (id: string) => api.delete(`/api/v1/server-templates/${encodeURIComponent(id)}`),
 
   previewExternalTemplate: async (template: string) =>
-    (await api.post<ServerImport>('/api/v1/server-imports/discord/template', { template })).data,
+    (await api.post<ServerImport>('/api/v1/server-imports/external/template', { template })).data,
   startExternalServerOAuth: async (serverId: string) =>
-    (await api.post<{ id: string; status: string; authorize_url: string; expires_at: string }>('/api/v1/server-imports/discord/oauth/start', { server_id: serverId })).data,
+    (await api.post<{ id: string; status: string; authorize_url: string; expires_at: string }>('/api/v1/server-imports/external/oauth/start', { server_id: serverId })).data,
   getServerImport: async (id: string) =>
     (await api.get<ServerImport>(`/api/v1/server-imports/${encodeURIComponent(id)}`)).data,
   scanServerImport: async (id: string) =>

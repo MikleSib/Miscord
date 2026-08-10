@@ -15,7 +15,7 @@ def upgrade() -> None:
         CREATE TABLE IF NOT EXISTS external_server_imports (
             id VARCHAR(36) PRIMARY KEY,
             user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            provider VARCHAR(24) NOT NULL DEFAULT 'discord',
+            provider VARCHAR(24) NOT NULL DEFAULT 'community_source',
             source_kind VARCHAR(16) NOT NULL,
             external_server_id VARCHAR(32),
             status VARCHAR(24) NOT NULL DEFAULT 'pending',
@@ -30,7 +30,7 @@ def upgrade() -> None:
             created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             expires_at TIMESTAMPTZ NOT NULL,
-            CONSTRAINT ck_external_import_provider CHECK (provider IN ('discord')),
+            CONSTRAINT ck_external_import_provider CHECK (provider IN ('community_source')),
             CONSTRAINT ck_external_import_source_kind CHECK (source_kind IN ('template', 'oauth')),
             CONSTRAINT ck_external_import_status CHECK (
                 status IN ('pending', 'awaiting_oauth', 'awaiting_bot', 'scanning', 'ready', 'creating', 'completed', 'failed', 'cancelled')

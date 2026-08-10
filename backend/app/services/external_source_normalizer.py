@@ -113,7 +113,7 @@ def _forum_settings(item: dict[str, Any], warnings: list[str]) -> dict[str, Any]
     }
 
 
-def normalize_discord_guild(source: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+def normalize_source_guild(source: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
     warnings: list[str] = []
     roles, role_keys = _normalize_roles(source, warnings)
     raw_channels = [item for item in source.get("channels", []) if isinstance(item, dict)]

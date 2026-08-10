@@ -20,7 +20,7 @@ def new_import(*, user_id: int, source_kind: str, external_server_id: str | None
     return ExternalServerImport(
         id=str(uuid4()),
         user_id=user_id,
-        provider="discord",
+        provider="community_source",
         source_kind=source_kind,
         external_server_id=external_server_id,
         status="pending",

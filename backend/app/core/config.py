@@ -40,9 +40,9 @@ class Settings(BaseSettings):
 
     # External server import. Public template imports work without OAuth.
     # ID-based imports require a dedicated provider application and bot.
-    DISCORD_IMPORT_CLIENT_ID: str = ""
-    DISCORD_IMPORT_CLIENT_SECRET: str = ""
-    DISCORD_IMPORT_BOT_TOKEN: str = ""
+    SOURCE_IMPORT_CLIENT_ID: str = ""
+    SOURCE_IMPORT_CLIENT_SECRET: str = ""
+    SOURCE_IMPORT_BOT_TOKEN: str = ""
     EXTERNAL_IMPORT_ENCRYPTION_KEY: str = ""
     EXTERNAL_IMPORT_TTL_HOURS: int = 24
 
@@ -115,12 +115,12 @@ class Settings(BaseSettings):
         if self.BOT_PLATFORM_ENABLED and env in {"production", "prod"} and not self.BOT_SECRET_ENCRYPTION_KEY:
             raise RuntimeError("BOT_SECRET_ENCRYPTION_KEY is required when the bot platform is enabled in production.")
         import_oauth_values = (
-            self.DISCORD_IMPORT_CLIENT_ID,
-            self.DISCORD_IMPORT_CLIENT_SECRET,
-            self.DISCORD_IMPORT_BOT_TOKEN,
+            self.SOURCE_IMPORT_CLIENT_ID,
+            self.SOURCE_IMPORT_CLIENT_SECRET,
+            self.SOURCE_IMPORT_BOT_TOKEN,
         )
         if any(import_oauth_values) and not all(import_oauth_values):
-            raise RuntimeError("All DISCORD_IMPORT_* OAuth settings must be configured together.")
+            raise RuntimeError("All SOURCE_IMPORT_* OAuth settings must be configured together.")
         if all(import_oauth_values) and env in {"production", "prod"} and not self.EXTERNAL_IMPORT_ENCRYPTION_KEY:
             raise RuntimeError("EXTERNAL_IMPORT_ENCRYPTION_KEY is required for ID-based imports in production.")
         if env in {"production", "prod"} and not self.VOICE_MEDIA_JWT_SECRET:
