@@ -1,6 +1,7 @@
 """Routes extracted mechanically from bot_client.py; keep below 600 lines."""
 
 from .bot_client_shared import *  # noqa: F401,F403
+from .bot_client_commands import _command_context, _deliver, _validate_modal_submission
 
 router = APIRouter()
 

@@ -7,6 +7,7 @@ from app.core.permissions import (
     legacy_permissions_to_miscord,
 )
 from app.api.bot_client import _command_supports, _focused_option, router as bot_client_router
+from app.api import bot_client_interactions
 from app.schemas.miscord import MiscordApplicationCommandPayload, MiscordInteractionCallback, MiscordMessageCreate
 from app.services.miscord_snowflake import generate_snowflake
 
@@ -132,6 +133,14 @@ def test_autocomplete_route_and_nested_focus_are_supported():
         "options": [{"name": "query", "type": 3, "value": "mis", "focused": True}],
     }])
     assert focused and focused["name"] == "query"
+
+
+def test_split_interaction_routes_retain_required_helpers():
+    route_globals = bot_client_interactions.create_channel_interaction.__globals__
+
+    assert route_globals["_command_context"] is not None
+    assert route_globals["_deliver"] is not None
+    assert route_globals["_validate_modal_submission"] is not None
 
 
 def test_message_contract_accepts_multipart_attachment_metadata():
