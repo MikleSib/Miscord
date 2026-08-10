@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Headphones, Mic } from 'lucide-react';
-import { useAudioDeviceStore } from '../store/audioDeviceStore';
 import {
   useNoiseSuppressionStore,
   type NoiseSuppressionEngine,
@@ -36,6 +35,7 @@ import {
   PROFILE_COPY,
   statusLabel,
 } from './voiceSettingsPresentation';
+import { useVoiceAudioDevices } from './useVoiceAudioDevices';
 
 interface VoiceVideoSettingsProps {
   isOpen?: boolean;
@@ -44,26 +44,17 @@ interface VoiceVideoSettingsProps {
 const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
   isOpen = true,
 }) => {
-  const [inputDevices, setInputDevices] = useState<MediaDeviceInfo[]>([]);
-  const [outputDevices, setOutputDevices] = useState<MediaDeviceInfo[]>([]);
-  const selectedInputDeviceId = useAudioDeviceStore(
-    (state) => state.inputDeviceId,
-  );
-  const selectedOutputDeviceId = useAudioDeviceStore(
-    (state) => state.outputDeviceId,
-  );
-  const inputVolume = useAudioDeviceStore((state) => state.inputVolume);
-  const outputVolume = useAudioDeviceStore((state) => state.outputVolume);
-  const loadDevices = useCallback(async () => {
-    if (!navigator.mediaDevices?.enumerateDevices) return;
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    setInputDevices(
-      devices.filter((device) => device.kind === 'audioinput'),
-    );
-    setOutputDevices(
-      devices.filter((device) => device.kind === 'audiooutput'),
-    );
-  }, []);
+  const {
+    inputDevices,
+    outputDevices,
+    selectedInputDeviceId,
+    selectedOutputDeviceId,
+    inputVolume,
+    outputVolume,
+    loadDevices,
+    rememberInput,
+    rememberOutput,
+  } = useVoiceAudioDevices(isOpen);
 
   const profile = useVoiceProcessingSettingsStore((state) => state.profile);
   const customSettings = useVoiceProcessingSettingsStore(
@@ -138,11 +129,15 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
       inputVolume: snapshot.inputVolume,
       outputVolume: snapshot.outputVolume,
       processing: snapshot.processing,
+      inputMode: snapshot.inputMode,
+      vadSensitivity: snapshot.vadSensitivity,
+      autoDetectSensitivity: snapshot.autoDetectSensitivity,
       onLevel: setTestLevel,
       onRuntimeStatus: (status, message, engine) =>
         setTestRuntime({ status, message, engine }),
     });
-  }, []);
+    await loadDevices();
+  }, [loadDevices]);
 
   const startMicTest = useCallback(async () => {
     suspendCallForTest();
@@ -183,17 +178,24 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
     }
   }, [isTesting, runMicTest, stopMicTest]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    void loadDevices();
-    const onDeviceChange = () => void loadDevices();
-    navigator.mediaDevices?.addEventListener?.('devicechange', onDeviceChange);
-    return () =>
-      navigator.mediaDevices?.removeEventListener?.(
-        'devicechange',
-        onDeviceChange,
-      );
-  }, [isOpen, loadDevices]);
+  const setInputMode = (mode: 'voice-activity' | 'push-to-talk') => {
+    voiceSettingsController.setInputMode(mode);
+    micTestRef.current.updateGateSettings(
+      mode,
+      autoDetectSensitivity,
+      vadSensitivity,
+    );
+  };
+
+  const setAutomaticSensitivity = (enabled: boolean) => {
+    voiceSettingsController.setAutoDetectSensitivity(enabled);
+    micTestRef.current.updateGateSettings(inputMode, enabled, vadSensitivity);
+  };
+
+  const setSensitivity = (value: number) => {
+    voiceSettingsController.setVADSensitivity(value);
+    micTestRef.current.updateGateSettings(inputMode, false, value);
+  };
 
   useEffect(() => {
     if (!isOpen) stopMicTest();
@@ -244,6 +246,7 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
   const changeInputDevice = async (deviceId: string) => {
     try {
       await voiceSettingsController.setInputDevice(deviceId);
+      rememberInput(voiceSettingsController.getSnapshot().inputDeviceId);
       await restartMicTest();
       setTestError(null);
     } catch (error) {
@@ -256,6 +259,7 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
   const changeOutputDevice = async (deviceId: string) => {
     try {
       await voiceSettingsController.setOutputDevice(deviceId);
+      rememberOutput(deviceId);
       await restartMicTest();
       setTestError(null);
     } catch (error) {
@@ -362,9 +366,7 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
           <input
             type="radio"
             checked={inputMode === 'voice-activity'}
-            onChange={() =>
-              voiceSettingsController.setInputMode('voice-activity')
-            }
+            onChange={() => setInputMode('voice-activity')}
             className="mt-1 h-5 w-5 accent-[#5865f2]"
           />
           <span>
@@ -378,9 +380,7 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
           <input
             type="radio"
             checked={inputMode === 'push-to-talk'}
-            onChange={() =>
-              voiceSettingsController.setInputMode('push-to-talk')
-            }
+            onChange={() => setInputMode('push-to-talk')}
             className="mt-1 h-5 w-5 accent-[#5865f2]"
           />
           <span>
@@ -397,18 +397,14 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
               title="Автоматически определять чувствительность"
               description="Выключите, чтобы настроить порог вручную."
               checked={autoDetectSensitivity}
-              onChange={(checked) =>
-                voiceSettingsController.setAutoDetectSensitivity(checked)
-              }
+              onChange={setAutomaticSensitivity}
             />
             {!autoDetectSensitivity && (
               <SensitivitySlider
                 value={vadSensitivity}
                 inputLevel={testLevel}
                 monitoring={isTesting}
-                onChange={(value) =>
-                  voiceSettingsController.setVADSensitivity(value)
-                }
+                onChange={setSensitivity}
               />
             )}
           </div>

@@ -18,36 +18,43 @@ export const DeviceSelect: React.FC<DeviceSelectProps> = ({
   value,
   devices,
   onChange,
-}) => (
-  <label className="block">
-    <span className="mb-2 block text-xs font-bold uppercase text-[#b5bac1]">
-      {label}
-    </span>
-    <span className="relative flex h-10 items-center rounded-md bg-[#1e1f22]">
-      <span className="pointer-events-none absolute left-3 text-[#b5bac1]">
-        {icon}
+}) => {
+  const selectionAvailable = value === 'default'
+    || devices.some((device) => device.deviceId === value);
+  return (
+    <label className="block">
+      <span className="mb-2 block text-xs font-bold uppercase text-[#b5bac1]">
+        {label}
       </span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-full w-full appearance-none bg-transparent pl-9 pr-9 text-sm text-[#dbdee1] outline-none"
-      >
-        <option value="default">По умолчанию</option>
-        {devices
-          .filter((device) => device.deviceId !== 'default')
-          .map((device, index) => (
-            <option key={device.deviceId} value={device.deviceId}>
-              {device.label || `Устройство ${index + 1}`}
-            </option>
-          ))}
-      </select>
-      <ChevronDown
-        size={16}
-        className="pointer-events-none absolute right-3 text-[#b5bac1]"
-      />
-    </span>
-  </label>
-);
+      <span className="relative flex h-10 items-center rounded-md bg-[#1e1f22]">
+        <span className="pointer-events-none absolute left-3 text-[#b5bac1]">
+          {icon}
+        </span>
+        <select
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="h-full w-full appearance-none bg-transparent pl-9 pr-9 text-sm text-[#dbdee1] outline-none"
+        >
+          <option value="default">По умолчанию</option>
+          {!selectionAvailable && (
+            <option value={value}>Сохранённое устройство недоступно</option>
+          )}
+          {devices
+            .filter((device) => device.deviceId !== 'default')
+            .map((device, index) => (
+              <option key={device.deviceId} value={device.deviceId}>
+                {device.label || `Устройство ${index + 1}`}
+              </option>
+            ))}
+        </select>
+        <ChevronDown
+          size={16}
+          className="pointer-events-none absolute right-3 text-[#b5bac1]"
+        />
+      </span>
+    </label>
+  );
+};
 
 interface LabeledSliderProps {
   label: string;

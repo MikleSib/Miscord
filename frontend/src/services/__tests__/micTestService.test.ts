@@ -17,6 +17,7 @@ vi.mock('../voice/GroupVoiceController', () => ({
 }));
 vi.mock('../voiceSettings', () => ({
   captureAudioStream: mocks.captureAudioStream,
+  sensitivityToDbfs: (sensitivity: number) => sensitivity - 100,
 }));
 vi.mock('../audioProcessingService', () => ({
   AudioProcessingService: mocks.AudioProcessingService,
@@ -25,13 +26,31 @@ vi.mock('../audioProcessingService', () => ({
 import { MicTestSession } from '../micTestService';
 
 class FakeAudioContext {
+  static sampleAmplitude = 0;
+  static gains: Array<{
+    value: number;
+    cancelScheduledValues: ReturnType<typeof vi.fn>;
+    setTargetAtTime: ReturnType<typeof vi.fn>;
+  }> = [];
   state: AudioContextState = 'running';
+  currentTime = 0;
   createMediaStreamSource = vi.fn(() => ({ connect: vi.fn() }));
   createAnalyser = vi.fn(() => ({
     fftSize: 1024,
     smoothingTimeConstant: 0,
-    getFloatTimeDomainData: vi.fn((samples: Float32Array) => samples.fill(0)),
+    getFloatTimeDomainData: vi.fn((samples: Float32Array) =>
+      samples.fill(FakeAudioContext.sampleAmplitude)),
   }));
+  createMediaStreamDestination = vi.fn(() => ({ stream: { id: 'monitor' } }));
+  createGain = vi.fn(() => {
+    const gain = {
+      value: 1,
+      cancelScheduledValues: vi.fn(),
+      setTargetAtTime: vi.fn(),
+    };
+    FakeAudioContext.gains.push(gain);
+    return { gain, connect: vi.fn() };
+  });
   resume = vi.fn(async () => undefined);
   close = vi.fn(async () => undefined);
 }
@@ -55,11 +74,16 @@ describe('MicTestSession in an active call', () => {
       autoGainControl: false,
       voiceConditioning: true,
     },
+    inputMode: 'voice-activity' as const,
+    vadSensitivity: 50,
+    autoDetectSensitivity: false,
     onLevel: vi.fn(),
   });
 
   beforeEach(() => {
     vi.clearAllMocks();
+    FakeAudioContext.sampleAmplitude = 0;
+    FakeAudioContext.gains = [];
     vi.stubGlobal('AudioContext', FakeAudioContext);
     vi.stubGlobal('Audio', FakeAudio);
     vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
@@ -139,5 +163,101 @@ describe('MicTestSession in an active call', () => {
     await vi.waitFor(() => {
       expect(mocks.endMicrophoneMonitor).toHaveBeenCalledTimes(2);
     });
+  });
+
+  it('keeps local monitoring silent below the configured manual threshold', async () => {
+    const stream = {} as MediaStream;
+    mocks.beginMicrophoneMonitor.mockResolvedValue(stream);
+    mocks.getDiagnostics.mockReturnValue({
+      status: 'active',
+      message: null,
+      activeEngine: 'deepfilternet3',
+    });
+    FakeAudioContext.sampleAmplitude = 0.0005;
+    const session = new MicTestSession();
+
+    await session.start(options());
+
+    expect(FakeAudioContext.gains[0]?.value).toBe(0);
+    expect(FakeAudioContext.gains[0]?.setTargetAtTime).not.toHaveBeenCalledWith(
+      1,
+      expect.any(Number),
+      expect.any(Number),
+    );
+    session.stop();
+  });
+
+  it('opens local monitoring when voice crosses the configured threshold', async () => {
+    const stream = {} as MediaStream;
+    mocks.beginMicrophoneMonitor.mockResolvedValue(stream);
+    mocks.getDiagnostics.mockReturnValue({
+      status: 'active',
+      message: null,
+      activeEngine: 'deepfilternet3',
+    });
+    FakeAudioContext.sampleAmplitude = 0.1;
+    const session = new MicTestSession();
+
+    await session.start(options());
+
+    expect(FakeAudioContext.gains[0]?.setTargetAtTime).toHaveBeenCalledWith(
+      1,
+      0,
+      0.008,
+    );
+    session.stop();
+  });
+
+  it('applies a changed threshold to the running monitor without restarting it', async () => {
+    const stream = {} as MediaStream;
+    mocks.beginMicrophoneMonitor.mockResolvedValue(stream);
+    mocks.getDiagnostics.mockReturnValue({
+      status: 'active',
+      message: null,
+      activeEngine: 'deepfilternet3',
+    });
+    FakeAudioContext.sampleAmplitude = 0.1;
+    const session = new MicTestSession();
+    await session.start(options());
+
+    session.updateGateSettings('voice-activity', false, 95);
+
+    expect(FakeAudioContext.gains[0]?.setTargetAtTime).toHaveBeenLastCalledWith(
+      0,
+      0,
+      0.025,
+    );
+    session.stop();
+  });
+
+  it('falls back to the system output when a saved sink no longer exists', async () => {
+    const stream = {} as MediaStream;
+    mocks.beginMicrophoneMonitor.mockResolvedValue(stream);
+    mocks.getDiagnostics.mockReturnValue({
+      status: 'active',
+      message: null,
+      activeEngine: 'deepfilternet3',
+    });
+    let audio!: FakeAudio & { setSinkId: ReturnType<typeof vi.fn> };
+    class FallbackAudio extends FakeAudio {
+      setSinkId = vi.fn()
+        .mockRejectedValueOnce(new Error('Requested device not found'))
+        .mockResolvedValueOnce(undefined);
+
+      constructor() {
+        super();
+        audio = this;
+      }
+    }
+    vi.stubGlobal('Audio', FallbackAudio);
+    const session = new MicTestSession();
+
+    await session.start({ ...options(), outputDeviceId: 'missing-sink' });
+
+    expect(audio.setSinkId.mock.calls).toEqual([
+      ['missing-sink'],
+      ['default'],
+    ]);
+    session.stop();
   });
 });

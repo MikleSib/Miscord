@@ -5,6 +5,7 @@ import {
   type VoiceProcessingSettings,
 } from './voiceSettings';
 import { groupVoiceController } from './voice/GroupVoiceController';
+import { GroupVoiceActivityGate } from './voice/groupVoiceActivityGate';
 
 export interface MicTestOptions {
   inputDeviceId?: string;
@@ -12,6 +13,9 @@ export interface MicTestOptions {
   inputVolume: number;
   outputVolume: number;
   processing: VoiceProcessingSettings;
+  inputMode: 'voice-activity' | 'push-to-talk';
+  vadSensitivity: number;
+  autoDetectSensitivity: boolean;
   onLevel: (level: number) => void;
   onRuntimeStatus?: (
     status: NoiseSuppressionRuntimeStatus,
@@ -29,6 +33,10 @@ export class MicTestSession {
   private monitorContext: AudioContext | null = null;
   private monitorElement: HTMLAudioElement | null = null;
   private analyser: AnalyserNode | null = null;
+  private monitorGain: GainNode | null = null;
+  private activityGate: GroupVoiceActivityGate | null = null;
+  private manualGateEnabled = false;
+  private currentInputDbfs = -100;
   private frameId: number | null = null;
   private usingCallStream = false;
 
@@ -124,6 +132,21 @@ export class MicTestSession {
     this.analyser = analyser;
     source.connect(analyser);
 
+    const destination = monitorContext.createMediaStreamDestination();
+    const monitorGain = monitorContext.createGain();
+    this.monitorGain = monitorGain;
+    this.manualGateEnabled = options.inputMode === 'voice-activity'
+      && !options.autoDetectSensitivity;
+    monitorGain.gain.value = this.manualGateEnabled ? 0 : 1;
+    source.connect(monitorGain);
+    monitorGain.connect(destination);
+    this.activityGate = new GroupVoiceActivityGate((open) =>
+      this.setMonitorGate(open));
+    this.activityGate.configure({
+      automatic: false,
+      sensitivity: options.vadSensitivity,
+    });
+
     const monitorElement = new Audio();
     this.monitorElement = monitorElement;
     monitorElement.autoplay = true;
@@ -131,18 +154,23 @@ export class MicTestSession {
       0,
       Math.min(1, options.outputVolume / 100),
     );
-    monitorElement.srcObject = processedStream;
+    monitorElement.srcObject = destination.stream;
 
     if (
       options.outputDeviceId &&
       options.outputDeviceId !== 'default' &&
       'setSinkId' in monitorElement
     ) {
-      await (
+      const sink = (
         monitorElement as HTMLAudioElement & {
           setSinkId: (deviceId: string) => Promise<void>;
         }
-      ).setSinkId(options.outputDeviceId);
+      );
+      try {
+        await sink.setSinkId(options.outputDeviceId);
+      } catch {
+        await sink.setSinkId('default');
+      }
     }
 
     await monitorElement.play();
@@ -153,6 +181,30 @@ export class MicTestSession {
     this.generation += 1;
     const operation = this.operation.then(() => this.releaseResources());
     this.operation = operation.catch(() => undefined);
+  }
+
+  updateGateSettings(
+    inputMode: 'voice-activity' | 'push-to-talk',
+    automatic: boolean,
+    sensitivity: number,
+  ): void {
+    this.manualGateEnabled = inputMode === 'voice-activity' && !automatic;
+    this.activityGate?.reset();
+    this.activityGate?.configure({ automatic: false, sensitivity });
+    if (this.manualGateEnabled) {
+      this.setMonitorGate(false);
+      this.activityGate?.updateInputLevel(this.currentInputDbfs);
+    } else {
+      this.setMonitorGate(true);
+    }
+  }
+
+  private setMonitorGate(open: boolean): void {
+    const context = this.monitorContext;
+    const gain = this.monitorGain?.gain;
+    if (!context || !gain || context.state === 'closed') return;
+    gain.cancelScheduledValues(context.currentTime);
+    gain.setTargetAtTime(open ? 1 : 0, context.currentTime, open ? 0.008 : 0.025);
   }
 
   private startMeter(onLevel: (level: number) => void): void {
@@ -168,6 +220,11 @@ export class MicTestSession {
         sum += sample * sample;
       }
       const rms = Math.sqrt(sum / samples.length);
+      const dbfs = rms > 0
+        ? Math.max(-100, Math.min(0, 20 * Math.log10(rms)))
+        : -100;
+      this.currentInputDbfs = dbfs;
+      if (this.manualGateEnabled) this.activityGate?.updateInputLevel(dbfs);
       onLevel(Math.max(0, Math.min(1, rms * 5)));
       this.frameId = requestAnimationFrame(tick);
     };
@@ -181,6 +238,11 @@ export class MicTestSession {
       this.frameId = null;
     }
     this.analyser = null;
+    this.activityGate?.reset();
+    this.activityGate = null;
+    this.monitorGain = null;
+    this.manualGateEnabled = false;
+    this.currentInputDbfs = -100;
 
     if (this.monitorElement) {
       this.monitorElement.pause();
