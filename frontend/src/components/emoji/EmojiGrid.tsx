@@ -16,7 +16,7 @@ export function EmojiGrid({ title, entries, onSelect }: EmojiGridProps) {
       <h4 className="sticky top-0 z-10 bg-[#2b2d31] py-1 text-[11px] font-semibold uppercase tracking-wide text-[#949ba4]">
         {title}
       </h4>
-      <div className="grid grid-cols-9 gap-0.5">
+      <div className="emoji-picker-grid grid grid-cols-9 gap-0.5">
         {entries.map(([char, name]) => (
           <button
             key={`${title}-${char}`}

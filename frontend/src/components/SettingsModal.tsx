@@ -170,7 +170,7 @@ export default function SettingsModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="miscord-responsive-modal miscord-settings-dialog fixed inset-0 z-50 flex items-center justify-center">
       {/* Фон с размытием */}
       <div
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
@@ -178,23 +178,24 @@ export default function SettingsModal({
       />
 
       {/* Модальное окно */}
-      <div className="relative bg-background border border-border rounded-lg shadow-xl w-full max-w-[84rem] h-[min(900px,92vh)] max-h-[92vh] overflow-hidden">
+      <div className="miscord-responsive-modal-card miscord-user-settings-panel relative bg-background border border-border rounded-lg shadow-xl w-full max-w-[84rem] h-[min(900px,92vh)] max-h-[92vh] overflow-hidden">
         {/* Header */}
-        <div className="h-14 bg-background border-b border-border flex items-center justify-between px-6">
+        <div className="miscord-settings-header h-14 bg-background border-b border-border flex items-center justify-between px-6">
           <h1 className="text-lg font-semibold text-foreground">Настройки пользователя</h1>
           <Button
             variant="ghost"
             size="sm"
             onClick={onClose}
+            aria-label="Закрыть настройки"
             className="text-muted-foreground hover:text-foreground"
           >
             <X className="w-5 h-5" />
           </Button>
         </div>
 
-        <div className="flex h-[calc(100%-3.5rem)]">
+        <div className="miscord-settings-body flex h-[calc(100%-3.5rem)]">
           {/* Sidebar */}
-          <div className="w-64 bg-secondary border-r border-border p-4">
+          <div className="miscord-settings-sidebar w-64 bg-secondary border-r border-border p-4">
             <nav className="space-y-1">
               {SIDEBAR_ITEMS.map((item) => {
                 const Icon = item.icon;
@@ -229,7 +230,7 @@ export default function SettingsModal({
           </div>
 
           {/* Content */}
-          <div className="flex-1 p-6 overflow-y-auto">
+          <div className="miscord-settings-detail flex-1 p-6 overflow-y-auto">
             {activeTab === 'profile' && (
               <div className="max-w-2xl">
                 <h2 className="text-xl font-semibold text-foreground mb-6">Мой профиль</h2>
@@ -350,8 +351,7 @@ export default function SettingsModal({
             )}
 
             {activeTab === 'voice' && (
-              <div>
-                <h2 className="mb-6 text-2xl font-semibold text-[#f2f3f5]">Голос и видео</h2>
+              <div className="min-w-0">
                 <VoiceVideoSettings />
               </div>
             )}

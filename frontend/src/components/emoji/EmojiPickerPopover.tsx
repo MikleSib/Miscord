@@ -25,17 +25,17 @@ export function EmojiPickerPopover({
   useEffect(() => {
     if (!open) return
 
-    const handlePointerDown = (event: MouseEvent) => {
+    const handlePointerDown = (event: PointerEvent) => {
       if (!containerRef.current?.contains(event.target as Node)) onClose()
     }
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
     }
 
-    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('pointerdown', handlePointerDown)
     document.addEventListener('keydown', handleKeyDown)
     return () => {
-      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('pointerdown', handlePointerDown)
       document.removeEventListener('keydown', handleKeyDown)
     }
   }, [open, onClose])
@@ -43,7 +43,7 @@ export function EmojiPickerPopover({
   if (!open) return null
 
   return (
-    <div ref={containerRef} className={cn('absolute z-50', className)}>
+    <div ref={containerRef} className={cn('emoji-picker-popover absolute z-50', className)}>
       <EmojiPicker onSelect={onSelect} onClose={onClose} keepOpenOnSelect={keepOpenOnSelect} />
     </div>
   )

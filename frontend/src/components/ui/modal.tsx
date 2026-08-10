@@ -91,7 +91,10 @@ export function Modal({
 
   return createPortal(
     <div
-      className={cn('fixed inset-0 flex items-center justify-center p-4', className)}
+      className={cn(
+        'miscord-responsive-modal fixed inset-0 flex items-center justify-center p-4',
+        className
+      )}
       style={{ zIndex }}
     >
       <div
@@ -107,7 +110,7 @@ export function Modal({
         aria-modal="true"
         aria-labelledby={labelledBy}
         className={cn(
-          'relative w-full max-w-lg overflow-hidden rounded-media bg-surface-raised shadow-2xl outline-none',
+          'miscord-responsive-modal-card relative w-full max-w-lg overflow-hidden rounded-media bg-surface-raised shadow-2xl outline-none',
           contentClassName
         )}
       >

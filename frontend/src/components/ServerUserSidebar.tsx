@@ -196,12 +196,12 @@ export function ServerUserSidebar() {
 
   return (
     <>
-      <div className="relative flex h-full w-60 flex-col overflow-hidden border-l border-[#3e3f45] bg-[#323339]">
-        <div className="app-header border-b px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      <div className="server-members-panel relative flex h-full w-60 flex-col overflow-hidden border-l border-[#3e3f45] bg-[#323339]">
+        <div className="server-members-panel__header app-header border-b px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Участники сервера — {members.length}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-2 space-y-4">
+        <div className="server-members-panel__list flex-1 overflow-y-auto p-2 space-y-4">
           {isLoading && members.length === 0 ? (
             <div className="flex items-center justify-center py-8 text-muted-foreground">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />

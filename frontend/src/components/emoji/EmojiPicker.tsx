@@ -60,7 +60,7 @@ export function EmojiPicker({
   return (
     <div
       className={cn(
-        'flex h-[340px] w-[340px] flex-col overflow-hidden rounded-lg border border-[#1e1f22] bg-[#2b2d31] shadow-xl',
+        'emoji-picker-panel flex h-[340px] w-[340px] flex-col overflow-hidden rounded-lg border border-[#1e1f22] bg-[#2b2d31] shadow-xl',
         className,
       )}
       onClick={(event) => event.stopPropagation()}

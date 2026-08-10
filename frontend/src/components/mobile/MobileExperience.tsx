@@ -11,6 +11,7 @@ import {
   PhoneOff,
   Users,
   VolumeX,
+  X,
 } from 'lucide-react'
 import { useStore } from '../../lib/store'
 import { useOptimizedVoiceStore } from '../../store/slices/optimizedVoiceSlice'
@@ -92,10 +93,14 @@ export function MobileExperience() {
 
   useEffect(() => {
     const decorateModals = () => {
-      document.querySelectorAll<HTMLElement>('.fixed.inset-0, [role="dialog"]').forEach((overlay) => {
+      document.querySelectorAll<HTMLElement>('.fixed.inset-0').forEach((overlay) => {
         if (overlay.id === 'screen-share-overlay' || overlay.classList.contains('screen-share-viewer')) return
         overlay.classList.add('miscord-responsive-modal')
-        const card = overlay.firstElementChild as HTMLElement | null
+        const card = Array.from(overlay.children).find((child) => {
+          const element = child as HTMLElement
+          return element.getAttribute('role') === 'dialog'
+            || (element.classList.contains('relative') && !element.classList.contains('absolute'))
+        }) as HTMLElement | undefined
         card?.classList.add('miscord-responsive-modal-card')
         const sidebar = overlay.querySelector<HTMLElement>(
           '.w-64, .w-60, .w-\\[200px\\], .w-\\[218px\\], .w-\\[220px\\]',
@@ -306,10 +311,13 @@ export function MobileExperience() {
         <button
           type="button"
           className="miscord-mobile-members-button"
-          onClick={() => commitNavigation({ memberDrawerOpen: true })}
-          aria-label="Участники канала"
+          onClick={() => commitNavigation({
+            memberDrawerOpen: !useMobileNavigationStore.getState().memberDrawerOpen,
+          }, 'replace')}
+          aria-label={navigation.memberDrawerOpen ? 'Закрыть участников' : 'Участники канала'}
+          aria-expanded={navigation.memberDrawerOpen}
         >
-          <Users aria-hidden="true" />
+          {navigation.memberDrawerOpen ? <X aria-hidden="true" /> : <Users aria-hidden="true" />}
         </button>
       )}
 

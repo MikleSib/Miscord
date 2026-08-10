@@ -285,12 +285,12 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
   const diagnostics = optimizedVoiceService.getDiagnostics();
 
   return (
-    <div className="mx-auto max-w-[760px] pb-16 text-[#dbdee1]">
-      <h2 className="mb-7 text-2xl font-semibold text-white">Голос и видео</h2>
+    <div className="voice-video-settings mx-auto max-w-[760px] pb-16 text-[#dbdee1]">
+      <h2 className="voice-video-settings__title mb-7 text-2xl font-semibold text-white">Голос и видео</h2>
 
       <section className="space-y-5">
         <h3 className="text-xl font-semibold text-white">Голос</h3>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="voice-video-settings__device-grid grid grid-cols-2 gap-4">
           <DeviceSelect
             icon={<Mic size={16} />}
             label="Микрофон"
@@ -307,7 +307,7 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="voice-video-settings__volume-grid grid grid-cols-2 gap-4">
           <LabeledSlider
             label={`Громкость микрофона · ${inputVolume}%`}
             value={inputVolume}
@@ -327,7 +327,7 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
           />
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="voice-video-settings__mic-test flex items-center gap-3">
           <button
             type="button"
             onClick={() => void (isTesting ? stopMicTest() : startMicTest())}

@@ -11,6 +11,7 @@ import { UserAvatar } from './ui/user-avatar'
 import authService from '../services/authService'
 import { consumePendingDirectMessage } from '../lib/dmNavigation'
 import { useDmNotificationStore } from '../store/dmNotificationStore'
+import { Modal } from './ui/modal'
 
 type Tab = 'online' | 'all' | 'pending' | 'blocked'
 
@@ -499,28 +500,55 @@ export function HomePageContent() {
       </div>
 
       {/* Add Friend Modal */}
-      {isAddFriendModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-[#323339] p-6 rounded-lg w-96">
-            <h2 className="text-xl font-bold text-white mb-4">Добавить в друзья</h2>
-            <p className="text-text-quiet text-sm mb-4">
-              Введите логин пользователя (@username), а не отображаемое имя. Регистр букв не важен.
-            </p>
+      <Modal
+        open={isAddFriendModalOpen}
+        onClose={() => setIsAddFriendModalOpen(false)}
+        title="Добавить в друзья"
+        contentClassName="add-friend-dialog bg-[#323339]"
+      >
+        <form
+          className="add-friend-dialog__body p-6"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void handleAddFriend()
+          }}
+        >
+          <header className="add-friend-dialog__header">
+            <div>
+              <h2 className="text-xl font-bold text-white">Добавить в друзья</h2>
+              <p className="mt-2 text-sm leading-5 text-text-quiet">
+                Введите логин пользователя (@username), а не отображаемое имя. Регистр букв не важен.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsAddFriendModalOpen(false)}
+              className="add-friend-dialog__close text-text-quiet"
+              aria-label="Закрыть"
+            >
+              <X aria-hidden="true" />
+            </button>
+          </header>
+          <label className="mt-5 block">
+            <span className="sr-only">Имя пользователя</span>
             <input
               type="text"
               value={friendUsername}
-              onChange={(e) => setFriendUsername(e.target.value)}
+              onChange={(event) => setFriendUsername(event.target.value)}
               placeholder="Например: sava или @sava"
-              className="w-full bg-canvas-deep text-white rounded px-3 py-2 mb-4 border border-gray-700 focus:ring-2 focus:ring-primary"
+              autoComplete="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              className="h-11 w-full rounded-md border border-gray-700 bg-canvas-deep px-3 text-white outline-none focus:ring-2 focus:ring-primary"
             />
-            {addFriendError && <p className="text-red-500 text-sm mb-4">{addFriendError}</p>}
-            <div className="flex justify-end">
-              <button onClick={() => setIsAddFriendModalOpen(false)} className="text-white mr-4">Отмена</button>
-              <button onClick={handleAddFriend} className="bg-primary text-white px-4 py-2 rounded">Отправить запрос</button>
-            </div>
+          </label>
+          {addFriendError && <p className="mt-3 text-sm text-red-400" role="alert">{addFriendError}</p>}
+          <div className="add-friend-dialog__actions mt-5 flex justify-end gap-2">
+            <button type="button" onClick={() => setIsAddFriendModalOpen(false)} className="rounded-md px-4 py-2 text-white">Отмена</button>
+            <button type="submit" className="rounded-md bg-primary px-4 py-2 font-semibold text-white">Отправить запрос</button>
           </div>
-        </div>
-      )}
+        </form>
+      </Modal>
       
     </div>
   )
