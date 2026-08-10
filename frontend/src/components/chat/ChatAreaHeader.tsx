@@ -8,6 +8,7 @@ import { PinnedMessagesPanel } from '../pins/PinnedMessagesPanel'
 import type { SearchResultMessage } from '../../services/searchService'
 import type { Channel, Message } from '../../types'
 import { ThreadLauncher } from '../community/ThreadLauncher'
+import { NotificationInbox } from '../community/NotificationInbox'
 
 interface ChatAreaHeaderProps {
   channel: Channel
@@ -85,6 +86,8 @@ export function ChatAreaHeader({
             </button>
           </Tooltip>
         )}
+
+        <NotificationInbox />
 
         <Tooltip
           content={showUserSidebar ? 'Скрыть список участников' : 'Показать список участников'}

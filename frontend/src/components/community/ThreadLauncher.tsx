@@ -1,7 +1,8 @@
 'use client'
 
 import { Archive, Lock, MessageCircle, Plus } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useDismissOnOutsidePointer } from '../../hooks/useDismissOnOutsidePointer'
 import { communityApi } from '../../services/communityApi'
 import { useCommunityStore } from '../../store/communityStore'
 import type { Thread } from '../../types/community'
@@ -11,7 +12,11 @@ export function ThreadLauncher({ channelId }: { channelId: number }) {
   const [open, setOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [threads, setThreads] = useState<Thread[]>([])
+  const containerRef = useRef<HTMLDivElement>(null)
   const setSelected = useCommunityStore((state) => state.setSelectedThread)
+  const close = useCallback(() => setOpen(false), [])
+
+  useDismissOnOutsidePointer(containerRef, open, close)
 
   useEffect(() => {
     if (!open) return
@@ -19,7 +24,7 @@ export function ThreadLauncher({ channelId }: { channelId: number }) {
   }, [open, channelId])
 
   return (
-    <div className="relative">
+    <div ref={containerRef} className="relative">
       <button type="button" onClick={() => setOpen((value) => !value)} aria-label="Обсуждения" aria-expanded={open} className="interactive-row flex items-center p-2 text-muted-foreground hover:text-foreground">
         <MessageCircle className="h-5 w-5" />
       </button>

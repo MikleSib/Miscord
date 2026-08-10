@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, Copy, Loader2, MessageSquare, MoreHorizontal, Plus, Smile, UserPlus, X } from 'lucide-react';
+import { Check, Copy, Loader2, MessageSquare, MoreHorizontal, Pencil, Plus, Smile, UserPlus, X } from 'lucide-react';
 
 import { UserAvatar } from './ui/user-avatar';
 import { Tooltip } from './ui/tooltip';
@@ -16,6 +16,7 @@ import { resolveMediaUrl } from '../lib/mediaUrl';
 import { getMemberDisplayName } from '../lib/memberListGrouping';
 import { Permissions } from '../lib/permissions';
 import { useServerPermissions } from '../lib/serverPermissions';
+import { openUserSettings } from '../lib/userSettingsNavigation';
 import { Role, ServerMember, User } from '../types';
 
 const POPOVER_WIDTH = 340;
@@ -342,6 +343,19 @@ export function MemberProfilePopover({
             {displayName}
           </h3>
           <p className="truncate text-sm text-muted-foreground">@{member.username}</p>
+          {isSelf && (
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                openUserSettings('profile');
+              }}
+              className="mt-4 flex h-9 w-full items-center justify-center gap-2 rounded-md bg-[#3a3c43] px-3 text-sm font-semibold text-foreground transition-colors hover:bg-[#44464e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              <Pencil className="h-4 w-4" />
+              Редактировать профиль
+            </button>
+          )}
           {feedback && (
             <p className={cn('mt-2 text-xs', feedback.tone === 'success' ? 'text-green-400' : 'text-red-400')} role="status">
               {feedback.text}

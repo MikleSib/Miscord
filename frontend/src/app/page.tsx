@@ -28,10 +28,10 @@ import authService from '../services/authService'
 import { bindUserProfileSync } from '../lib/userProfileSync'
 import { bindMemberSync } from '../lib/memberSync'
 import { bindServerPermissionsSync } from '../lib/serverPermissions'
-import { NotificationInbox } from '../components/community/NotificationInbox'
 import { ThreadPanel } from '../components/community/ThreadPanel'
 import { ThreadDialogHost } from '../components/community/ThreadDialogHost'
 import { ForumChannelView } from '../components/community/ForumChannelView'
+import { getUserSettingsTab, OPEN_USER_SETTINGS_EVENT } from '../lib/userSettingsNavigation'
 
 bindUserProfileSync()
 bindMemberSync()
@@ -59,6 +59,15 @@ export default function HomePage() {
   const [showUserSidebar, setShowUserSidebar] = useState(true)
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false)
   const [settingsInitialTab, setSettingsInitialTab] = useState<'profile' | 'voice'>('profile')
+
+  useEffect(() => {
+    const openSettings = (event: Event) => {
+      setSettingsInitialTab(getUserSettingsTab(event))
+      setIsSettingsModalOpen(true)
+    }
+    window.addEventListener(OPEN_USER_SETTINGS_EVENT, openSettings)
+    return () => window.removeEventListener(OPEN_USER_SETTINGS_EVENT, openSettings)
+  }, [])
 
   useEffect(() => {
     setIsMounted(true)
@@ -278,7 +287,6 @@ export default function HomePage() {
   return (
     <div className="app-shell miscord-responsive-root relative flex h-[100dvh] overflow-hidden">
       <MobileExperience />
-      <NotificationInbox />
       <ThreadDialogHost />
       <div className="app-mobile-servers relative z-50">
         <ServerList />

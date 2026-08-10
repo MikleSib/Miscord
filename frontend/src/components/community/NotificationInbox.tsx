@@ -1,7 +1,8 @@
 'use client'
 
 import { Bell, CheckCheck, ExternalLink, Inbox, Loader2, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useDismissOnOutsidePointer } from '../../hooks/useDismissOnOutsidePointer'
 import { useStore } from '../../lib/store'
 import { cn } from '../../lib/utils'
 import { useCommunityStore } from '../../store/communityStore'
@@ -66,8 +67,12 @@ function NotificationRow({ item, onOpen }: { item: InboxNotification; onOpen: ()
 
 export function NotificationInbox() {
   const [open, setOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
   const { selectServer, selectChannel } = useStore()
   const state = useCommunityStore()
+  const close = useCallback(() => setOpen(false), [])
+
+  useDismissOnOutsidePointer(containerRef, open, close)
 
   useEffect(() => {
     void state.refreshUnreadCount()
@@ -96,13 +101,13 @@ export function NotificationInbox() {
   }
 
   return (
-    <div className="fixed right-3 top-2 z-[70]">
+    <div ref={containerRef} className="relative z-[70]">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-label="Открыть уведомления"
         aria-expanded={open}
-        className="relative flex h-9 w-9 items-center justify-center rounded-lg border border-border/70 bg-surface-raised text-muted-foreground shadow-lg transition hover:bg-surface hover:text-foreground"
+        className="interactive-row relative flex items-center p-2 text-muted-foreground hover:text-foreground"
       >
         <Bell className="h-[18px] w-[18px]" />
         {state.unreadCount > 0 && (
@@ -113,7 +118,7 @@ export function NotificationInbox() {
       </button>
 
       {open && (
-        <section className="fixed inset-x-2 top-14 flex max-h-[calc(100dvh-72px)] flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl sm:absolute sm:inset-auto sm:right-0 sm:top-11 sm:h-[560px] sm:w-[390px]">
+        <section className="fixed inset-x-2 top-14 flex max-h-[calc(100dvh-72px)] flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl sm:absolute sm:inset-auto sm:right-0 sm:top-10 sm:h-[560px] sm:w-[390px]">
           <header className="flex items-center gap-3 border-b border-border px-4 py-3">
             <Inbox className="h-5 w-5 text-primary" />
             <h2 className="text-base font-bold">Входящие</h2>
