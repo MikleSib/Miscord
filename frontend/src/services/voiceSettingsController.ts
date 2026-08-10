@@ -11,6 +11,9 @@ import {
 } from './voiceSettings';
 
 class VoiceSettingsController {
+  private inputDeviceRequest = 0;
+  private outputDeviceRequest = 0;
+
   getSnapshot(): VoiceSettingsSnapshot {
     return getVoiceSettingsSnapshot();
   }
@@ -36,13 +39,24 @@ class VoiceSettingsController {
   }
 
   async setInputDevice(deviceId: string): Promise<void> {
-    if (useAudioDeviceStore.getState().inputDeviceId === deviceId) return;
-    await optimizedVoiceService.switchInputDevice(deviceId);
+    const request = ++this.inputDeviceRequest;
+    try {
+      await optimizedVoiceService.switchInputDevice(deviceId);
+      if (request === this.inputDeviceRequest) {
+        useAudioDeviceStore.getState().setInputDeviceId(optimizedVoiceService.getAppliedInputDeviceId());
+      }
+    } catch (error) {
+      if (request === this.inputDeviceRequest) {
+        useAudioDeviceStore.getState().setInputDeviceId(optimizedVoiceService.getAppliedInputDeviceId());
+      }
+      throw error;
+    }
   }
 
   async setOutputDevice(deviceId: string): Promise<void> {
-    if (useAudioDeviceStore.getState().outputDeviceId === deviceId) return;
+    const request = ++this.outputDeviceRequest;
     await optimizedVoiceService.setOutputDevice(deviceId);
+    if (request === this.outputDeviceRequest) useAudioDeviceStore.getState().setOutputDeviceId(deviceId);
   }
 
   setInputVolume(volume: number): void {

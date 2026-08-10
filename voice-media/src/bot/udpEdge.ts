@@ -35,9 +35,13 @@ export class BotMediaSession {
   directTransport!: DirectTransport;
   producer!: Producer;
   private readonly consumers = new Map<string, Consumer>();
+  private readonly pendingConsumers = new Set<string>();
   private readonly outboundUserIds = new Map<string, string>();
   private readonly producerHandler: (producer: Producer, peer: Peer) => void;
   private readonly producerClosedHandler: (producerId: string) => void;
+  private handlersAttached = false;
+  private metricRegistered = false;
+  private closed = false;
 
   constructor(
     readonly claims: MediaClaims,
@@ -48,47 +52,55 @@ export class BotMediaSession {
   ) {
     this.producerHandler = (producer, peer) => {
       if (!this.claims.self_deaf && peer.claims.session_id !== this.claims.session_id) {
-        void this.consumeProducer(producer, peer);
+        void this.consumeProducer(producer, peer).catch(() => undefined);
       }
     };
     this.producerClosedHandler = (producerId) => this.closeConsumer(producerId);
   }
 
   async start(): Promise<void> {
+    if (this.closed) throw new Error('Bot media session is closed');
     this.peer = this.room.addPeer(this.claims, this.socket);
-    this.directTransport = await this.room.createDirectTransport(this.claims.session_id);
-    this.producer = await this.directTransport.produce({
-      kind: 'audio',
-      rtpParameters: {
-        codecs: [{
-          mimeType: 'audio/opus',
-          payloadType: OPUS_PAYLOAD_TYPE,
-          clockRate: 48_000,
-          channels: 2,
-          parameters: { useinbandfec: 1, usedtx: 1 },
-          rtcpFeedback: [],
-        }],
-        encodings: [{ ssrc: this.ssrc }],
-        rtcp: { cname: `miscord-bot-${this.ssrc}`, reducedSize: true },
-      },
-      appData: {
-        source: 'microphone',
-        userId: Number(this.claims.sub),
-        sessionId: this.claims.session_id,
-        isBot: true,
-      },
-    });
-    await this.room.addProducer(this.peer, this.directTransport, this.producer, 'microphone');
-    this.room.on('producerAvailable', this.producerHandler);
-    this.room.on('producerClosed', this.producerClosedHandler);
-    if (!this.claims.self_deaf) {
-      for (const descriptor of this.room.descriptors(this.claims.session_id)) {
-        const owner = this.room.producerOwner(descriptor.producer_id);
-        const producer = owner?.producers.get(descriptor.producer_id);
-        if (owner && producer?.kind === 'audio') await this.consumeProducer(producer, owner);
+    try {
+      this.assertStartActive();
+      this.directTransport = await this.room.createDirectTransport(this.peer);
+      this.assertStartActive();
+      this.producer = await this.directTransport.produce({
+        kind: 'audio',
+        rtpParameters: {
+          codecs: [{
+            mimeType: 'audio/opus', payloadType: OPUS_PAYLOAD_TYPE,
+            clockRate: 48_000, channels: 2,
+            parameters: { useinbandfec: 1, usedtx: 1 }, rtcpFeedback: [],
+          }],
+          encodings: [{ ssrc: this.ssrc }],
+          rtcp: { cname: `miscord-bot-${this.ssrc}`, reducedSize: true },
+        },
+        appData: {
+          source: 'microphone', userId: Number(this.claims.sub),
+          sessionId: this.claims.session_id, isBot: true,
+        },
+      });
+      this.assertStartActive();
+      await this.room.addProducer(this.peer, this.directTransport, this.producer, 'microphone');
+      this.assertStartActive();
+      this.room.on('producerAvailable', this.producerHandler);
+      this.room.on('producerClosed', this.producerClosedHandler);
+      this.handlersAttached = true;
+      if (!this.claims.self_deaf) {
+        for (const descriptor of this.room.descriptors(this.claims.session_id)) {
+          const owner = this.room.producerOwner(descriptor.producer_id);
+          const producer = owner?.producers.get(descriptor.producer_id);
+          if (owner && producer?.kind === 'audio') await this.consumeProducer(producer, owner);
+          this.assertStartActive();
+        }
       }
+      metrics.botSessions.inc();
+      this.metricRegistered = true;
+    } catch (error) {
+      this.close();
+      throw error;
     }
-    metrics.botSessions.inc();
   }
 
   bindRemote(remote: RemoteTuple): void {
@@ -132,42 +144,72 @@ export class BotMediaSession {
   }
 
   close(): void {
-    this.room.off('producerAvailable', this.producerHandler);
-    this.room.off('producerClosed', this.producerClosedHandler);
+    if (this.closed) return;
+    this.closed = true;
+    if (this.handlersAttached) {
+      this.room.off('producerAvailable', this.producerHandler);
+      this.room.off('producerClosed', this.producerClosedHandler);
+      this.handlersAttached = false;
+    }
     for (const consumer of this.consumers.values()) consumer.close();
     this.consumers.clear();
-    this.room.removePeer(this.claims.session_id);
-    metrics.botSessions.dec();
+    this.pendingConsumers.clear();
+    this.producer?.close();
+    this.directTransport?.close();
+    if (this.peer) this.room.removePeer(this.claims.session_id, this.peer);
+    if (this.metricRegistered) {
+      metrics.botSessions.dec();
+      this.metricRegistered = false;
+    }
   }
 
   private async consumeProducer(producer: Producer, owner: Peer): Promise<void> {
-    if (producer.kind !== 'audio' || this.consumers.has(producer.id)) return;
-    const consumer = await this.directTransport.consume({
-      producerId: producer.id,
-      rtpCapabilities: this.room.router.rtpCapabilities,
-    });
-    this.consumers.set(producer.id, consumer);
-    this.room.addConsumer(this.peer, consumer);
-    const ssrc = randomSsrc();
-    this.outboundSsrc.set(producer.id, ssrc);
-    this.outboundUserIds.set(producer.id, String(owner.claims.sub));
-    this.sender.sendOp(11, {
-      user_id: owner.claims.sub,
-      audio_ssrc: ssrc,
-      video_ssrc: 0,
-    });
-    this.sender.sendOp(5, { speaking: 1, delay: 0, ssrc, user_id: owner.claims.sub });
-    consumer.on('rtp', (packet) => this.sendPacket(packet, producer.id, udpEdge));
-    consumer.on('producerclose', () => this.closeConsumer(producer.id));
+    if (this.closed || producer.kind !== 'audio' || this.consumers.has(producer.id)
+      || this.pendingConsumers.has(producer.id)) return;
+    this.pendingConsumers.add(producer.id);
+    let consumer: Consumer | undefined;
+    try {
+      consumer = await this.directTransport.consume({
+        producerId: producer.id,
+        rtpCapabilities: this.room.router.rtpCapabilities,
+      });
+      if (this.closed || !this.room.isCurrentPeer(this.peer) || this.consumers.has(producer.id)) {
+        consumer.close();
+        return;
+      }
+      this.room.addConsumer(this.peer, consumer);
+      this.consumers.set(producer.id, consumer);
+      const ssrc = randomSsrc();
+      this.outboundSsrc.set(producer.id, ssrc);
+      this.outboundUserIds.set(producer.id, String(owner.claims.sub));
+      this.sender.sendOp(11, { user_id: owner.claims.sub, audio_ssrc: ssrc, video_ssrc: 0 });
+      this.sender.sendOp(5, { speaking: 1, delay: 0, ssrc, user_id: owner.claims.sub });
+      consumer.on('rtp', (packet) => this.sendPacket(packet, producer.id, udpEdge));
+      consumer.on('producerclose', () => this.closeConsumer(producer.id, consumer));
+    } catch (error) {
+      if (this.consumers.get(producer.id) === consumer) this.consumers.delete(producer.id);
+      consumer?.close();
+      throw error;
+    } finally {
+      this.pendingConsumers.delete(producer.id);
+    }
   }
 
-  private closeConsumer(producerId: string): void {
+  private closeConsumer(producerId: string, expected?: Consumer): void {
+    const consumer = this.consumers.get(producerId);
+    if (expected && consumer !== expected) return;
     const userId = this.outboundUserIds.get(producerId);
-    this.consumers.get(producerId)?.close();
     this.consumers.delete(producerId);
+    consumer?.close();
     this.outboundSsrc.delete(producerId);
     this.outboundUserIds.delete(producerId);
     if (userId) this.sender.sendOp(13, { user_id: userId });
+  }
+
+  private assertStartActive(): void {
+    if (this.closed || this.socket.readyState !== this.socket.OPEN || !this.room.isCurrentPeer(this.peer)) {
+      throw new Error('Bot media session was replaced');
+    }
   }
 }
 
@@ -196,8 +238,11 @@ export class UdpEdge {
   }
 
   unregister(session: BotMediaSession): void {
-    this.bySsrc.delete(session.ssrc);
-    if (session.remote) this.byRemote.delete(this.remoteKey(session.remote));
+    if (this.bySsrc.get(session.ssrc) === session) this.bySsrc.delete(session.ssrc);
+    if (session.remote) {
+      const key = this.remoteKey(session.remote);
+      if (this.byRemote.get(key) === session) this.byRemote.delete(key);
+    }
   }
 
   send(packet: Buffer, remote: RemoteTuple): void {
@@ -220,7 +265,10 @@ export class UdpEdge {
       if (isDiscoveryPacket(packet)) {
         const session = this.bySsrc.get(discoverySsrc(packet));
         if (!session) return;
-        if (session.remote) this.byRemote.delete(this.remoteKey(session.remote));
+        if (session.remote) {
+          const oldKey = this.remoteKey(session.remote);
+          if (this.byRemote.get(oldKey) === session) this.byRemote.delete(oldKey);
+        }
         session.bindRemote(remote);
         this.byRemote.set(this.remoteKey(remote), session);
         this.send(discoveryResponse(session.ssrc, remote.address, remote.port), remote);

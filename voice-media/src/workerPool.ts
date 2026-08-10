@@ -4,13 +4,16 @@ import type { Router, Worker, WebRtcServer, WorkerLogLevel } from 'mediasoup/typ
 import { config } from './config.js';
 import { metrics } from './metrics.js';
 
-const mediaCodecs = [
+export const mediaCodecs = [
   {
     kind: 'audio' as const,
     mimeType: 'audio/opus',
     clockRate: 48_000,
+    // RFC 7587 requires opus/48000/2 in SDP even when the encoded signal is mono.
     channels: 2,
-    parameters: { useinbandfec: 1, usedtx: 1, 'sprop-stereo': 1 },
+    parameters: {
+      useinbandfec: 1,
+    },
   },
   {
     kind: 'video' as const,
@@ -97,12 +100,24 @@ export class WorkerPool {
       return loadLeft - loadRight;
     })[0];
     if (!slot) throw new Error('No media worker is ready');
-    const router = await slot.worker.createRouter({ mediaCodecs });
+    // Reserve capacity before yielding. Concurrent room creation otherwise sees
+    // the same stale load and sends every router to the first worker.
     slot.rooms += 1;
-    router.once('@close', () => {
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
       slot.rooms = Math.max(0, slot.rooms - 1);
-    });
-    return { router, webRtcServer: slot.webRtcServer, workerPid: slot.worker.pid };
+    };
+    try {
+      const router = await slot.worker.createRouter({ mediaCodecs });
+      router.once('@close', release);
+      if (router.closed) release();
+      return { router, webRtcServer: slot.webRtcServer, workerPid: slot.worker.pid };
+    } catch (error) {
+      release();
+      throw error;
+    }
   }
 
   adjustConsumers(workerPid: number, delta: number): void {

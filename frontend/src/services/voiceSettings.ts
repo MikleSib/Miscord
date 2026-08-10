@@ -6,6 +6,7 @@ import {
   type VoiceProcessingSettings,
   type VoiceSettingsSnapshot,
 } from './voiceSettingsLogic';
+import { resolveBrowserAutoGainControl } from './audioCapturePolicy';
 
 export * from './voiceSettingsLogic';
 
@@ -50,7 +51,13 @@ export function buildAudioCaptureConstraints(
     constraints.echoCancellation = { ideal: processing.echoCancellation };
   }
   if (supported.autoGainControl) {
-    constraints.autoGainControl = { ideal: processing.autoGainControl };
+    constraints.autoGainControl = {
+      ideal: resolveBrowserAutoGainControl(
+        processing.autoGainControl,
+        processing.noiseSuppressionEngine,
+        processing.noiseSuppression,
+      ),
+    };
   }
   if (supported.noiseSuppression) {
     constraints.noiseSuppression = {
@@ -66,10 +73,15 @@ export function buildAudioCaptureConstraints(
 export async function captureAudioStream(
   processing: VoiceProcessingSettings,
   deviceId?: string,
+  options: { strictDevice?: boolean } = {},
 ): Promise<MediaStream> {
+  const constraints = buildAudioCaptureConstraints(processing, deviceId);
+  if (options.strictDevice && deviceId && deviceId !== 'default') {
+    constraints.deviceId = { exact: deviceId };
+  }
   try {
     return await navigator.mediaDevices.getUserMedia({
-      audio: buildAudioCaptureConstraints(processing, deviceId),
+      audio: constraints,
       video: false,
     });
   } catch (error) {
@@ -77,7 +89,7 @@ export async function captureAudioStream(
       typeof error === 'object' && error !== null && 'name' in error
         ? String(error.name)
         : '';
-    if (errorName !== 'OverconstrainedError') throw error;
+    if (errorName !== 'OverconstrainedError' || options.strictDevice) throw error;
 
     console.warn(
       '[VoiceSettings] Аудиоустройство не поддерживает сохранённые параметры, используем системный микрофон.',

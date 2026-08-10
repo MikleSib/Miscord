@@ -1,8 +1,10 @@
 import * as mediasoup from 'mediasoup';
 
+import { mediaCodecs } from './workerPool.js';
+
 const worker = await mediasoup.createWorker({ logLevel: 'none' });
 const router = await worker.createRouter({
-  mediaCodecs: [{ kind: 'audio', mimeType: 'audio/opus', clockRate: 48_000, channels: 2 }],
+  mediaCodecs,
 });
 router.close();
 worker.close();

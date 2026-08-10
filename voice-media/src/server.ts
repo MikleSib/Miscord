@@ -5,7 +5,7 @@ import { udpEdge } from './bot/udpEdge.js';
 import { config } from './config.js';
 import { mediaGateway } from './mediaGateway.js';
 import { metrics } from './metrics.js';
-import { rooms } from './room.js';
+import { rooms } from './roomRegistry.js';
 import { ticketVerifier } from './ticketVerifier.js';
 import { workerPool } from './workerPool.js';
 

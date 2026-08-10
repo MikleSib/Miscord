@@ -5,9 +5,18 @@ const WASM_SIMD_PATH = `${AUDIO_ASSET_BASE}/rnnoise-simd.wasm`;
 
 type DestroyableAudioWorkletNode = AudioWorkletNode & { destroy: () => void };
 
+export class NoiseSuppressorInitializationCancelledError extends Error {
+  constructor() {
+    super('Noise suppressor initialization was superseded');
+    this.name = 'NoiseSuppressorInitializationCancelledError';
+  }
+}
+
 export class MiscordNoiseSuppressor {
   private wasmBinaryPromise: Promise<ArrayBuffer> | null = null;
   private node: DestroyableAudioWorkletNode | null = null;
+  private generation = 0;
+  private readonly disposedNodes = new WeakSet<AudioWorkletNode>();
 
   static isSupported(): boolean {
     return (
@@ -66,20 +75,38 @@ export class MiscordNoiseSuppressor {
       throw new Error(`Miscord AI requires 48 kHz audio (got ${audioContext.sampleRate} Hz)`);
     }
 
-    this.destroy();
+    const generation = ++this.generation;
+    this.destroyCurrentNode();
 
-    const [module, wasmBinary] = await Promise.all([
-      import('@sapphi-red/web-noise-suppressor'),
-      this.loadWasmBinary(),
-      audioContext.audioWorklet.addModule(WORKLET_PATH),
-    ]);
+    let module: typeof import('@sapphi-red/web-noise-suppressor');
+    let wasmBinary: ArrayBuffer;
+    try {
+      [module, wasmBinary] = await Promise.all([
+        import('@sapphi-red/web-noise-suppressor'),
+        this.loadWasmBinary(),
+        audioContext.audioWorklet.addModule(WORKLET_PATH),
+      ]);
+    } catch (error) {
+      if (generation !== this.generation) {
+        throw new NoiseSuppressorInitializationCancelledError();
+      }
+      throw error;
+    }
+    if (generation !== this.generation) {
+      throw new NoiseSuppressorInitializationCancelledError();
+    }
 
-    this.node = new module.RnnoiseWorkletNode(audioContext, {
+    const node = new module.RnnoiseWorkletNode(audioContext, {
       maxChannels: 1,
       wasmBinary,
-    });
+    }) as DestroyableAudioWorkletNode;
+    if (generation !== this.generation) {
+      this.disposeNode(node);
+      throw new NoiseSuppressorInitializationCancelledError();
+    }
+    this.node = node;
 
-    return this.node;
+    return node;
   }
 
   async warmUp(durationMs = 180): Promise<void> {
@@ -87,15 +114,32 @@ export class MiscordNoiseSuppressor {
   }
 
   destroy(): void {
-    if (!this.node) return;
+    this.generation += 1;
+    this.destroyCurrentNode();
+  }
 
+  destroyNode(node: AudioWorkletNode): void {
+    if (this.node === node) {
+      this.node = null;
+      this.generation += 1;
+    }
+    this.disposeNode(node as DestroyableAudioWorkletNode);
+  }
+
+  private destroyCurrentNode(): void {
+    const node = this.node;
+    this.node = null;
+    if (node) this.disposeNode(node);
+  }
+
+  private disposeNode(node: DestroyableAudioWorkletNode): void {
+    if (this.disposedNodes.has(node)) return;
+    this.disposedNodes.add(node);
     try {
-      this.node.destroy();
-      this.node.disconnect();
+      node.destroy();
+      node.disconnect();
     } catch (error) {
       console.warn('[Miscord AI] Failed to destroy RNNoise node:', error);
-    } finally {
-      this.node = null;
     }
   }
 }

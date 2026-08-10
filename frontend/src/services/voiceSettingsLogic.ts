@@ -1,4 +1,5 @@
 import type { NoiseSuppressionEngine } from '../store/noiseSuppressionStore';
+import { normalizeNoiseSuppressionEngine } from './noiseSuppressionEngine';
 
 export type VoiceProcessingProfile = 'isolation' | 'studio' | 'custom';
 
@@ -41,7 +42,8 @@ export function getEffectiveProcessingSettings(
       noiseSuppression: true,
       noiseSuppressionEngine: 'deepfilternet3',
       echoCancellation: true,
-      autoGainControl: true,
+      // Browser AGC pumps residual noise into RNNoise and colors speech.
+      autoGainControl: false,
       voiceConditioning: true,
     };
   }
@@ -61,11 +63,13 @@ export function getEffectiveProcessingSettings(
 
 export function migrateLegacyProfile(
   enabled: boolean,
-  engine: NoiseSuppressionEngine,
+  engine: unknown,
 ): VoiceProcessingProfile {
   if (!enabled) return 'studio';
-  if (engine === 'miscord-ai' || engine === 'deepfilternet3') return 'isolation';
-  return 'custom';
+  const normalized = normalizeNoiseSuppressionEngine(engine);
+  return normalized === 'miscord-ai' || normalized === 'deepfilternet3'
+    ? 'isolation'
+    : 'custom';
 }
 
 export function sensitivityToDbfs(sensitivity: number): number {

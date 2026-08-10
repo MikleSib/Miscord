@@ -12,7 +12,10 @@ import type {
 } from 'mediasoup/types';
 import type WebSocket from 'ws';
 
+import { ActivityRefreshQueue } from './activityRefreshQueue.js';
 import { config } from './config.js';
+import { ConsumerPauseCoordinator } from './consumerPauseCoordinator.js';
+import { DirectTransportRegistry } from './directTransportRegistry.js';
 import { metrics } from './metrics.js';
 import type { MediaClaims, MediaSource, ProducerDescriptor } from './types.js';
 import { workerPool } from './workerPool.js';
@@ -30,6 +33,12 @@ function notify(socket: WebSocket, type: string, data: Record<string, unknown>):
   if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type, ...data }));
 }
 
+export const ACTIVE_SPEAKER_HANGOVER_MS = 1_800;
+export const AUDIO_LEVEL_OBSERVER_INTERVAL_MS = 250;
+export const EXTERNAL_SPEAKING_HINT_TTL_MS = 750;
+export const EXTERNAL_SPEAKING_HINT_BACKOFF_MS = 3_000;
+export const ACTIVITY_TRANSITION_RETRY_MS = 100;
+
 export class Room extends EventEmitter {
   readonly channelId: number;
   readonly epoch: string;
@@ -37,11 +46,23 @@ export class Room extends EventEmitter {
   readonly webRtcServer: WebRtcServer;
   readonly workerPid: number;
   readonly peers = new Map<string, Peer>();
-  readonly directTransports = new Map<string, DirectTransport>();
+  readonly directTransports: Map<string, DirectTransport>;
+  private readonly directTransportRegistry: DirectTransportRegistry;
   private readonly audioObserver: AudioLevelObserver;
+  private readonly consumerPauses = new ConsumerPauseCoordinator();
   private observedMicrophones = new Set<string>();
-  private externalMicrophones = new Set<string>();
+  private externalMicrophones = new Map<string, number>();
+  private externalHintCooldownUntil = new Map<string, number>();
+  private externalHintTimer?: ReturnType<typeof setTimeout>;
+  private activityRetryTimer?: ReturnType<typeof setTimeout>;
+  private readonly activityRefresh = new ActivityRefreshQueue(
+    (emit, priority) => this.refreshActiveMicrophones(emit, priority),
+  );
   private activeMicrophones = new Set<string>();
+  private selectedMicrophones = new Set<string>();
+  private microphoneLastActiveAt = new Map<string, number>();
+  private microphoneGateEnabled = false;
+  private closed = false;
   private onEmptyCallback?: () => void;
 
   private constructor(
@@ -59,25 +80,45 @@ export class Room extends EventEmitter {
     this.webRtcServer = webRtcServer;
     this.workerPid = workerPid;
     this.audioObserver = audioObserver;
+    this.directTransportRegistry = new DirectTransportRegistry(
+      router,
+      (peer) => !this.closed && this.isCurrentPeer(peer),
+    );
+    this.directTransports = this.directTransportRegistry.transports;
     audioObserver.on('volumes', (volumes) => {
       this.observedMicrophones = new Set(volumes.map(({ producer }) => producer.id));
-      void this.refreshActiveMicrophones();
+      const now = Date.now();
+      for (const producerId of this.observedMicrophones) {
+        this.microphoneLastActiveAt.set(producerId, now);
+        // The server observer is authoritative once RTP audio is visible.
+        this.externalMicrophones.delete(producerId);
+      }
+      this.dropExpiredExternalHints(now);
+      this.scheduleExternalHintExpiry(now);
+      this.requestActivityRefresh();
     });
     audioObserver.on('silence', () => {
       this.observedMicrophones.clear();
-      void this.refreshActiveMicrophones();
+      this.externalMicrophones.clear();
+      this.clearExternalHintTimer();
+      this.requestActivityRefresh();
     });
     metrics.rooms.inc();
   }
 
   static async create(channelId: number, epoch: string): Promise<Room> {
     const { router, webRtcServer, workerPid } = await workerPool.createRouter();
-    const observer = await router.createAudioLevelObserver({
-      maxEntries: config.maxActiveSpeakers,
-      threshold: -80,
-      interval: 400,
-    });
-    return new Room(channelId, epoch, router, webRtcServer, workerPid, observer);
+    try {
+      const observer = await router.createAudioLevelObserver({
+        maxEntries: config.maxActiveSpeakers,
+        threshold: -80,
+        interval: AUDIO_LEVEL_OBSERVER_INTERVAL_MS,
+      });
+      return new Room(channelId, epoch, router, webRtcServer, workerPid, observer);
+    } catch (error) {
+      router.close();
+      throw error;
+    }
   }
 
   onEmpty(callback: () => void): void {
@@ -86,7 +127,10 @@ export class Room extends EventEmitter {
 
   addPeer(claims: MediaClaims, socket: WebSocket): Peer {
     const old = this.peers.get(claims.session_id);
-    if (old) this.removePeer(claims.session_id);
+    if (old) {
+      this.removePeer(claims.session_id, old, true);
+      try { old.socket.close(4000, 'Media session replaced'); } catch { /* already closed */ }
+    }
     const peer: Peer = {
       claims,
       socket,
@@ -98,6 +142,14 @@ export class Room extends EventEmitter {
     this.peers.set(claims.session_id, peer);
     metrics.peers.inc();
     return peer;
+  }
+
+  isCurrentPeer(peer: Peer): boolean {
+    return this.peers.get(peer.claims.session_id) === peer;
+  }
+
+  isEmpty(): boolean {
+    return this.peers.size === 0 && this.directTransports.size === 0;
   }
 
   descriptors(excludeSessionId?: string): ProducerDescriptor[] {
@@ -130,6 +182,7 @@ export class Room extends EventEmitter {
   }
 
   async createWebRtcTransport(peer: Peer, direction: 'send' | 'recv'): Promise<WebRtcTransport> {
+    if (!this.isCurrentPeer(peer)) throw new Error('Media session was replaced');
     if ([...peer.transports.values()].some((item) => item.appData.direction === direction)) {
       throw new Error(`${direction} transport already exists`);
     }
@@ -141,7 +194,20 @@ export class Room extends EventEmitter {
       initialAvailableOutgoingBitrate: config.initialOutgoingBitrate,
       appData: { sessionId: peer.claims.session_id, direction },
     });
-    if (direction === 'send') await transport.setMaxIncomingBitrate(config.maxIncomingBitrate);
+    if (!this.isCurrentPeer(peer)) {
+      transport.close();
+      throw new Error('Media session was replaced');
+    }
+    try {
+      if (direction === 'send') await transport.setMaxIncomingBitrate(config.maxIncomingBitrate);
+    } catch (error) {
+      transport.close();
+      throw error;
+    }
+    if (!this.isCurrentPeer(peer)) {
+      transport.close();
+      throw new Error('Media session was replaced');
+    }
     transport.on('icestatechange', (state) => {
       metrics.transportStateTransitions.inc({ kind: 'ice', state });
     });
@@ -159,7 +225,14 @@ export class Room extends EventEmitter {
   }
 
   async addProducer(peer: Peer, transport: Transport, producer: Producer, source: MediaSource): Promise<void> {
-    if (peer.sourceProducers.has(source)) throw new Error(`${source} producer already exists`);
+    if (!this.isCurrentPeer(peer)) {
+      producer.close();
+      throw new Error('Media session was replaced');
+    }
+    if (peer.sourceProducers.has(source)) {
+      producer.close();
+      throw new Error(`${source} producer already exists`);
+    }
     if (source.startsWith('screen-')) {
       const screenPeers = new Set(
         [...this.peers.values()].filter((candidate) =>
@@ -175,8 +248,24 @@ export class Room extends EventEmitter {
     peer.sourceProducers.set(source, producer.id);
     producer.on('transportclose', () => this.removeProducer(peer, producer, source));
     producer.on('@close', () => this.removeProducer(peer, producer, source));
-    if (source === 'microphone') await this.audioObserver.addProducer({ producerId: producer.id });
     metrics.producers.inc();
+    try {
+      if (source === 'microphone') {
+        await this.audioObserver.addProducer({ producerId: producer.id });
+        await this.activityRefresh.request(false);
+      }
+      if (
+        !this.isCurrentPeer(peer)
+        || producer.closed
+        || peer.producers.get(producer.id) !== producer
+        || peer.sourceProducers.get(source) !== producer.id
+      ) {
+        throw new Error('Media session was replaced');
+      }
+    } catch (error) {
+      producer.close();
+      throw error;
+    }
     this.broadcast('producer_available', {
       producer_id: producer.id,
       user_id: Number(peer.claims.sub),
@@ -191,7 +280,10 @@ export class Room extends EventEmitter {
     if (peer.sourceProducers.get(source) === producer.id) peer.sourceProducers.delete(source);
     this.observedMicrophones.delete(producer.id);
     this.externalMicrophones.delete(producer.id);
+    this.externalHintCooldownUntil.delete(producer.id);
     this.activeMicrophones.delete(producer.id);
+    this.selectedMicrophones.delete(producer.id);
+    this.microphoneLastActiveAt.delete(producer.id);
     metrics.producers.dec();
     this.broadcast('producer_closed', {
       producer_id: producer.id,
@@ -199,16 +291,33 @@ export class Room extends EventEmitter {
       source,
     });
     this.emit('producerClosed', producer.id, peer);
+    if (source === 'microphone') this.requestActivityRefresh(false);
   }
 
   addConsumer(peer: Peer, consumer: Consumer): void {
+    if (!this.isCurrentPeer(peer)) {
+      consumer.close();
+      throw new Error('Media session was replaced');
+    }
+    const owner = this.producerOwner(consumer.producerId);
+    const producer = owner?.producers.get(consumer.producerId);
+    if (consumer.closed || !producer || producer.closed) {
+      consumer.close();
+      throw new Error('Producer is no longer available');
+    }
     consumer.appData.userPaused = false;
     consumer.appData.activityPaused = false;
+    this.consumerPauses.register(consumer);
+    const source = producer.appData.source;
+    const activityPaused = source === 'microphone'
+      && this.microphoneGateEnabled
+      && !this.selectedMicrophones.has(consumer.producerId);
     peer.consumers.set(consumer.id, consumer);
     workerPool.adjustConsumers(this.workerPid, 1);
     metrics.consumers.inc();
     const cleanup = () => {
       if (!peer.consumers.delete(consumer.id)) return;
+      this.consumerPauses.unregister(consumer);
       workerPool.adjustConsumers(this.workerPid, -1);
       metrics.consumers.dec();
     };
@@ -218,126 +327,199 @@ export class Room extends EventEmitter {
       cleanup();
     });
     consumer.on('@close', cleanup);
+    if (activityPaused) {
+      void this.setConsumerActivityPaused(consumer, true).catch(() => this.scheduleActivityRetry());
+    }
   }
 
   async setConsumerUserPaused(consumer: Consumer, paused: boolean): Promise<void> {
-    consumer.appData.userPaused = paused;
-    await this.applyConsumerPauseState(consumer);
+    await this.consumerPauses.setUserPaused(consumer, paused);
   }
 
   async setExternalProducerSpeaking(producerId: string, speaking: boolean): Promise<void> {
-    if (!this.producerOwner(producerId)) return;
-    if (speaking) this.externalMicrophones.add(producerId);
-    else this.externalMicrophones.delete(producerId);
-    await this.refreshActiveMicrophones();
+    const owner = this.producerOwner(producerId);
+    if (owner?.producers.get(producerId)?.appData.source !== 'microphone') return;
+    const now = Date.now();
+    if (speaking) {
+      if ((this.externalHintCooldownUntil.get(producerId) ?? 0) > now) return;
+      this.externalMicrophones.set(producerId, now + EXTERNAL_SPEAKING_HINT_TTL_MS);
+      this.externalHintCooldownUntil.set(producerId, now + EXTERNAL_SPEAKING_HINT_BACKOFF_MS);
+      this.microphoneLastActiveAt.set(producerId, now);
+      this.scheduleExternalHintExpiry(now);
+    } else {
+      // A client can emit duplicate speech-end hints. If the hint is already
+      // absent there is no room state to reconcile; returning here prevents an
+      // authenticated peer from forcing an O(peers * consumers) refresh loop.
+      if (!this.externalMicrophones.delete(producerId)) return;
+      this.scheduleExternalHintExpiry(now);
+    }
+    await this.activityRefresh.request(true, speaking ? producerId : undefined);
   }
 
-  async createDirectTransport(sessionId: string): Promise<DirectTransport> {
-    const current = this.directTransports.get(sessionId);
-    if (current && !current.closed) return current;
-    const transport = await this.router.createDirectTransport({ appData: { sessionId } });
-    transport.on('@close', () => this.directTransports.delete(sessionId));
-    this.directTransports.set(sessionId, transport);
-    return transport;
+  async createDirectTransport(peer: Peer): Promise<DirectTransport> {
+    return this.directTransportRegistry.getOrCreate(peer);
   }
 
-  removePeer(sessionId: string): void {
+  removePeer(sessionId: string, expectedPeer?: Peer, suppressEmpty = false): void {
     const peer = this.peers.get(sessionId);
-    if (!peer) return;
+    if (!peer || (expectedPeer && peer !== expectedPeer)) return;
     for (const consumer of peer.consumers.values()) consumer.close();
     for (const producer of peer.producers.values()) producer.close();
     for (const transport of peer.transports.values()) transport.close();
-    this.directTransports.get(sessionId)?.close();
-    this.directTransports.delete(sessionId);
+    this.directTransportRegistry.remove(sessionId, expectedPeer);
     this.peers.delete(sessionId);
     metrics.peers.dec();
     this.broadcast('peer_closed', { user_id: Number(peer.claims.sub), session_id: sessionId });
-    if (this.peers.size === 0 && this.directTransports.size === 0) this.onEmptyCallback?.();
+    if (!suppressEmpty && this.peers.size === 0 && this.directTransports.size === 0) {
+      this.onEmptyCallback?.();
+    }
   }
 
   close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.clearExternalHintTimer();
+    if (this.activityRetryTimer) clearTimeout(this.activityRetryTimer);
+    this.activityRetryTimer = undefined;
+    this.activityRefresh.close();
     for (const sessionId of [...this.peers.keys()]) this.removePeer(sessionId);
-    for (const transport of this.directTransports.values()) transport.close();
+    this.directTransportRegistry.close();
     this.audioObserver.close();
     this.router.close();
     metrics.rooms.dec();
   }
 
-  private async refreshActiveMicrophones(): Promise<void> {
-    const active = new Set(
-      [...this.externalMicrophones, ...this.observedMicrophones].slice(0, config.maxActiveSpeakers),
-    );
-    this.activeMicrophones = active;
+  private async refreshActiveMicrophones(
+    emitActiveSpeakers = true,
+    priorityProducerId?: string,
+  ): Promise<void> {
+    if (this.closed) return;
+    const microphoneIds = this.microphoneProducerIds();
+    const microphoneIdSet = new Set(microphoneIds);
+    const active = [...new Set([
+      ...(priorityProducerId ? [priorityProducerId] : []),
+      ...this.externalMicrophones.keys(),
+      ...this.observedMicrophones,
+    ])]
+      .filter((producerId) => microphoneIdSet.has(producerId))
+      .slice(0, config.maxActiveSpeakers);
+    this.activeMicrophones = new Set(active);
     const users = [...this.activeMicrophones].map((producerId) => {
       const peer = this.producerOwner(producerId);
       return peer ? Number(peer.claims.sub) : null;
     }).filter((value): value is number => value !== null);
-    this.broadcast('active_speakers', { user_ids: users });
+    if (emitActiveSpeakers) this.broadcast('active_speakers', { user_ids: users });
+
+    if (microphoneIds.length <= config.maxActiveSpeakers) {
+      this.microphoneGateEnabled = false;
+      this.selectedMicrophones = microphoneIdSet;
+    } else {
+      this.selectMicrophonesForLargeRoom(microphoneIds, active, priorityProducerId);
+    }
+
     for (const peer of this.peers.values()) {
       for (const consumer of peer.consumers.values()) {
         const owner = this.producerOwner(consumer.producerId);
         const source = owner?.producers.get(consumer.producerId)?.appData.source;
         if (source !== 'microphone') continue;
-        consumer.appData.activityPaused = !this.activeMicrophones.has(consumer.producerId);
-        await this.applyConsumerPauseState(consumer);
+        const shouldPause = this.microphoneGateEnabled
+          && !this.selectedMicrophones.has(consumer.producerId);
+        try {
+          await this.setConsumerActivityPaused(consumer, shouldPause);
+        } catch {
+          this.scheduleActivityRetry();
+        }
       }
     }
   }
 
-  private async applyConsumerPauseState(consumer: Consumer): Promise<void> {
-    const paused = Boolean(consumer.appData.userPaused) || Boolean(consumer.appData.activityPaused);
-    if (paused) await consumer.pause().catch(() => undefined);
-    else await consumer.resume().catch(() => undefined);
+  private microphoneProducerIds(): string[] {
+    const ids: string[] = [];
+    for (const peer of this.peers.values()) {
+      for (const producer of peer.producers.values()) {
+        if (producer.appData.source === 'microphone') ids.push(producer.id);
+      }
+    }
+    return ids;
+  }
+
+  private selectMicrophonesForLargeRoom(
+    microphoneIds: string[],
+    activeIds: string[],
+    priorityProducerId?: string,
+  ): void {
+    const now = Date.now();
+    if (!this.microphoneGateEnabled) {
+      for (const producerId of this.selectedMicrophones) {
+        if (!this.microphoneLastActiveAt.has(producerId)) this.microphoneLastActiveAt.set(producerId, now);
+      }
+    }
+    this.microphoneGateEnabled = true;
+    const activeSet = new Set(activeIds);
+    const next = new Set<string>();
+    const append = (producerId: string) => {
+      if (next.size < config.maxActiveSpeakers && microphoneIds.includes(producerId)) next.add(producerId);
+    };
+
+    if (priorityProducerId && activeSet.has(priorityProducerId)) append(priorityProducerId);
+    for (const producerId of this.selectedMicrophones) {
+      if (activeSet.has(producerId)) append(producerId);
+    }
+    for (const producerId of activeIds) append(producerId);
+    for (const producerId of this.selectedMicrophones) {
+      const lastActiveAt = this.microphoneLastActiveAt.get(producerId);
+      if (lastActiveAt !== undefined && now - lastActiveAt < ACTIVE_SPEAKER_HANGOVER_MS) append(producerId);
+    }
+    // Keep up to four routes warm through silence. A new VAD/observer event replaces
+    // one retained route immediately instead of losing its first syllable.
+    for (const producerId of this.selectedMicrophones) append(producerId);
+    for (const producerId of microphoneIds) append(producerId);
+    this.selectedMicrophones = next;
+  }
+
+  private dropExpiredExternalHints(now: number): void {
+    for (const [producerId, expiresAt] of this.externalMicrophones) {
+      if (expiresAt <= now) this.externalMicrophones.delete(producerId);
+    }
+    for (const [producerId, cooldownUntil] of this.externalHintCooldownUntil) {
+      if (cooldownUntil <= now) this.externalHintCooldownUntil.delete(producerId);
+    }
+  }
+
+  private scheduleExternalHintExpiry(now = Date.now()): void {
+    this.clearExternalHintTimer();
+    const nextExpiry = Math.min(...this.externalMicrophones.values());
+    if (!Number.isFinite(nextExpiry)) return;
+    this.externalHintTimer = setTimeout(() => {
+      this.externalHintTimer = undefined;
+      const current = Date.now();
+      this.dropExpiredExternalHints(current);
+      this.scheduleExternalHintExpiry(current);
+      this.requestActivityRefresh(false);
+    }, Math.max(1, nextExpiry - now));
+    this.externalHintTimer.unref?.();
+  }
+
+  private clearExternalHintTimer(): void {
+    if (this.externalHintTimer) clearTimeout(this.externalHintTimer);
+    this.externalHintTimer = undefined;
+  }
+
+  private async setConsumerActivityPaused(consumer: Consumer, paused: boolean): Promise<void> {
+    await this.consumerPauses.setActivityPaused(consumer, paused);
+  }
+
+  private requestActivityRefresh(emit = true, priorityProducerId?: string): void {
+    void this.activityRefresh.request(emit, priorityProducerId)
+      .catch(() => this.scheduleActivityRetry());
+  }
+
+  private scheduleActivityRetry(): void {
+    if (this.closed || this.activityRetryTimer) return;
+    this.activityRetryTimer = setTimeout(() => {
+      this.activityRetryTimer = undefined;
+      this.requestActivityRefresh(false);
+    }, ACTIVITY_TRANSITION_RETRY_MS);
+    this.activityRetryTimer.unref?.();
   }
 }
-
-export class RoomRegistry {
-  private readonly rooms = new Map<number, Room>();
-  private readonly pendingRooms = new Map<number, Promise<Room>>();
-
-  async getOrCreate(channelId: number, epoch: string): Promise<Room> {
-    const existing = this.rooms.get(channelId);
-    if (existing) {
-      if (existing.epoch !== epoch) throw new Error('Room epoch mismatch');
-      return existing;
-    }
-
-    const pending = this.pendingRooms.get(channelId);
-    if (pending) {
-      const room = await pending;
-      if (room.epoch !== epoch) throw new Error('Room epoch mismatch');
-      return room;
-    }
-
-    const creation = Room.create(channelId, epoch);
-    this.pendingRooms.set(channelId, creation);
-    let room: Room;
-    try {
-      room = await creation;
-      room.onEmpty(() => {
-        room.close();
-        if (this.rooms.get(channelId) === room) this.rooms.delete(channelId);
-      });
-      this.rooms.set(channelId, room);
-    } finally {
-      if (this.pendingRooms.get(channelId) === creation) this.pendingRooms.delete(channelId);
-    }
-    return room;
-  }
-
-  get(channelId: number): Room | undefined {
-    return this.rooms.get(channelId);
-  }
-
-  size(): number {
-    return this.rooms.size;
-  }
-
-  close(): void {
-    for (const room of this.rooms.values()) room.close();
-    this.rooms.clear();
-    this.pendingRooms.clear();
-  }
-}
-
-export const rooms = new RoomRegistry();

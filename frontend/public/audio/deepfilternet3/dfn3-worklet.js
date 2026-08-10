@@ -19,66 +19,9 @@ const CROSSFADE_SAMPLES = 960;
 const STARTUP_FADE_SAMPLES = 24000;
 /** Окно 25 кадров ≈ 250 мс: перегрузку надо замечать за доли секунды, а не за 5 с. */
 const PERF_WINDOW_FRAMES = 25;
-/** Кадр — это 10 мс звука. Дольше считать не успеваем в реальном времени. */
-const FRAME_BUDGET_MS = 10;
-/**
- * Речь и микрофонный шум ограничены по полосе и не меняются на 0.12 за один
- * сэмпл. Такой скачок означает короткий цифровой/механический щелчок.
- */
-const IMPULSE_STEP_THRESHOLD = 0.12;
-/** 2.5 мс достаточно для клавиатурного щелчка, но не затрагивает слог. */
-const IMPULSE_REPAIR_SAMPLES = 120;
-
-class ImpulseSuppressor {
-  constructor() {
-    this.reset();
-  }
-
-  reset() {
-    this.previousInput = 0;
-    this.hasPreviousInput = false;
-    this.correction = 0;
-    this.correctionStep = 0;
-    this.remainingSamples = 0;
-  }
-
-  process(sample) {
-    if (!this.hasPreviousInput) {
-      this.previousInput = sample;
-      this.hasPreviousInput = true;
-      if (Math.abs(sample) < IMPULSE_STEP_THRESHOLD) return sample;
-      // Поток мог начаться прямо со щелчка, поэтому первый сэмпл сравниваем
-      // с цифровой тишиной, а не пропускаем без проверки.
-      this.correction = sample;
-      this.correctionStep = sample / IMPULSE_REPAIR_SAMPLES;
-      this.remainingSamples = IMPULSE_REPAIR_SAMPLES;
-    }
-
-    if (this.remainingSamples === 0) {
-      const step = sample - this.previousInput;
-      this.previousInput = sample;
-      if (Math.abs(step) >= IMPULSE_STEP_THRESHOLD) {
-        // Щелчок короче окна: его амплитуда плавно сходит к нулю. Вычитаем
-        // только найденный скачок, поэтому речь под ним продолжает звучать.
-        this.correction = step;
-        this.correctionStep = step / IMPULSE_REPAIR_SAMPLES;
-        this.remainingSamples = IMPULSE_REPAIR_SAMPLES;
-      }
-    } else {
-      this.previousInput = sample;
-    }
-
-    if (this.remainingSamples === 0) return sample;
-    const repaired = sample - this.correction;
-    this.correction -= this.correctionStep;
-    this.remainingSamples -= 1;
-    if (this.remainingSamples === 0) {
-      this.correction = 0;
-      this.correctionStep = 0;
-    }
-    return repaired;
-  }
-}
+/** Кадр содержит 10 мс аудио, но inference должен оставлять запас рендеру. */
+const AUDIO_FRAME_DURATION_MS = 10;
+const INFERENCE_OVERLOAD_MS = 2.5;
 
 class SampleFifo {
   constructor() {
@@ -139,7 +82,6 @@ class DeepFilterNet3Processor extends AudioWorkletProcessor {
     this.lastRenderSize = 0;
     this.frameOffset = 0;
     this.frame = new Float32Array(FRAME_SIZE);
-    this.impulseSuppressor = new ImpulseSuppressor();
     this.dryFifo = new SampleFifo();
     this.wetFifo = new SampleFifo();
     this.perfFrames = 0;
@@ -221,9 +163,8 @@ class DeepFilterNet3Processor extends AudioWorkletProcessor {
       // Полное подавление звучит «роботом»: оставляем -40 dB, шум на этом уровне
       // уже неразличим, а речь сохраняет естественный тембр.
       module._dfn3_wasm_set_atten_lim(40);
-      // 0.05 убирает тихий стационарный фон после основной маски, но остаётся
-      // далеко от агрессивных значений, которые окрашивают согласные.
-      module._dfn3_wasm_set_post_filter_beta(0.05);
+      // Мягкий post-filter убирает остаточный фон, не окрашивая согласные.
+      module._dfn3_wasm_set_post_filter_beta(0.02);
       module._dfn3_wasm_set_hpf(1);
 
       this.inputPointer = module._dfn3_wasm_get_input_ptr();
@@ -233,7 +174,6 @@ class DeepFilterNet3Processor extends AudioWorkletProcessor {
       // выровненными по времени, а звук не дублируется на первых кадрах.
       this.dryFifo.prime(PRIME_SAMPLES);
       this.wetFifo.prime(PRIME_SAMPLES);
-      this.impulseSuppressor.reset();
       this.frameOffset = 0;
       this.mix = 0;
       this.ready = true;
@@ -255,7 +195,6 @@ class DeepFilterNet3Processor extends AudioWorkletProcessor {
     this.modelCreated = false;
     this.weightsPointer = 0;
     this.module = null;
-    this.impulseSuppressor.reset();
     this.dryFifo.clear();
     this.wetFifo.clear();
   }
@@ -289,7 +228,7 @@ class DeepFilterNet3Processor extends AudioWorkletProcessor {
     this.perfTotalMs += durationMs;
     this.perfMaxMs = Math.max(this.perfMaxMs, durationMs);
     // Средний rtf прячет периодические просадки, поэтому считаем и сами просадки.
-    if (durationMs > FRAME_BUDGET_MS) this.perfOverloadFrames += 1;
+    if (durationMs > INFERENCE_OVERLOAD_MS) this.perfOverloadFrames += 1;
 
     if (this.perfFrames === PERF_WINDOW_FRAMES) {
       const averageMs = this.perfTotalMs / this.perfFrames;
@@ -297,7 +236,7 @@ class DeepFilterNet3Processor extends AudioWorkletProcessor {
         type: 'perf',
         averageMs,
         maxMs: this.perfMaxMs,
-        rtf: averageMs / FRAME_BUDGET_MS,
+        rtf: averageMs / AUDIO_FRAME_DURATION_MS,
         overloadRatio: this.perfOverloadFrames / this.perfFrames,
         glitchSamples: this.glitchSamples,
         droppedSamples: this.dryFifo.dropped + this.wetFifo.dropped,
@@ -335,10 +274,9 @@ class DeepFilterNet3Processor extends AudioWorkletProcessor {
         continue;
       }
 
-      const repairedSample = this.impulseSuppressor.process(sample);
-      this.frame[this.frameOffset] = repairedSample;
+      this.frame[this.frameOffset] = sample;
       this.frameOffset += 1;
-      this.dryFifo.push(repairedSample);
+      this.dryFifo.push(sample);
 
       if (this.frameOffset === FRAME_SIZE) {
         this.processFrame();

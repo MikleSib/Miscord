@@ -7,6 +7,7 @@ import {
   type VoiceProcessingProfile,
   type VoiceProcessingSettings,
 } from '../services/voiceSettingsLogic';
+import { normalizeNoiseSuppressionEngine } from '../services/noiseSuppressionEngine';
 
 interface VoiceProcessingSettingsState {
   profile: VoiceProcessingProfile;
@@ -38,10 +39,20 @@ export const useVoiceProcessingSettingsStore = create<VoiceProcessingSettingsSta
     }),
     {
       name: 'miscord-voice-processing-v1',
-      version: 1,
+      version: 2,
       partialize: (state) => ({
         profile: state.profile,
         customSettings: state.customSettings,
+      }),
+      migrate: (persistedState: any) => ({
+        ...persistedState,
+        customSettings: {
+          ...DEFAULT_CUSTOM_PROCESSING,
+          ...persistedState?.customSettings,
+          noiseSuppressionEngine: normalizeNoiseSuppressionEngine(
+            persistedState?.customSettings?.noiseSuppressionEngine,
+          ),
+        },
       }),
     },
   ),

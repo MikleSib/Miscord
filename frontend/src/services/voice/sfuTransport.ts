@@ -6,6 +6,10 @@ import type { MediaSource, ProducerDescriptor, RemoteMedia } from './types';
 
 type RemoteMediaHandler = (media: RemoteMedia) => void;
 type SpeakersHandler = (userIds: number[]) => void;
+type BooleanRpcQueue = {
+  desired: boolean;
+  tail: Promise<void>;
+};
 
 export class SfuTransport {
   private readonly rpc = new MediaRpcClient();
@@ -13,26 +17,72 @@ export class SfuTransport {
   private sendTransport: Transport | null = null;
   private recvTransport: Transport | null = null;
   private microphone: Producer | null = null;
+  private pendingMicrophoneTrack: MediaStreamTrack | null = null;
+  private microphoneGate: BooleanRpcQueue = { desired: false, tail: Promise.resolve() };
+  private microphoneGateInitialized = false;
+  private speakingState: boolean | null = null;
+  private deafened = false;
   private screenVideo: Producer | null = null;
   private screenAudio: Producer | null = null;
   private readonly consumers = new Map<string, Consumer>();
+  private readonly consumingProducerIds = new Set<string>();
+  private readonly consumerGates = new Map<string, BooleanRpcQueue>();
   private readonly producerDirectory = new Map<string, ProducerDescriptor>();
   private readonly requestedScreenUsers = new Set<number>();
   private remoteMediaHandler?: RemoteMediaHandler;
   private speakersHandler?: SpeakersHandler;
   private failureHandler?: (message: string) => void;
 
-  async connect(url: string, ticket: string, microphoneTrack: MediaStreamTrack): Promise<void> {
+  async connect(
+    url: string,
+    ticket: string,
+    microphoneTrack: MediaStreamTrack,
+    initiallyMuted = false,
+  ): Promise<void> {
+    if (!this.microphoneGateInitialized) {
+      this.microphoneGate.desired = initiallyMuted;
+      this.microphoneGateInitialized = true;
+    }
     const identified = await this.rpc.connect(url, ticket);
     await this.device.load({ routerRtpCapabilities: identified.router_rtp_capabilities });
     this.bindNotifications();
     this.sendTransport = await this.createTransport('send');
     this.recvTransport = await this.createTransport('recv');
-    this.microphone = await this.sendTransport.produce({
-      track: microphoneTrack,
-      codecOptions: { opusStereo: true, opusDtx: true, opusFec: true },
-      appData: { source: 'microphone' },
-    });
+    try {
+      microphoneTrack.contentHint = 'speech';
+    } catch {
+      // Older WebKit builds may expose contentHint as read-only.
+    }
+    const producerTrack = microphoneTrack.clone();
+    producerTrack.enabled = !this.microphoneGate.desired;
+    this.pendingMicrophoneTrack = producerTrack;
+    try { producerTrack.contentHint = 'speech'; } catch { /* Read-only in older WebKit. */ }
+    try {
+      this.microphone = await this.sendTransport.produce({
+        track: producerTrack,
+        disableTrackOnPause: false,
+        zeroRtpOnPause: true,
+        encodings: [{ maxBitrate: 80_000 }],
+        codecOptions: {
+          opusStereo: false,
+          opusDtx: false,
+          opusFec: true,
+          opusMaxAverageBitrate: 80_000,
+          opusPtime: 20,
+        },
+        appData: { source: 'microphone' },
+      });
+    } catch (error) {
+      producerTrack.stop();
+      throw error;
+    } finally {
+      if (this.pendingMicrophoneTrack === producerTrack) this.pendingMicrophoneTrack = null;
+    }
+    if (this.microphoneGate.desired) {
+      const gate = this.setMicrophoneMuted(true);
+      producerTrack.enabled = true;
+      await gate;
+    }
     for (const descriptor of identified.producers as ProducerDescriptor[]) {
       this.producerDirectory.set(descriptor.producer_id, descriptor);
       if (descriptor.source === 'microphone') await this.consume(descriptor);
@@ -52,31 +102,62 @@ export class SfuTransport {
   }
 
   async setMicrophoneMuted(muted: boolean): Promise<void> {
-    if (!this.microphone) return;
-    if (muted) {
-      this.microphone.pause();
-      await this.rpc.request('pause_producer', { producer_id: this.microphone.id });
-    } else {
-      this.microphone.resume();
-      await this.rpc.request('resume_producer', { producer_id: this.microphone.id });
+    const queue = this.microphoneGate;
+    this.microphoneGateInitialized = true;
+    queue.desired = muted;
+    if (this.pendingMicrophoneTrack) this.pendingMicrophoneTrack.enabled = !muted;
+    const producer = this.microphone;
+    if (!producer) return;
+    if (muted) producer.pause();
+    const previous = queue.tail;
+    const task = previous.catch(() => undefined).then(async () => {
+      if (this.microphone !== producer || this.microphoneGate !== queue) return;
+      const desired = queue.desired;
+      await this.rpc.request(desired ? 'pause_producer' : 'resume_producer', {
+        producer_id: producer.id,
+      });
+      if (
+        this.microphone !== producer
+        || this.microphoneGate !== queue
+        || queue.desired !== desired
+      ) return;
+      if (desired) producer.pause();
+      else producer.resume();
+    });
+    queue.tail = task;
+    await task;
+  }
+
+  async setSpeaking(speaking: boolean): Promise<void> {
+    if (!this.microphone || this.speakingState === speaking) return;
+    this.speakingState = speaking;
+    try {
+      await this.rpc.request('set_speaking', {
+        producer_id: this.microphone.id,
+        speaking,
+      });
+    } catch (error) {
+      if (this.speakingState === speaking) this.speakingState = null;
+      throw error;
     }
   }
 
   async setDeafened(deafened: boolean): Promise<void> {
-    await Promise.all([...this.consumers.values()].filter((item) => item.kind === 'audio').map(async (consumer) => {
-      if (deafened) {
-        consumer.pause();
-        await this.rpc.request('pause_consumer', { consumer_id: consumer.id });
-      } else {
-        consumer.resume();
-        await this.rpc.request('resume_consumer', { consumer_id: consumer.id });
-      }
-    }));
+    this.deafened = deafened;
+    await Promise.all([...this.consumers.values()]
+      .filter((item) => item.kind === 'audio')
+      .map((consumer) => this.applyConsumerDeafened(consumer, deafened)));
   }
 
   async replaceMicrophoneTrack(track: MediaStreamTrack): Promise<void> {
     if (!this.microphone) throw new Error('Microphone producer is unavailable');
-    await this.microphone.replaceTrack({ track });
+    const producerTrack = track.clone();
+    try {
+      await this.microphone.replaceTrack({ track: producerTrack });
+    } catch (error) {
+      producerTrack.stop();
+      throw error;
+    }
   }
 
   async startScreenShare(stream: MediaStream): Promise<void> {
@@ -84,35 +165,52 @@ export class SfuTransport {
     await this.stopScreenShare();
     const videoTrack = stream.getVideoTracks()[0];
     if (!videoTrack) throw new Error('Screen video track is missing');
-    this.screenVideo = await this.sendTransport.produce({
-      track: videoTrack,
-      encodings: [
-        { maxBitrate: 300_000, scaleResolutionDownBy: 4 },
-        { maxBitrate: 1_200_000, scaleResolutionDownBy: 2 },
-        { maxBitrate: 4_000_000, scaleResolutionDownBy: 1 },
-      ],
-      codecOptions: { videoGoogleStartBitrate: 1_000 },
-      appData: { source: 'screen-video' },
-    });
-    const audioTrack = stream.getAudioTracks()[0];
-    if (audioTrack) {
-      this.screenAudio = await this.sendTransport.produce({
-        track: audioTrack,
-        codecOptions: { opusStereo: true, opusFec: true },
-        appData: { source: 'screen-audio' },
+    try {
+      this.screenVideo = await this.sendTransport.produce({
+        track: videoTrack,
+        encodings: [
+          { maxBitrate: 300_000, scaleResolutionDownBy: 4 },
+          { maxBitrate: 1_200_000, scaleResolutionDownBy: 2 },
+          { maxBitrate: 4_000_000, scaleResolutionDownBy: 1 },
+        ],
+        codecOptions: { videoGoogleStartBitrate: 1_000 },
+        appData: { source: 'screen-video' },
       });
+      const audioTrack = stream.getAudioTracks()[0];
+      if (audioTrack) {
+        this.screenAudio = await this.sendTransport.produce({
+          track: audioTrack,
+          encodings: [{ maxBitrate: 160_000 }],
+          codecOptions: {
+            opusStereo: true,
+            opusDtx: false,
+            opusFec: true,
+            opusMaxAverageBitrate: 160_000,
+            opusPtime: 20,
+          },
+          appData: { source: 'screen-audio' },
+        });
+      }
+    } catch (error) {
+      await this.stopScreenShare();
+      throw error;
     }
-    videoTrack.addEventListener('ended', () => void this.stopScreenShare(), { once: true });
+    const videoProducer = this.screenVideo;
+    videoTrack.addEventListener('ended', () => {
+      if (this.screenVideo === videoProducer) void this.stopScreenShare();
+    }, { once: true });
   }
 
   async stopScreenShare(): Promise<void> {
-    for (const producer of [this.screenVideo, this.screenAudio]) {
-      if (!producer) continue;
-      await this.rpc.request('close_producer', { producer_id: producer.id }).catch(() => undefined);
-      producer.close();
-    }
+    const producers = [this.screenVideo, this.screenAudio].filter(
+      (producer): producer is Producer => producer !== null,
+    );
     this.screenVideo = null;
     this.screenAudio = null;
+    for (const producer of producers) producer.close();
+    await Promise.all(producers.map((producer) => this.rpc.request('close_producer', {
+      producer_id: producer.id,
+    }).catch(() => undefined)));
   }
 
   async ensureScreenShare(userId: number): Promise<void> {
@@ -154,12 +252,23 @@ export class SfuTransport {
   close(): void {
     for (const consumer of this.consumers.values()) consumer.close();
     this.consumers.clear();
+    this.consumingProducerIds.clear();
+    this.consumerGates.clear();
+    this.pendingMicrophoneTrack?.stop();
+    this.pendingMicrophoneTrack = null;
     this.microphone?.close();
     this.screenVideo?.close();
     this.screenAudio?.close();
     this.sendTransport?.close();
     this.recvTransport?.close();
+    this.sendTransport = null;
+    this.recvTransport = null;
     this.rpc.close();
+    this.microphone = null;
+    this.microphoneGate = { desired: false, tail: Promise.resolve() };
+    this.microphoneGateInitialized = false;
+    this.speakingState = null;
+    this.deafened = false;
     this.producerDirectory.clear();
     this.requestedScreenUsers.clear();
   }
@@ -215,6 +324,7 @@ export class SfuTransport {
         if (consumer.producerId === producer_id) {
           consumer.close();
           this.consumers.delete(consumerId);
+          this.consumerGates.delete(consumerId);
         }
       }
     });
@@ -223,23 +333,74 @@ export class SfuTransport {
   }
 
   private async consume(descriptor: ProducerDescriptor): Promise<void> {
-    if (!this.recvTransport || [...this.consumers.values()].some((item) => item.producerId === descriptor.producer_id)) return;
-    const result = await this.rpc.request('consume', {
-      transport_id: this.recvTransport.id,
-      producer_id: descriptor.producer_id,
-      rtp_capabilities: this.device.rtpCapabilities,
+    const producerId = descriptor.producer_id;
+    const transport = this.recvTransport;
+    if (
+      !transport
+      || this.consumingProducerIds.has(producerId)
+      || [...this.consumers.values()].some((item) => item.producerId === producerId)
+    ) return;
+    this.consumingProducerIds.add(producerId);
+    try {
+      const result = await this.rpc.request('consume', {
+        transport_id: transport.id,
+        producer_id: producerId,
+        rtp_capabilities: this.device.rtpCapabilities,
+      });
+      if (this.recvTransport !== transport || !this.producerDirectory.has(producerId)) {
+        await this.rpc.request('close_consumer', { consumer_id: result.consumer_id }).catch(() => undefined);
+        return;
+      }
+      const consumer = await transport.consume({
+        id: result.consumer_id,
+        producerId: result.producer_id,
+        kind: result.kind,
+        rtpParameters: result.rtp_parameters,
+        appData: { source: result.source, userId: result.user_id },
+      });
+      if (this.recvTransport !== transport || !this.producerDirectory.has(producerId)) {
+        consumer.close();
+        await this.rpc.request('close_consumer', { consumer_id: consumer.id }).catch(() => undefined);
+        return;
+      }
+      this.consumers.set(consumer.id, consumer);
+      this.consumerGates.set(consumer.id, { desired: this.deafened, tail: Promise.resolve() });
+      const stream = new MediaStream([consumer.track]);
+      this.remoteMediaHandler?.({ userId: result.user_id, source: result.source, stream });
+      if (consumer.kind === 'audio') await this.applyConsumerDeafened(consumer, this.deafened);
+      else {
+        await this.rpc.request('resume_consumer', { consumer_id: consumer.id });
+        consumer.resume();
+      }
+    } finally {
+      this.consumingProducerIds.delete(producerId);
+    }
+  }
+
+  private async applyConsumerDeafened(
+    consumer: Consumer,
+    deafened: boolean,
+  ): Promise<void> {
+    const queue = this.consumerGates.get(consumer.id);
+    if (!queue) return;
+    queue.desired = deafened;
+    if (deafened) consumer.pause();
+    const previous = queue.tail;
+    const task = previous.catch(() => undefined).then(async () => {
+      if (this.consumers.get(consumer.id) !== consumer || this.consumerGates.get(consumer.id) !== queue) return;
+      const desired = queue.desired;
+      await this.rpc.request(desired ? 'pause_consumer' : 'resume_consumer', {
+        consumer_id: consumer.id,
+      });
+      if (
+        this.consumers.get(consumer.id) !== consumer
+        || this.consumerGates.get(consumer.id) !== queue
+        || queue.desired !== desired
+      ) return;
+      if (desired) consumer.pause();
+      else consumer.resume();
     });
-    const consumer = await this.recvTransport.consume({
-      id: result.consumer_id,
-      producerId: result.producer_id,
-      kind: result.kind,
-      rtpParameters: result.rtp_parameters,
-      appData: { source: result.source, userId: result.user_id },
-    });
-    this.consumers.set(consumer.id, consumer);
-    const stream = new MediaStream([consumer.track]);
-    this.remoteMediaHandler?.({ userId: result.user_id, source: result.source, stream });
-    await this.rpc.request('resume_consumer', { consumer_id: consumer.id });
-    consumer.resume();
+    queue.tail = task;
+    await task;
   }
 }

@@ -4,14 +4,17 @@ import type { IncomingMessage } from 'node:http';
 import WebSocket, { WebSocketServer } from 'ws';
 
 import { config } from '../config.js';
-import { rooms } from '../room.js';
+import { rooms } from '../roomRegistry.js';
 import { ticketVerifier } from '../ticketVerifier.js';
 import type { MediaClaims } from '../types.js';
+import { SessionIdentifyQueue } from '../sessionIdentifyQueue.js';
 import { BotMediaSession, supportedModes, udpEdge, type VoiceSender } from './udpEdge.js';
 
 const HEARTBEAT_INTERVAL_MS = 45_000;
 const RESUME_TTL_MS = 120_000;
 const MAX_BUFFERED_EVENTS = 100;
+const MAX_PENDING_MESSAGES = 64;
+const sessionIdentifyQueue = new SessionIdentifyQueue();
 
 const OP = {
   IDENTIFY: 0,
@@ -47,11 +50,31 @@ function integer(value: unknown): number | undefined {
   return Number.isSafeInteger(result) ? result : undefined;
 }
 
-class VoiceConnection implements VoiceSender {
+export class VoiceTaskQueue {
+  private tail: Promise<void> = Promise.resolve();
+  private pending = 0;
+
+  constructor(private readonly maxPending = MAX_PENDING_MESSAGES) {}
+
+  run(task: () => Promise<void>): Promise<void> {
+    if (this.pending >= this.maxPending) {
+      return Promise.reject(new Error('Voice message queue limit exceeded'));
+    }
+    this.pending += 1;
+    const result = this.tail.catch(() => undefined).then(task).finally(() => {
+      this.pending -= 1;
+    });
+    this.tail = result.catch(() => undefined);
+    return result;
+  }
+}
+
+export class VoiceConnection implements VoiceSender {
   readonly id = randomUUID();
   private record?: SessionRecord;
   private heartbeatAt = Date.now();
   private heartbeatTimer?: NodeJS.Timeout;
+  private closed = false;
 
   constructor(readonly socket: WebSocket) {}
 
@@ -61,6 +84,7 @@ class VoiceConnection implements VoiceSender {
   }
 
   async handle(payload: VoicePayload): Promise<void> {
+    if (this.closed) return;
     if (!this.record) {
       if (payload.op === OP.IDENTIFY) await this.identify(payload.d);
       else if (payload.op === OP.RESUME) await this.resume(payload.d);
@@ -99,6 +123,7 @@ class VoiceConnection implements VoiceSender {
   }
 
   onClose(): void {
+    this.closed = true;
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     if (this.record?.connectionId === this.id) this.record.scheduleCleanup();
   }
@@ -108,6 +133,7 @@ class VoiceConnection implements VoiceSender {
     const token = String(data.token ?? '');
     if (!token) throw new VoiceCloseError(4004, 'Voice token required');
     const claims = await ticketVerifier.verify(token);
+    this.assertOpen();
     if (!claims.is_bot) throw new VoiceCloseError(4004, 'Bot voice ticket required');
     if (
       String(claims.session_id) !== String(data.session_id ?? '') ||
@@ -117,26 +143,47 @@ class VoiceConnection implements VoiceSender {
       throw new VoiceCloseError(4004, 'Voice ticket scope mismatch');
     }
 
-    const previous = sessions.get(claims.session_id);
-    if (previous) previous.close(4000, 'Voice session replaced');
-    const room = await rooms.getOrCreate(Number(claims.channel_id), claims.room_epoch);
-    const media = new BotMediaSession(claims, room, this.socket, this, udpEdge.advertisedPort());
-    await media.start();
-    udpEdge.register(media);
-    const record = new SessionRecord(claims, digest(token), media, this.id);
-    record.connection = this;
-    sessions.set(claims.session_id, record);
-    this.record = record;
-    this.startHeartbeatWatch();
-    this.sendOp(OP.READY, {
-      ssrc: media.ssrc,
-      ip: config.announcedAddress,
-      port: udpEdge.advertisedPort(),
-      modes: supportedModes(),
-      heartbeat_interval: HEARTBEAT_INTERVAL_MS,
-      channel_id: String(claims.channel_id),
-      dave_protocol_version: 0,
-    });
+    await sessionIdentifyQueue.run(claims.session_id, () => this.establishSession(claims, token));
+  }
+
+  private async establishSession(claims: MediaClaims, token: string): Promise<void> {
+    this.assertOpen();
+    const lease = await rooms.acquire(Number(claims.channel_id), claims.room_epoch);
+    let media: BotMediaSession | undefined;
+    let record: SessionRecord | undefined;
+    try {
+      this.assertOpen();
+      const previous = sessions.get(claims.session_id);
+      if (previous) previous.close(4000, 'Voice session replaced');
+      media = new BotMediaSession(claims, lease.room, this.socket, this, udpEdge.advertisedPort());
+      await media.start();
+      this.assertOpen();
+      udpEdge.register(media);
+      record = new SessionRecord(claims, digest(token), media, this.id);
+      record.connection = this;
+      sessions.set(claims.session_id, record);
+      this.record = record;
+      this.startHeartbeatWatch();
+      this.sendOp(OP.READY, {
+        ssrc: media.ssrc,
+        ip: config.announcedAddress,
+        port: udpEdge.advertisedPort(),
+        modes: supportedModes(),
+        heartbeat_interval: HEARTBEAT_INTERVAL_MS,
+        channel_id: String(claims.channel_id),
+        dave_protocol_version: 0,
+      });
+    } catch (error) {
+      if (record) record.close(4006, 'Voice session setup failed');
+      else if (media) {
+        udpEdge.unregister(media);
+        media.close();
+      }
+      this.record = undefined;
+      throw error;
+    } finally {
+      lease.release();
+    }
   }
 
   private async resume(raw: unknown): Promise<void> {
@@ -160,6 +207,7 @@ class VoiceConnection implements VoiceSender {
   }
 
   private startHeartbeatWatch(): void {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     this.heartbeatAt = Date.now();
     this.heartbeatTimer = setInterval(() => {
       if (Date.now() - this.heartbeatAt > HEARTBEAT_INTERVAL_MS * 2) {
@@ -167,6 +215,12 @@ class VoiceConnection implements VoiceSender {
       }
     }, HEARTBEAT_INTERVAL_MS);
     this.heartbeatTimer.unref();
+  }
+
+  private assertOpen(): void {
+    if (this.closed || this.socket.readyState !== WebSocket.OPEN) {
+      throw new VoiceCloseError(4006, 'Voice connection closed');
+    }
   }
 }
 
@@ -177,6 +231,7 @@ class SessionRecord {
   connectionId: string;
   cleanupTimer?: NodeJS.Timeout;
   private readonly buffer: BufferedPayload[] = [];
+  private closed = false;
 
   constructor(
     readonly claims: MediaClaims,
@@ -192,7 +247,7 @@ class SessionRecord {
     if (replayable) {
       this.buffer.push(payload);
       if (this.buffer.length > MAX_BUFFERED_EVENTS) this.buffer.shift();
-      void this.persist(payload);
+      void this.persist(payload).catch(() => undefined);
     }
     if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
   }
@@ -207,6 +262,7 @@ class SessionRecord {
   }
 
   scheduleCleanup(): void {
+    if (this.closed) return;
     this.cancelCleanup();
     this.cleanupTimer = setTimeout(() => this.close(4006, 'Voice resume window expired'), RESUME_TTL_MS);
     this.cleanupTimer.unref();
@@ -218,12 +274,14 @@ class SessionRecord {
   }
 
   close(code: number, reason: string): void {
+    if (this.closed) return;
+    this.closed = true;
     this.cancelCleanup();
     this.connection?.socket.close(code, reason);
     udpEdge.unregister(this.media);
     this.media.close();
-    sessions.delete(this.claims.session_id);
-    void ticketVerifier.redis.del(this.resumeKey());
+    if (sessions.get(this.claims.session_id) === this) sessions.delete(this.claims.session_id);
+    void ticketVerifier.redis.del(this.resumeKey()).catch(() => undefined);
   }
 
   private resumeKey(): string {
@@ -279,21 +337,26 @@ export class BotVoiceGateway {
 
   private handle(socket: WebSocket): void {
     const connection = new VoiceConnection(socket);
+    const messages = new VoiceTaskQueue();
     socket.send(JSON.stringify({
       op: OP.HELLO,
       d: { heartbeat_interval: HEARTBEAT_INTERVAL_MS, _trace: ['miscord-voice-gateway-v1'] },
     }));
     const identifyTimer = setTimeout(() => socket.close(4003, 'Identify or Resume required'), 15_000);
-    socket.on('message', async (raw) => {
-      try {
-        const payload = JSON.parse(raw.toString()) as VoicePayload;
-        if (!Number.isInteger(payload.op)) throw new Error('Voice opcode required');
-        await connection.handle(payload);
-        clearTimeout(identifyTimer);
-      } catch (error) {
-        const close = error instanceof VoiceCloseError ? error : new VoiceCloseError(4002, 'Invalid voice payload');
-        socket.close(close.code, close.message);
-      }
+    socket.on('message', (raw) => {
+      void messages.run(async () => {
+        if (socket.readyState !== WebSocket.OPEN) return;
+        try {
+          const payload = JSON.parse(raw.toString()) as VoicePayload;
+          if (!Number.isInteger(payload.op)) throw new Error('Voice opcode required');
+          await connection.handle(payload);
+          clearTimeout(identifyTimer);
+        } catch (error) {
+          const close = error instanceof VoiceCloseError
+            ? error : new VoiceCloseError(4002, 'Invalid voice payload');
+          socket.close(close.code, close.message);
+        }
+      }).catch(() => socket.close(4008, 'Voice message queue limit exceeded'));
     });
     socket.on('close', () => {
       clearTimeout(identifyTimer);

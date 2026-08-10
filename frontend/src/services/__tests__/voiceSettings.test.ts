@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { captureAudioStream } from '../voiceSettings';
 import {
   DEFAULT_CUSTOM_PROCESSING,
   calculateAutoThreshold,
@@ -29,7 +30,7 @@ describe('voice processing profiles', () => {
       noiseSuppression: true,
       noiseSuppressionEngine: 'deepfilternet3',
       echoCancellation: true,
-      autoGainControl: true,
+      autoGainControl: false,
       voiceConditioning: true,
     });
   });
@@ -96,5 +97,33 @@ describe('transmit gate and PTT', () => {
     expect(normalizePTTDelay(-10)).toBe(0);
     expect(normalizePTTDelay(450.4)).toBe(450);
     expect(normalizePTTDelay(5000)).toBe(2000);
+  });
+});
+
+describe('microphone capture identity', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('uses an exact constraint and never falls back for a live device switch', async () => {
+    const unavailable = Object.assign(new Error('missing microphone'), {
+      name: 'OverconstrainedError',
+    });
+    const getUserMedia = vi.fn().mockRejectedValue(unavailable);
+    vi.stubGlobal('navigator', {
+      mediaDevices: {
+        getSupportedConstraints: () => ({ deviceId: true }),
+        getUserMedia,
+      },
+    });
+
+    await expect(captureAudioStream(
+      DEFAULT_CUSTOM_PROCESSING,
+      'missing-mic',
+      { strictDevice: true },
+    )).rejects.toBe(unavailable);
+    expect(getUserMedia).toHaveBeenCalledOnce();
+    expect(getUserMedia).toHaveBeenCalledWith({
+      audio: { deviceId: { exact: 'missing-mic' } },
+      video: false,
+    });
   });
 });

@@ -1,15 +1,39 @@
 import type { IncomingMessage } from 'node:http';
 
 import type { Consumer, Producer, WebRtcTransport } from 'mediasoup/types';
-import WebSocket, { WebSocketServer } from 'ws';
+import WebSocket, { WebSocketServer, type RawData } from 'ws';
 
 import { metrics } from './metrics.js';
 import type { Peer, Room } from './room.js';
-import { rooms } from './room.js';
+import { rooms } from './roomRegistry.js';
 import { ticketVerifier } from './ticketVerifier.js';
 import type { MediaSource, RpcRequest } from './types.js';
 
 const MAX_MESSAGE_BYTES = 64 * 1024;
+export const MEDIA_RPC_METRIC_TYPES = [
+  'identify',
+  'create_transport',
+  'connect_transport',
+  'produce',
+  'consume',
+  'resume_consumer',
+  'pause_consumer',
+  'close_consumer',
+  'pause_producer',
+  'resume_producer',
+  'set_speaking',
+  'close_producer',
+  'set_consumer_layers',
+  'ping',
+] as const;
+type MediaRpcMetricType = typeof MEDIA_RPC_METRIC_TYPES[number] | 'unknown';
+const mediaRpcMetricTypes = new Set<string>(MEDIA_RPC_METRIC_TYPES);
+
+export function normalizeRpcMetricType(type: unknown): MediaRpcMetricType {
+  return typeof type === 'string' && mediaRpcMetricTypes.has(type)
+    ? type as MediaRpcMetricType
+    : 'unknown';
+}
 
 function send(socket: WebSocket, payload: Record<string, unknown>): void {
   if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
@@ -43,6 +67,50 @@ function requireOwnProducer(peer: Peer, id?: string): Producer {
   return producer;
 }
 
+export async function applySpeakingHint(room: Room, peer: Peer, request: RpcRequest): Promise<void> {
+  if (typeof request.speaking !== 'boolean') throw new Error('Speaking state is required');
+  const producer = requireOwnProducer(peer, request.producer_id);
+  if (producer.kind !== 'audio' || producer.appData.source !== 'microphone') {
+    throw new Error('Owned microphone producer required');
+  }
+  await room.setExternalProducerSpeaking(producer.id, request.speaking);
+}
+
+export function requireCanProduceSource(peer: Peer, source: MediaSource): void {
+  if ((source === 'microphone' || source === 'screen-audio') && peer.claims.can_speak !== true) {
+    throw new Error('SPEAK permission required');
+  }
+}
+
+export function requireSourceAvailable(peer: Peer, source: MediaSource): void {
+  if (peer.sourceProducers.has(source)) throw new Error(`${source} producer already exists`);
+}
+
+export function requireConsumerAvailable(peer: Peer, producerId: string): void {
+  if ([...peer.consumers.values()].some((consumer) => consumer.producerId === producerId)) {
+    throw new Error('Producer is already consumed by this peer');
+  }
+}
+
+export class SerialTaskQueue {
+  private tail: Promise<void> = Promise.resolve();
+  private pending = 0;
+
+  constructor(private readonly maxPending = 64) {}
+
+  run(task: () => Promise<void>): Promise<void> {
+    if (this.pending >= this.maxPending) {
+      return Promise.reject(new Error('Media request queue limit exceeded'));
+    }
+    this.pending += 1;
+    const result = this.tail.catch(() => undefined).then(task).finally(() => {
+      this.pending -= 1;
+    });
+    this.tail = result.catch(() => undefined);
+    return result;
+  }
+}
+
 function requireConsumer(peer: Peer, id?: string): Consumer {
   const consumer = id ? peer.consumers.get(id) : undefined;
   if (!consumer) throw new Error('Consumer not found');
@@ -68,19 +136,34 @@ export class MediaGateway {
   private async handle(socket: WebSocket, _request: IncomingMessage): Promise<void> {
     let peer: Peer | undefined;
     let room: Room | undefined;
+    let socketClosed = false;
+    const requests = new SerialTaskQueue();
     const identifyTimer = setTimeout(() => socket.close(4003, 'Identify required'), 10_000);
 
-    socket.on('message', async (raw) => {
+    const processMessage = async (raw: RawData): Promise<void> => {
+      if (socketClosed) return;
       const started = process.hrtime.bigint();
       let request: RpcRequest = { type: 'unknown' };
+      let metricType: MediaRpcMetricType = 'unknown';
       try {
-        request = JSON.parse(raw.toString()) as RpcRequest;
-        if (!request.type) throw new Error('Message type is required');
+        const parsed: unknown = JSON.parse(raw.toString());
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw new Error('Media request must be an object');
+        }
+        request = parsed as RpcRequest;
+        metricType = normalizeRpcMetricType(request.type);
+        if (typeof request.type !== 'string' || !request.type) throw new Error('Message type is required');
         if (!peer) {
           if (request.type !== 'identify' || !request.ticket) throw new Error('Identify required');
           const claims = await ticketVerifier.verify(request.ticket);
-          room = await rooms.getOrCreate(Number(claims.channel_id), claims.room_epoch);
-          peer = room.addPeer(claims, socket);
+          const lease = await rooms.acquire(Number(claims.channel_id), claims.room_epoch);
+          room = lease.room;
+          try {
+            if (socketClosed) return;
+            peer = room.addPeer(claims, socket);
+          } finally {
+            lease.release();
+          }
           clearTimeout(identifyTimer);
           reply(socket, request, {
             protocol_version: 1,
@@ -98,20 +181,28 @@ export class MediaGateway {
           return;
         }
         if (!room) throw new Error('Room unavailable');
+        if (!room.isCurrentPeer(peer)) throw new Error('Media session was replaced');
         await this.dispatch(socket, room, peer, request);
       } catch (error) {
         fail(socket, request, error);
         if (!peer) socket.close(4004, 'Authentication failed');
       } finally {
         const duration = Number(process.hrtime.bigint() - started) / 1_000_000_000;
-        metrics.rpcDuration.observe({ type: request.type }, duration);
+        metrics.rpcDuration.observe({ type: metricType }, duration);
       }
+    };
+
+    socket.on('message', (raw) => {
+      void requests.run(() => processMessage(raw)).catch(() => {
+        if (!socketClosed) socket.close(4008, 'Media request queue limit exceeded');
+      });
     });
 
     socket.on('close', (code) => {
+      socketClosed = true;
       clearTimeout(identifyTimer);
       metrics.mediaSocketCloses.inc({ code: String(code) });
-      if (peer && room) room.removePeer(peer.claims.session_id);
+      if (peer && room) room.removePeer(peer.claims.session_id, peer);
     });
     socket.on('error', () => socket.close());
   }
@@ -142,6 +233,8 @@ export class MediaGateway {
         if (!['microphone', 'screen-video', 'screen-audio'].includes(source)) throw new Error('Invalid media source');
         if ((source === 'microphone' || source === 'screen-audio') && request.kind !== 'audio') throw new Error('Audio source required');
         if (source === 'screen-video' && request.kind !== 'video') throw new Error('Video source required');
+        requireCanProduceSource(peer, source);
+        requireSourceAvailable(peer, source);
         const transport = requireTransport(peer, request.transport_id);
         if (transport.appData.direction !== 'send') throw new Error('Send transport required');
         const producer = await transport.produce({
@@ -155,6 +248,7 @@ export class MediaGateway {
       }
       case 'consume': {
         if (!request.rtp_capabilities || !request.producer_id) throw new Error('Consumer data is incomplete');
+        requireConsumerAvailable(peer, request.producer_id);
         const producer = requireProducer(room, request.producer_id);
         if (!room.router.canConsume({ producerId: producer.id, rtpCapabilities: request.rtp_capabilities })) {
           throw new Error('Producer cannot be consumed');
@@ -197,6 +291,10 @@ export class MediaGateway {
         return;
       case 'resume_producer':
         await requireOwnProducer(peer, request.producer_id).resume();
+        reply(socket, request);
+        return;
+      case 'set_speaking':
+        await applySpeakingHint(room, peer, request);
         reply(socket, request);
         return;
       case 'close_producer':

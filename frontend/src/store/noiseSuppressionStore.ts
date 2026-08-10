@@ -1,7 +1,11 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import {
+  normalizeNoiseSuppressionEngine,
+  type NoiseSuppressionEngine,
+} from '../services/noiseSuppressionEngine';
 
-export type NoiseSuppressionEngine = 'miscord-ai' | 'deepfilternet3' | 'browser';
+export type { NoiseSuppressionEngine } from '../services/noiseSuppressionEngine';
 export type NoiseSuppressionRuntimeStatus =
   | 'idle'
   | 'loading'
@@ -43,30 +47,18 @@ export const useNoiseSuppressionStore = create<NoiseSuppressionState>()(
     }),
     {
       name: 'miscord-noise-suppression',
-      // v5: DeepFilterNet3 — движок по умолчанию для всех
-      version: 5,
+      // v6 normalizes legacy engine identifiers without changing a valid choice.
+      version: 6,
       partialize: (state) => ({
         enabled: state.enabled,
         engine: state.engine,
         autoFallback: state.autoFallback,
       }),
-      migrate: (persistedState: any, fromVersion: number) => {
-        const previousEngine =
-          persistedState?.engine === 'gtcrn'
-            ? 'deepfilternet3'
-            : persistedState?.engine === 'browser' ||
-                persistedState?.engine === 'deepfilternet3' ||
-                persistedState?.engine === 'miscord-ai'
-              ? persistedState.engine
-              : 'deepfilternet3';
-
-        // При апгрейде до v5 переводим всех на DeepFilterNet3 как новый дефолт.
-        const engine = fromVersion < 5 ? 'deepfilternet3' : previousEngine;
-
+      migrate: (persistedState: any) => {
         return {
           ...persistedState,
           enabled: typeof persistedState?.enabled === 'boolean' ? persistedState.enabled : true,
-          engine,
+          engine: normalizeNoiseSuppressionEngine(persistedState?.engine),
           autoFallback:
             typeof persistedState?.autoFallback === 'boolean'
               ? persistedState.autoFallback

@@ -34,6 +34,11 @@ export interface VoiceState {
   setRemoteStream: (stream: MediaStream | null) => void;
   toggleMute: () => void;
   toggleDeafen: () => void;
+  setMuteDeafenState: (
+    muted: boolean,
+    deafened: boolean,
+    wasMutedBeforeDeafen?: boolean,
+  ) => void;
   setError: (error: string | null) => void;
   setSpeaking: (userId: number, isSpeaking: boolean) => void;
 
@@ -367,6 +372,34 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
           is_deafened: newDeafened,
         });
       }
+    }
+  },
+
+  setMuteDeafenState: (muted, deafened, wasMutedBeforeDeafen = muted) => {
+    const currentState = get();
+    if (currentState.isDeafened !== deafened) {
+      void optimizedVoiceService.setDeafened(deafened);
+    }
+    if (currentState.isMuted !== muted) {
+      void optimizedVoiceService.setMuted(muted);
+    }
+
+    set({
+      isMuted: muted,
+      isDeafened: deafened,
+      wasMutedBeforeDeafen,
+    });
+
+    const currentUser = useAuthStore.getState().user;
+    const participant = currentUser
+      ? get().participants.find((item) => item.user_id === currentUser.id)
+      : null;
+    if (participant) {
+      get().updateParticipant({
+        ...participant,
+        is_muted: muted,
+        is_deafened: deafened,
+      });
     }
   },
   

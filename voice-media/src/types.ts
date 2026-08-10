@@ -35,6 +35,7 @@ export interface RpcRequest {
   rtp_capabilities?: RtpCapabilities;
   spatial_layer?: number;
   temporal_layer?: number;
+  speaking?: boolean;
 }
 
 export interface ProducerDescriptor {

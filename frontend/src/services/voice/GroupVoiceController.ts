@@ -1,36 +1,30 @@
-import { formatStreamQualityLabel, getDisplayMediaVideoConstraints, getElectronCaptureConstraints, resolveQualitySettings } from '../../lib/screenShareQuality';
-import { SCREEN_SHARE_VIDEO_POOL_ID } from '../../lib/screenShareVideo';
+import { formatStreamQualityLabel, getDisplayMediaVideoConstraints, resolveQualitySettings } from '../../lib/screenShareQuality';
 import { useAuthStore } from '../../store/store';
 import { useScreenShareSettingsStore } from '../../store/screenShareSettingsStore';
 import { useAudioDeviceStore } from '../../store/audioDeviceStore';
 import { audioProcessingService } from '../audioProcessingService';
 import unifiedWebSocketService from '../unifiedWebSocketService';
-import { captureAudioStream, getVoiceSettingsSnapshot, sensitivityToDbfs, type VoiceSettingsSnapshot } from '../voiceSettings';
+import { getVoiceSettingsSnapshot, sensitivityToDbfs, type VoiceSettingsSnapshot } from '../voiceSettings';
 import { dispatchScreenShareState } from './screenShareEvents';
 import { playScreenShareSound } from './screenShareSounds';
+import { prepareGroupVoiceInput, switchGroupVoiceInput } from './groupVoiceInputSwitch';
+import { GroupVoiceInputState } from './groupVoiceInputState';
+import { GroupVoiceJoinWaiter } from './groupVoiceJoinWaiter';
+import { GroupVoiceMonitor } from './groupVoiceMonitor';
+import { GroupVoiceOutputSwitch } from './groupVoiceOutputSwitch';
+import { attachScreenMedia, GroupVoiceScreenLifecycle, removeScreenMedia, type StartScreenShareOptions } from './groupVoiceScreen';
+import { buildGroupVoiceProcessingConfig } from './groupVoiceProcessing';
 import { SfuTransport } from './sfuTransport';
 import type { RemoteMedia, VoiceCallbacks, VoiceJoinedPayload, VoiceParticipant } from './types';
-
-type StartScreenShareOptions = {
-  sourceId?: string;
-  preferDisplaySurface?: 'browser' | 'monitor' | 'window';
-};
-
-type PendingJoin = {
-  resolve: (payload: VoiceJoinedPayload) => void;
-  reject: (error: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-};
-
+import { VoiceLifecycle, type AssertCurrentVoiceLifecycle } from './voiceLifecycle';
 const clamp = (value: number, min = 0, max = 1) => Math.min(max, Math.max(min, value));
-
 export class GroupVoiceController {
   private transport: SfuTransport | null = null;
   private currentChannelId: number | null = null;
   private rawInputStream: MediaStream | null = null;
   private localStream: MediaStream | null = null;
   private screenStream: MediaStream | null = null;
-  private pendingJoin: PendingJoin | null = null;
+  private readonly joinWaiter = new GroupVoiceJoinWaiter();
   private callbacks: VoiceCallbacks = {};
   private participants = new Map<number, VoiceParticipant>();
   private audioElements = new Map<string, HTMLAudioElement>();
@@ -48,7 +42,13 @@ export class GroupVoiceController {
   private pttActive = false;
   private pttReleaseTimer: number | null = null;
   private outputDeviceWarning: string | null = null;
-
+  private readonly monitor = new GroupVoiceMonitor();
+  private readonly inputState = new GroupVoiceInputState(this.settings.inputDeviceId);
+  private activeJoinPromise: Promise<void> | null = null;
+  private cleanupRequired = false;
+  private readonly lifecycle = new VoiceLifecycle();
+  private readonly outputSwitch = new GroupVoiceOutputSwitch();
+  private readonly screenLifecycle = new GroupVoiceScreenLifecycle();
   constructor() {
     this.bindGatewayEvents();
     if (typeof window !== 'undefined') {
@@ -56,24 +56,38 @@ export class GroupVoiceController {
       window.addEventListener('keyup', this.handlePttUp);
     }
   }
-
-  async joinVoiceChannel(channelId: number): Promise<void> {
-    if (this.currentChannelId !== null) this.leaveVoiceChannel();
-    this.settings = getVoiceSettingsSnapshot();
+  joinVoiceChannel(channelId: number): Promise<void> {
+    this.joinWaiter.reject(new Error('Новый вход в голосовой канал отменил предыдущий.'));
+    this.preemptOwnedMedia();
+    const promise = this.lifecycle.runLatest((assertCurrent) => this.joinVoiceChannelNow(channelId, assertCurrent));
+    this.activeJoinPromise = promise;
+    void promise.then(
+      () => { if (this.activeJoinPromise === promise) this.activeJoinPromise = null; },
+      () => { if (this.activeJoinPromise === promise) this.activeJoinPromise = null; },
+    );
+    return promise;
+  }
+  private async joinVoiceChannelNow(channelId: number, assertCurrent: AssertCurrentVoiceLifecycle): Promise<void> {
+    assertCurrent();
+    if (this.currentChannelId !== null || this.cleanupRequired) await this.leaveVoiceChannelNow(false);
+    assertCurrent();
+    this.inputState.joining = true;
+    const snapshot = getVoiceSettingsSnapshot();
+    this.settings = this.inputState.revision > 0
+      ? { ...snapshot, inputDeviceId: this.settings.inputDeviceId }
+      : snapshot;
     this.applyRuntimeSettings(this.settings);
     this.currentChannelId = channelId;
-
-    // Сигналинг уходит первым: список участников и статус появляются сразу,
-    // пока микрофон и обработка звука ещё готовятся.
-    const joined = this.waitForJoin();
+    const joined = this.joinWaiter.wait();
     unifiedWebSocketService.joinVoiceChannel(channelId, this.isMuted, this.isDeafened);
-    const microphone = this.prepareMicrophone().then(
-      (track) => ({ ok: true as const, track }),
+    const microphone = this.prepareMicrophone(assertCurrent).then(
+      (input) => ({ ok: true as const, input }),
       (error) => ({ ok: false as const, error }),
     );
 
     try {
       const payload = await joined;
+      assertCurrent();
 
       this.participants = new Map(payload.participants.map((item) => [item.user_id, item]));
       this.callbacks.signalingJoined?.(payload.participants);
@@ -84,40 +98,86 @@ export class GroupVoiceController {
 
       const result = await microphone;
       if (!result.ok) throw result.error;
+      assertCurrent();
 
       this.transport = this.createTransport();
-      await this.transport.connect(payload.transport.ws_url, payload.transport.ticket, result.track);
+      const initiallyGated = this.isTransmitGated();
+      audioProcessingService.setMuted(this.monitor.active ? false : initiallyGated);
+      await this.transport.setMicrophoneMuted(initiallyGated);
+      await this.transport.setDeafened(this.isDeafened);
+      await this.transport.connect(
+        payload.transport.ws_url,
+        payload.transport.ticket,
+        result.input.track,
+        initiallyGated,
+      );
+      assertCurrent();
+      await this.transport.setDeafened(this.isDeafened);
+      await this.reconcileJoiningInput(assertCurrent);
       await this.applyTransmitGate();
+      await this.reconcileJoiningInput(assertCurrent);
+      this.inputState.joining = false;
     } catch (error) {
-      // Микрофон мог открыться уже после ошибки сигналинга — дожидаемся, чтобы освободить его.
       await microphone;
-      this.cleanupMedia();
+      await this.cleanupMedia();
       if (this.currentChannelId === channelId) unifiedWebSocketService.leaveVoiceChannel(channelId);
       this.currentChannelId = null;
+      this.inputState.joining = false;
+      this.inputState.reject(error instanceof Error ? error : new Error(String(error)));
+      this.settings = { ...this.settings, inputDeviceId: this.inputState.appliedDeviceId };
       throw error;
     }
   }
-
-  /** Захват микрофона и запуск обработки звука. Возвращает готовую аудиодорожку. */
-  private async prepareMicrophone(): Promise<MediaStreamTrack> {
-    this.rawInputStream = await captureAudioStream(this.settings.processing, this.settings.inputDeviceId);
+  private async prepareMicrophone(assertCurrent: AssertCurrentVoiceLifecycle) {
     audioProcessingService.setOnSpeechStart(() => this.setLocalSpeaking(true));
     audioProcessingService.setOnSpeechEnd(() => this.setLocalSpeaking(false));
-    // initialize() уже поднимает VAD — повторный refresh только удваивал загрузку модели.
-    this.localStream = await audioProcessingService.initialize(this.rawInputStream, this.processingConfig(this.settings));
+    const input = await prepareGroupVoiceInput({
+      getSettings: () => ({ ...this.settings, inputDeviceId: this.inputState.desiredDeviceId }),
+      getRevision: () => this.inputState.revision,
+      assertLifecycleCurrent: assertCurrent,
+      onApplied: (next) => {
+        this.applyInput(next.raw, next.processed, next.deviceId, next.revision);
+        useAudioDeviceStore.getState().setInputDeviceId(next.deviceId);
+        this.inputState.resolve(next.revision);
+      },
+    });
     audioProcessingService.setInputVolume(this.settings.inputVolume);
-    const track = this.localStream.getAudioTracks()[0];
-    if (!track) throw new Error('Микрофон не создал аудиодорожку.');
-    return track;
+    return input;
+  }
+  private applyInput(raw: MediaStream, local: MediaStream, deviceId: string, revision: number): void {
+    const previous = this.rawInputStream;
+    this.rawInputStream = raw;
+    this.localStream = local;
+    this.settings = { ...this.settings, inputDeviceId: deviceId };
+    this.inputState.markApplied(deviceId, revision);
+    if (previous && previous !== raw) previous.getTracks().forEach((track) => track.stop());
+  }
+  private async reconcileJoiningInput(assertLifecycle: AssertCurrentVoiceLifecycle): Promise<void> {
+    await this.inputState.reconcile(
+      (deviceId, revision, assertInput) => this.switchInputDeviceNow(deviceId, revision, () => {
+        assertLifecycle(); assertInput();
+      }),
+      () => { this.settings = { ...this.settings, inputDeviceId: this.inputState.appliedDeviceId }; },
+    );
   }
 
-  leaveVoiceChannel(): void {
+  leaveVoiceChannel(): Promise<void> {
+    this.joinWaiter.reject(new Error('Подключение отменено.'));
+    this.preemptOwnedMedia();
+    this.inputState.joining = false;
+    this.inputState.reject(new Error('Подключение отменено.'));
+    this.settings = { ...this.settings, inputDeviceId: this.inputState.appliedDeviceId };
+    return this.lifecycle.cancelAndRun(() => this.leaveVoiceChannelNow(true));
+  }
+
+  private async leaveVoiceChannelNow(resetState: boolean): Promise<void> {
     const channelId = this.currentChannelId;
     if (channelId !== null) unifiedWebSocketService.leaveVoiceChannel(channelId);
     this.currentChannelId = null;
-    this.cleanupMedia();
+    await this.cleanupMedia();
     this.participants.clear();
     this.speakingUsers.clear();
+    if (resetState) { this.isMuted = false; this.isDeafened = false; }
   }
 
   async setMuted(muted: boolean): Promise<void> {
@@ -137,31 +197,50 @@ export class GroupVoiceController {
   toggleDeafen(): void { void this.setDeafened(!this.isDeafened); }
 
   async switchInputDevice(deviceId: string): Promise<void> {
-    this.settings = { ...this.settings, inputDeviceId: deviceId };
-    if (!this.transport) return;
-    const nextRaw = await captureAudioStream(this.settings.processing, deviceId);
-    const nextProcessed = await audioProcessingService.initialize(nextRaw, this.processingConfig(this.settings));
-    const track = nextProcessed.getAudioTracks()[0];
-    if (!track) throw new Error('Новое устройство не создало аудиодорожку.');
-    this.rawInputStream?.getTracks().forEach((item) => item.stop());
-    this.rawInputStream = nextRaw;
-    this.localStream = nextProcessed;
-    await this.transport.replaceMicrophoneTrack(track);
-    audioProcessingService.setMuted(this.isMuted);
+    const revision = this.inputState.request(deviceId);
+    if (this.inputState.joining) return this.inputState.waitFor(revision);
+    if (!this.transport) {
+      this.settings = { ...this.settings, inputDeviceId: deviceId };
+      this.inputState.markApplied(deviceId, revision);
+      return;
+    }
+    try {
+      await this.lifecycle.runLatest((assertLifecycle) => this.switchInputDeviceNow(
+        deviceId,
+        revision,
+        () => { assertLifecycle(); this.inputState.assertCurrent(revision); },
+      ));
+    } catch (error) {
+      if (this.inputState.isCurrent(revision)) {
+        this.inputState.rollback();
+        this.settings = { ...this.settings, inputDeviceId: this.inputState.appliedDeviceId };
+      }
+      throw error;
+    }
+  }
+  private async switchInputDeviceNow(deviceId: string, revision: number, assertCurrent: AssertCurrentVoiceLifecycle): Promise<void> {
+    assertCurrent(); if (!this.transport) return;
+    const transport = this.transport;
+    await switchGroupVoiceInput({
+      deviceId, transport, getMuted: () => this.isMuted, getSettings: () => this.settings,
+      assertCurrent, isTransportCurrent: () => this.transport === transport,
+      onBridgeApplied: (raw, appliedId) => this.applyInput(raw, raw, appliedId, revision),
+      onProcessedApplied: (processed) => { this.localStream = processed; },
+    });
+    this.inputState.resolve(revision);
   }
 
   async setOutputDevice(deviceId: string): Promise<void> {
     this.settings = { ...this.settings, outputDeviceId: deviceId };
     this.outputDeviceWarning = null;
-    for (const audio of this.audioElements.values()) {
-      if (!('setSinkId' in audio)) {
+    await this.outputSwitch.apply({
+      deviceId,
+      elements: [...this.audioElements.values()],
+      onUnsupported: () => {
         this.outputDeviceWarning = 'Браузер не поддерживает выбор устройства вывода.';
-        continue;
-      }
-      await (audio as HTMLAudioElement & { setSinkId(id: string): Promise<void> }).setSinkId(deviceId);
-    }
+      },
+    });
   }
-
   setParticipantVolume(userId: number, value: number): void {
     const volume = clamp(value);
     this.participantVolumes.set(userId, volume);
@@ -202,9 +281,10 @@ export class GroupVoiceController {
   setPTTDelay(delay: number): void { this.settings = { ...this.settings, pttDelay: clamp(delay, 0, 2000) }; }
 
   async applySettings(settings: VoiceSettingsSnapshot): Promise<void> {
-    const deviceChanged = settings.inputDeviceId !== this.settings.inputDeviceId;
-    this.settings = settings;
-    audioProcessingService.updateConfig(this.processingConfig(settings));
+    const inputPending = this.inputState.desiredDeviceId !== this.inputState.appliedDeviceId;
+    const deviceChanged = !inputPending && settings.inputDeviceId !== this.inputState.appliedDeviceId;
+    this.settings = { ...settings, inputDeviceId: this.inputState.appliedDeviceId };
+    audioProcessingService.updateConfig(buildGroupVoiceProcessingConfig(this.settings));
     this.setInputVolume(settings.inputVolume);
     this.setOutputVolume(settings.outputVolume);
     audioProcessingService.updateVADThresholds(settings.vadSensitivity);
@@ -215,30 +295,31 @@ export class GroupVoiceController {
 
   async startScreenShare(options: StartScreenShareOptions = {}): Promise<boolean> {
     this.lastScreenShareStartCancelled = false;
-    if (!this.transport || this.isScreenSharing) return false;
-    try {
-      const stream = await this.captureScreen(options);
-      this.screenStream = stream;
-      await this.transport.startScreenShare(stream);
-      this.isScreenSharing = true;
-      const user = useAuthStore.getState().user;
-      if (user) {
-        this.attachScreenMedia(user.id, stream);
-        this.updateScreenShareState(user.id, true, user);
-      }
-      if (this.currentChannelId !== null) unifiedWebSocketService.startScreenShare(this.currentChannelId);
-      playScreenShareSound('start');
-      return true;
-    } catch (error) {
-      this.lastScreenShareStartCancelled = error instanceof DOMException && error.name === 'NotAllowedError';
-      this.screenStream?.getTracks().forEach((track) => track.stop());
-      this.screenStream = null;
-      if (!this.lastScreenShareStartCancelled) throw error;
-      return false;
+    const transport = this.transport;
+    const channelId = this.currentChannelId;
+    if (!transport || channelId === null || this.isScreenSharing) return false;
+    const result = await this.screenLifecycle.start({
+      options, transport,
+      isCurrent: () => this.transport === transport && this.currentChannelId === channelId,
+    });
+    this.lastScreenShareStartCancelled = result.cancelled;
+    if (!result.stream) return false;
+    const stream = result.stream;
+    stream.getVideoTracks()[0]?.addEventListener('ended', () => {
+      if (this.screenStream === stream) this.stopScreenShare();
+    }, { once: true });
+    this.screenStream = stream;
+    this.isScreenSharing = true;
+    const user = useAuthStore.getState().user;
+    if (user) {
+      attachScreenMedia(this.screenTracks, user.id, stream);
+      this.updateScreenShareState(user.id, true, user);
     }
+    unifiedWebSocketService.startScreenShare(channelId);
+    playScreenShareSound('start');
+    return true;
   }
-
-  stopScreenShare(): void { void this.stopScreenShareNow(); }
+  stopScreenShare(): void { this.screenLifecycle.invalidate(); void this.stopScreenShareNow(); }
 
   async ensureRemoteScreenShare(userId: number): Promise<void> {
     await this.transport?.ensureScreenShare(userId);
@@ -268,9 +349,22 @@ export class GroupVoiceController {
   wasLastScreenShareStartCancelled(): boolean { return this.lastScreenShareStartCancelled; }
   getStreamQualityLabel(): string { return formatStreamQualityLabel(resolveQualitySettings(useScreenShareSettingsStore.getState())); }
   getCurrentVolume(): number { return audioProcessingService.getCurrentVolume(); }
+  async beginMicrophoneMonitor(): Promise<MediaStream | null> {
+    return this.monitor.begin({
+      waitForJoin: this.activeJoinPromise,
+      getTransport: () => this.transport,
+      getStream: () => this.localStream,
+      reconcileGate: () => this.applyTransmitGate(),
+      onReady: () => { this.sendLocalSpeakingHint(); audioProcessingService.setMuted(false); },
+    });
+  }
+  async endMicrophoneMonitor(): Promise<void> {
+    await this.monitor.end(() => this.applyTransmitGate());
+  }
   updateVADThresholds(value: number): void { this.setVADSensitivity(value); }
   getIsMuted(): boolean { return this.isMuted; }
   getIsDeafened(): boolean { return this.isDeafened; }
+  getAppliedInputDeviceId(): string { return this.inputState.appliedDeviceId; }
   getIsSpeaking(): boolean { return this.isSpeaking; }
   getSpeakingUsers(): Set<number> { return new Set(this.speakingUsers); }
   getDiagnostics() {
@@ -298,7 +392,9 @@ export class GroupVoiceController {
   onRemoteStream(callback: NonNullable<VoiceCallbacks['remoteStream']>): void { this.callbacks.remoteStream = callback; }
 
   private bindGatewayEvents(): void {
-    unifiedWebSocketService.on('voice_joined', (data: VoiceJoinedPayload) => this.resolveJoin(data));
+    unifiedWebSocketService.on('voice_joined', (data: VoiceJoinedPayload) => {
+      if (data.channel_id === this.currentChannelId && data.protocol_version === 1) this.joinWaiter.resolve(data);
+    });
     unifiedWebSocketService.onUserJoinedVoice((data) => {
       const participant = data as VoiceParticipant;
       this.participants.set(participant.user_id, participant);
@@ -316,14 +412,14 @@ export class GroupVoiceController {
     unifiedWebSocketService.onScreenShareStarted((data) => this.updateScreenShareState(data.user_id, true, data));
     unifiedWebSocketService.onScreenShareStopped((data) => {
       this.updateScreenShareState(data.user_id, false, data);
-      this.removeScreenMedia(data.user_id);
+      removeScreenMedia(this.screenTracks, data.user_id);
     });
     unifiedWebSocketService.on('screen_share_viewer_joined', (data: { streamer_id: number }) => {
       const localUserId = useAuthStore.getState().user?.id;
       if (this.isScreenSharing && localUserId === Number(data.streamer_id)) playScreenShareSound('join');
     });
     unifiedWebSocketService.on('error', (data: { code?: string; message?: string }) => {
-      if (this.pendingJoin) this.rejectJoin(new Error(data.message || 'Не удалось войти в голосовой канал.'));
+      if (this.joinWaiter.isPending) this.joinWaiter.reject(new Error(data.message || 'Не удалось войти в голосовой канал.'));
     });
   }
 
@@ -338,43 +434,6 @@ export class GroupVoiceController {
     return transport;
   }
 
-  private waitForJoin(): Promise<VoiceJoinedPayload> {
-    this.rejectJoin(new Error('Новый вход в голосовой канал отменил предыдущий.'));
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => this.rejectJoin(new Error('Медиасервис не ответил. Повторите подключение.')), 10_000);
-      this.pendingJoin = { resolve, reject, timer };
-    });
-  }
-
-  private resolveJoin(payload: VoiceJoinedPayload): void {
-    if (!this.pendingJoin || payload.channel_id !== this.currentChannelId || payload.protocol_version !== 1) return;
-    const pending = this.pendingJoin;
-    this.pendingJoin = null;
-    clearTimeout(pending.timer);
-    pending.resolve(payload);
-  }
-
-  private rejectJoin(error: Error): void {
-    if (!this.pendingJoin) return;
-    const pending = this.pendingJoin;
-    this.pendingJoin = null;
-    clearTimeout(pending.timer);
-    pending.reject(error);
-  }
-
-  private processingConfig(settings: VoiceSettingsSnapshot) {
-    return {
-      vadEnabled: true,
-      noiseSuppression: settings.processing.noiseSuppression,
-      noiseSuppressionEngine: settings.processing.noiseSuppressionEngine,
-      echoCancellation: settings.processing.echoCancellation,
-      autoGainControl: settings.processing.autoGainControl,
-      voiceConditioning: settings.processing.voiceConditioning,
-      useAdvancedNoiseSuppression: settings.processing.noiseSuppression && settings.processing.noiseSuppressionEngine !== 'browser',
-      speechProbabilityThreshold: clamp(settings.vadSensitivity / 100, 0.1, 0.9),
-    };
-  }
-
   private applyRuntimeSettings(settings: VoiceSettingsSnapshot): void {
     this.settings = settings;
     audioProcessingService.updateVADThresholds(settings.vadSensitivity);
@@ -383,7 +442,12 @@ export class GroupVoiceController {
   private setLocalSpeaking(speaking: boolean): void {
     this.isSpeaking = speaking;
     if (this.currentChannelId !== null) unifiedWebSocketService.updateSpeakingStatus(this.currentChannelId, speaking);
+    this.sendLocalSpeakingHint();
     this.callbacks.speakingChanged?.(null, speaking);
+  }
+
+  private sendLocalSpeakingHint(): void {
+    void this.transport?.setSpeaking(this.isSpeaking && !this.isTransmitGated()).catch(() => undefined);
   }
 
   private setRemoteSpeaking(userId: number, speaking: boolean): void {
@@ -422,10 +486,13 @@ export class GroupVoiceController {
   }
 
   private async applyTransmitGate(): Promise<void> {
-    const gated = this.isMuted || (this.settings.inputMode === 'push-to-talk' && !this.pttActive);
-    audioProcessingService.setMuted(gated);
+    const gated = this.isTransmitGated();
+    audioProcessingService.setMuted(this.monitor.active ? false : gated);
+    this.sendLocalSpeakingHint();
     await this.transport?.setMicrophoneMuted(gated);
   }
+
+  private isTransmitGated(): boolean { return this.isMuted || this.monitor.active || (this.settings.inputMode === 'push-to-talk' && !this.pttActive); }
 
   private handlePttDown = (event: KeyboardEvent): void => {
     if (this.settings.inputMode !== 'push-to-talk' || event.repeat || event.code !== this.settings.pttKey) return;
@@ -454,32 +521,9 @@ export class GroupVoiceController {
       void this.setOutputDevice(this.settings.outputDeviceId).catch(() => undefined);
       void audio.play().catch(() => undefined);
     }
-    if (media.source.startsWith('screen-')) this.attachScreenMedia(media.userId, media.stream);
+    if (media.source.startsWith('screen-')) attachScreenMedia(this.screenTracks, media.userId, media.stream);
     this.callbacks.remoteStream?.(media.userId, this.transport?.getRemoteStream(media.userId) ?? media.stream);
     this.callbacks.remoteMedia?.(media);
-  }
-
-  private attachScreenMedia(userId: number, stream: MediaStream): void {
-    const tracks = this.screenTracks.get(userId) ?? new Map<string, MediaStreamTrack>();
-    for (const track of stream.getTracks()) tracks.set(track.kind, track);
-    this.screenTracks.set(userId, tracks);
-    let video = document.getElementById(`remote-video-${userId}`) as HTMLVideoElement | null;
-    if (!video) {
-      video = document.createElement('video');
-      video.id = `remote-video-${userId}`;
-      video.autoplay = true;
-      video.playsInline = true;
-      const pool = document.getElementById(SCREEN_SHARE_VIDEO_POOL_ID);
-      pool?.appendChild(video);
-    }
-    video.srcObject = new MediaStream([...tracks.values()]);
-    void video.play().catch(() => undefined);
-  }
-
-  private removeScreenMedia(userId: number): void {
-    this.screenTracks.delete(userId);
-    const video = document.getElementById(`remote-video-${userId}`) as HTMLVideoElement | null;
-    if (video) { video.srcObject = null; video.remove(); }
   }
 
   private removeRemoteUser(userId: number): void {
@@ -489,32 +533,7 @@ export class GroupVoiceController {
       audio.remove();
       this.audioElements.delete(key);
     }
-    this.removeScreenMedia(userId);
-  }
-
-  private async captureScreen(options: StartScreenShareOptions): Promise<MediaStream> {
-    const settings = useScreenShareSettingsStore.getState();
-    const resolved = resolveQualitySettings(settings);
-    const electron = typeof window !== 'undefined' && !!window.electronAPI?.getDesktopSources;
-    let stream: MediaStream;
-    if (electron) {
-      if (!options.sourceId) throw new Error('Не выбран источник демонстрации.');
-      const constraints = (audio: boolean): MediaStreamConstraints => ({
-        audio: audio && !settings.muteStreamAudio ? { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: options.sourceId } } as MediaTrackConstraints : false,
-        video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: options.sourceId, ...getElectronCaptureConstraints(resolved) } } as MediaTrackConstraints,
-      });
-      try { stream = await navigator.mediaDevices.getUserMedia(constraints(true)); }
-      catch { stream = await navigator.mediaDevices.getUserMedia(constraints(false)); }
-    } else {
-      const video = getDisplayMediaVideoConstraints(resolved) as MediaTrackConstraints & { displaySurface?: string };
-      if (options.preferDisplaySurface) video.displaySurface = options.preferDisplaySurface;
-      stream = await navigator.mediaDevices.getDisplayMedia({ video, audio: !settings.muteStreamAudio });
-    }
-    const track = stream.getVideoTracks()[0];
-    if (!track) throw new Error('Источник не создал видеодорожку.');
-    track.contentHint = resolved.contentHint;
-    track.addEventListener('ended', () => this.stopScreenShare(), { once: true });
-    return stream;
+    removeScreenMedia(this.screenTracks, userId);
   }
 
   private async stopScreenShareNow(): Promise<void> {
@@ -522,22 +541,21 @@ export class GroupVoiceController {
     const stream = this.screenStream;
     this.screenStream = null;
     this.isScreenSharing = false;
-    await this.transport?.stopScreenShare();
     stream?.getTracks().forEach((track) => track.stop());
+    await this.transport?.stopScreenShare();
     const userId = useAuthStore.getState().user?.id;
     if (userId != null) {
       this.updateScreenShareState(userId, false);
-      this.removeScreenMedia(userId);
+      removeScreenMedia(this.screenTracks, userId);
     }
     if (this.currentChannelId !== null) unifiedWebSocketService.stopScreenShare(this.currentChannelId);
     playScreenShareSound('stop');
   }
-
-  private cleanupMedia(): void {
+  private async cleanupMedia(): Promise<void> {
     const wasScreenSharing = this.isScreenSharing;
-    this.rejectJoin(new Error('Подключение отменено.'));
-    this.transport?.close();
-    this.transport = null;
+    this.joinWaiter.reject(new Error('Подключение отменено.'));
+    this.detachActiveTransport();
+    if (this.isSpeaking) { this.isSpeaking = false; this.callbacks.speakingChanged?.(null, false); }
     this.rawInputStream?.getTracks().forEach((track) => track.stop());
     this.rawInputStream = null;
     this.localStream = null;
@@ -546,10 +564,35 @@ export class GroupVoiceController {
     this.isScreenSharing = false;
     this.viewerJoinSentAt.clear();
     for (const userId of [...this.screenSharingUsers]) this.updateScreenShareState(userId, false);
-    void audioProcessingService.destroy();
-    for (const userId of [...this.screenTracks.keys()]) this.removeScreenMedia(userId);
+    await audioProcessingService.destroy();
+    for (const userId of [...this.screenTracks.keys()]) removeScreenMedia(this.screenTracks, userId);
     for (const userId of [...this.participants.keys()]) this.removeRemoteUser(userId);
+    this.cleanupRequired = false;
     if (wasScreenSharing) playScreenShareSound('stop');
+  }
+
+  private detachActiveTransport(): void {
+    const transport = this.transport;
+    this.transport = null;
+    this.monitor.invalidate();
+    transport?.close();
+  }
+
+  private preemptOwnedMedia(): void {
+    this.screenLifecycle.invalidate();
+    const channelId = this.currentChannelId;
+    this.cleanupRequired ||= channelId !== null || this.transport !== null
+      || this.rawInputStream !== null || this.screenStream !== null;
+    this.currentChannelId = null;
+    if (channelId !== null) unifiedWebSocketService.leaveVoiceChannel(channelId);
+    this.detachActiveTransport();
+    const raw = this.rawInputStream;
+    const screen = this.screenStream;
+    this.rawInputStream = null;
+    this.localStream = null;
+    this.screenStream = null;
+    raw?.getTracks().forEach((track) => track.stop());
+    screen?.getTracks().forEach((track) => track.stop());
   }
 }
 

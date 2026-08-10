@@ -1,7 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Headphones, Mic } from 'lucide-react';
-import { Slider } from './ui/slider';
-import { Switch } from './ui/switch';
+import { Headphones, Mic } from 'lucide-react';
 import { useAudioDeviceStore } from '../store/audioDeviceStore';
 import {
   useNoiseSuppressionStore,
@@ -9,7 +7,6 @@ import {
 } from '../store/noiseSuppressionStore';
 import { useVADSettingsStore } from '../store/vadSettingsStore';
 import { useVoiceProcessingSettingsStore } from '../store/voiceProcessingSettingsStore';
-import { useVoiceStore } from '../store/slices/voiceSlice';
 import {
   getEffectiveProcessingSettings,
   type VoiceProcessingProfile,
@@ -20,47 +17,26 @@ import optimizedVoiceService from '../services/optimizedVoiceService';
 import { audioProcessingService } from '../services/audioProcessingService';
 import type { NoiseSuppressionRuntimeStatus } from '../store/noiseSuppressionStore';
 import { MicTestSession } from '../services/micTestService';
+import {
+  restoreCallAfterMicTest,
+  suspendCallForMicTest,
+  type SavedMicTestCallState,
+} from '../services/micTestCallState';
 import { cn } from '../lib/utils';
+import {
+  DeviceSelect,
+  Divider,
+  LabeledSlider,
+  SettingSwitch,
+} from './VoiceSettingsControls';
+import {
+  ENGINE_LABELS,
+  PROFILE_COPY,
+  statusLabel,
+} from './voiceSettingsPresentation';
 
 interface VoiceVideoSettingsProps {
   isOpen?: boolean;
-}
-
-interface SavedCallState {
-  muted: boolean;
-  deafened: boolean;
-}
-
-const PROFILE_COPY: Record<
-  VoiceProcessingProfile,
-  { title: string; description: string }
-> = {
-  isolation: {
-    title: 'Изоляция голоса',
-    description: 'DeepFilterNet3, эхоподавление и обработка голоса.',
-  },
-  studio: {
-    title: 'Студия',
-    description: 'Чистый микрофон без слышимой обработки.',
-  },
-  custom: {
-    title: 'Пользовательский',
-    description: 'Ручное управление каждым этапом обработки.',
-  },
-};
-
-const ENGINE_LABELS: Record<NoiseSuppressionEngine, string> = {
-  'miscord-ai': 'Miscord AI',
-  deepfilternet3: 'DeepFilterNet3',
-  browser: 'Браузерный',
-};
-
-function statusLabel(status: NoiseSuppressionRuntimeStatus): string {
-  if (status === 'loading') return 'Загрузка';
-  if (status === 'active') return 'Активен';
-  if (status === 'fallback') return 'Fallback';
-  if (status === 'error') return 'Ошибка';
-  return 'Выключен';
 }
 
 const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
@@ -119,16 +95,9 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
     message: string | null;
     engine: string | null;
   } | null>(null);
-  const [diagnosticsTick, setDiagnosticsTick] = useState(0);
   const [isRecordingPTT, setIsRecordingPTT] = useState(false);
   const micTestRef = useRef(new MicTestSession());
-  const callStateBeforeTestRef = useRef<SavedCallState | null>(null);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const id = window.setInterval(() => setDiagnosticsTick((value) => value + 1), 500);
-    return () => window.clearInterval(id);
-  }, [isOpen]);
+  const callStateBeforeTestRef = useRef<SavedMicTestCallState | null>(null);
 
   const effectiveProcessing = useMemo(
     () => getEffectiveProcessingSettings(profile, customSettings),
@@ -147,26 +116,13 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
 
   const suspendCallForTest = useCallback(() => {
     if (callStateBeforeTestRef.current) return;
-    const voice = useVoiceStore.getState();
-    if (!voice.isConnected) return;
-
-    callStateBeforeTestRef.current = {
-      muted: voice.isMuted,
-      deafened: voice.isDeafened,
-    };
-    if (!voice.isMuted) voice.toggleMute();
-    if (!voice.isDeafened) voice.toggleDeafen();
+    callStateBeforeTestRef.current = suspendCallForMicTest();
   }, []);
 
   const restoreCallAfterTest = useCallback(() => {
     const saved = callStateBeforeTestRef.current;
     callStateBeforeTestRef.current = null;
-    if (!saved) return;
-
-    const voice = useVoiceStore.getState();
-    if (!voice.isConnected) return;
-    if (voice.isMuted !== saved.muted) voice.toggleMute();
-    if (voice.isDeafened !== saved.deafened) voice.toggleDeafen();
+    restoreCallAfterMicTest(saved);
   }, []);
 
   const runMicTest = useCallback(async () => {
@@ -317,11 +273,7 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
           activeRuntimeEngine,
       };
   const displayedLevel = isTesting ? testLevel : callLevel;
-  const diagnostics = useMemo(
-    () => optimizedVoiceService.getDiagnostics(),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- опрос метрик DFN3
-    [diagnosticsTick, shownRuntime.status, shownRuntime.engine],
-  );
+  const diagnostics = optimizedVoiceService.getDiagnostics();
 
   return (
     <div className="mx-auto max-w-[760px] pb-16 text-[#dbdee1]">
@@ -462,57 +414,6 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
               Браузер не поддерживает: {diagnostics.unsupportedConstraints.join(', ')}
             </p>
           )}
-          {diagnostics.activeEngine === 'deepfilternet3' &&
-            diagnostics.rtf !== null && (
-              <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-[#b5bac1] sm:grid-cols-4">
-                <span>
-                  LSNR:{' '}
-                  <span className="text-[#dbdee1]">
-                    {diagnostics.lsnr?.toFixed(1) ?? '—'} dB
-                  </span>
-                </span>
-                <span>
-                  wet:{' '}
-                  <span className="text-[#dbdee1]">
-                    {diagnostics.wetRms !== null
-                      ? diagnostics.wetRms.toExponential(2)
-                      : '—'}
-                  </span>
-                </span>
-                <span>
-                  dry:{' '}
-                  <span className="text-[#dbdee1]">
-                    {diagnostics.dryRms !== null
-                      ? diagnostics.dryRms.toExponential(2)
-                      : '—'}
-                  </span>
-                </span>
-                <span>
-                  RTF:{' '}
-                  <span
-                    className={
-                      (diagnostics.rtf ?? 0) > 1
-                        ? 'text-[#f0b232]'
-                        : 'text-[#dbdee1]'
-                    }
-                  >
-                    {diagnostics.rtf?.toFixed(2) ?? '—'}
-                  </span>
-                </span>
-                <span>
-                  Пропуски:{' '}
-                  <span
-                    className={
-                      (diagnostics.glitchSamples ?? 0) > 0
-                        ? 'text-[#f0b232]'
-                        : 'text-[#dbdee1]'
-                    }
-                  >
-                    {diagnostics.glitchSamples ?? '—'}
-                  </span>
-                </span>
-              </div>
-            )}
         </div>
       </section>
 
@@ -603,9 +504,9 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
             className="mt-1 h-5 w-5 accent-[#5865f2]"
           />
           <span>
-            <span className="block font-semibold">Активация по голосу</span>
+            <span className="block font-semibold">Определение голосовой активности</span>
             <span className="text-sm text-[#949ba4]">
-              Передача открывается только после превышения порога.
+              Определяет, когда вы говорите, для индикатора активности и выбора голосов в канале. Обработанный звук передаётся непрерывно, чтобы не обрезать начало слов.
             </span>
           </span>
         </label>
@@ -681,103 +582,6 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
     </div>
   );
 };
-
-interface DeviceSelectProps {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  devices: MediaDeviceInfo[];
-  onChange: (value: string) => void;
-}
-
-const DeviceSelect: React.FC<DeviceSelectProps> = ({
-  icon,
-  label,
-  value,
-  devices,
-  onChange,
-}) => (
-  <label className="block">
-    <span className="mb-2 block text-xs font-bold uppercase text-[#b5bac1]">
-      {label}
-    </span>
-    <span className="relative flex h-10 items-center rounded-md bg-[#1e1f22]">
-      <span className="pointer-events-none absolute left-3 text-[#b5bac1]">
-        {icon}
-      </span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-full w-full appearance-none bg-transparent pl-9 pr-9 text-sm text-[#dbdee1] outline-none"
-      >
-        <option value="default">По умолчанию</option>
-        {devices
-          .filter((device) => device.deviceId !== 'default')
-          .map((device, index) => (
-            <option key={device.deviceId} value={device.deviceId}>
-              {device.label || `Устройство ${index + 1}`}
-            </option>
-          ))}
-      </select>
-      <ChevronDown
-        size={16}
-        className="pointer-events-none absolute right-3 text-[#b5bac1]"
-      />
-    </span>
-  </label>
-);
-
-interface LabeledSliderProps {
-  label: string;
-  value: number;
-  min?: number;
-  max?: number;
-  onChange: (value: number) => void;
-}
-
-const LabeledSlider: React.FC<LabeledSliderProps> = ({
-  label,
-  value,
-  min = 0,
-  max = 100,
-  onChange,
-}) => (
-  <label className="block">
-    <span className="mb-2 block text-xs font-bold uppercase text-[#b5bac1]">
-      {label}
-    </span>
-    <Slider
-      min={min}
-      max={max}
-      value={[value]}
-      onValueChange={(values) => onChange(values[0] ?? value)}
-    />
-  </label>
-);
-
-interface SettingSwitchProps {
-  title: string;
-  description: string;
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-}
-
-const SettingSwitch: React.FC<SettingSwitchProps> = ({
-  title,
-  description,
-  checked,
-  onChange,
-}) => (
-  <div className="flex items-center justify-between gap-6">
-    <div>
-      <p className="font-semibold text-[#dbdee1]">{title}</p>
-      <p className="text-sm text-[#949ba4]">{description}</p>
-    </div>
-    <Switch checked={checked} onCheckedChange={onChange} />
-  </div>
-);
-
-const Divider = () => <div className="my-9 h-px bg-[#3f4147]" />;
 
 export default VoiceVideoSettings;
 export { VoiceVideoSettings };

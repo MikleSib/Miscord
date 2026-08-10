@@ -1,6 +1,6 @@
 // Public audio assets are served as immutable, so changing the query version is
 // required whenever the worklet implementation changes.
-const WORKLET_PATH = '/audio/deepfilternet3/dfn3-worklet.js?v=2026-08-10-declick';
+const WORKLET_PATH = '/audio/deepfilternet3/dfn3-worklet.js?v=2026-08-10-live-pipeline';
 const PROCESSOR_NAME = 'miscord-deepfilternet3';
 const WASM_PATH = '/audio/deepfilternet3/dfn3.wasm';
 const WEIGHTS_PATH = '/audio/deepfilternet3/dfn3_weights.bin';
@@ -45,6 +45,7 @@ export class DeepFilterNet3NoiseSuppressor {
   private preloadPromise: Promise<void> | null = null;
   private cachedWasm: ArrayBuffer | null = null;
   private cachedWeights: ArrayBuffer | null = null;
+  private readonly disposedNodes = new WeakSet<AudioWorkletNode>();
 
   static isSupported(): boolean {
     if (typeof window === 'undefined' || typeof WebAssembly === 'undefined' || typeof AudioWorkletNode === 'undefined' || typeof AudioContext === 'undefined' || !('audioWorklet' in AudioContext.prototype)) return false;
@@ -107,13 +108,14 @@ export class DeepFilterNet3NoiseSuppressor {
     if (!DeepFilterNet3NoiseSuppressor.isSupported()) throw new Error('AudioWorklet, WebAssembly или SIMD не поддерживается');
     if (audioContext.sampleRate !== 48000) throw new Error(`DeepFilterNet3 требует 48 кГц на входе (получено ${audioContext.sampleRate} Гц)`);
     this.destroy();
-    const generation = ++this.generation;
+    const generation = this.generation;
     this.ready = false;
     this.overloadStrikes = 0;
     this.readyPromise = new Promise<void>((resolve, reject) => {
       this.resolveReady = resolve;
       this.rejectReady = reject;
     });
+    void this.readyPromise.catch(() => undefined);
     const [{ wasmBinary, weightsBinary }] = await Promise.all([
       this.getAssets(),
       audioContext.audioWorklet.addModule(WORKLET_PATH),
@@ -173,7 +175,7 @@ export class DeepFilterNet3NoiseSuppressor {
         }
       }
     };
-    node.destroy = () => this.destroy();
+    node.destroy = () => this.destroyNode(node);
     return node;
   }
 
@@ -202,18 +204,33 @@ export class DeepFilterNet3NoiseSuppressor {
   }
 
   destroy(): void {
+    this.generation += 1;
     const node = this.node;
     this.node = null;
-    try {
-      node?.port.postMessage({ type: 'destroy' });
-      node?.disconnect();
-    } catch {}
+    if (node) this.disposeNode(node);
     if (!this.ready) this.rejectReady?.(new Error('DeepFilterNet3 остановлен'));
     this.resolveReady = null;
     this.rejectReady = null;
     this.readyPromise = null;
     this.ready = false;
     this.overloadStrikes = 0;
+  }
+
+  destroyNode(node: AudioWorkletNode): void {
+    if (this.node === node) {
+      this.destroy();
+      return;
+    }
+    this.disposeNode(node);
+  }
+
+  private disposeNode(node: AudioWorkletNode): void {
+    if (this.disposedNodes.has(node)) return;
+    this.disposedNodes.add(node);
+    try {
+      node.port.postMessage({ type: 'destroy' });
+      node.disconnect();
+    } catch {}
   }
 }
 
