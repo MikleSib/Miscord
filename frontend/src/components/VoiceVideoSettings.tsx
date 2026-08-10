@@ -356,6 +356,95 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
 
       <Divider />
 
+      <section className="space-y-5">
+        <h3 className="text-xl font-semibold text-white">Режим ввода</h3>
+        <label className="flex cursor-pointer items-start gap-3">
+          <input
+            type="radio"
+            checked={inputMode === 'voice-activity'}
+            onChange={() =>
+              voiceSettingsController.setInputMode('voice-activity')
+            }
+            className="mt-1 h-5 w-5 accent-[#5865f2]"
+          />
+          <span>
+            <span className="block font-semibold">Определение голосовой активности</span>
+            <span className="text-sm text-[#949ba4]">
+              Передаёт голос только после срабатывания порога. Короткая задержка закрытия сохраняет окончания слов.
+            </span>
+          </span>
+        </label>
+        <label className="flex cursor-pointer items-start gap-3">
+          <input
+            type="radio"
+            checked={inputMode === 'push-to-talk'}
+            onChange={() =>
+              voiceSettingsController.setInputMode('push-to-talk')
+            }
+            className="mt-1 h-5 w-5 accent-[#5865f2]"
+          />
+          <span>
+            <span className="block font-semibold">Режим рации</span>
+            <span className="text-sm text-[#949ba4]">
+              В браузере PTT работает только пока вкладка активна.
+            </span>
+          </span>
+        </label>
+
+        {inputMode === 'voice-activity' ? (
+          <div className="space-y-4 rounded-lg bg-[#2b2d31] p-4">
+            <SettingSwitch
+              title="Автоматически определять чувствительность"
+              description="Выключите, чтобы настроить порог вручную."
+              checked={autoDetectSensitivity}
+              onChange={(checked) =>
+                voiceSettingsController.setAutoDetectSensitivity(checked)
+              }
+            />
+            {!autoDetectSensitivity && (
+              <SensitivitySlider
+                value={vadSensitivity}
+                onChange={(value) =>
+                  voiceSettingsController.setVADSensitivity(value)
+                }
+              />
+            )}
+          </div>
+        ) : (
+          <div className="space-y-4 rounded-lg bg-[#2b2d31] p-4">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="font-semibold text-white">Клавиша PTT</p>
+                <p className="text-sm text-[#949ba4]">
+                  Нажмите кнопку и затем нужную клавишу.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsRecordingPTT(true)}
+                className={cn(
+                  'min-w-[132px] rounded-md px-3 py-2 text-sm font-semibold',
+                  isRecordingPTT
+                    ? 'bg-[#f0b232] text-[#1e1f22]'
+                    : 'bg-[#4e5058] text-white hover:bg-[#5d6069]',
+                )}
+              >
+                {isRecordingPTT ? 'Нажмите клавишу' : pttKey}
+              </button>
+            </div>
+            <LabeledSlider
+              label={`Задержка отпускания · ${pttDelay} мс`}
+              value={pttDelay}
+              min={0}
+              max={2000}
+              onChange={(value) => voiceSettingsController.setPTTDelay(value)}
+            />
+          </div>
+        )}
+      </section>
+
+      <Divider />
+
       <section className="space-y-4">
         <h3 className="text-xl font-semibold text-white">Профиль ввода</h3>
         {(Object.keys(PROFILE_COPY) as VoiceProcessingProfile[]).map(
@@ -492,95 +581,6 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
           </section>
         </>
       )}
-
-      <Divider />
-
-      <section className="space-y-5">
-        <h3 className="text-xl font-semibold text-white">Режим ввода</h3>
-        <label className="flex cursor-pointer items-start gap-3">
-          <input
-            type="radio"
-            checked={inputMode === 'voice-activity'}
-            onChange={() =>
-              voiceSettingsController.setInputMode('voice-activity')
-            }
-            className="mt-1 h-5 w-5 accent-[#5865f2]"
-          />
-          <span>
-            <span className="block font-semibold">Определение голосовой активности</span>
-            <span className="text-sm text-[#949ba4]">
-              Передаёт голос только после срабатывания порога. Короткая задержка закрытия сохраняет окончания слов.
-            </span>
-          </span>
-        </label>
-        <label className="flex cursor-pointer items-start gap-3">
-          <input
-            type="radio"
-            checked={inputMode === 'push-to-talk'}
-            onChange={() =>
-              voiceSettingsController.setInputMode('push-to-talk')
-            }
-            className="mt-1 h-5 w-5 accent-[#5865f2]"
-          />
-          <span>
-            <span className="block font-semibold">Режим рации</span>
-            <span className="text-sm text-[#949ba4]">
-              В браузере PTT работает только пока вкладка активна.
-            </span>
-          </span>
-        </label>
-
-        {inputMode === 'voice-activity' ? (
-          <div className="space-y-4 rounded-lg bg-[#2b2d31] p-4">
-            <SettingSwitch
-              title="Автоматически определять чувствительность"
-              description="Порог строится по шумовому фону микрофона."
-              checked={autoDetectSensitivity}
-              onChange={(checked) =>
-                voiceSettingsController.setAutoDetectSensitivity(checked)
-              }
-            />
-            {!autoDetectSensitivity && (
-              <SensitivitySlider
-                value={vadSensitivity}
-                onChange={(value) =>
-                  voiceSettingsController.setVADSensitivity(value)
-                }
-              />
-            )}
-          </div>
-        ) : (
-          <div className="space-y-4 rounded-lg bg-[#2b2d31] p-4">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="font-semibold text-white">Клавиша PTT</p>
-                <p className="text-sm text-[#949ba4]">
-                  Нажмите кнопку и затем нужную клавишу.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsRecordingPTT(true)}
-                className={cn(
-                  'min-w-[132px] rounded-md px-3 py-2 text-sm font-semibold',
-                  isRecordingPTT
-                    ? 'bg-[#f0b232] text-[#1e1f22]'
-                    : 'bg-[#4e5058] text-white hover:bg-[#5d6069]',
-                )}
-              >
-                {isRecordingPTT ? 'Нажмите клавишу' : pttKey}
-              </button>
-            </div>
-            <LabeledSlider
-              label={`Задержка отпускания · ${pttDelay} мс`}
-              value={pttDelay}
-              min={0}
-              max={2000}
-              onChange={(value) => voiceSettingsController.setPTTDelay(value)}
-            />
-          </div>
-        )}
-      </section>
     </div>
   );
 };
