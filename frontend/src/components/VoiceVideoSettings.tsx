@@ -9,6 +9,7 @@ import { useVADSettingsStore } from '../store/vadSettingsStore';
 import { useVoiceProcessingSettingsStore } from '../store/voiceProcessingSettingsStore';
 import {
   getEffectiveProcessingSettings,
+  MAX_INPUT_VOLUME_PERCENT,
   type VoiceProcessingProfile,
   type VoiceProcessingSettings,
 } from '../services/voiceSettings';
@@ -300,8 +301,9 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
 
         <div className="grid grid-cols-2 gap-4">
           <LabeledSlider
-            label="Громкость микрофона"
+            label={`Громкость микрофона · ${inputVolume}%`}
             value={inputVolume}
+            max={MAX_INPUT_VOLUME_PERCENT}
             onChange={(value) => {
               voiceSettingsController.setInputVolume(value);
               void restartMicTest();
@@ -472,7 +474,7 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
             />
             <SettingSwitch
               title="Автоматическая регулировка усиления"
-              description="Выравнивает громкость входящего сигнала."
+              description="Выравнивает громкость голоса. С нейросетевым движком работает после шумоподавления, поэтому не усиливает шум."
               checked={customSettings.autoGainControl}
               onChange={(checked) =>
                 void updateProcessing({ autoGainControl: checked })

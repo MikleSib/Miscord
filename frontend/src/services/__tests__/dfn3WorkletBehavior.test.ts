@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import vm from 'node:vm';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 const FRAME_SIZE = 480;
 const PRIME_SAMPLES = FRAME_SIZE * 2;
@@ -35,7 +35,7 @@ function createPassthroughModule() {
     _malloc: () => 64,
     _free: () => undefined,
     _dfn3_wasm_create: () => 0,
-    _dfn3_wasm_destroy: () => undefined,
+    _dfn3_wasm_destroy: vi.fn(),
     _dfn3_wasm_get_input_ptr: () => inputOffset * Float32Array.BYTES_PER_ELEMENT,
     _dfn3_wasm_get_output_ptr: () => outputOffset * Float32Array.BYTES_PER_ELEMENT,
     _dfn3_wasm_process: () => {
@@ -48,12 +48,17 @@ function createPassthroughModule() {
     _dfn3_wasm_set_atten_lim: () => undefined,
     _dfn3_wasm_set_post_filter_beta: () => undefined,
     _dfn3_wasm_set_hpf: () => undefined,
+    _dfn3_wasm_agc_init: vi.fn(),
+    _dfn3_wasm_set_input_agc: vi.fn(),
+    _dfn3_wasm_set_output_agc: vi.fn(),
+    _dfn3_wasm_set_output_agc_compression: vi.fn(),
   };
 }
 
 async function createProcessor(): Promise<{
   processor: WorkletProcessor;
   context: vm.Context;
+  module: ReturnType<typeof createPassthroughModule>;
 }> {
   const module = createPassthroughModule();
   let ProcessorClass: new (options: unknown) => WorkletProcessor;
@@ -88,7 +93,7 @@ async function createProcessor(): Promise<{
   });
   for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
   expect(processor.port.messages).toContainEqual({ type: 'ready' });
-  return { processor, context };
+  return { processor, context, module };
 }
 
 function render(
@@ -140,5 +145,24 @@ describe('DeepFilterNet3 AudioWorklet streaming behavior', () => {
     expect(Math.min(...neighborhood)).toBeGreaterThanOrEqual(-1e-7);
     const energy = neighborhood.reduce((sum, sample) => sum + sample * sample, 0);
     expect(energy).toBeCloseTo(0.64, 5);
+  });
+
+  it('compensates the disabled browser auto gain with the AGC placed after the model', async () => {
+    const { module } = await createProcessor();
+
+    expect(module._dfn3_wasm_agc_init).toHaveBeenCalled();
+    expect(module._dfn3_wasm_set_output_agc_compression).toHaveBeenCalledWith(18);
+    expect(module._dfn3_wasm_set_output_agc).toHaveBeenLastCalledWith(1);
+    // Перед моделью усиление подняло бы заодно и шум, который она потом убирает.
+    expect(module._dfn3_wasm_set_input_agc).toHaveBeenLastCalledWith(0);
+  });
+
+  it('switches the AGC off from the main thread without recreating the model', async () => {
+    const { processor, module } = await createProcessor();
+
+    processor.port.onmessage?.({ data: { type: 'auto-gain', enabled: false } });
+
+    expect(module._dfn3_wasm_set_output_agc).toHaveBeenLastCalledWith(0);
+    expect(module._dfn3_wasm_destroy).not.toHaveBeenCalled();
   });
 });

@@ -461,6 +461,7 @@ export class AudioProcessingService extends AudioProcessingServiceBase {
       void this.setNoiseSuppression(this.config.noiseSuppression, this.config.noiseSuppressionEngine);
       return;
     }
+    if (config.autoGainControl !== undefined) this.applyNeuralAutoGain();
     if (config.echoCancellation !== undefined || config.autoGainControl !== undefined) {
       void this.applyCaptureConstraints(
         this.config.noiseSuppression,

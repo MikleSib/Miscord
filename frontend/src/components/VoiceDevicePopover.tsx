@@ -12,6 +12,7 @@ import {
   Speaker,
 } from 'lucide-react'
 import voiceSettingsController from '../services/voiceSettingsController'
+import { MAX_INPUT_VOLUME_PERCENT } from '../services/voiceSettings'
 import { useAudioDeviceStore } from '../store/audioDeviceStore'
 import { cn } from '../lib/utils'
 
@@ -131,6 +132,7 @@ export function VoiceDevicePopover({
   if (!open) return null
 
   const isInput = kind === 'input'
+  const maxVolume = isInput ? MAX_INPUT_VOLUME_PERCENT : 100
 
   return (
     <div
@@ -162,12 +164,12 @@ export function VoiceDevicePopover({
         <input
           type="range"
           min="0"
-          max="100"
+          max={maxVolume}
           step="1"
           value={volume}
           onChange={(event) => changeVolume(Number(event.target.value))}
           className="voice-device-popover__range"
-          style={{ '--voice-volume': `${volume}%` } as CSSProperties}
+          style={{ '--voice-volume': `${(volume / maxVolume) * 100}%` } as CSSProperties}
           aria-label={isInput ? 'Громкость микрофона' : 'Громкость звука'}
         />
       </label>

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { MAX_INPUT_VOLUME_PERCENT } from '../services/voiceSettingsLogic';
 
 interface AudioDeviceState {
   inputDeviceId: string;
@@ -12,7 +13,10 @@ interface AudioDeviceState {
   setOutputVolume: (outputVolume: number) => void;
 }
 
-const clampPercent = (value: number) => Math.min(100, Math.max(0, Math.round(value)));
+const clampPercent = (value: number, max = 100) =>
+  Math.min(max, Math.max(0, Math.round(value)));
+// Вход умеет усиливать выше исходного уровня, выход — только громкость <audio>.
+const clampInput = (value: number) => clampPercent(value, MAX_INPUT_VOLUME_PERCENT);
 
 export const useAudioDeviceStore = create<AudioDeviceState>()(
   persist(
@@ -23,7 +27,7 @@ export const useAudioDeviceStore = create<AudioDeviceState>()(
       outputVolume: 100,
       setInputDeviceId: (inputDeviceId) => set({ inputDeviceId }),
       setOutputDeviceId: (outputDeviceId) => set({ outputDeviceId }),
-      setInputVolume: (inputVolume) => set({ inputVolume: clampPercent(inputVolume) }),
+      setInputVolume: (inputVolume) => set({ inputVolume: clampInput(inputVolume) }),
       setOutputVolume: (outputVolume) => set({ outputVolume: clampPercent(outputVolume) }),
     }),
     {
@@ -36,7 +40,7 @@ export const useAudioDeviceStore = create<AudioDeviceState>()(
           outputDeviceId: state.outputDeviceId || 'default',
           // Старые тихие значения поднимаем до нормальных 100%
           inputVolume: typeof state.inputVolume === 'number' && state.inputVolume > 0
-            ? Math.max(state.inputVolume, 100)
+            ? clampInput(Math.max(state.inputVolume, 100))
             : 100,
           outputVolume: typeof state.outputVolume === 'number' && state.outputVolume > 0
             ? Math.max(state.outputVolume, 100)

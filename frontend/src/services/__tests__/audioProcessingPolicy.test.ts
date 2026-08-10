@@ -90,7 +90,7 @@ describe('Miscord AI live pipeline policy', () => {
     expect(worklet).not.toContain('ImpulseSuppressor');
     expect(worklet).toContain('const INFERENCE_OVERLOAD_MS = 2.5');
     expect(worklet).toContain('_dfn3_wasm_set_post_filter_beta(0.02)');
-    expect(suppressor).toContain('dfn3-worklet.js?v=2026-08-10-live-pipeline');
+    expect(suppressor).toContain('dfn3-worklet.js?v=2026-08-10-output-agc');
     expect(base).not.toMatch(/createOscillator|frequency\.value\s*=\s*20/);
   });
 

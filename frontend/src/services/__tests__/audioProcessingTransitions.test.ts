@@ -239,6 +239,7 @@ describe('audio processing transition lifecycle', () => {
       destroyNode: vi.fn(),
       warmUp: vi.fn(async () => undefined),
       preload: vi.fn(async () => undefined),
+      setAutoGain: vi.fn(),
     };
     const service = new TransitionHarness();
     service.injectDeepFilterNetSuppressor(suppressor);
@@ -259,5 +260,36 @@ describe('audio processing transition lifecycle', () => {
 
     expect(suppressor.createNode).toHaveBeenCalledTimes(1);
     expect(failure).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes auto gain into DeepFilterNet3 instead of leaving the signal unamplified', async () => {
+    const node = Object.assign(new EventTarget(), {
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+    }) as unknown as AudioWorkletNode;
+    let createOptions: { autoGain?: boolean } | undefined;
+    const suppressor = {
+      createNode: vi.fn(async (
+        _context: AudioContext,
+        options: { autoGain?: boolean },
+      ) => {
+        createOptions = options;
+        return node;
+      }),
+      destroy: vi.fn(),
+      destroyNode: vi.fn(),
+      warmUp: vi.fn(async () => undefined),
+      preload: vi.fn(async () => undefined),
+      setAutoGain: vi.fn(),
+    };
+    const service = new TransitionHarness();
+    service.injectDeepFilterNetSuppressor(suppressor);
+    await service.setNoiseSuppression(true, 'deepfilternet3');
+
+    expect(createOptions?.autoGain).toBe(true);
+
+    service.updateConfig({ autoGainControl: false });
+
+    expect(suppressor.setAutoGain).toHaveBeenCalledWith(false);
   });
 });

@@ -6,6 +6,7 @@ import { Slider } from './ui/slider';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group';
 import { Label } from './ui/label';
 import { useAudioDeviceStore } from '../store/audioDeviceStore';
+import { MAX_INPUT_VOLUME_PERCENT } from '../services/voiceSettings';
 import voiceService from '../services/voiceService';
 
 interface MediaDevice {
@@ -270,7 +271,7 @@ export const AudioDeviceSettings: React.FC<AudioDeviceSettingsProps> = ({ classN
             value={[inputVolume]}
             onValueChange={handleInputVolumeChange}
             min={0}
-            max={100}
+            max={MAX_INPUT_VOLUME_PERCENT}
             step={1}
             className="w-full"
           />

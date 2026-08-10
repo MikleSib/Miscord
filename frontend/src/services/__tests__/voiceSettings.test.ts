@@ -30,7 +30,9 @@ describe('voice processing profiles', () => {
       noiseSuppression: true,
       noiseSuppressionEngine: 'deepfilternet3',
       echoCancellation: true,
-      autoGainControl: false,
+      // Флаг адресован AGC внутри DeepFilterNet3: браузерный при нейросети
+      // всё равно выключается на уровне capture-политики.
+      autoGainControl: true,
       voiceConditioning: true,
     });
   });
@@ -60,11 +62,12 @@ describe('legacy migration', () => {
 });
 
 describe('voice level math', () => {
-  it('uses one linear input gain', () => {
+  it('uses one linear input gain and lets the slider boost above unity', () => {
     expect(linearGain(0)).toBe(0);
     expect(linearGain(50)).toBe(0.5);
     expect(linearGain(100)).toBe(1);
-    expect(linearGain(250)).toBe(1);
+    expect(linearGain(200)).toBe(2);
+    expect(linearGain(250)).toBe(2);
   });
 
   it('maps the persisted 0-100 sensitivity to -100..0 dBFS', () => {

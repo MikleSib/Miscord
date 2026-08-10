@@ -17,6 +17,14 @@ const CROSSFADE_SAMPLES = 960;
  * вводим плавно, а не обрываем голос на входе в канал.
  */
 const STARTUP_FADE_SAMPLES = 24000;
+/**
+ * Пока работает нейросеть, браузерный autoGainControl выключен: он усиливал бы
+ * шум ещё до модели. Встроенный AGC WebRTC стоит после неё и поднимает уже
+ * очищенный голос, поэтому подавленный шум обратно не всплывает. 18 dB —
+ * значение эталонной сборки: тихий микрофон вытягивает, громкий держит
+ * лимитером у целевого уровня.
+ */
+const AGC_OUTPUT_COMPRESSION_DB = 18;
 /** Окно 25 кадров ≈ 250 мс: перегрузку надо замечать за доли секунды, а не за 5 с. */
 const PERF_WINDOW_FRAMES = 25;
 /** Кадр содержит 10 мс аудио, но inference должен оставлять запас рендеру. */
@@ -76,6 +84,9 @@ class DeepFilterNet3Processor extends AudioWorkletProcessor {
     this.mix = 0;
     /** Пока false — обработка вводится медленно, пока модель не прогреется. */
     this.warmedUp = false;
+    /** Старая сборка WASM могла не содержать AGC — тогда просто работаем без него. */
+    this.agcAvailable = false;
+    this.autoGain = options?.processorOptions?.autoGain !== false;
     /** Пропущенные аудиодвижком сэмплы: единственный надёжный признак срыва. */
     this.glitchSamples = 0;
     this.lastRenderFrame = -1;
@@ -95,6 +106,10 @@ class DeepFilterNet3Processor extends AudioWorkletProcessor {
 
     this.port.onmessage = (event) => {
       if (event.data?.type === 'destroy') this.destroy();
+      if (event.data?.type === 'auto-gain') {
+        this.autoGain = event.data.enabled !== false;
+        this.applyAutoGain();
+      }
     };
 
     const processorOptions = options?.processorOptions;
@@ -167,6 +182,13 @@ class DeepFilterNet3Processor extends AudioWorkletProcessor {
       module._dfn3_wasm_set_post_filter_beta(0.02);
       module._dfn3_wasm_set_hpf(1);
 
+      this.agcAvailable =
+        typeof module._dfn3_wasm_agc_init === 'function' &&
+        typeof module._dfn3_wasm_set_input_agc === 'function' &&
+        typeof module._dfn3_wasm_set_output_agc === 'function' &&
+        typeof module._dfn3_wasm_set_output_agc_compression === 'function';
+      this.applyAutoGain();
+
       this.inputPointer = module._dfn3_wasm_get_input_ptr();
       this.outputPointer = module._dfn3_wasm_get_output_ptr();
       this.initializing = false;
@@ -187,9 +209,24 @@ class DeepFilterNet3Processor extends AudioWorkletProcessor {
     }
   }
 
+  applyAutoGain() {
+    if (!this.agcAvailable || !this.module) return;
+    const module = this.module;
+    if (this.autoGain) {
+      // Инициализация сбрасывает огибающие и таблицу усиления: без неё после
+      // повторного включения AGC стартует с накопленного ранее уровня.
+      module._dfn3_wasm_agc_init();
+      module._dfn3_wasm_set_output_agc_compression(AGC_OUTPUT_COMPRESSION_DB);
+    }
+    // AGC до модели остаётся выключенным: там он поднимал бы шум вместе с речью.
+    module._dfn3_wasm_set_input_agc(0);
+    module._dfn3_wasm_set_output_agc(this.autoGain ? 1 : 0);
+  }
+
   cleanup() {
     if (this.cleaned) return;
     this.cleaned = true;
+    this.agcAvailable = false;
     if (this.module && this.modelCreated) this.module._dfn3_wasm_destroy();
     if (this.module && this.weightsPointer) this.module._free(this.weightsPointer);
     this.modelCreated = false;

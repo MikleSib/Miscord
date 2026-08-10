@@ -1,6 +1,6 @@
 // Public audio assets are served as immutable, so changing the query version is
 // required whenever the worklet implementation changes.
-const WORKLET_PATH = '/audio/deepfilternet3/dfn3-worklet.js?v=2026-08-10-live-pipeline';
+const WORKLET_PATH = '/audio/deepfilternet3/dfn3-worklet.js?v=2026-08-10-output-agc';
 const PROCESSOR_NAME = 'miscord-deepfilternet3';
 const WASM_PATH = '/audio/deepfilternet3/dfn3.wasm';
 const WEIGHTS_PATH = '/audio/deepfilternet3/dfn3_weights.bin';
@@ -32,6 +32,8 @@ export interface DeepFilterNet3PerfMetrics {
 export interface DeepFilterNet3CreateOptions {
   onPerf?: (metrics: DeepFilterNet3PerfMetrics) => void;
   onRealtimeOverload?: () => void;
+  /** AGC WebRTC после модели — замена браузерному, который при нейросети выключен. */
+  autoGain?: boolean;
 }
 
 export class DeepFilterNet3NoiseSuppressor {
@@ -42,6 +44,7 @@ export class DeepFilterNet3NoiseSuppressor {
   private ready = false;
   private generation = 0;
   private overloadStrikes = 0;
+  private autoGain = true;
   private preloadPromise: Promise<void> | null = null;
   private cachedWasm: ArrayBuffer | null = null;
   private cachedWeights: ArrayBuffer | null = null;
@@ -111,6 +114,7 @@ export class DeepFilterNet3NoiseSuppressor {
     const generation = this.generation;
     this.ready = false;
     this.overloadStrikes = 0;
+    this.autoGain = options.autoGain ?? true;
     this.readyPromise = new Promise<void>((resolve, reject) => {
       this.resolveReady = resolve;
       this.rejectReady = reject;
@@ -131,7 +135,7 @@ export class DeepFilterNet3NoiseSuppressor {
       outputChannelCount: [1],
       channelCount: 1,
       channelCountMode: 'explicit',
-      processorOptions: { wasmBinary, weightsBinary },
+      processorOptions: { wasmBinary, weightsBinary, autoGain: this.autoGain },
     }) as DeepFilterNet3Node;
     this.node = node;
     node.port.onmessage = (event: MessageEvent) => {
@@ -177,6 +181,13 @@ export class DeepFilterNet3NoiseSuppressor {
     };
     node.destroy = () => this.destroyNode(node);
     return node;
+  }
+
+  /** Значение запоминается и применяется к следующему созданному узлу. */
+  setAutoGain(enabled: boolean): void {
+    if (this.autoGain === enabled) return;
+    this.autoGain = enabled;
+    this.node?.port.postMessage({ type: 'auto-gain', enabled });
   }
 
   private fail(error: Error): void {

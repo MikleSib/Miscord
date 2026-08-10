@@ -49,7 +49,7 @@ export const DEFAULT_AUDIO_PROCESSING_CONFIG: AudioProcessingConfig = {
   vadEnabled: false,
   noiseSuppression: true,
   echoCancellation: true,
-  autoGainControl: false,
+  autoGainControl: true,
   voiceConditioning: true,
   speechProbabilityThreshold: 0.35,
   useAdvancedNoiseSuppression: true,

@@ -22,9 +22,14 @@ import {
   type AudioProcessingServiceOptions,
   type SupportedNoiseSuppressionEngine,
 } from './audioProcessingTypes';
-import { linearGain } from './voiceSettingsLogic';
+import { linearGain, MAX_INPUT_VOLUME_PERCENT } from './voiceSettingsLogic';
 
-const NEURAL_OUTPUT_MAKEUP = 1.3;
+/**
+ * Уравнено с браузерным трактом: нейросеть только приглушает полосы, поэтому
+ * занижать ей ещё и компенсацию было нечем оправдать. Запас до клиппинга
+ * остаётся — выше стоит компрессор, а AGC модели держит пики у -3 dBFS.
+ */
+const NEURAL_OUTPUT_MAKEUP = 1.55;
 
 export abstract class AudioProcessingServiceBase {
   protected readonly miscordNoiseSuppressor = new MiscordNoiseSuppressor();
@@ -283,6 +288,11 @@ export abstract class AudioProcessingServiceBase {
     if (this.inputGainNode) this.inputGainNode.gain.value = linearGain(this.inputVolumePercent);
   }
 
+  /** Пока работает нейросеть, автоусиление даёт она сама, а не браузер. */
+  protected applyNeuralAutoGain(): void {
+    this.deepFilterNet3NoiseSuppressor.setAutoGain(this.config.autoGainControl);
+  }
+
   private teardownWithDryHandoff(active: boolean, teardown: () => void): void {
     if (
       active &&
@@ -333,7 +343,10 @@ export abstract class AudioProcessingServiceBase {
   }
 
   setInputVolume(percent: number): void {
-    this.inputVolumePercent = Math.min(100, Math.max(0, Math.round(percent)));
+    this.inputVolumePercent = Math.min(
+      MAX_INPUT_VOLUME_PERCENT,
+      Math.max(0, Math.round(percent)),
+    );
     useAudioDeviceStore.getState().setInputVolume(this.inputVolumePercent);
     this.applyInputVolumeGain();
   }
@@ -463,6 +476,7 @@ export abstract class AudioProcessingServiceBase {
         createdNode = await this.deepFilterNet3NoiseSuppressor.createNode(
           this.audioContext,
           {
+            autoGain: this.config.autoGainControl,
             onPerf: (metrics) => {
               if (!this.isActiveNeuralNodeCurrent(
                 generation,

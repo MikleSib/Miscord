@@ -42,8 +42,10 @@ export function getEffectiveProcessingSettings(
       noiseSuppression: true,
       noiseSuppressionEngine: 'deepfilternet3',
       echoCancellation: true,
-      // Browser AGC pumps residual noise into RNNoise and colors speech.
-      autoGainControl: false,
+      // Браузерный AGC при нейросети всё равно выключается: он поднимал бы шум
+      // до модели. Флаг включает AGC внутри DeepFilterNet3 — тот работает уже
+      // по очищенному сигналу и возвращает громкость, потерянную на шумодаве.
+      autoGainControl: true,
       voiceConditioning: true,
     };
   }
@@ -84,8 +86,14 @@ export function calculateAutoThreshold(samples: number[]): number {
   return Math.max(-60, Math.min(-25, noiseFloor + 12));
 }
 
+/**
+ * Выше 100% слайдер усиливает, а не только приглушает: нейросетевой шумодав
+ * умеет лишь убавлять уровень, поэтому тихому микрофону нужен ручной запас.
+ */
+export const MAX_INPUT_VOLUME_PERCENT = 200;
+
 export function linearGain(volume: number): number {
-  return Math.max(0, Math.min(100, volume)) / 100;
+  return Math.max(0, Math.min(MAX_INPUT_VOLUME_PERCENT, volume)) / 100;
 }
 
 export function normalizePTTDelay(delay: number): number {
