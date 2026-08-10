@@ -39,6 +39,21 @@ class UserUpdate(BaseModel):
             raise ValueError("Пароль должен быть не короче 8 символов")
         return value
 
+
+class PublicUser(BaseModel):
+    id: int
+    username: str
+    display_name: Optional[str] = None
+    is_active: bool
+    is_bot: bool = False
+    is_online: bool
+    avatar_url: Optional[str] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
 class User(UserBase):
     id: int
     is_active: bool

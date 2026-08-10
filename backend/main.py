@@ -12,13 +12,11 @@ import time
 from sqlalchemy import delete, text, update
 
 from app.core.config import settings
-from app.db.database import engine, Base
-from app.api import auth, channels, channel_categories, channel_permissions, message_pins, message_search, servers, uploads, reactions, friends, direct_messages, embeds, webhooks, attachment_files, bot_apps, bot_platform, bot_client, bot_oauth, miscord_api, miscord_gateway, miscord_interactions
+from app.db.database import engine
+from app.api import auth, channels, channel_categories, channel_permissions, community_forums, community_notifications, community_polls, community_templates, community_threads, message_pins, message_search, servers, uploads, reactions, friends, direct_messages, embeds, webhooks, attachment_files, bot_apps, bot_platform, bot_client, bot_oauth, miscord_api, miscord_gateway, miscord_interactions
 from app.core.miscord_errors import MiscordAPIError
 from app.services.webhook_rate_limit import Bucket, consume, rate_headers
-from app.websocket import chat
 from app.websocket.connection_manager import manager
-from app.websocket.chat import websocket_chat_endpoint, websocket_notifications_endpoint
 from app.websocket.unified import websocket_unified_endpoint
 from app.websocket.bot_gateway import websocket_gateway_endpoint
 from app.services.user_activity_service import user_activity_service
@@ -27,6 +25,9 @@ from app.models import BotSession, User, VoiceChannelUser
 from app.services.clamav import clamav_health
 from app.services.webhook_notifications import dispatcher as webhook_notification_dispatcher
 from app.services.pending_upload_cleanup import run_pending_upload_cleanup_loop
+from app.services.outbox_publisher import outbox_publisher
+from app.services.notifications import notification_retention
+from app.services.community_jobs import community_jobs
 
 
 _SENSITIVE_QUERY_VALUE = re.compile(
@@ -73,33 +74,7 @@ configure_sensitive_log_redaction()
 # Создание таблиц при старте
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        await conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS client_nonce VARCHAR(36)"))
-        await conn.execute(text("ALTER TABLE direct_messages ADD COLUMN IF NOT EXISTS client_nonce VARCHAR(36)"))
-        await conn.execute(text("ALTER TABLE bot_commands ADD COLUMN IF NOT EXISTS command_type INTEGER NOT NULL DEFAULT 1"))
-        await conn.execute(text("ALTER TABLE bot_commands ADD COLUMN IF NOT EXISTS dm_permission BOOLEAN NOT NULL DEFAULT true"))
-        await conn.execute(text("ALTER TABLE bot_commands ADD COLUMN IF NOT EXISTS default_member_permissions BIGINT"))
-        await conn.execute(text("ALTER TABLE bot_commands ADD COLUMN IF NOT EXISTS allowed_user_ids JSON NOT NULL DEFAULT '[]'::json"))
-        await conn.execute(text("ALTER TABLE bot_commands ADD COLUMN IF NOT EXISTS allowed_role_ids JSON NOT NULL DEFAULT '[]'::json"))
-        await conn.execute(text("ALTER TABLE text_channels ADD COLUMN IF NOT EXISTS category_id INTEGER REFERENCES channel_categories(id) ON DELETE SET NULL"))
-        await conn.execute(text("ALTER TABLE voice_channels ADD COLUMN IF NOT EXISTS category_id INTEGER REFERENCES channel_categories(id) ON DELETE SET NULL"))
-        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_text_channels_category ON text_channels(category_id)"))
-        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_voice_channels_category ON voice_channels(category_id)"))
-        await conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS pinned BOOLEAN NOT NULL DEFAULT false"))
-        await conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS pinned_at TIMESTAMP"))
-        await conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS pinned_by_id INTEGER REFERENCES users(id)"))
-        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_messages_pinned ON messages(text_channel_id) WHERE pinned"))
-        await conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS ix_messages_content_fts "
-            "ON messages USING GIN (to_tsvector('russian', coalesce(content, '')))"
-        ))
-        await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_messages_author_client_nonce ON messages(author_id, client_nonce) WHERE client_nonce IS NOT NULL"))
-        await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_direct_messages_sender_client_nonce ON direct_messages(sender_id, client_nonce) WHERE client_nonce IS NOT NULL"))
-        # Execution URLs are intentionally one-time. Existing encrypted copies
-        # are irreversibly scrubbed; only high-entropy token hashes remain.
-        await conn.execute(text("UPDATE webhooks SET token_ciphertext = '' WHERE token_ciphertext <> ''"))
+    # Alembic owns schema changes. Runtime startup intentionally performs no DDL.
     # Voice presence is runtime state; it must not survive a backend restart.
     async with AsyncSessionLocal() as db:
         await db.execute(delete(VoiceChannelUser))
@@ -108,15 +83,18 @@ async def lifespan(app: FastAPI):
         await db.execute(update(User).where(User.is_bot == True).values(is_online=False))
         await db.execute(update(BotSession).values(is_active=False))
         await db.commit()
-    
+
     # Инициализация Redis для WebSocket
     await manager.init_redis()
-    
+
     # Запуск сервиса активности пользователей
     await user_activity_service.start_cleanup_task(AsyncSessionLocal)
     await webhook_notification_dispatcher.start()
+    await outbox_publisher.start()
+    await notification_retention.start()
+    await community_jobs.start()
     pending_upload_cleanup_task = asyncio.create_task(run_pending_upload_cleanup_loop())
-    
+
     yield
     # Shutdown
     pending_upload_cleanup_task.cancel()
@@ -125,6 +103,9 @@ async def lifespan(app: FastAPI):
     except asyncio.CancelledError:
         pass
     await user_activity_service.stop_cleanup_task()
+    await outbox_publisher.stop()
+    await notification_retention.stop()
+    await community_jobs.stop()
     await webhook_notification_dispatcher.stop()
     if manager.redis_client:
         await manager.redis_client.close()
@@ -236,6 +217,11 @@ async def miscord_api_rate_limit_middleware(request: Request, call_next):
 # Подключение роутеров
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(channels.router, prefix="/api/v1/channels", tags=["channels"])
+app.include_router(community_threads.router, prefix="/api/v1/channels", tags=["threads"])
+app.include_router(community_forums.router, prefix="/api/v1/channels", tags=["forums"])
+app.include_router(community_polls.router, prefix="/api/v1", tags=["polls"])
+app.include_router(community_notifications.router, prefix="/api/v1", tags=["notifications"])
+app.include_router(community_templates.router, prefix="/api/v1", tags=["server-templates"])
 app.include_router(channel_permissions.router, prefix="/api/v1/channels", tags=["channel-permissions"])
 app.include_router(message_pins.router, prefix="/api/v1/channels", tags=["message-pins"])
 app.include_router(message_search.router, prefix="/api/v1/channels", tags=["message-search"])
@@ -264,15 +250,6 @@ async def websocket_unified_endpoint_route(websocket: WebSocket, token: str):
     """Единый унифицированный WebSocket endpoint для всех типов соединений"""
     await websocket_unified_endpoint(websocket, token)
 
-# СТАРЫЕ ENDPOINTS (сохранены для обратной совместимости)
-@app.websocket("/ws/chat/{text_channel_id}")
-async def websocket_chat_endpoint_route(websocket: WebSocket, text_channel_id: int, token: str):
-    await websocket_chat_endpoint(websocket, text_channel_id, token)
-
-@app.websocket("/ws/notifications")
-async def websocket_notifications_endpoint_route(websocket: WebSocket, token: str):
-    await websocket_notifications_endpoint(websocket, token)
-
 @app.websocket("/gateway")
 async def websocket_gateway_endpoint_route(websocket: WebSocket):
     await websocket_gateway_endpoint(websocket)
@@ -286,9 +263,7 @@ async def root():
         "endpoints": {
             "auth": "/api/v1/auth",
             "channels": "/api/v1/channels",
-            "websocket_unified": "/ws/unified (RECOMMENDED)",
-            "websocket_chat": "/ws/chat/{text_channel_id} (deprecated)",
-            "websocket_notifications": "/ws/notifications (deprecated)",
+            "websocket_unified": "/ws/unified",
             "gateway": "/api/v1/gateway",
             "voice_gateway": "/ws/voice-gateway?v=1",
         }

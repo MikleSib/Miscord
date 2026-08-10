@@ -28,6 +28,10 @@ import authService from '../services/authService'
 import { bindUserProfileSync } from '../lib/userProfileSync'
 import { bindMemberSync } from '../lib/memberSync'
 import { bindServerPermissionsSync } from '../lib/serverPermissions'
+import { NotificationInbox } from '../components/community/NotificationInbox'
+import { ThreadPanel } from '../components/community/ThreadPanel'
+import { ThreadDialogHost } from '../components/community/ThreadDialogHost'
+import { ForumChannelView } from '../components/community/ForumChannelView'
 
 bindUserProfileSync()
 bindMemberSync()
@@ -36,11 +40,11 @@ bindServerPermissionsSync()
 export default function HomePage() {
   const router = useRouter()
   const { user: authUser, token, isAuthenticated } = useAuthStore()
-  const { 
-    servers, 
-    currentServer, 
-    currentChannel, 
-    loadServers, 
+  const {
+    servers,
+    currentServer,
+    currentChannel,
+    loadServers,
     initializeWebSocket,
     disconnectWebSocket,
     isLoading,
@@ -95,12 +99,12 @@ export default function HomePage() {
             if (savedToken) {
               // Устанавливаем токен в store
               useAuthStore.getState().setToken(savedToken);
-              
+
               // Получаем данные пользователя
               const user = await authService.getCurrentUser();
               useAuthStore.getState().loginSuccess(user, savedToken);
               setStoreUser(user);
-              
+
               return; // Продолжаем инициализацию
             }
           }
@@ -112,7 +116,7 @@ export default function HomePage() {
           }
           useAuthStore.getState().logout();
         }
-        
+
         router.push('/login')
         return
       }
@@ -274,6 +278,8 @@ export default function HomePage() {
   return (
     <div className="app-shell miscord-responsive-root relative flex h-[100dvh] overflow-hidden">
       <MobileExperience />
+      <NotificationInbox />
+      <ThreadDialogHost />
       <div className="app-mobile-servers relative z-50">
         <ServerList />
       </div>
@@ -287,7 +293,10 @@ export default function HomePage() {
             <ChannelSidebar />
           </div>
           <div className="app-mobile-chat flex min-w-0 flex-1 flex-col">
-            <ChatArea showUserSidebar={showUserSidebar} setShowUserSidebar={setShowUserSidebar} />
+            <div className="flex min-h-0 min-w-0 flex-1">
+              <div className="flex min-w-0 flex-1">{currentChannel?.kind === 'forum' ? <ForumChannelView channel={currentChannel} /> : <ChatArea showUserSidebar={showUserSidebar} setShowUserSidebar={setShowUserSidebar} />}</div>
+              <ThreadPanel />
+            </div>
           </div>
           {showUserSidebar && (
             <div className="app-mobile-members flex h-full">

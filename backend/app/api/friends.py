@@ -10,6 +10,7 @@ from app.services import friend_service
 from app.services.friend_service import normalize_login
 from app.websocket.connection_manager import manager
 from app.core.dependencies import get_current_user
+from app.services.notifications import create_notification
 
 router = APIRouter()
 
@@ -28,7 +29,7 @@ async def send_friend_request(
 
     if current_user.username.lower() == login.lower():
         raise HTTPException(status_code=400, detail="Нельзя отправить запрос самому себе.")
-    
+
     friend = await friend_service.get_user_by_username(db, username=login)
     if not friend:
         raise HTTPException(
@@ -39,7 +40,7 @@ async def send_friend_request(
     friend_request = await friend_service.create_friend_request(db, user_from_id=current_user.id, user_to_id=friend.id)
     if not friend_request:
         raise HTTPException(status_code=400, detail="Friend request already sent or users are already friends.")
-    
+
     # Отправляем уведомление по WebSocket
     # Добавляем request_id к объекту current_user для отправки
     current_user_schema = UserSchema.from_orm(current_user)
@@ -52,6 +53,15 @@ async def send_friend_request(
         },
         friend.id
     )
+    await create_notification(
+        db,
+        user_id=friend.id,
+        type="friend_request",
+        actor_user_id=current_user.id,
+        dedupe_key=f"friend_request:{friend_request.id}",
+        payload={"request_id": friend_request.id},
+    )
+    await db.commit()
 
     return friend
 

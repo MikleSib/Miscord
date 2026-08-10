@@ -1,89 +1,6 @@
-from fastapi import WebSocket, WebSocketDisconnect, Query, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
-import json
-import asyncio
-from typing import Dict, Optional, Any
-from datetime import timezone
+"""Bounded realtime handlers; shared protocol helpers live in unified_support."""
 
-from app.db.database import AsyncSessionLocal
-from app.models import (
-    User,
-    Message,
-    TextChannel,
-    Attachment,
-    Reaction,
-)
-from app.core.security import decode_access_token
-from app.websocket.connection_manager import manager
-from app.services.user_activity_service import user_activity_service
-from app.services.text_channel_visibility import get_visible_text_channel
-from app.services.slow_mode import check_slow_mode
-from app.services.rate_limit import enforce_message_antispam, rate_limit_payload
-from app.services.mentions import notify_message_mentions
-from app.services.message_notifications import notify_channel_message_activity
-from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
-from app.websocket.unified_dm import handle_dm_message, send_message_failure
-from app.websocket.group_voice import (
-    join_voice as join_group_voice,
-    leave_voice as leave_group_voice,
-    refresh_ticket as refresh_group_voice_ticket,
-    notify_screen_share_viewer_joined,
-    update_voice_state as update_group_voice_state,
-    broadcast_voice,
-)
-from app.services.voice_presence import voice_presence
-
-
-voice_connections: Dict[int, Dict[int, dict]] = {}
-
-
-def _extract_request_id(message_data: dict) -> Optional[str]:
-    request_id = message_data.get("request_id")
-    return str(request_id) if request_id is not None else None
-
-
-def _structured_log(user: Optional[User], event: str, **fields: Any) -> None:
-    payload = {
-        "source": "unified_ws",
-        "event": event,
-    }
-    if user:
-        payload["user_id"] = user.id
-        payload["username"] = getattr(user, "username", None)
-    payload.update({k: v for k, v in fields.items() if v is not None})
-    print(f"[UnifiedWS] {json.dumps(payload, ensure_ascii=False)}")
-
-
-def _voice_debug_metrics() -> dict:
-    return {
-        "protocol_version": 1,
-        "transport": "sfu",
-        "active_channels": len(voice_connections),
-        "active_sessions": sum(
-            len(users) for users in voice_connections.values()
-        ),
-    }
-
-
-async def get_user_by_token_ws(token: str, db: AsyncSession) -> Optional[User]:
-    try:
-        payload = decode_access_token(token)
-        if not payload:
-            return None
-
-        user_id = payload.get("sub")
-        if not user_id:
-            return None
-
-        result = await db.execute(select(User).where(User.id == int(user_id)))
-        user = result.scalar_one_or_none()
-        return user if user and user.is_active else None
-    except Exception as e:
-        print(f"[UnifiedWS] auth error: {e}")
-        return None
-
+from .unified_support import *  # noqa: F401,F403
 
 async def websocket_unified_endpoint(
     websocket: WebSocket,
@@ -143,6 +60,35 @@ async def websocket_unified_endpoint(
 
                     elif msg_type == "chat_message":
                         await handle_chat_message(user, message_data, db, manager, current_text_channels)
+
+                    elif msg_type == "subscribe_channel":
+                        try:
+                            channel_id = int(message_data.get("text_channel_id"))
+                        except (TypeError, ValueError):
+                            channel_id = 0
+                        channel = await get_visible_text_channel(db, channel_id) if channel_id else None
+                        if channel and await user_can_access_text_channel(db, user, channel):
+                            await manager.register_channel(websocket, user.id, channel.id)
+                            current_text_channels.add(channel.id)
+                            await websocket.send_text(json.dumps({
+                                "type": "channel_subscribed",
+                                "data": {"text_channel_id": channel.id},
+                            }))
+                        else:
+                            await websocket.send_text(json.dumps({
+                                "type": "error",
+                                "code": "access_denied",
+                                "message": "No access to channel",
+                            }))
+
+                    elif msg_type == "unsubscribe_channel":
+                        try:
+                            channel_id = int(message_data.get("text_channel_id"))
+                        except (TypeError, ValueError):
+                            channel_id = 0
+                        if channel_id in current_text_channels:
+                            await manager.unregister_channel(websocket, user.id, channel_id)
+                            current_text_channels.discard(channel_id)
 
                     elif msg_type == "typing":
                         await handle_typing(user, message_data, manager, current_text_channels, db)
@@ -298,6 +244,9 @@ async def websocket_unified_endpoint(
                     local_connections=voice_connections,
                 )
 
+            for channel_id in tuple(current_text_channels):
+                await manager.unregister_channel(websocket, user.id, channel_id)
+            current_text_channels.clear()
             await manager.disconnect(websocket, user.id)
             if not manager.is_user_connected(user.id):
                 await user_activity_service.set_user_offline(user.id, db)
@@ -323,6 +272,7 @@ async def handle_chat_message(
     attachment_upload_ids = list(dict.fromkeys(str(item) for item in (message_data.get("attachment_upload_ids") or [])))
     client_nonce = message_data.get("client_nonce")
     reply_to_id = message_data.get("reply_to_id")
+    poll_data = message_data.get("poll")
 
     if client_nonce is not None and (not isinstance(client_nonce, str) or len(client_nonce) > 64):
         return
@@ -372,9 +322,34 @@ async def handle_chat_message(
             return
         attachments.extend(item.file_url for item in pending_uploads)
 
-    if not content and not attachments:
+    poll_payload = None
+    if poll_data is not None:
+        if not settings.POLLS_ENABLED:
+            await send_message_failure(user.id, client_nonce, "feature_disabled", "Опросы пока недоступны")
+            return
+        try:
+            poll_payload = PollCreate.model_validate(poll_data)
+        except Exception:
+            await send_message_failure(user.id, client_nonce, "invalid_poll", "Проверьте вопрос, варианты и длительность опроса")
+            return
+        await require_poll_permission(db, text_channel, user)
+
+    if not content and not attachments and poll_payload is None:
         await send_message_failure(user.id, client_nonce, "empty_message", "Сообщение не содержит текста или файлов")
         return
+
+    if reply_to_id:
+        reply_channel_id = await db.scalar(
+            select(Message.text_channel_id).where(Message.id == reply_to_id)
+        )
+        if reply_channel_id != text_channel_id:
+            await send_message_failure(
+                user.id,
+                client_nonce,
+                "invalid_reply",
+                "Сообщение для ответа не найдено в этом канале",
+            )
+            return
     if len(content) > 5000 or len(attachments) > 10:
         await send_message_failure(user.id, client_nonce, "validation_error", "Превышен лимит текста или вложений")
         return
@@ -428,6 +403,17 @@ async def handle_chat_message(
         db_message.attachments.append(attachment)
 
     db.add(db_message)
+    await db.flush()
+    db_poll = None
+    if poll_payload is not None:
+        db_poll = await create_poll_for_message(
+            db,
+            message=db_message,
+            creator_id=user.id,
+            payload=poll_payload,
+        )
+    if getattr(text_channel, "kind", "text") in {"public_thread", "private_thread", "forum_post"}:
+        text_channel.last_message_at = datetime.now(timezone.utc)
     for pending in pending_uploads:
         await db.delete(pending)
     await db.commit()
@@ -470,6 +456,7 @@ async def handle_chat_message(
             } for att in full_message.attachments
         ],
         "reactions": [],
+        "poll": await serialize_poll(db, db_poll, user.id) if db_poll is not None else None,
         "reply_to": None
         if not full_message.reply_to else {
             "id": full_message.reply_to.id,
@@ -504,6 +491,19 @@ async def handle_chat_message(
         text_channel=text_channel,
         message_id=full_message.id,
     )
+    if full_message.reply_to and full_message.reply_to.author_id:
+        await create_notification(
+            db,
+            user_id=full_message.reply_to.author_id,
+            type="thread_reply" if text_channel.parent_id else "reply",
+            actor_user_id=user.id,
+            server_id=text_channel.channel_id,
+            channel_id=text_channel.id,
+            message_id=full_message.id,
+            dedupe_key=f"reply:{full_message.id}",
+            payload={"thread_id": text_channel.id if text_channel.parent_id else None},
+        )
+        await db.commit()
     await notify_channel_message_activity(
         db,
         manager,

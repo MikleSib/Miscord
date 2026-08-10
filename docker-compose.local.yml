@@ -20,13 +20,32 @@ services:
       VOICE_MEDIA_JWT_SECRET: local-voice-media-secret-change-me-32-bytes
       VOICE_MEDIA_WS_URL: ws://127.0.0.1:3011/ws/media
       BOT_PLATFORM_ENABLED: "true"
+      THREADS_ENABLED: "true"
+      FORUMS_ENABLED: "true"
+      POLLS_ENABLED: "true"
+      INBOX_ENABLED: "true"
+      SERVER_TEMPLATES_ENABLED: "true"
       CORS_ORIGINS: '["http://127.0.0.1:3011","http://localhost:3011"]'
     ports: !override []
     volumes:
       - ./backend:/app
+      - ./frontend:/frontend:ro
       - local_media_data:/app/static/uploads
       - local_attachment_data:/app/data/attachments
       - local_attachment_quarantine:/app/data/quarantine
+
+  backend-migrate:
+    environment:
+      DATABASE_URL: postgresql://miscord_local:miscord_local_password@postgres:5432/miscord_local
+      REDIS_URL: redis://redis:6379
+      ENVIRONMENT: development
+      SECRET_KEY: local-backend-secret-change-me
+      VOICE_MEDIA_JWT_SECRET: local-voice-media-secret-change-me-32-bytes
+      WEBHOOKS_ENABLED: "false"
+      BOT_PLATFORM_ENABLED: "false"
+    volumes:
+      - ./backend:/app
+      - ./frontend:/frontend:ro
 
   voice-media:
     environment:

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean, Enum
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean, Enum, Index
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.db.database import Base
@@ -10,7 +10,7 @@ class ChannelType(str, enum.Enum):
 
 class Channel(Base):
     __tablename__ = "channels"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     description = Column(String, nullable=True)
@@ -20,7 +20,7 @@ class Channel(Base):
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    
+
     # Отношения
     owner = relationship("User", back_populates="owned_channels")
     text_channels = relationship("TextChannel", back_populates="channel", cascade="all, delete-orphan")
@@ -45,25 +45,42 @@ class ChannelCategory(Base):
 
 class TextChannel(Base):
     __tablename__ = "text_channels"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False)
+    kind = Column(String(24), nullable=False, default="text", server_default="text", index=True)
+    parent_id = Column(Integer, ForeignKey("text_channels.id", ondelete="CASCADE"), nullable=True, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     category_id = Column(Integer, ForeignKey("channel_categories.id", ondelete="SET NULL"), nullable=True, index=True)
     position = Column(Integer, default=0)
     slow_mode_seconds = Column(Integer, default=0, nullable=False, server_default="0")
     is_hidden = Column(Boolean, default=False, nullable=False, server_default="false")
     hidden_at = Column(DateTime(timezone=True), nullable=True)
     hidden_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    archived_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    locked = Column(Boolean, default=False, nullable=False, server_default="false")
+    auto_archive_minutes = Column(Integer, default=1440, nullable=False, server_default="1440")
+    last_message_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    starter_message_id = Column(Integer, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
+
     # Отношения
     channel = relationship("Channel", back_populates="text_channels")
-    messages = relationship("Message", back_populates="text_channel", cascade="all, delete-orphan")
+    messages = relationship(
+        "Message",
+        back_populates="text_channel",
+        cascade="all, delete-orphan",
+        foreign_keys="Message.text_channel_id",
+    )
+
+    __table_args__ = (
+        Index("ix_text_channels_parent_activity", "parent_id", "archived_at", "last_message_at"),
+    )
 
 class VoiceChannel(Base):
     __tablename__ = "voice_channels"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False)
@@ -76,34 +93,34 @@ class VoiceChannel(Base):
     # auto | 720p
     video_quality = Column(String(16), default="auto", nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
+
     # Отношения
     channel = relationship("Channel", back_populates="voice_channels")
     active_users = relationship("VoiceChannelUser", back_populates="voice_channel", cascade="all, delete-orphan")
 
 class ChannelMember(Base):
     __tablename__ = "channel_members"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     nickname = Column(String, nullable=True)  # Серверный никнейм
     joined_at = Column(DateTime(timezone=True), server_default=func.now())
-    
+
     # Отношения
     channel = relationship("Channel", back_populates="members")
     user = relationship("User", back_populates="channel_memberships")
 
 class VoiceChannelUser(Base):
     __tablename__ = "voice_channel_users"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     voice_channel_id = Column(Integer, ForeignKey("voice_channels.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     joined_at = Column(DateTime(timezone=True), server_default=func.now())
     is_muted = Column(Boolean, default=False)
     is_deafened = Column(Boolean, default=False)
-    
+
     # Отношения
     voice_channel = relationship("VoiceChannel", back_populates="active_users")
     user = relationship("User")

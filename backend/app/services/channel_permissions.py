@@ -188,6 +188,8 @@ async def filter_viewable_text_channels(
 ) -> list[TextChannel]:
     visible: list[TextChannel] = []
     for channel in channels:
+        if getattr(channel, "parent_id", None) is not None:
+            continue
         if channel.is_hidden:
             continue
         if await can_view_channel(

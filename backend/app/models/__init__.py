@@ -13,6 +13,18 @@ from .channel_permission import ChannelPermissionOverwrite, ChannelKind, Overwri
 from .notification_settings import ChannelNotificationOverride, ServerNotificationSettings
 from .webhook import Webhook
 from .pending_chat_upload import PendingChatUpload
+from .community import (
+    ForumPostTag,
+    ForumSettings,
+    ForumTag,
+    OutboxEvent,
+    Poll,
+    PollAnswer,
+    PollVote,
+    ServerTemplate,
+    ThreadMember,
+    UserNotification,
+)
 from .bot import (
     BOT_DEFAULT_INTENTS,
     BotApplication,
@@ -55,6 +67,16 @@ __all__ = [
     "ChannelNotificationOverride",
     "Webhook",
     "PendingChatUpload",
+    "ThreadMember",
+    "ForumSettings",
+    "ForumTag",
+    "ForumPostTag",
+    "Poll",
+    "PollAnswer",
+    "PollVote",
+    "UserNotification",
+    "ServerTemplate",
+    "OutboxEvent",
     "BotApplication",
     "BotApplicationSecret",
     "BOT_DEFAULT_INTENTS",

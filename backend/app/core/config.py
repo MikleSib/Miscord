@@ -16,7 +16,7 @@ _INSECURE_SECRET_DEFAULTS = {
 class Settings(BaseSettings):
     # База данных
     DATABASE_URL: str = "postgresql://miscord_user:miscord_password@localhost:5432/miscord"
-    
+
     # Redis
     REDIS_URL: str = "redis://localhost:6379"
 
@@ -26,6 +26,16 @@ class Settings(BaseSettings):
     VOICE_MEDIA_AUDIENCE: str = "miscord-voice-media"
     VOICE_MEDIA_TICKET_TTL_SECONDS: int = 60
     VOICE_SESSION_TTL_SECONDS: int = 120
+
+    # Community phase one feature switches. They are intentionally disabled by
+    # default so migrations can be deployed before each product surface opens.
+    THREADS_ENABLED: bool = False
+    FORUMS_ENABLED: bool = False
+    POLLS_ENABLED: bool = False
+    INBOX_ENABLED: bool = False
+    SERVER_TEMPLATES_ENABLED: bool = False
+    OUTBOX_POLL_INTERVAL_SECONDS: float = 0.25
+    OUTBOX_BATCH_SIZE: int = 100
 
     # Incoming webhooks
     WEBHOOKS_ENABLED: bool = True
@@ -53,13 +63,13 @@ class Settings(BaseSettings):
     CLAMAV_PORT: int = 3310
     CLAMAV_SCAN_CONCURRENCY: int = 2
     CLAMAV_SCAN_TIMEOUT_SECONDS: int = 30
-    
+
     # Безопасность
     SECRET_KEY: str = "your-secret-key-here-change-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 2  # 2 дня
     ENVIRONMENT: str = "development"
-    
+
     # CORS
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
@@ -68,10 +78,10 @@ class Settings(BaseSettings):
         "https://stream-cash.ru",
         "https://www.stream-cash.ru",
     ]
-    
+
     # Сервер
     SERVER_HOST: str = "https://miscord.ru"
-    
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # Обработка CORS_ORIGINS из переменной окружения
@@ -108,14 +118,14 @@ class Settings(BaseSettings):
                 raise RuntimeError(f"Missing required S3 settings: {', '.join(missing)}")
             if env in {"production", "prod"} and self.S3_CDN_BASE_URL and not self.S3_CDN_SECURE_TOKEN:
                 logger.warning("S3 CDN is configured without Secure token; object URLs will be public.")
-    
+
     # WebRTC. TURN обязателен для абонентов за разными или строгими NAT.
     # Production передаёт полный список через JSON-переменную ICE_SERVERS.
     ICE_SERVERS: List[dict] = [
         {"urls": ["stun:stun.l.google.com:19302"]},
         {"urls": ["stun:stun1.l.google.com:19302"]},
     ]
-    
+
     class Config:
         env_file = ".env"
         extra = "allow"

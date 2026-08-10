@@ -204,6 +204,8 @@ export interface Channel {
   id: number;
   name: string;
   type: 'text' | 'voice';
+  kind?: 'text' | 'forum' | 'public_thread' | 'private_thread' | 'forum_post';
+  parent_id?: number | null;
   serverId: number;
   position?: number;
   category_id?: number | null;
@@ -263,7 +265,7 @@ export interface Message {
   embeds?: LinkEmbed[];
   flags?: number;
   components?: Array<Record<string, any>>;
-  poll?: Record<string, any> | null;
+  poll?: import('./community').Poll | null;
   message_type?: number;
   application_id?: string | null;
   interaction_metadata?: Record<string, any> | null;
@@ -313,6 +315,8 @@ export interface BackendChannel {
 export interface TextChannel {
   id: number;
   name: string;
+  kind?: 'text' | 'forum' | 'public_thread' | 'private_thread' | 'forum_post';
+  parent_id?: number | null;
   channel_id: number;
   position: number;
   category_id?: number | null;

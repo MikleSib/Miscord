@@ -1,0 +1,94 @@
+@tailwind base;
+@layer base {
+  :root {
+    /* Miscord palette — DESIGN.md values as HSL components */
+    --background: 231 7% 21%; /* рабочий холст чата #323339 */
+    --canvas-deep: 225 6% 13%; /* тёмные врезки и поля ввода #1e1f22 */
+    --foreground: 210 17% 95%; /* text-strong #f2f3f5 */
+    --card: 228 6% 18%; /* surface #2b2d31 */
+    --card-foreground: 210 17% 95%;
+    --popover: 228 6% 18%; /* surface #2b2d31 */
+    --popover-foreground: 210 17% 95%;
+    --primary: 235 86% 65%; /* brand #5865f2 */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 228 6% 18%;
+    --secondary-foreground: 210 17% 95%;
+    --muted: 230 7% 21%; /* surface-raised #313238 */
+    --muted-foreground: 220 6% 73%; /* text-muted #b5bac1 */
+    --accent: 230 7% 21%;
+    --accent-foreground: 210 17% 95%;
+    --destructive: 359 87% 60%; /* danger #f23f42 */
+    --destructive-foreground: 0 0% 100%;
+    --success: 145 65% 39%; /* #23a55a */
+    --warning: 40 86% 57%;
+    --border: 225 6% 21%; /* border-subtle #303238 */
+    --input: 228 6% 18%;
+    --ring: 235 86% 65%;
+    --rail: 228 6% 18%; /* surface */
+    --sidebar: 228 6% 18%; /* surface */
+    --surface: 228 6% 18%; /* #2b2d31 */
+    --surface-raised: 230 7% 21%; /* #313238 */
+    --surface-deep: 220 8% 7%; /* #111214 */
+    --border-control: 230 5% 33%; /* #4e5058 */
+    --focus-link: 199 100% 49%; /* #00a8fc */
+    --text-body: 210 9% 87%; /* #dbdee1 */
+    --text-quiet: 225 5% 58%; /* #8e929b */
+    --server-rail-width: 5.75rem;
+    --channel-sidebar-width: clamp(18.5rem, calc(100vw - 13.5rem), 22rem);
+    --left-dock-width: calc(var(--server-rail-width) + var(--channel-sidebar-width));
+    --member-sidebar-width: 15rem;
+    /* DESIGN.md: control 5px, panel 6px, media 8px, navigation 12px */
+    --radius-control: 5px;
+    --radius-panel: 6px;
+    --radius-media: 8px;
+    --radius-navigation: 12px;
+    --radius: 5px;
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body {
+    width: 100%;
+    min-height: 100%;
+    background: #323339;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    margin: 0;
+    overflow: hidden;
+    font-family: "Segoe UI Variable Text", "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    text-rendering: optimizeLegibility;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  button,
+  [role="button"] {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    color: hsl(var(--primary-foreground));
+    background: hsl(var(--primary) / 0.72);
+  }
+}

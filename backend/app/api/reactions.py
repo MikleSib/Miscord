@@ -11,6 +11,7 @@ from app.schemas.user import User as UserResponse
 from app.services.channel_access import require_text_channel_access
 from app.websocket.connection_manager import manager
 from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
+from app.services.notifications import create_notification
 
 router = APIRouter()
 
@@ -22,7 +23,7 @@ async def toggle_reaction(
     db: AsyncSession = Depends(get_db)
 ):
     """Добавить или убрать реакцию на сообщение"""
-    
+
     result = await db.execute(
         select(Message).filter(Message.id == message_id)
     )
@@ -34,7 +35,7 @@ async def toggle_reaction(
         )
 
     await require_text_channel_access(db, current_user, message.text_channel_id)
-    
+
     # Проверяем, есть ли уже такая реакция от этого пользователя
     result = await db.execute(
         select(Reaction).filter(
@@ -46,7 +47,7 @@ async def toggle_reaction(
         )
     )
     existing_reaction = result.scalar_one_or_none()
-    
+
     was_removed = False
     if existing_reaction:
         # Если реакция уже есть - удаляем её
@@ -71,10 +72,10 @@ async def toggle_reaction(
         db.add(new_reaction)
         await db.commit()
         await db.refresh(new_reaction)
-    
+
     # Возвращаем актуальные данные о реакциях на это сообщение
     reaction_summary = await get_reaction_summary(db, message_id, reaction_data.emoji, current_user.id)
-    
+
     # Если реакция была удалена (нет больше таких реакций), возвращаем пустую реакцию
     if reaction_summary is None:
         reaction_summary = ReactionResponse(
@@ -84,7 +85,7 @@ async def toggle_reaction(
             users=[],
             current_user_reacted=False
         )
-    
+
     # Отправляем WebSocket уведомление всем пользователям в канале
     await manager.send_to_channel(message.text_channel_id, {
         "type": "reaction_updated",
@@ -109,8 +110,20 @@ async def toggle_reaction(
     if was_removed:
         await bot_event_dispatcher.dispatch_message_reaction_remove(db, message, current_user, reaction_data.emoji)
     else:
+        if message.author_id:
+            await create_notification(
+                db,
+                user_id=message.author_id,
+                type="reaction",
+                actor_user_id=current_user.id,
+                channel_id=message.text_channel_id,
+                message_id=message.id,
+                dedupe_key=f"reaction:{message.id}",
+                payload={"emoji": reaction_data.emoji},
+            )
+            await db.commit()
         await bot_event_dispatcher.dispatch_message_reaction_add(db, message, current_user, reaction_data.emoji)
-    
+
     return reaction_summary
 
 @router.get("/messages/{message_id}/reactions", response_model=List[ReactionResponse])
@@ -120,7 +133,7 @@ async def get_message_reactions(
     db: AsyncSession = Depends(get_db)
 ):
     """Получить все реакции на сообщение"""
-    
+
     result = await db.execute(select(Message).filter(Message.id == message_id))
     message = result.scalar_one_or_none()
     if not message:
@@ -130,7 +143,7 @@ async def get_message_reactions(
         )
 
     await require_text_channel_access(db, current_user, message.text_channel_id)
-    
+
     # Получаем все уникальные эмодзи для этого сообщения
     result = await db.execute(
         select(Reaction.emoji).filter(
@@ -138,18 +151,18 @@ async def get_message_reactions(
         ).distinct()
     )
     unique_emojis = result.scalars().all()
-    
+
     reactions = []
     for emoji in unique_emojis:
         reaction_summary = await get_reaction_summary(db, message_id, emoji, current_user.id)
         if reaction_summary is not None:  # Фильтруем только существующие реакции
             reactions.append(reaction_summary)
-    
+
     return reactions
 
 async def get_reaction_summary(db: AsyncSession, message_id: int, emoji: str, current_user_id: int) -> ReactionResponse | None:
     """Получить сводку по конкретной реакции"""
-    
+
     # Получаем всех пользователей, поставивших эту реакцию
     result = await db.execute(
         select(Reaction).filter(
@@ -160,14 +173,14 @@ async def get_reaction_summary(db: AsyncSession, message_id: int, emoji: str, cu
         ).options(selectinload(Reaction.user))
     )
     reactions = result.scalars().all()
-    
+
     # Если нет реакций, возвращаем None
     if not reactions:
         return None
-    
+
     users = [UserResponse.from_orm(reaction.user) for reaction in reactions]
     current_user_reacted = any(reaction.user_id == current_user_id for reaction in reactions)
-    
+
     return ReactionResponse(
         id=reactions[0].id,
         emoji=emoji,

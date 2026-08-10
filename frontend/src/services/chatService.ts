@@ -1,277 +1,71 @@
-import { Message } from '../types';
-import { channelApi } from './api';
+import type { Message } from '../types'
+import { channelApi } from './api'
+import unifiedWebSocketService from './unifiedWebSocketService'
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://miscord.ru';
-
-export type ChatMessageHandler = (msg: Message) => void;
-export type SlowModeHandler = (data: { text_channel_id: number; retry_after_seconds: number }) => void;
+export type ChatMessageHandler = (message: Message) => void
+export type SlowModeHandler = (data: { text_channel_id: number; retry_after_seconds: number }) => void
 export type RateLimitHandler = (data: {
-  message?: string;
-  retry_after_seconds: number;
-  scope?: string;
-  text_channel_id?: number;
-  recipient_id?: number;
-}) => void;
+  message?: string
+  retry_after_seconds: number
+  scope?: string
+  text_channel_id?: number
+  recipient_id?: number
+}) => void
 
+/** Channel-scoped facade backed by the application-wide unified socket. */
 class ChatService {
-  private ws: WebSocket | null = null;
-  private messageHandler: ChatMessageHandler | null = null;
-  private slowModeHandler: SlowModeHandler | null = null;
-  private rateLimitHandler: RateLimitHandler | null = null;
-  private typingHandler: ((data: any) => void) | null = null;
-  private messageDeletedHandler: ((data: { message_id: number; text_channel_id: number }) => void) | null = null;
-  private messageEditedHandler: ChatMessageHandler | null = null;
-  private reactionUpdatedHandler: ((data: { 
-    message_id: number; 
-    emoji: string; 
-    reaction: any; 
-    was_removed: boolean; 
-    user: { id: number; username: string; display_name: string } 
-  }) => void) | null = null;
-  private heartbeatInterval: NodeJS.Timeout | null = null;
-  private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
-  private reconnectDelay = 2000;
-  private channelId: number | null = null;
-  private token: string | null = null;
-  private isConnecting = false;
-  private shouldReconnect = true;
+  private channelId: number | null = null
+  private bindings = new Map<string, (data: any) => void>()
 
   connect(channelId: number, token: string) {
-    console.log('[ChatService] connect() вызван', { 
-      channelId, 
-      hasToken: !!token, 
-      tokenLength: token?.length,
-      currentChannelId: this.channelId,
-      wsState: this.ws?.readyState,
-      isConnecting: this.isConnecting 
-    });
-    
-    if (this.ws && this.ws.readyState === WebSocket.OPEN && this.channelId === channelId) {
-      console.log('[ChatService] Уже подключены к каналу', channelId);
-      return;
+    if (this.channelId !== null && this.channelId !== channelId) {
+      unifiedWebSocketService.unsubscribeChannel(this.channelId)
     }
-    
-    if (this.isConnecting) {
-      console.log('[ChatService] Подключение уже выполняется');
-      return;
-    }
-
-    this.channelId = channelId;
-    this.token = token;
-    this.shouldReconnect = true;
-    this._connect();
-  }
-
-  private _connect() {
-    if (!this.channelId || !this.token || this.isConnecting) return;
-    
-    this.isConnecting = true;
-    const url = `${WS_URL}/ws/chat/${this.channelId}?token=${this.token}`;
-    
-    console.log('[ChatService] Подключаемся к', url);
-    
-    try {
-      this.ws = new WebSocket(url);
-      
-      this.ws.onopen = () => {
-        console.log('[ChatService] Подключено к чату канала', this.channelId);
-        this.reconnectAttempts = 0;
-        this.isConnecting = false;
-        
-        // Запускаем heartbeat для поддержания активности (каждые 30 секунд)
-        this.startHeartbeat();
-      };
-      
-      this.ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          
-          // Автоматически отвечаем на ping
-          if (data.type === 'ping') {
-            this.ws?.send(JSON.stringify({ type: 'pong' }));
-            return;
-          }
-          
-          if (data.type === 'new_message' && this.messageHandler) {
-            this.messageHandler(data.data);
-          }
-          if (data.type === 'typing' && this.typingHandler) {
-            this.typingHandler(data);
-          }
-          if (data.type === 'message_deleted' && this.messageDeletedHandler) {
-            this.messageDeletedHandler(data.data);
-          }
-          if (data.type === 'message_edited' && this.messageEditedHandler) {
-            this.messageEditedHandler(data.data);
-          }
-          if (data.type === 'reaction_updated' && this.reactionUpdatedHandler) {
-            this.reactionUpdatedHandler(data.data);
-          }
-          if (data.type === 'slow_mode' && this.slowModeHandler) {
-            this.slowModeHandler(data);
-          }
-          if (data.type === 'rate_limit' && this.rateLimitHandler) {
-            this.rateLimitHandler(data);
-          }
-        } catch (e) {
-          console.error('[ChatService] Ошибка обработки сообщения:', e);
-        }
-      };
-      
-      this.ws.onclose = (event) => {
-        console.log('[ChatService] Соединение закрыто', event.code, event.reason);
-        this.isConnecting = false;
-        
-        if (this.shouldReconnect && event.code !== 1000 && this.reconnectAttempts < this.maxReconnectAttempts) {
-          setTimeout(() => {
-            if (this.shouldReconnect) {
-              this.reconnectAttempts++;
-              this._connect();
-            }
-          }, this.reconnectDelay * (this.reconnectAttempts + 1));
-        }
-      };
-      
-      this.ws.onerror = (e) => {
-        console.error('[ChatService] Ошибка WebSocket:', e);
-        this.isConnecting = false;
-      };
-      
-    } catch (error) {
-      console.error('[ChatService] Ошибка создания WebSocket:', error);
-      this.isConnecting = false;
-    }
+    this.channelId = channelId
+    unifiedWebSocketService.connect(token)
+    unifiedWebSocketService.subscribeChannel(channelId)
   }
 
   disconnect() {
-    console.log('[ChatService] Отключаемся от WebSocket');
-    this.shouldReconnect = false;
-    this.isConnecting = false;
-    
-    // Останавливаем heartbeat
-    this.stopHeartbeat();
-    
-    if (this.ws) {
-      this.ws.close(1000, 'Manual disconnect');
-      this.ws = null;
-    }
-    
-    this.channelId = null;
-    this.token = null;
-    this.reconnectAttempts = 0;
+    if (this.channelId !== null) unifiedWebSocketService.unsubscribeChannel(this.channelId)
+    this.channelId = null
   }
 
   sendMessage(content: string, attachments: string[] = [], replyToId?: number) {
-    console.log('[ChatService] sendMessage вызван', { 
-      content, 
-      attachments, 
-      replyToId,
-      channelId: this.channelId,
-      wsState: this.ws?.readyState,
-      wsOpen: this.ws?.readyState === WebSocket.OPEN 
-    });
-    
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn('[ChatService] WebSocket не открыт, сообщение не отправлено', {
-        ws: !!this.ws,
-        readyState: this.ws?.readyState,
-        CONNECTING: WebSocket.CONNECTING,
-        OPEN: WebSocket.OPEN,
-        CLOSING: WebSocket.CLOSING,
-        CLOSED: WebSocket.CLOSED
-      });
-      return;
-    }
-    
-    const message = {
-      type: 'message',
-      text_channel_id: this.channelId,
-      content,
-      attachments,
-      ...(replyToId && { reply_to_id: replyToId }),
-    };
-    
-    console.log('[ChatService] Отправляем сообщение через WebSocket:', message);
-    try {
-      this.ws.send(JSON.stringify(message));
-      console.log('[ChatService] Сообщение успешно отправлено');
-    } catch (error) {
-      console.error('[ChatService] Ошибка отправки сообщения:', error);
+    if (this.channelId !== null) {
+      unifiedWebSocketService.sendChatMessage(this.channelId, content, attachments, replyToId)
     }
   }
 
   sendTyping() {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    
-    this.ws.send(JSON.stringify({
-      type: 'typing',
-      text_channel_id: this.channelId,
-    }));
+    if (this.channelId !== null) unifiedWebSocketService.sendTyping(this.channelId)
   }
 
-  onMessage(handler: ChatMessageHandler) {
-    this.messageHandler = handler;
+  private bind(event: string, handler: (data: any) => void) {
+    const previous = this.bindings.get(event)
+    if (previous) unifiedWebSocketService.off(event, previous)
+    const scoped = (payload: any) => {
+      const data = payload?.data ?? payload
+      const channelId = data?.text_channel_id ?? data?.channelId
+      if (channelId === undefined || channelId === this.channelId) handler(data)
+    }
+    this.bindings.set(event, scoped)
+    unifiedWebSocketService.on(event, scoped)
   }
 
-  onSlowMode(handler: SlowModeHandler) {
-    this.slowModeHandler = handler;
-  }
-
-  onRateLimit(handler: RateLimitHandler) {
-    this.rateLimitHandler = handler;
-  }
-
-  onTyping(handler: (data: any) => void) {
-    this.typingHandler = handler;
-  }
-
+  onMessage(handler: ChatMessageHandler) { this.bind('new_message', handler) }
+  onSlowMode(handler: SlowModeHandler) { this.bind('slow_mode', handler) }
+  onRateLimit(handler: RateLimitHandler) { this.bind('rate_limit', handler) }
+  onTyping(handler: (data: any) => void) { this.bind('typing', handler) }
   onMessageDeleted(handler: (data: { message_id: number; text_channel_id: number }) => void) {
-    this.messageDeletedHandler = handler;
+    this.bind('message_deleted', handler)
   }
+  onMessageEdited(handler: ChatMessageHandler) { this.bind('message_edited', handler) }
+  onReactionUpdated(handler: (data: any) => void) { this.bind('reaction_updated', handler) }
 
-  onMessageEdited(handler: ChatMessageHandler) {
-    this.messageEditedHandler = handler;
-  }
-
-  onReactionUpdated(handler: (data: { 
-    message_id: number; 
-    emoji: string; 
-    reaction: any; 
-    was_removed: boolean; 
-    user: { id: number; username: string; display_name: string } 
-  }) => void) {
-    this.reactionUpdatedHandler = handler;
-  }
-
-  private startHeartbeat() {
-    // Останавливаем предыдущий heartbeat, если есть
-    this.stopHeartbeat();
-    
-    // Запускаем новый heartbeat каждые 30 секунд
-    this.heartbeatInterval = setInterval(() => {
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ type: 'heartbeat' }));
-      }
-    }, 30000);
-  }
-
-  private stopHeartbeat() {
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-      this.heartbeatInterval = null;
-    }
-  }
-
-  async loadMessageHistory(channelId: number, limit = 50, before?: number) {
-    try {
-      const result = await channelApi.getChannelMessages(channelId, limit, before);
-      return result;
-    } catch (error) {
-      console.error('[ChatService] Ошибка загрузки истории сообщений:', error);
-      throw error;
-    }
+  loadMessageHistory(channelId: number, limit = 50, before?: number) {
+    return channelApi.getChannelMessages(channelId, limit, before)
   }
 }
 
-export default new ChatService(); 
+export default new ChatService()

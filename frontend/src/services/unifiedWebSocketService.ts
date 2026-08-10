@@ -4,40 +4,29 @@
  */
 
 import { Message } from '../types';
+import { ConnectionStatus, UNIFIED_WS_URL, UnifiedWebSocketHandler as Handler } from './unifiedWebSocketTypes'
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://miscord.ru';
-
-type Handler = (data: any) => void;
-
-export interface ConnectionStatus {
-  isConnected: boolean;
-  isReconnecting: boolean;
-  reconnectAttempts: number;
-  maxReconnectAttempts: number;
-  lastError?: string;
-}
+export type { ConnectionStatus } from './unifiedWebSocketTypes'
 
 class UnifiedWebSocketService {
   private ws: WebSocket | null = null;
-  private reconnectAttempts = 0;
-  private maxReconnectAttempts = 60;
-  private reconnectDelay = 1000;
-  private listeners: Map<string, Set<Handler>> = new Map();
-  private isReconnecting = false;
-  private lastError: string | null = null;
+  private reconnectAttempts = 0; private maxReconnectAttempts = 60;
+  private reconnectDelay = 1000; private listeners: Map<string, Set<Handler>> = new Map();
+  private isReconnecting = false; private lastError: string | null = null;
   private connectionStatusHandlers: Set<(status: ConnectionStatus) => void> = new Set();
   private token: string | null = null;
   private heartbeatInterval: NodeJS.Timeout | null = null;
-  private missedHeartbeats = 0;
-  private maxMissedHeartbeats = 3;
+  private missedHeartbeats = 0; private maxMissedHeartbeats = 3;
   private shouldReconnect = true;
+  private seenEventIds = new Set<string>();
+  private channelSubscriptions = new Set<number>();
 
   /**
    * Подключение к WebSocket серверу
    */
   public connect(token: string): void {
     if (typeof window === 'undefined') return;
-    
+
     this.token = token;
     this.shouldReconnect = true;
 
@@ -58,7 +47,7 @@ class UnifiedWebSocketService {
     this.notifyConnectionStatus();
 
     try {
-      this.ws = new WebSocket(`${WS_URL}/ws/unified?token=${token}`);
+      this.ws = new WebSocket(`${UNIFIED_WS_URL}/ws/unified?token=${token}`);
       this.setupWebSocketHandlers();
     } catch (error) {
       console.error('[UnifiedWS] Ошибка создания WebSocket:', error);
@@ -83,12 +72,24 @@ class UnifiedWebSocketService {
       this.missedHeartbeats = 0;
       this.notifyConnectionStatus();
       this.startHeartbeat();
+      for (const textChannelId of this.channelSubscriptions) {
+        this.send({ type: 'subscribe_channel', text_channel_id: textChannelId });
+      }
     };
 
     this.ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        
+
+        if (typeof data.event_id === 'string') {
+          if (this.seenEventIds.has(data.event_id)) return;
+          this.seenEventIds.add(data.event_id);
+          if (this.seenEventIds.size > 2000) {
+            const oldest = this.seenEventIds.values().next().value;
+            if (oldest) this.seenEventIds.delete(oldest);
+          }
+        }
+
         // Обработка heartbeat
         if (data.type === 'pong' || data.type === 'heartbeat_ack') {
           this.missedHeartbeats = 0;
@@ -129,11 +130,11 @@ class UnifiedWebSocketService {
    */
   private startHeartbeat(): void {
     this.stopHeartbeat();
-    
+
     this.heartbeatInterval = setInterval(() => {
       if (this.ws?.readyState === WebSocket.OPEN) {
         this.missedHeartbeats++;
-        
+
         if (this.missedHeartbeats >= this.maxMissedHeartbeats) {
           console.warn('[UnifiedWS] 💔 Превышено количество пропущенных heartbeat');
           this.ws.close();
@@ -173,7 +174,7 @@ class UnifiedWebSocketService {
       );
 
       console.log(`[UnifiedWS] 🔄 Переподключение через ${delay}ms`);
-      
+
       setTimeout(() => {
         if (this.token && this.shouldReconnect) {
           this.connect(this.token);
@@ -304,6 +305,7 @@ class UnifiedWebSocketService {
     this.disconnect();
     this.listeners.clear();
     this.connectionStatusHandlers.clear();
+    this.seenEventIds.clear();
     this.token = null;
   }
 
@@ -340,6 +342,16 @@ class UnifiedWebSocketService {
       attachments,
       reply_to_id: replyToId
     });
+  }
+
+  public subscribeChannel(textChannelId: number): void {
+    this.channelSubscriptions.add(textChannelId);
+    this.send({ type: 'subscribe_channel', text_channel_id: textChannelId });
+  }
+
+  public unsubscribeChannel(textChannelId: number): void {
+    this.channelSubscriptions.delete(textChannelId);
+    this.send({ type: 'unsubscribe_channel', text_channel_id: textChannelId });
   }
 
   /**
@@ -542,31 +554,31 @@ class UnifiedWebSocketService {
   }
 
   // Реакции
-  public onReactionUpdated(handler: (data: { 
-    message_id: number; 
-    emoji: string; 
-    reaction: any; 
-    was_removed: boolean; 
-    user: { id: number; username: string; display_name: string } 
+  public onReactionUpdated(handler: (data: {
+    message_id: number;
+    emoji: string;
+    reaction: any;
+    was_removed: boolean;
+    user: { id: number; username: string; display_name: string }
   }) => void): void {
     this.on('reaction_updated', handler);
   }
 
   // Серверные события
-  public onServerUpdated(handler: (data: { 
-    server_id: number; 
-    name: string; 
-    description?: string; 
-    icon?: string; 
-    updated_by: { id: number; username: string; display_name: string } 
+  public onServerUpdated(handler: (data: {
+    server_id: number;
+    name: string;
+    description?: string;
+    icon?: string;
+    updated_by: { id: number; username: string; display_name: string }
   }) => void): void {
     this.on('server_updated', handler);
   }
 
-  public onServerDeleted(handler: (data: { 
-    server_id: number; 
-    server_name: string; 
-    deleted_by: { id: number; username: string } 
+  public onServerDeleted(handler: (data: {
+    server_id: number;
+    server_name: string;
+    deleted_by: { id: number; username: string }
   }) => void): void {
     this.on('server_deleted', handler);
   }

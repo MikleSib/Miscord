@@ -19,11 +19,12 @@ from app.core.permissions import (
     get_member_permissions,
     has_permission,
 )
-from app.models import Attachment, Message, TextChannel
+from app.models import Attachment, Message, TextChannel, User
 from app.services.channel_permissions import (
     can_view_channel,
     get_effective_channel_permissions,
 )
+from app.services.thread_access import THREAD_KINDS, can_access_thread, thread_permissions
 
 SEARCH_PAGE_SIZE = 25
 MAX_SEARCH_RESULTS = 500
@@ -54,11 +55,19 @@ async def list_searchable_channel_ids(
 
     base = await get_member_permissions(db, server_id, user_id, owner_id=owner_id)
     is_admin = user_id == owner_id or has_permission(base, Permission.ADMINISTRATOR)
+    viewer = await db.get(User, user_id)
 
     allowed: list[int] = []
     for channel in channels:
         if is_admin:
             allowed.append(channel.id)
+            continue
+        if channel.kind in THREAD_KINDS:
+            if not viewer or not await can_access_thread(db, channel, viewer):
+                continue
+            permissions = await thread_permissions(db, channel, viewer)
+            if has_permission(permissions, Permission.READ_MESSAGE_HISTORY):
+                allowed.append(channel.id)
             continue
         if not await can_view_channel(
             db, server_id, user_id, "text", channel.id, owner_id=owner_id

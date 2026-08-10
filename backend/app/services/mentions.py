@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.permissions import Permission, get_member_permissions, has_permission, is_member
 from app.models import TextChannel, User
 from app.services import notification_settings as notification_settings_service
+from app.services.notifications import create_notification
+from app.services.thread_access import can_access_thread
 
 MENTION_RE = re.compile(r"<@(\d+)>")
 
@@ -52,9 +54,27 @@ async def notify_message_mentions(
         if not await is_member(db, server_id, user_id):
             continue
 
+        target_user = await db.get(User, user_id)
+        if target_user is None:
+            continue
+        if text_channel.kind in {"public_thread", "private_thread", "forum_post"} and not await can_access_thread(db, text_channel, target_user):
+            continue
+
         permissions = await get_member_permissions(db, server_id, user_id)
         if not has_permission(permissions, Permission.VIEW_CHANNELS):
             continue
+
+        await create_notification(
+            db,
+            user_id=user_id,
+            type="mention",
+            actor_user_id=author.id,
+            server_id=server_id,
+            channel_id=text_channel.id,
+            message_id=message_id,
+            dedupe_key=f"mention:{message_id}:{user_id}",
+            payload={"channel_name": text_channel.name, "thread_id": text_channel.id if text_channel.parent_id else None},
+        )
 
         settings = await notification_settings_service.get_settings(db, server_id, user_id)
         # Личные <@id> не глушатся флагами everyone/roles — только уровнем/mute канала
@@ -87,6 +107,7 @@ async def notify_message_mentions(
             },
             user_id,
         )
+    await db.commit()
 
 
 def filter_mentionable_user_ids(

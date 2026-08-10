@@ -7,6 +7,7 @@ import { MessageSearchBox } from '../search/MessageSearchBox'
 import { PinnedMessagesPanel } from '../pins/PinnedMessagesPanel'
 import type { SearchResultMessage } from '../../services/searchService'
 import type { Channel, Message } from '../../types'
+import { ThreadLauncher } from '../community/ThreadLauncher'
 
 interface ChatAreaHeaderProps {
   channel: Channel
@@ -66,6 +67,10 @@ export function ChatAreaHeader({
             currentChannelName={channel.name}
             onJump={onJumpToSearchResult}
           />
+        )}
+
+        {isTextChannel && (
+          <ThreadLauncher channelId={channel.id} />
         )}
 
         {isTextChannel && (

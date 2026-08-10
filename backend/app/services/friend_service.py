@@ -42,8 +42,7 @@ async def create_friend_request(db: AsyncSession, user_from_id: int, user_to_id:
         status=FriendshipStatus.PENDING
     )
     db.add(new_request)
-    await db.commit()
-    await db.refresh(new_request)
+    await db.flush()
     return new_request
 
 async def get_friends(db: AsyncSession, user_id: int):
@@ -57,14 +56,14 @@ async def get_friends(db: AsyncSession, user_id: int):
         ).options(selectinload(Friendship.user_a), selectinload(Friendship.user_b))
     )
     friendships = friendships_result.scalars().all()
-    
+
     friends_data = []
     for friendship in friendships:
         if friendship.user_a_id == user_id:
             friend = friendship.user_b
         else:
             friend = friendship.user_a
-        
+
         # Получаем время последнего сообщения
         last_message_result = await db.execute(
             select(DirectMessage.timestamp)
@@ -93,7 +92,7 @@ async def get_friends(db: AsyncSession, user_id: int):
             "last_message_at": last_message_at,
         }
         friends_data.append(friend_data)
-        
+
     return friends_data
 
 async def get_pending_requests(db: AsyncSession, user_id: int):
@@ -129,13 +128,13 @@ async def get_pending_requests(db: AsyncSession, user_id: int):
                 "last_message_at": None,
             }
             users_data.append(user_data)
-            
+
     return users_data
 
 async def accept_friend_request(db: AsyncSession, request_id: int, current_user_id: int):
     friend_request_result = await db.execute(
         select(Friendship).filter(
-            Friendship.id == request_id, 
+            Friendship.id == request_id,
             Friendship.user_b_id == current_user_id,
             Friendship.status == FriendshipStatus.PENDING
         ).options(selectinload(Friendship.user_a))
@@ -144,7 +143,7 @@ async def accept_friend_request(db: AsyncSession, request_id: int, current_user_
 
     if not friend_request:
         return None
-    
+
     friend_request.status = FriendshipStatus.ACCEPTED
     await db.commit()
     await db.refresh(friend_request)

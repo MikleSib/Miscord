@@ -10,6 +10,7 @@ import { Channel } from '../types'
 import type { ChannelCategory } from '../services/categoryService'
 import { Switch } from './ui/switch'
 import { Modal } from './ui/modal'
+import { communityApi } from '../services/communityApi'
 
 type ChannelCreateType = 'text' | 'voice' | 'forum'
 
@@ -49,7 +50,6 @@ const TYPE_OPTIONS: Array<{
     label: 'Форум',
     description: 'Создайте площадку для обсуждений',
     icon: <MessageSquare className="h-6 w-6" />,
-    disabled: true,
   },
 ]
 
@@ -74,6 +74,10 @@ export function CreateChannelModal({
   const [channelName, setChannelName] = useState('')
   const [categoryId, setCategoryId] = useState<number | null>(initialCategoryId)
   const [isPrivate, setIsPrivate] = useState(false)
+  const [forumGuidelines, setForumGuidelines] = useState('')
+  const [forumLayout, setForumLayout] = useState<'list' | 'gallery'>('list')
+  const [forumRequireTag, setForumRequireTag] = useState(false)
+  const [forumSlowMode, setForumSlowMode] = useState(0)
   const [isCreating, setIsCreating] = useState(false)
   const [error, setError] = useState('')
 
@@ -83,11 +87,15 @@ export function CreateChannelModal({
     setChannelName('')
     setCategoryId(initialCategoryId)
     setIsPrivate(false)
+    setForumGuidelines('')
+    setForumLayout('list')
+    setForumRequireTag(false)
+    setForumSlowMode(0)
     setError('')
     setIsCreating(false)
   }, [isOpen, initialType, initialCategoryId])
 
-  const canCreate = Boolean(channelName.trim()) && channelType !== 'forum' && !isCreating
+  const canCreate = Boolean(channelName.trim()) && !isCreating
 
   const makePrivateIfNeeded = async (created: Channel) => {
     if (!isPrivate) return
@@ -129,7 +137,7 @@ export function CreateChannelModal({
           category_id: response.category_id ?? categoryId,
           slow_mode_seconds: response.slow_mode_seconds ?? 0,
         }
-      } else {
+      } else if (channelType === 'voice') {
         const response = await channelService.createVoiceChannel(serverId, {
           name,
           position: 0,
@@ -148,6 +156,27 @@ export function CreateChannelModal({
           max_users: response.max_users ?? 0,
           bitrate: response.bitrate ?? 64,
           video_quality: response.video_quality === '720p' ? '720p' : 'auto',
+        }
+      } else {
+        const response = await communityApi.createForum(serverId, {
+          name,
+          position: 0,
+          category_id: categoryId,
+          guidelines: forumGuidelines.trim() || null,
+          default_layout: forumLayout,
+          default_sort: 'latest_activity',
+          require_tag: forumRequireTag,
+          auto_archive_minutes: 10080,
+          slow_mode_seconds: forumSlowMode,
+        })
+        created = {
+          id: response.id,
+          name: response.name,
+          type: 'text',
+          kind: 'forum',
+          serverId,
+          position: response.position,
+          category_id: response.category_id,
         }
       }
 
@@ -200,6 +229,62 @@ export function CreateChannelModal({
             <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
               {error}
             </div>
+          )}
+
+          {channelType === 'forum' && (
+            <fieldset className="space-y-3 rounded-lg border border-border bg-canvas-deep/40 p-3">
+              <legend className="px-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                Настройки форума
+              </legend>
+              <label className="block text-xs font-semibold text-muted-foreground">
+                Правила перед публикацией
+                <textarea
+                  value={forumGuidelines}
+                  onChange={(event) => setForumGuidelines(event.target.value)}
+                  maxLength={4000}
+                  rows={3}
+                  placeholder="Опишите тему форума и правила публикаций"
+                  className="mt-1.5 w-full resize-none rounded-md bg-canvas-deep px-3 py-2 text-sm font-normal text-foreground outline-none focus:ring-2 focus:ring-primary"
+                />
+              </label>
+              <div className="grid grid-cols-2 gap-2" role="group" aria-label="Вид публикаций">
+                {(['list', 'gallery'] as const).map((layout) => (
+                  <button
+                    key={layout}
+                    type="button"
+                    onClick={() => setForumLayout(layout)}
+                    className={cn(
+                      'rounded-md border px-3 py-2 text-sm font-medium transition',
+                      forumLayout === layout ? 'border-primary bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:bg-surface',
+                    )}
+                  >
+                    {layout === 'list' ? 'Список' : 'Галерея'}
+                  </button>
+                ))}
+              </div>
+              <label className="flex items-center justify-between gap-3 text-sm text-foreground">
+                Требовать хотя бы один тег
+                <Switch checked={forumRequireTag} onCheckedChange={setForumRequireTag} />
+              </label>
+              <label className="block text-xs font-semibold text-muted-foreground">
+                Интервал между публикациями
+                <select
+                  value={forumSlowMode}
+                  onChange={(event) => setForumSlowMode(Number(event.target.value))}
+                  className="mt-1.5 w-full rounded-md bg-canvas-deep px-3 py-2 text-sm font-normal text-foreground outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value={0}>Без ограничений</option>
+                  <option value={5}>5 секунд</option>
+                  <option value={10}>10 секунд</option>
+                  <option value={15}>15 секунд</option>
+                  <option value={30}>30 секунд</option>
+                  <option value={60}>1 минута</option>
+                  <option value={300}>5 минут</option>
+                  <option value={900}>15 минут</option>
+                  <option value={3600}>1 час</option>
+                </select>
+              </label>
+            </fieldset>
           )}
 
           <div>
@@ -342,4 +427,3 @@ export function CreateChannelModal({
     </Modal>
   )
 }
-

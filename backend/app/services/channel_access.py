@@ -37,6 +37,17 @@ async def user_can_access_text_channel(
     *,
     need_send: bool = False,
 ) -> bool:
+    if getattr(text_channel, "kind", "text") in {"public_thread", "private_thread", "forum_post"}:
+        from app.services.thread_access import can_access_thread, thread_permissions
+
+        if not await can_access_thread(db, text_channel, user):
+            return False
+        if need_send:
+            if text_channel.archived_at is not None:
+                return False
+            permissions = await thread_permissions(db, text_channel, user)
+            return has_permission(permissions, Permission.SEND_MESSAGES_IN_THREADS)
+        return True
     server = await _get_server(db, text_channel.channel_id)
     if not server:
         return False
@@ -87,6 +98,9 @@ async def require_text_channel_access(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Нет доступа к этому каналу",
         )
+    if need_send and getattr(text_channel, "kind", "text") in {"public_thread", "private_thread", "forum_post"}:
+        if text_channel.archived_at is not None:
+            raise HTTPException(status_code=403, detail="Обсуждение находится в архиве")
     return text_channel
 
 

@@ -1,0 +1,158 @@
+'use client'
+
+import { Bell, CheckCheck, ExternalLink, Inbox, Loader2, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { useStore } from '../../lib/store'
+import { cn } from '../../lib/utils'
+import { useCommunityStore } from '../../store/communityStore'
+import type { InboxNotification, NotificationType } from '../../types/community'
+import { communityApi } from '../../services/communityApi'
+
+const FILTERS: Array<{ id: NotificationType | 'all'; label: string }> = [
+  { id: 'all', label: 'Все' },
+  { id: 'mention', label: 'Упоминания' },
+  { id: 'reply', label: 'Ответы' },
+  { id: 'friend_request', label: 'Друзья' },
+  { id: 'application_response', label: 'Приложения' },
+]
+
+const LABELS: Record<NotificationType, string> = {
+  mention: 'Вас упомянули',
+  reply: 'Новый ответ',
+  thread_reply: 'Ответ в обсуждении',
+  reaction: 'Реакция на сообщение',
+  friend_request: 'Запрос в друзья',
+  server_invite: 'Приглашение на сервер',
+  application_response: 'Ответ приложения',
+}
+
+function NotificationRow({ item, onOpen }: { item: InboxNotification; onOpen: () => void }) {
+  const markRead = useCommunityStore((state) => state.markNotificationRead)
+  const remove = useCommunityStore((state) => state.removeNotification)
+  const actor = typeof item.payload.actor_name === 'string' ? item.payload.actor_name : null
+  const context = typeof item.payload.context === 'string' ? item.payload.context : null
+
+  return (
+    <article className={cn('group relative border-b border-border/60 px-4 py-3', !item.read_at && 'bg-primary/[0.08]')}>
+      <button
+        type="button"
+        onClick={() => { void markRead(item.id); onOpen() }}
+        className="block w-full pr-9 text-left"
+      >
+        <div className="flex items-center gap-2">
+          {!item.read_at && <span className="h-2 w-2 rounded-full bg-primary" aria-label="Не прочитано" />}
+          <span className="text-sm font-semibold text-foreground">{LABELS[item.type]}</span>
+          <time className="ml-auto text-[11px] text-text-quiet">{new Date(item.created_at).toLocaleDateString('ru-RU')}</time>
+        </div>
+        {actor && <p className="mt-1 text-sm text-text-body">{actor}</p>}
+        {context && <p className="mt-1 line-clamp-2 text-xs leading-5 text-text-quiet">{context}</p>}
+        {(item.channel_id || item.server_id) && (
+          <span className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-[#aab1ff]">
+            Открыть <ExternalLink className="h-3 w-3" />
+          </span>
+        )}
+      </button>
+      <button
+        type="button"
+        onClick={() => { void remove(item.id) }}
+        aria-label="Убрать уведомление"
+        className="absolute right-3 top-10 rounded p-1 text-text-quiet opacity-0 transition hover:bg-surface hover:text-foreground group-hover:opacity-100 focus:opacity-100"
+      >
+        <X className="h-4 w-4" />
+      </button>
+    </article>
+  )
+}
+
+export function NotificationInbox() {
+  const [open, setOpen] = useState(false)
+  const { selectServer, selectChannel } = useStore()
+  const state = useCommunityStore()
+
+  useEffect(() => {
+    void state.refreshUnreadCount()
+  }, [])
+
+  useEffect(() => {
+    if (open) void state.loadNotifications(true)
+  }, [open, state.notificationFilter])
+
+  const openResource = async (item: InboxNotification) => {
+    if (item.server_id) await selectServer(item.server_id)
+    const threadId = typeof item.payload.thread_id === 'number' ? item.payload.thread_id : null
+    if (threadId) {
+      try {
+        const thread = await communityApi.getThread(threadId)
+        selectChannel(thread.parent_id, 'text')
+        state.setSelectedThread(thread)
+      } catch {
+        // The thread may have been deleted or access revoked; keep the card usable.
+      }
+    } else if (item.channel_id) {
+      selectChannel(item.channel_id, 'text')
+    }
+    if (item.channel_id && item.message_id) state.requestMessageJump(item.channel_id, item.message_id)
+    setOpen(false)
+  }
+
+  return (
+    <div className="fixed right-3 top-2 z-[70]">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-label="Открыть уведомления"
+        aria-expanded={open}
+        className="relative flex h-9 w-9 items-center justify-center rounded-lg border border-border/70 bg-surface-raised text-muted-foreground shadow-lg transition hover:bg-surface hover:text-foreground"
+      >
+        <Bell className="h-[18px] w-[18px]" />
+        {state.unreadCount > 0 && (
+          <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#f23f43] px-1 text-[10px] font-bold text-white ring-2 ring-background">
+            {state.unreadCount > 99 ? '99+' : state.unreadCount}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <section className="fixed inset-x-2 top-14 flex max-h-[calc(100dvh-72px)] flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl sm:absolute sm:inset-auto sm:right-0 sm:top-11 sm:h-[560px] sm:w-[390px]">
+          <header className="flex items-center gap-3 border-b border-border px-4 py-3">
+            <Inbox className="h-5 w-5 text-primary" />
+            <h2 className="text-base font-bold">Входящие</h2>
+            <button
+              type="button"
+              onClick={() => void state.markAllNotificationsRead()}
+              className="ml-auto inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium text-text-quiet hover:bg-surface hover:text-foreground"
+            >
+              <CheckCheck className="h-4 w-4" /> Все прочитано
+            </button>
+          </header>
+          <nav className="flex gap-1 overflow-x-auto border-b border-border px-3 py-2" aria-label="Фильтры уведомлений">
+            {FILTERS.map((filter) => (
+              <button
+                key={filter.id}
+                type="button"
+                onClick={() => state.setNotificationFilter(filter.id)}
+                className={cn('whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs font-medium', state.notificationFilter === filter.id ? 'bg-primary text-white' : 'text-text-quiet hover:bg-surface hover:text-foreground')}
+              >
+                {filter.label}
+              </button>
+            ))}
+          </nav>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {state.notifications.map((item) => <NotificationRow key={item.id} item={item} onOpen={() => void openResource(item)} />)}
+            {!state.notificationsLoading && state.notifications.length === 0 && (
+              <div className="flex h-full min-h-56 flex-col items-center justify-center px-8 text-center text-text-quiet">
+                <Inbox className="mb-3 h-9 w-9 opacity-50" />
+                <p className="font-medium text-text-body">Здесь пока тихо</p>
+                <p className="mt-1 text-sm">Упоминания, ответы и запросы будут сохраняться здесь.</p>
+              </div>
+            )}
+            {state.notificationsLoading && <Loader2 className="mx-auto my-5 h-5 w-5 animate-spin text-primary" />}
+            {!state.notificationsLoading && state.notificationCursor && (
+              <button type="button" onClick={() => void state.loadNotifications()} className="w-full py-3 text-sm font-medium text-[#aab1ff] hover:bg-surface">Показать ещё</button>
+            )}
+          </div>
+        </section>
+      )}
+    </div>
+  )
+}

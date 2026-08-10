@@ -1,6 +1,9 @@
 'use client'
 
 import React from 'react'
+import { ChatAreaView } from './ChatAreaView'
+import { useChatScroll } from './useChatScroll'
+import { useChatComposerActions } from './useChatComposerActions'
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { ChevronRight, Hash, Send, PlusCircle, Pin, X, Users, AtSign } from 'lucide-react'
 import { useStore } from '../lib/store'
@@ -15,6 +18,8 @@ import { ReplyInput } from './ReplyInput'
 import { MentionAutocomplete } from './MentionAutocomplete'
 import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
 import { InteractionModalHost } from './InteractionModalHost'
+import { useCommunityStore } from '../store/communityStore'
+import { PollComposerButton } from './community/PollComposerButton'
 import { MemberProfilePopover } from './MemberProfilePopover'
 import { Message, Role, ServerMember } from '../types'
 import { formatDateDivider } from '../lib/utils'
@@ -58,15 +63,19 @@ import { ChatAreaHeader } from './chat/ChatAreaHeader'
 import type { SearchResultMessage } from '../services/searchService'
 import { EmojiAutocomplete } from './emoji/EmojiAutocomplete'
 import { useShortcodeAutocomplete } from './emoji/useShortcodeAutocomplete'
+import { AttachmentDropOverlay } from './AttachmentDropOverlay'
 
 const localizedCommandName = (command: MiscordApplicationCommand) => command.name_localizations?.ru || command.name
 
 export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSidebar: boolean, setShowUserSidebar: (v: boolean) => void }) {
   const { currentChannel, currentServer, selectChannel } = useStore()
+  const openThreadDraft = useCommunityStore((state) => state.openThreadDraft)
+  const pendingMessageJump = useCommunityStore((state) => state.pendingMessageJump)
+  const clearMessageJump = useCommunityStore((state) => state.clearMessageJump)
   const { user, token } = useAuthStore()
   const viewport = useResponsiveLayout()
-  const { 
-    messages, 
+  const {
+    messages,
     isLoading: chatLoading,
     isLoadingOlder,
     hasMoreOlder,
@@ -80,11 +89,11 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     deleteMessage,
     editMessage
   } = useChatStore()
-  
+
   // Логируем изменения currentChannel
   useEffect(() => {
   }, [currentChannel]);
-  
+
   const [messageInput, setMessageInput] = useState('')
   const [showPinnedPanel, setShowPinnedPanel] = useState(false)
   const [files, setFiles] = useState<File[]>([])
@@ -332,588 +341,55 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     )
   }, [])
 
-  useEffect(() => {
-    setSlowModeUntil(null)
-    setSendLimitHint(null)
-  }, [currentChannel?.id, currentChannel?.type])
+  const {
+    slowModeRemainingSeconds, isSlowModeActive, scrollMessagesToBottom,
+    handleMessagesScroll, scrollToMention, jumpToMessage,
+    handleJumpToSearchResult, handleJumpToMention,
+  } = useChatScroll({ model: {
+    messageInput, setMessageInput, showPinnedPanel, setShowPinnedPanel, files, setFiles,
+    attachmentError, setAttachmentError, isDraggingFiles, setIsDraggingFiles, isLoading, setIsLoading,
+    typingUsers, setTypingUsers, replyingTo, setReplyingTo, slowModeUntil, setSlowModeUntil,
+    sendLimitHint, setSendLimitHint, mentionMembers, setMentionMembers, serverRoles, setServerRoles,
+    mentionQuery, setMentionQuery, mentionIndex, setMentionIndex, applicationCommands, setApplicationCommands,
+    slashIndex, setSlashIndex, selectedSlashCommand, setSelectedSlashCommand, autocompleteChoices, setAutocompleteChoices,
+    autocompleteIndex, setAutocompleteIndex, profilePopover, setProfilePopover, openThreadDraft, pendingMessageJump,
+    clearMessageJump, viewport, outgoingQueue, initializeOutgoingQueue, enqueueOutgoing, outgoingMessages,
+    fileInputRef, dragDepthRef, messageInputRef, messagesEndRef, messagesContainerRef, messagesContentRef,
+    suppressAutoScrollRef, stickToBottomRef, programmaticScrollRef, loadingOlderLockRef, channelIdForMentions, channelMentions,
+    markMentionRead, addMentionNotification, applyFormattingShortcut, shortcodeAutocomplete, mentionCandidates, filteredMentions,
+    slashQuery, filteredSlashCommands, applicationNames, autocompleteRequest, mentionNameById, resolveMentionLabel,
+    handleMentionClick, getMemberColor, handleProfileMemberUpdated, currentChannel, currentServer, selectChannel,
+    user, token, messages, isLoadingOlder, hasMoreOlder, error: chatError, chatLoading,
+    loadMessageHistory, loadOlderMessages, ensureMessageLoaded, addMessage, updateMessageReactions, updateSingleReaction,
+    deleteMessage, editMessage, pinnedMessages, pinnedIds, canManagePins, pinsError,
+    setPinned,
+  } })
 
-  // Зашли в канал — всегда начинаем с последних сообщений (низ)
-  useEffect(() => {
-    if (currentChannel?.type !== 'text') return
-    stickToBottomRef.current = true
-  }, [currentChannel?.id, currentChannel?.type])
-
-  useEffect(() => {
-    if (!slowModeUntil) return
-    const timer = window.setInterval(() => {
-      if (Date.now() >= slowModeUntil) {
-        setSlowModeUntil(null)
-        setSendLimitHint(null)
-      }
-    }, 250)
-    return () => window.clearInterval(timer)
-  }, [slowModeUntil])
-
-  const slowModeRemainingSeconds =
-    slowModeUntil && slowModeUntil > Date.now()
-      ? Math.ceil((slowModeUntil - Date.now()) / 1000)
-      : 0
-  const isSlowModeActive = slowModeRemainingSeconds > 0
-
-  const scrollMessagesToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
-    const container = messagesContainerRef.current
-    if (!container) return
-    programmaticScrollRef.current = true
-    if (behavior === 'smooth') {
-      container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
-    } else {
-      // Мгновенно — иначе при куче сообщений smooth «ломается» и остаёшься наверху
-      container.scrollTop = container.scrollHeight
-    }
-    // На всякий случай якорь в конце списка
-    messagesEndRef.current?.scrollIntoView({ block: 'end', behavior: 'auto' })
-    // Даём браузеру применить scrollTop, потом снова слушаем onScroll
-    window.requestAnimationFrame(() => {
-      programmaticScrollRef.current = false
-    })
-  }, [])
-
-  const handleMessagesScroll = useCallback(() => {
-    if (programmaticScrollRef.current) return
-    const container = messagesContainerRef.current
-    if (!container) return
-
-    const distanceFromBottom =
-      container.scrollHeight - container.scrollTop - container.clientHeight
-    stickToBottomRef.current = distanceFromBottom < 140
-
-    // При прокрутке вверх подгружаем следующую пачку старых сообщений
-    if (
-      container.scrollTop < 80 &&
-      hasMoreOlder &&
-      !isLoadingOlder &&
-      !chatLoading &&
-      !loadingOlderLockRef.current
-    ) {
-      const prevHeight = container.scrollHeight
-      const prevTop = container.scrollTop
-      suppressAutoScrollRef.current = true
-      stickToBottomRef.current = false
-      loadingOlderLockRef.current = true
-
-      void loadOlderMessages()
-        .then((added) => {
-          if (!added) return
-          // Сохраняем позицию глаз: после prepend не прыгаем
-          window.requestAnimationFrame(() => {
-            const el = messagesContainerRef.current
-            if (!el) return
-            programmaticScrollRef.current = true
-            el.scrollTop = prevTop + (el.scrollHeight - prevHeight)
-            window.requestAnimationFrame(() => {
-              programmaticScrollRef.current = false
-            })
-          })
-        })
-        .finally(() => {
-          loadingOlderLockRef.current = false
-        })
-    }
-  }, [hasMoreOlder, isLoadingOlder, chatLoading, loadOlderMessages])
-
-  // Пока «прилипли» к низу — любой рост высоты (превью, картинки) снова кидает вниз
-  useEffect(() => {
-    const content = messagesContentRef.current
-    if (!content || typeof ResizeObserver === 'undefined') return
-
-    const observer = new ResizeObserver(() => {
-      if (!stickToBottomRef.current) return
-      scrollMessagesToBottom('auto')
-    })
-    observer.observe(content)
-
-    return () => observer.disconnect()
-  }, [scrollMessagesToBottom, currentChannel?.id, messages.length])
-
-  // Загрузка истории сообщений при смене канала
-  useEffect(() => {
-    if (currentChannel?.type === 'text') {
-      stickToBottomRef.current = true
-      loadMessageHistory(currentChannel.id);
-      
-      // Подключаемся к WebSocket чата только если еще не подключены
-      const accessToken = token || localStorage.getItem('access_token');
-      
-      if (accessToken) {
-        
-        // Обработчик новых сообщений
-        chatService.onMessage((msg) => {
-          // Адаптируем Message к ChatMessage
-          const chatMessage = {
-            ...msg,
-            content: msg.content || '', // Гарантируем что content не null
-          };
-          addMessage(chatMessage);
-
-          // Если в сообщении пинг текущего пользователя — кладём в непрочитанные
-          // (дедуп со звуком уже внутри store; событие mention тоже может прийти)
-          if (
-            currentServer?.id &&
-            user?.id &&
-            msg.author?.id !== user.id &&
-            contentMentionsUser(chatMessage.content, user.id)
-          ) {
-            const notificationSettings = useNotificationSettingsStore
-              .getState()
-              .get(currentServer.id)
-            if (shouldNotifyMentionClient(notificationSettings, currentChannel.id)) {
-              addMentionNotification({
-                messageId: msg.id,
-                textChannelId: currentChannel.id,
-                serverId: currentServer.id,
-                channelName: currentChannel.name,
-              })
-            }
-          }
-        });
-        
-        // Обработчик печати
-        chatService.onTyping((data) => {
-          if (data.user && data.user.username) {
-            setTypingUsers(prev => {
-              if (!prev.includes(data.user.username)) {
-                const newUsers = [...prev, data.user.username];
-                setTimeout(() => {
-                  setTypingUsers(current => current.filter(u => u !== data.user.username));
-                }, 2000);
-                return newUsers;
-              }
-              return prev;
-            });
-          }
-        });
-
-        // Обработчик удаления сообщений
-        chatService.onMessageDeleted((data) => {
-          deleteMessage(data.message_id);
-        });
-
-        // Обработчик редактирования сообщений
-        chatService.onMessageEdited((msg) => {
-          editMessage(msg.id, msg.content || '');
-        });
-
-        // Обработчик обновления реакций
-        chatService.onReactionUpdated((data) => {
-          updateSingleReaction(data.message_id, data.emoji, data.reaction);
-        });
-
-        chatService.onSlowMode((data) => {
-          if (data.text_channel_id !== currentChannel.id) return;
-          setSlowModeUntil(Date.now() + data.retry_after_seconds * 1000);
-          setSendLimitHint(
-            `Подождите ${data.retry_after_seconds} сек. — в этом канале включён медленный режим.`
-          );
-        });
-
-        chatService.onRateLimit((data) => {
-          if (data.text_channel_id && data.text_channel_id !== currentChannel.id) return;
-          const seconds = Math.max(1, data.retry_after_seconds || 1);
-          setSlowModeUntil(Date.now() + seconds * 1000);
-          setSendLimitHint(
-            data.message
-              ? `${data.message} (${seconds} сек.)`
-              : `Слишком быстро. Подождите ${seconds} сек.`
-          );
-        });
-      }
-    } else {
-      setTypingUsers([]);
-    }
-    
-    // Cleanup function
-    return () => {
-      setTypingUsers([]);
-    };
-  }, [
-    currentChannel?.id,
-    currentChannel?.type,
-    currentChannel?.name,
-    currentServer?.id,
-    user?.id,
-    loadMessageHistory,
-    addMessage,
-    deleteMessage,
-    editMessage,
-    token,
-    addMentionNotification,
-  ]);
-
-  // После загрузки/новых сообщений — прыгаем вниз (и при F5 / смене канала)
-  useEffect(() => {
-    if (suppressAutoScrollRef.current) {
-      suppressAutoScrollRef.current = false
-      return
-    }
-    if (!stickToBottomRef.current) return
-    if (!messages.length) return
-
-    let cancelled = false
-    const timers: number[] = []
-
-    const jump = () => {
-      if (cancelled || !stickToBottomRef.current) return
-      scrollMessagesToBottom('auto')
-    }
-
-    // Несколько попыток: после paint, после layout и после превью/картинок
-    const frame1 = window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(jump)
-    })
-    timers.push(window.setTimeout(jump, 0))
-    timers.push(window.setTimeout(jump, 50))
-    timers.push(window.setTimeout(jump, 200))
-    timers.push(window.setTimeout(jump, 500))
-    timers.push(window.setTimeout(jump, 1000))
-
-    return () => {
-      cancelled = true
-      window.cancelAnimationFrame(frame1)
-      timers.forEach((id) => window.clearTimeout(id))
-    }
-  }, [messages, currentChannel?.id, chatLoading, scrollMessagesToBottom])
-
-  const scrollToMention = useCallback((messageId: number) => {
-    const el = document.getElementById(`chat-message-${messageId}`)
-    if (!el) return false
-
-    suppressAutoScrollRef.current = true
-    stickToBottomRef.current = false
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    el.classList.add('ring-2', 'ring-[#5865f2]', 'ring-offset-2', 'ring-offset-background')
-    window.setTimeout(() => {
-      el.classList.remove('ring-2', 'ring-[#5865f2]', 'ring-offset-2', 'ring-offset-background')
-    }, 1600)
-    return true
-  }, [])
-
-  /** Догружает историю канала, если сообщение ещё не в списке, и подсвечивает его. */
-  const jumpToMessage = useCallback(async (messageId: number) => {
-    if (scrollToMention(messageId)) return true
-
-    const loaded = await ensureMessageLoaded(messageId)
-    if (!loaded) return false
-
-    // Ждём отрисовку догруженной страницы
-    return new Promise<boolean>((resolve) => {
-      requestAnimationFrame(() => resolve(scrollToMention(messageId)))
-    })
-  }, [ensureMessageLoaded, scrollToMention])
-
-  const handleJumpToSearchResult = useCallback(async (message: SearchResultMessage) => {
-    const targetChannelId = message.text_channel_id ?? message.channelId
-    if (targetChannelId && targetChannelId !== currentChannel?.id) {
-      selectChannel(targetChannelId, 'text')
-      // Канал переключился — история грузится заново, ждём её перед прыжком
-      window.setTimeout(() => void jumpToMessage(message.id), 450)
-      return
-    }
-    await jumpToMessage(message.id)
-  }, [currentChannel?.id, jumpToMessage, selectChannel])
-
-  /** Каждый клик ведёт к следующему непрочитанному упоминанию. */
-  const handleJumpToMention = useCallback(() => {
-    const target = channelMentions[0]
-    if (!target) return
-
-    if (!scrollToMention(target.messageId)) {
-      // Сообщения нет в загруженной истории — снимаем, чтобы не застревать
-      markMentionRead(target.messageId)
-    }
-    // Прочитанным станет само сообщение, когда оно окажется на экране (и фон плавно погаснет)
-  }, [channelMentions, markMentionRead, scrollToMention])
-
-  const addFiles = useCallback((incoming: File[]) => {
-    const result = appendChatFiles(files, incoming)
-    setFiles(result.files)
-    setAttachmentError(result.error)
-  }, [files])
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    addFiles(Array.from(e.target.files || []))
-    e.target.value = ''
-  }
-
-  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const pastedFiles = Array.from(e.clipboardData.items)
-      .filter((item) => item.kind === 'file')
-      .map((item) => item.getAsFile())
-      .filter((file): file is File => Boolean(file))
-    if (!pastedFiles.length) return
-    e.preventDefault()
-    addFiles(pastedFiles)
-  }
-
-  const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
-    if (!e.dataTransfer.types.includes('Files')) return
-    e.preventDefault()
-    dragDepthRef.current += 1
-    setIsDraggingFiles(true)
-  }
-
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    if (!e.dataTransfer.types.includes('Files')) return
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'copy'
-  }
-
-  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
-    if (dragDepthRef.current === 0) setIsDraggingFiles(false)
-  }
-
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    dragDepthRef.current = 0
-    setIsDraggingFiles(false)
-    addFiles(Array.from(e.dataTransfer.files))
-  }
-
-  const handleRemoveFile = (index: number) => {
-    setFiles(prev => prev.filter((_, i) => i !== index));
-    setAttachmentError(null)
-  }
-
-  const updateMentionState = (value: string, caret: number) => {
-    const active = getActiveMentionQuery(value, caret)
-    setMentionQuery(active)
-    setMentionIndex(0)
-    shortcodeAutocomplete.syncCaret(caret)
-  }
-
-  const applyMention = (candidate: MentionCandidate) => {
-    if (!mentionQuery) return
-
-    const input = messageInputRef.current
-    const caret = input?.selectionStart ?? messageInput.length
-    const safeUsername = /^[\w.-]+$/.test(candidate.username)
-    const next = safeUsername
-      ? insertMentionHandle(messageInput, caret, mentionQuery.start, candidate.username)
-      : insertMentionToken(messageInput, caret, mentionQuery.start, candidate.id)
-
-    setMessageInput(next.value)
-    setMentionQuery(null)
-    setMentionIndex(0)
-
-    requestAnimationFrame(() => {
-      const el = messageInputRef.current
-      if (!el) return
-      el.focus()
-      el.setSelectionRange(next.caret, next.caret)
-    })
-  }
-
-  const applySlashCommand = (command: MiscordApplicationCommand) => {
-    setSelectedSlashCommand(command)
-    setMessageInput(`/${localizedCommandName(command)}${command.options?.length ? ' ' : ''}`)
-    setSlashIndex(0)
-    setMentionQuery(null)
-    requestAnimationFrame(() => {
-      const input = messageInputRef.current
-      if (!input) return
-      input.focus()
-      input.setSelectionRange(input.value.length, input.value.length)
-      resizeChatComposer(input)
-    })
-  }
-
-  const applyAutocompleteChoice = (choice: ApplicationCommandChoice) => {
-    if (!autocompleteRequest) return
-    const value = String(choice.value)
-    const serialized = /\s/.test(value) ? `"${value.replace(/"/g, '\\"')}"` : value
-    const tokens = [...autocompleteRequest.tokens]
-    tokens[autocompleteRequest.optionIndex] = serialized
-    const next = `/${localizedCommandName(autocompleteRequest.command)} ${tokens.join(' ')} `
-    setMessageInput(next)
-    setAutocompleteChoices([])
-    setAutocompleteIndex(0)
-    requestAnimationFrame(() => {
-      const input = messageInputRef.current
-      if (!input) return
-      input.focus()
-      input.setSelectionRange(next.length, next.length)
-      resizeChatComposer(input)
-    })
-  }
-
-  const parseCommandOptions = (command: MiscordApplicationCommand, source: string) => {
-    const tokens = source.match(/"[^"]*"|'[^']*'|\S+/g)?.map((token) => token.replace(/^("|')|("|')$/g, '')) || []
-    const definitions = command.options || []
-    return definitions.slice(0, tokens.length).map((option: MiscordApplicationCommandOption, index) => {
-      const raw = tokens[index]
-      let value: string | number | boolean = raw
-      if (option.type === 4) value = Number.parseInt(raw, 10)
-      if (option.type === 10) value = Number.parseFloat(raw)
-      if (option.type === 5) value = ['true', '1', 'yes', 'да'].includes(raw.toLocaleLowerCase())
-      return { name: option.name, type: option.type, value }
-    })
-  }
-
-  const handleSendMessage = async (event: React.FormEvent) => {
-    event.preventDefault()
-    const content = messageInput.trim()
-    if ((!content && files.length === 0) || !user || !currentChannel) return
-
-    if (content.startsWith('/') && files.length === 0 && currentChannel.type === 'text') {
-      const [commandName, ...argumentParts] = content.slice(1).trim().split(/\s+/)
-      const command = selectedSlashCommand && localizedCommandName(selectedSlashCommand) === commandName
-        ? selectedSlashCommand
-        : applicationCommands.commands.find((item) => item.type === 1 && (item.name === commandName || localizedCommandName(item) === commandName))
-      if (command) {
-        const required = (command.options || []).filter((option) => option.required).length
-        if (argumentParts.length < required) {
-          setAttachmentError(`Для /${command.name} нужно указать обязательные параметры.`)
-          return
-        }
-        setIsLoading(true)
-        setAttachmentError(null)
-        try {
-          const result = await botService.invokeCommand(currentChannel.id, command.application_id, command.id, {
-            name: command.name,
-            type: command.type,
-            options: parseCommandOptions(command, argumentParts.join(' ')),
-          })
-          if (result.status === 'offline' || result.status === 'failed') {
-            setAttachmentError('Приложение сейчас недоступно и не получило команду.')
-            return
-          }
-          setMessageInput('')
-          setSelectedSlashCommand(null)
-          requestAnimationFrame(() => resetChatComposer(messageInputRef.current))
-        } catch (requestError) {
-          const detail = (requestError as { response?: { data?: { detail?: string } } }).response?.data?.detail
-          setAttachmentError(typeof detail === 'string' ? detail : 'Не удалось выполнить команду приложения.')
-        } finally {
-          setIsLoading(false)
-        }
-        return
-      }
-    }
-
-    const queuedFiles = [...files]
-    const replyToId = replyingTo?.id
-    setMessageInput('')
-    requestAnimationFrame(() => {
-      resetChatComposer(messageInputRef.current)
-    })
-    setFiles([])
-    setReplyingTo(null)
-    setAttachmentError(null)
-    if (fileInputRef.current) fileInputRef.current.value = ''
-
-    enqueueOutgoing({
-      userId: user.id,
-      conversation: { type: 'channel', id: currentChannel.id },
-      content,
-      files: queuedFiles,
-      replyToId,
-    })
-  }
-  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const value = e.target.value
-    const caret = e.target.selectionStart ?? value.length
-    setMessageInput(value)
-    if (value.startsWith('/')) {
-      setMentionQuery(null)
-      setSlashIndex(0)
-      shortcodeAutocomplete.syncCaret(caret)
-      if (selectedSlashCommand && !value.startsWith(`/${localizedCommandName(selectedSlashCommand)}`)) setSelectedSlashCommand(null)
-    } else {
-      setSelectedSlashCommand(null)
-      updateMentionState(value, caret)
-    }
-    if (currentChannel?.type === 'text') {
-      chatService.sendTyping();
-    }
-  }
-
-  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (applyFormattingShortcut(e)) return
-    if (!mentionQuery && shortcodeAutocomplete.handleKeyDown(e)) return
-    if (autocompleteChoices.length > 0) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        setAutocompleteIndex((previous) => (previous + 1) % autocompleteChoices.length)
-        return
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault()
-        setAutocompleteIndex((previous) => (previous - 1 + autocompleteChoices.length) % autocompleteChoices.length)
-        return
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        setAutocompleteChoices([])
-        return
-      }
-      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing)) {
-        e.preventDefault()
-        applyAutocompleteChoice(autocompleteChoices[autocompleteIndex] || autocompleteChoices[0])
-        return
-      }
-    }
-    if (slashQuery !== null && filteredSlashCommands.length > 0) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        setSlashIndex((previous) => (previous + 1) % filteredSlashCommands.length)
-        return
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault()
-        setSlashIndex((previous) => (previous - 1 + filteredSlashCommands.length) % filteredSlashCommands.length)
-        return
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        setMessageInput('')
-        setSelectedSlashCommand(null)
-        return
-      }
-      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !messageInput.includes(' '))) {
-        e.preventDefault()
-        applySlashCommand(filteredSlashCommands[slashIndex] || filteredSlashCommands[0])
-        return
-      }
-    }
-    if (!mentionQuery || filteredMentions.length === 0) {
-      if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-        e.preventDefault()
-        e.currentTarget.form?.requestSubmit()
-      }
-      return
-    }
-
-    if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      setMentionIndex((prev) => (prev + 1) % filteredMentions.length)
-      return
-    }
-    if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      setMentionIndex((prev) => (prev - 1 + filteredMentions.length) % filteredMentions.length)
-      return
-    }
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      setMentionQuery(null)
-      return
-    }
-    if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing)) {
-      e.preventDefault()
-      applyMention(filteredMentions[mentionIndex] || filteredMentions[0])
-    }
-  }
+  const {
+    addFiles, handleFileChange, handlePaste, handleDragEnter, handleDragOver,
+    handleDragLeave, handleDrop, handleRemoveFile, updateMentionState, applyMention,
+    applySlashCommand, applyAutocompleteChoice, parseCommandOptions, handleSendMessage, handleInputChange,
+    handleInputKeyDown,
+  } = useChatComposerActions({ model: {
+    messageInput, setMessageInput, showPinnedPanel, setShowPinnedPanel, files, setFiles,
+    attachmentError, setAttachmentError, isDraggingFiles, setIsDraggingFiles, isLoading, setIsLoading,
+    typingUsers, setTypingUsers, replyingTo, setReplyingTo, slowModeUntil, setSlowModeUntil,
+    sendLimitHint, setSendLimitHint, mentionMembers, setMentionMembers, serverRoles, setServerRoles,
+    mentionQuery, setMentionQuery, mentionIndex, setMentionIndex, applicationCommands, setApplicationCommands,
+    slashIndex, setSlashIndex, selectedSlashCommand, setSelectedSlashCommand, autocompleteChoices, setAutocompleteChoices,
+    autocompleteIndex, setAutocompleteIndex, profilePopover, setProfilePopover, openThreadDraft, pendingMessageJump,
+    clearMessageJump, viewport, outgoingQueue, initializeOutgoingQueue, enqueueOutgoing, outgoingMessages,
+    fileInputRef, dragDepthRef, messageInputRef, messagesEndRef, messagesContainerRef, messagesContentRef,
+    suppressAutoScrollRef, stickToBottomRef, programmaticScrollRef, loadingOlderLockRef, channelIdForMentions, channelMentions,
+    markMentionRead, addMentionNotification, applyFormattingShortcut, shortcodeAutocomplete, mentionCandidates, filteredMentions,
+    slashQuery, filteredSlashCommands, applicationNames, autocompleteRequest, mentionNameById, resolveMentionLabel,
+    handleMentionClick, getMemberColor, handleProfileMemberUpdated, currentChannel, currentServer, selectChannel,
+    user, token, messages, isLoadingOlder, hasMoreOlder, error: chatError, chatLoading,
+    loadMessageHistory, loadOlderMessages, ensureMessageLoaded, addMessage, updateMessageReactions, updateSingleReaction,
+    deleteMessage, editMessage, pinnedMessages, pinnedIds, canManagePins, pinsError,
+    setPinned, slowModeRemainingSeconds, isSlowModeActive, scrollMessagesToBottom, handleMessagesScroll, scrollToMention,
+    jumpToMessage, handleJumpToSearchResult, handleJumpToMention,
+  } })
 
   const handleReply = (message: Message) => {
     setReplyingTo(message);
@@ -946,14 +422,14 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     try {
       // toggleReaction возвращает обновленную реакцию
       const updatedReaction = await reactionService.toggleReaction(messageId, emoji);
-      
+
       // Не обновляем локальное состояние здесь - оно будет обновлено через WebSocket
       // WebSocket получит событие reaction_updated и обновит состояние автоматически
-      
+
       console.log('Реакция обновлена:', emoji, 'на сообщение:', messageId, updatedReaction);
     } catch (error) {
       console.error('Ошибка при изменении реакции:', error);
-      
+
       // Если произошла ошибка, можем попробовать обновить локально
       try {
         const allReactions = await reactionService.getMessageReactions(messageId);
@@ -963,10 +439,10 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
       }
     }
   }
-  
+
   const TypingIndicator = () => {
     if (typingUsers.length === 0) return null;
-    
+
     let text = '';
     if (typingUsers.length === 1) {
       text = `${typingUsers[0]} печатает...`;
@@ -990,304 +466,27 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     )
   }
 
-  return (
-    <div
-      className="chat-area relative flex h-full min-w-0 flex-1 flex-col bg-background"
-      onDragEnter={handleDragEnter}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-    >
-      {isDraggingFiles && (
-        <div className="pointer-events-none absolute inset-3 z-50 grid place-items-center rounded-2xl border-2 border-dashed border-primary bg-background/90 backdrop-blur-sm">
-          <div className="text-center">
-            <PlusCircle className="mx-auto mb-3 h-10 w-10 text-[#7c86ff]" />
-            <p className="text-base font-semibold text-white">Добавить файлы в сообщение</p>
-            <p className="mt-1 text-sm text-muted-foreground">Изображения до 10 МиБ, остальные файлы до 20 МиБ</p>
-          </div>
-        </div>
-      )}
-      <ChatAreaHeader
-        channel={currentChannel}
-        serverId={currentServer?.id ?? null}
-        showUserSidebar={showUserSidebar}
-        onToggleUserSidebar={() => setShowUserSidebar(!showUserSidebar)}
-        showPinnedPanel={showPinnedPanel}
-        onTogglePinnedPanel={() => setShowPinnedPanel((previous) => !previous)}
-        onClosePinnedPanel={() => setShowPinnedPanel(false)}
-        pinnedMessages={pinnedMessages}
-        canManagePins={canManagePins}
-        pinsError={pinsError}
-        onUnpin={(messageId) => void setPinned(messageId, false)}
-        onJumpToMessage={scrollToMention}
-        onJumpToSearchResult={(message) => void handleJumpToSearchResult(message)}
-      />
-
-
-      {/* Messages */}
-      <div className="relative min-h-0 flex-1">
-        <div
-          ref={messagesContainerRef}
-          className="chat-scroll chat-area-messages h-full overflow-y-auto px-5 py-4"
-          onScroll={handleMessagesScroll}
-        >
-          <div ref={messagesContentRef} className="space-y-1">
-            {chatLoading && messages.length === 0 && (
-              <div className="text-center text-muted-foreground py-4">
-                Загрузка истории сообщений...
-              </div>
-            )}
-
-            {isLoadingOlder && (
-              <div className="py-2 text-center text-xs text-muted-foreground">
-                Загрузка старых сообщений...
-              </div>
-            )}
-
-            {!hasMoreOlder && messages.length > 0 && !chatLoading && (
-              <div className="py-3 text-center text-xs text-muted-foreground/70">
-                Это начало канала
-              </div>
-            )}
-            
-            {chatError && (
-              <div className="text-center text-red-400 py-4">
-                {chatError}
-              </div>
-            )}
-            
-            {messages.map((msg, index) => {
-              const prevMsg = messages[index - 1];
-              const showAuthor = !prevMsg || prevMsg.author.id !== msg.author.id || (new Date(msg.timestamp).getTime() - new Date(prevMsg.timestamp).getTime()) > 5 * 60 * 1000;
-              const showDateDivider =
-                !prevMsg ||
-                new Date(prevMsg.timestamp).toDateString() !== new Date(msg.timestamp).toDateString();
-
-              return (
-                <React.Fragment key={msg.id}>
-                  {showDateDivider && (
-                    <div className="date-divider">
-                      <span>
-                        {formatDateDivider(msg.timestamp)}
-                      </span>
-                    </div>
-                  )}
-                  <ChatMessage
-                    message={msg}
-                    showAuthor={showAuthor}
-                    onReply={handleReply}
-                    onReaction={handleReaction}
-                    currentUser={user || undefined}
-                    resolveMentionLabel={resolveMentionLabel}
-                    onMentionClick={handleMentionClick}
-                    authorColor={getMemberColor(msg.author?.id)}
-                    replyAuthorColor={getMemberColor(msg.reply_to?.author?.id)}
-                    applicationCommands={applicationCommands.commands.filter((command) => command.type === 2 || command.type === 3)}
-                    onApplicationCommand={handleContextApplicationCommand}
-                    isPinned={pinnedIds.has(msg.id)}
-                    canPin={canManagePins}
-                    onTogglePin={setPinned}
-                  />
-                </React.Fragment>
-              )
-            })}
-            {user && outgoingMessages.map((message, index) => {
-              const previousAuthorId = index > 0
-                ? user.id
-                : messages[messages.length - 1]?.author?.id
-              const previousTimestamp = index > 0
-                ? outgoingMessages[index - 1]?.createdAt
-                : messages[messages.length - 1]?.timestamp
-              const elapsed = previousTimestamp
-                ? new Date(message.createdAt).getTime() - new Date(previousTimestamp).getTime()
-                : Number.POSITIVE_INFINITY
-              const grouped = previousAuthorId === user.id && elapsed >= 0 && elapsed < 5 * 60 * 1000
-
-              return <OutgoingMessageCard key={message.clientNonce} message={message} author={user} grouped={grouped} />
-            })}
-          <div ref={messagesEndRef} />
-          </div>
-        </div>
-
-        {currentChannel.type === 'text' && channelMentions.length > 0 && (
-          <Tooltip content="Перейти к упоминанию">
-            <button
-              type="button"
-              onClick={handleJumpToMention}
-              className="absolute bottom-4 right-4 z-20 flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-full bg-primary px-3 text-sm font-bold text-white shadow-lg transition hover:bg-brand-hover active:scale-95"
-              aria-label="Перейти к упоминанию"
-            >
-              <AtSign className="h-4 w-4" />
-              <span>{formatMentionBadge(channelMentions.length)}</span>
-            </button>
-          </Tooltip>
-        )}
-      </div>
-      
-      <TypingIndicator />
-
-      {/* Reply Input */}
-      <ReplyInput replyingTo={replyingTo} onCancelReply={handleCancelReply} />
-
-      {/* Message Input */}
-      {currentChannel.type === 'text' && (
-        <div className="chat-area-composer flex-shrink-0 border-t border-border/70 p-3">
-          {isSlowModeActive && (
-            <div className="mb-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-text-body">
-              {sendLimitHint ||
-                `Подождите ${slowModeRemainingSeconds} сек. — в этом канале включён медленный режим.`}
-            </div>
-          )}
-          <form onSubmit={handleSendMessage} className="chat-area-composer__surface relative flex flex-col rounded-xl border border-gray-700 bg-gray-800 p-2">
-            {attachmentError && (
-              <div className="mb-2 rounded-lg border border-[#da373c]/40 bg-destructive/10 px-3 py-2 text-xs text-[#ffb8ba]">
-                {attachmentError}
-              </div>
-            )}
-            {mentionQuery && (
-              <MentionAutocomplete
-                candidates={filteredMentions}
-                selectedIndex={mentionIndex}
-                onSelect={applyMention}
-                onHover={setMentionIndex}
-              />
-            )}
-            {!mentionQuery && (
-              <EmojiAutocomplete
-                entries={shortcodeAutocomplete.entries}
-                selectedIndex={shortcodeAutocomplete.selectedIndex}
-                onSelect={shortcodeAutocomplete.apply}
-                onHover={shortcodeAutocomplete.setSelectedIndex}
-              />
-            )}
-            {slashQuery !== null && !mentionQuery && (
-              <SlashCommandAutocomplete
-                commands={filteredSlashCommands}
-                selectedIndex={slashIndex}
-                applicationNames={applicationNames}
-                onSelect={applySlashCommand}
-                onHover={setSlashIndex}
-              />
-            )}
-            {autocompleteChoices.length > 0 && !mentionQuery && (
-              <div className="absolute bottom-[calc(100%+8px)] left-0 right-0 z-40 max-h-80 overflow-y-auto rounded-xl border border-white/10 bg-surface p-2 shadow-2xl shadow-black/40">
-                <div className="px-2 pb-2 pt-1 text-[11px] font-bold uppercase tracking-wider text-text-quiet">Варианты параметра</div>
-                {autocompleteChoices.map((choice, index) => (
-                  <button
-                    key={`${choice.name}-${String(choice.value)}-${index}`}
-                    type="button"
-                    onMouseDown={(event) => { event.preventDefault(); applyAutocompleteChoice(choice) }}
-                    onMouseEnter={() => setAutocompleteIndex(index)}
-                    className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left transition ${index === autocompleteIndex ? 'bg-primary text-white' : 'text-text-body hover:bg-[#35373c]'}`}
-                  >
-                    <span className="min-w-0 truncate font-medium">{choice.name}</span>
-                    <span className={`max-w-[45%] truncate text-xs ${index === autocompleteIndex ? 'text-white/75' : 'text-text-quiet'}`}>{String(choice.value)}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-            
-            {/* File Previews */}
-            {files.length > 0 && (
-              <div className="mb-2 flex gap-2 overflow-x-auto border-b border-border p-2">
-                {files.map((file, index) => (
-                  <PendingAttachmentPreview
-                    key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
-                    file={file}
-                    onRemove={() => handleRemoveFile(index)}
-                  />
-                ))}
-              </div>
-            )}
-            
-            <div className="chat-area-composer__row flex items-center">
-              <input 
-                type="file"
-                ref={fileInputRef}
-                multiple
-                onChange={handleFileChange}
-                className="hidden"
-              />
-              <Button 
-                type="button"
-                size="icon"
-                variant="ghost"
-                onClick={() => fileInputRef.current?.click()}
-                className="chat-area-composer__attach mr-2"
-                disabled={files.length >= MAX_CHAT_ATTACHMENTS || isLoading || isSlowModeActive}
-                title="Прикрепить файлы"
-              >
-                <PlusCircle className="w-5 h-5" />
-              </Button>
-              <textarea
-                ref={messageInputRef}
-                rows={1}
-                style={{ resize: 'none', overflowY: 'hidden' }}
-                value={messageInput}
-                onChange={handleInputChange}
-                onPaste={handlePaste}
-                onKeyDown={handleInputKeyDown}
-                onInput={(e) => resizeChatComposer(e.currentTarget)}
-                onClick={(e) => {
-                  const target = e.currentTarget
-                  updateMentionState(target.value, target.selectionStart ?? target.value.length)
-                }}
-                onKeyUp={(e) => {
-                  if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
-                    const target = e.currentTarget
-                    updateMentionState(target.value, target.selectionStart ?? target.value.length)
-                  }
-                }}
-                placeholder={
-                  replyingTo
-                    ? `Ответ пользователю ${replyingTo.author.username}...`
-                    : viewport === 'phone'
-                      ? `Написать в #${currentChannel.name}`
-                      : `Написать в #${currentChannel.name} · / — команда · @ — упомянуть`
-                }
-                className="chat-area-composer__input min-w-0 flex-1 bg-transparent text-sm outline-none"
-                disabled={isLoading || isSlowModeActive}
-                autoComplete="off"
-              />
-              <ComposerEmojiButton
-                inputRef={messageInputRef}
-                setValue={setMessageInput}
-                disabled={isLoading || isSlowModeActive}
-                className="mr-1"
-              />
-              <Button
-                type="submit"
-                size="icon"
-                variant="ghost"
-                className="chat-area-composer__send h-8 w-8"
-                disabled={(!messageInput.trim() && files.length === 0) || isLoading || isSlowModeActive}
-              >
-                {isLoading ? '...' : <Send className="w-4 h-4" />}
-              </Button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {currentChannel.type === 'voice' && (
-        <div className="p-4 text-center text-muted-foreground">
-          <p>Голосовой канал: {currentChannel.name}</p>
-          <p className="text-sm">Нажмите на канал для подключения к голосовому чату</p>
-        </div>
-      )}
-
-      {profilePopover && currentServer && (
-        <MemberProfilePopover
-          member={profilePopover.member}
-          serverId={currentServer.id}
-          roles={serverRoles}
-          anchorRect={profilePopover.anchorRect}
-          onClose={() => setProfilePopover(null)}
-          onMemberUpdated={handleProfileMemberUpdated}
-        />
-      )}
-      <InteractionModalHost />
-    </div>
-  )
+  return <ChatAreaView model={{
+    currentChannel, currentServer, showUserSidebar, setShowUserSidebar, pinnedMessages, canManagePins, pinsError,
+    setPinned, chatLoading, messages, isLoadingOlder, hasMoreOlder, chatError, user, pinnedIds,
+    messageInput, setMessageInput, showPinnedPanel, setShowPinnedPanel, files, setFiles,
+    attachmentError, setAttachmentError, isDraggingFiles, setIsDraggingFiles, isLoading, setIsLoading,
+    typingUsers, setTypingUsers, replyingTo, setReplyingTo, slowModeUntil, setSlowModeUntil,
+    sendLimitHint, setSendLimitHint, mentionMembers, setMentionMembers, serverRoles, setServerRoles,
+    mentionQuery, setMentionQuery, mentionIndex, setMentionIndex, applicationCommands, setApplicationCommands,
+    slashIndex, setSlashIndex, selectedSlashCommand, setSelectedSlashCommand, autocompleteChoices, setAutocompleteChoices,
+    autocompleteIndex, setAutocompleteIndex, profilePopover, setProfilePopover, openThreadDraft, pendingMessageJump,
+    clearMessageJump, viewport, outgoingQueue, initializeOutgoingQueue, enqueueOutgoing, outgoingMessages,
+    fileInputRef, dragDepthRef, messageInputRef, messagesEndRef, messagesContainerRef, messagesContentRef,
+    suppressAutoScrollRef, stickToBottomRef, programmaticScrollRef, loadingOlderLockRef, channelIdForMentions, channelMentions,
+    markMentionRead, addMentionNotification, applyFormattingShortcut, shortcodeAutocomplete, mentionCandidates, filteredMentions,
+    slashQuery, filteredSlashCommands, applicationNames, autocompleteRequest, mentionNameById, resolveMentionLabel,
+    handleMentionClick, getMemberColor, handleProfileMemberUpdated, slowModeRemainingSeconds, isSlowModeActive, scrollMessagesToBottom,
+    handleMessagesScroll, scrollToMention, jumpToMessage, handleJumpToSearchResult, handleJumpToMention, addFiles,
+    handleFileChange, handlePaste, handleDragEnter, handleDragOver, handleDragLeave, handleDrop,
+    handleRemoveFile, updateMentionState, applyMention, applySlashCommand, applyAutocompleteChoice, parseCommandOptions,
+    handleSendMessage, handleInputChange, handleInputKeyDown, handleReply, handleContextApplicationCommand, handleCancelReply,
+    handleReaction, TypingIndicator,
+  }} />
 }
 

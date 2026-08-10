@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { LucideIcon } from 'lucide-react'
-import { Ban, Info, Link2, LogOut, ScrollText, Shield, Trash2, Users, X } from 'lucide-react'
+import { Ban, CopyPlus, Info, Link2, LogOut, ScrollText, Shield, Trash2, Users, X } from 'lucide-react'
 
 import { Server } from '../types'
 import channelService from '../services/channelService'
@@ -20,6 +20,7 @@ import { ServerInvitesTab } from './server-settings/ServerInvitesTab'
 import { ServerBansTab } from './server-settings/ServerBansTab'
 import { ServerAuditLogTab } from './server-settings/ServerAuditLogTab'
 import { ServerBotsTab } from './server-settings/ServerBotsTab'
+import { ServerTemplatesTab } from './server-settings/ServerTemplatesTab'
 
 interface ServerSettingsModalProps {
   isOpen: boolean
@@ -28,7 +29,7 @@ interface ServerSettingsModalProps {
   onServerUpdate: (updatedServer: Server) => void
 }
 
-type TabId = 'overview' | 'members' | 'roles' | 'bots' | 'invites' | 'bans' | 'audit'
+type TabId = 'overview' | 'members' | 'roles' | 'bots' | 'templates' | 'invites' | 'bans' | 'audit'
 
 interface TabItem {
   id: TabId
@@ -40,6 +41,7 @@ interface TabItem {
 }
 
 const TABS: TabItem[] = [
+  { id: 'templates', label: 'Шаблоны', icon: CopyPlus, group: 'users', permission: Permissions.ADMINISTRATOR },
   { id: 'overview', label: 'Профиль сервера', icon: Info },
   { id: 'members', label: 'Участники', icon: Users, group: 'users' },
   { id: 'roles', label: 'Роли', icon: Shield, group: 'users', permission: Permissions.MANAGE_ROLES },
@@ -267,6 +269,7 @@ export function ServerSettingsModal({ isOpen, onClose, server, onServerUpdate }:
             {activeTab === 'members' && <ServerMembersTab server={server} />}
             {activeTab === 'roles' && <ServerRolesTab server={server} />}
             {activeTab === 'bots' && <ServerBotsTab server={server} />}
+            {activeTab === 'templates' && <ServerTemplatesTab server={server} />}
             {activeTab === 'invites' && <ServerInvitesTab server={server} />}
             {activeTab === 'bans' && <ServerBansTab server={server} />}
             {activeTab === 'audit' && <ServerAuditLogTab server={server} />}

@@ -16,7 +16,7 @@ def _parse_frontend_events(source: str) -> set[str]:
     match = re.search(r"export const GatewayEvents\s*=\s*\{(.*?)\}\s*as const", source, re.S)
     assert match, "Не найден объект GatewayEvents в gatewayEvents.ts"
     body = match.group(1)
-    return set(re.findall(r":\s*'([a-z0-9_]+)'", body))
+    return set(re.findall(r":\s*'([A-Za-z0-9_]+)'", body))
 
 
 def test_frontend_gateway_events_file_exists() -> None:

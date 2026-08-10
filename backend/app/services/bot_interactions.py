@@ -15,6 +15,7 @@ from app.schemas.miscord import MiscordInteractionCallback
 from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
 from app.services.miscord_serializers import miscord_message
 from app.services.miscord_snowflake import generate_snowflake
+from app.services.notifications import create_notification
 from app.websocket.connection_manager import manager
 
 
@@ -173,6 +174,18 @@ async def _create_response_message(
     if original:
         interaction.original_message_id = message.id
         interaction.ephemeral = ephemeral
+    if interaction.author_user_id:
+        await create_notification(
+            db,
+            user_id=interaction.author_user_id,
+            type="application_response",
+            actor_user_id=application.bot_user_id,
+            server_id=interaction.guild_id,
+            channel_id=interaction.channel_id,
+            message_id=message.id,
+            dedupe_key=f"application-response:{interaction.id}:{message.id}",
+            payload={"application_id": application.client_id, "application_name": application.name},
+        )
     await db.commit()
     loaded = await load_response_message(db, message.id)
     await _publish_message(db, interaction, loaded)

@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useEffect, useRef, useState } from 'react'
-import { Reply, Smile, Trash2, Edit3, Pin, PinOff, Puzzle } from 'lucide-react'
+import { Reply, Smile, Trash2, Edit3, Pin, PinOff, Puzzle, MessageCircle } from 'lucide-react'
 import { Message, User } from '../types'
 import { UserAvatar } from './ui/user-avatar'
 import { Button } from './ui/button'
@@ -23,6 +23,7 @@ import { useMentionNotificationStore } from '../store/mentionNotificationStore'
 import { cn } from '../lib/utils'
 import { ApplicationMessageComponents } from './ApplicationMessageComponents'
 import type { MiscordApplicationCommand } from '../types/bot'
+import { MessagePoll } from './community/MessagePoll'
 
 interface ChatMessageProps {
   message: Message;
@@ -41,6 +42,7 @@ interface ChatMessageProps {
   isPinned?: boolean;
   canPin?: boolean;
   onTogglePin?: (messageId: number, pinned: boolean) => void;
+  onCreateThread?: (message: Message) => void;
 }
 
 export function ChatMessage({
@@ -58,6 +60,7 @@ export function ChatMessage({
   isPinned = false,
   canPin = false,
   onTogglePin,
+  onCreateThread,
 }: ChatMessageProps) {
   const [isHovered, setIsHovered] = useState(false)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
@@ -66,7 +69,7 @@ export function ChatMessage({
   const [showMoreMenu, setShowMoreMenu] = useState(false)
   const [lightboxItem, setLightboxItem] = useState<MediaLightboxItem | null>(null)
   const rowRef = useRef<HTMLDivElement>(null)
-  
+
   const { deleteMessage, editMessage } = useChatStore()
   const mentionsCurrentUser = contentMentionsUser(message.content, currentUser?.id)
   const isUnreadMention = useMentionNotificationStore((state) =>
@@ -116,12 +119,12 @@ export function ChatMessage({
   const canEditDelete = currentUser &&
     !(message.author as typeof message.author & { is_webhook?: boolean }).is_webhook &&
     !message.author.is_bot &&
-    message.author.id === currentUser.id && 
+    message.author.id === currentUser.id &&
     (new Date().getTime() - new Date(message.timestamp).getTime()) < 2 * 60 * 60 * 1000; // 2 часа
 
   const handleDelete = async () => {
     if (!canEditDelete) return;
-    
+
     try {
       await messageService.deleteMessage(message.id);
       deleteMessage(message.id);
@@ -140,7 +143,7 @@ export function ChatMessage({
 
   const handleEditSave = async () => {
     if (!editContent.trim()) return;
-    
+
     try {
       await messageService.editMessage(message.id, { content: editContent });
       editMessage(message.id, editContent);
@@ -178,6 +181,11 @@ export function ChatMessage({
       {/* Hover menu */}
       {(isHovered || showMoreMenu) && !isEditing && (
         <div className="chat-message-actions absolute right-2 top-1 z-20 flex items-center rounded-lg border border-border bg-background shadow-lg">
+          {onCreateThread && (
+            <Tooltip content="Создать обсуждение">
+              <button type="button" onClick={() => onCreateThread(message)} aria-label="Создать обсуждение" className="p-2 text-text-quiet hover:bg-surface hover:text-foreground"><MessageCircle className="h-4 w-4" /></button>
+            </Tooltip>
+          )}
           <Tooltip content="Добавить реакцию">
             <Button
               size="sm"
@@ -270,14 +278,14 @@ export function ChatMessage({
 
       {/* Avatar */}
       {showAuthor ? (
-        <UserAvatar 
+        <UserAvatar
           user={message.author}
           size={40}
         />
       ) : (
-        <div className="w-10 flex-shrink-0" /> 
+        <div className="w-10 flex-shrink-0" />
       )}
-      
+
       <div className="flex flex-col flex-1">
         {/* Author and timestamp */}
         {showAuthor && (
@@ -329,7 +337,7 @@ export function ChatMessage({
             }
           </div>
         )}
-        
+
         {/* Message content */}
         {isEditing ? (
           <div className="mt-1">
@@ -375,6 +383,7 @@ export function ChatMessage({
             />
             <ManagedMessageAttachments attachments={message.attachments || []} />
             <ApplicationMessageComponents message={message} />
+            {message.poll && <MessagePoll initialPoll={message.poll} canClose={message.author.id === currentUser?.id} />}
           </>
         )}
 
@@ -385,7 +394,7 @@ export function ChatMessage({
               <Tooltip key={reaction.id} content={reaction.users.map((u) => u.username).join(', ')}>
                 <button
                   className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs border transition-colors hover:bg-muted ${
-                    reaction.currentUserReacted 
+                    reaction.currentUserReacted
                       ? 'border-primary bg-primary/20 text-[#f5f5f5]'
                       : 'bg-background border-border'
                   }`}
@@ -404,4 +413,4 @@ export function ChatMessage({
       <MediaLightbox item={lightboxItem} onClose={() => setLightboxItem(null)} />
     </div>
   )
-} 
+}

@@ -12,6 +12,7 @@
     "start": "next start",
     "lint": "next lint",
     "test:voice": "vitest run src/services/__tests__/voiceVolume.test.ts src/services/__tests__/voiceSettings.test.ts src/services/voice/__tests__",
+    "test:e2e": "playwright test",
     "electron": "electron .",
     "electron-dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
     "build-electron": "node scripts/build-electron.js",
@@ -53,6 +54,7 @@
     "zustand": "^4.4.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/node": "^20.10.0",
     "@types/react": "^18.2.42",
     "@types/react-dom": "^18.2.17",

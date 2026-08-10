@@ -1,7 +1,7 @@
 from pydantic import BaseModel, field_validator
 from datetime import datetime
 from typing import Optional, List
-from app.schemas.user import User
+from app.schemas.user import PublicUser
 from app.services.slow_mode import SLOW_MODE_OPTIONS
 
 class ChannelBase(BaseModel):
@@ -22,6 +22,8 @@ class ChannelUpdate(BaseModel):
 
 class TextChannelBase(BaseModel):
     name: str
+    kind: str = "text"
+    parent_id: Optional[int] = None
     position: int = 0
     slow_mode_seconds: int = 0
     category_id: Optional[int] = None
@@ -115,6 +117,11 @@ class TextChannel(TextChannelBase):
     id: int
     channel_id: int
     created_at: datetime
+    owner_id: Optional[int] = None
+    archived_at: Optional[datetime] = None
+    locked: bool = False
+    auto_archive_minutes: int = 1440
+    last_message_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -134,7 +141,7 @@ class Channel(ChannelBase):
     is_public: bool = False
     created_at: datetime
     updated_at: Optional[datetime] = None
-    owner: User
+    owner: PublicUser
     text_channels: List[TextChannel] = []
     voice_channels: List[VoiceChannel] = []
     members_count: int = 0
@@ -147,7 +154,7 @@ class ChannelMember(BaseModel):
     channel_id: int
     user_id: int
     joined_at: datetime
-    user: User
+    user: PublicUser
 
     class Config:
         from_attributes = True
@@ -156,7 +163,7 @@ class VoiceChannelUser(BaseModel):
     user_id: int
     is_muted: bool = False
     is_deafened: bool = False
-    user: User
+    user: PublicUser
 
     class Config:
         from_attributes = True

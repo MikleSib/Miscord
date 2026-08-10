@@ -44,10 +44,10 @@ class Message(Base):
 
     author: Mapped[Optional["User"]] = relationship("User", foreign_keys=[author_id])
     pinned_by: Mapped[Optional["User"]] = relationship("User", foreign_keys=[pinned_by_id])
-    text_channel: Mapped["TextChannel"] = relationship("TextChannel")
+    text_channel: Mapped["TextChannel"] = relationship("TextChannel", foreign_keys=[text_channel_id])
     attachments: Mapped[List["Attachment"]] = relationship("Attachment", back_populates="message", cascade="all, delete-orphan")
     reactions: Mapped[List["Reaction"]] = relationship("Reaction", back_populates="message", cascade="all, delete-orphan")
-    
+
     # Самосвязь для ответов
     reply_to: Mapped[Optional["Message"]] = relationship("Message", remote_side=[id], backref="replies")
 

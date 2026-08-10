@@ -1,0 +1,4 @@
+@keyframes miscord-mobile-list-in {
+  from { opacity: 0.9; transform: translateX(-6%); }
+  to { opacity: 1; transform: translateX(0); }
+}

@@ -23,6 +23,8 @@ import {
   setOverwritePermissionState,
 } from './ChannelOverwriteEditor'
 import { UnsavedChangesBar } from './UnsavedChangesBar'
+import { ChannelPermissionTargetMenu } from './ChannelPermissionTargetMenu'
+import { ChannelPermissionTargetList } from './ChannelPermissionTargetList'
 
 interface ChannelPermissionsTabProps {
   channel: Channel
@@ -514,131 +516,17 @@ export function ChannelPermissionsTab({
                       <Plus className="h-4 w-4" />
                     </button>
 
-                    {showAddMenu &&
-                      addMenuPos &&
-                      createPortal(
-                        <div
-                          ref={addMenuRef}
-                          style={{ top: addMenuPos.top, left: addMenuPos.left }}
-                          className="fixed z-[120] w-72 overflow-hidden rounded-lg border border-[#1e1f22] bg-[#111214] shadow-2xl"
-                        >
-                          <div className="border-b border-[#1e1f22] px-3 py-2 text-sm font-semibold text-white">
-                            Добавить:
-                          </div>
-                          <div className="px-3 py-2">
-                            <div className="relative">
-                              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#949ba4]" />
-                              <input
-                                autoFocus
-                                value={addQuery}
-                                onChange={(event) => setAddQuery(event.target.value)}
-                                placeholder="Роль/Участник"
-                                className="w-full rounded border border-[#5865f2] bg-[#1e1f22] py-1.5 pl-8 pr-2 text-sm text-[#dbdee1] outline-none"
-                              />
-                            </div>
-                          </div>
-                          <div className="max-h-64 overflow-y-auto py-1">
-                            {filteredAddOptions.length === 0 ? (
-                              <p className="px-3 py-2 text-sm text-[#949ba4]">Ничего не найдено</p>
-                            ) : (
-                              filteredAddOptions.map((option) => (
-                                <button
-                                  key={`${option.kind}-${option.id}`}
-                                  type="button"
-                                  onClick={() => void handleAddTarget(option.kind, option.id)}
-                                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-[#2b2d31]"
-                                >
-                                  {option.kind === 'role' ? (
-                                    <>
-                                      <span
-                                        className="h-3 w-3 shrink-0 rounded-full"
-                                        style={{ backgroundColor: option.color || '#949ba4' }}
-                                      />
-                                      <span
-                                        className="min-w-0 flex-1 truncate font-medium"
-                                        style={{ color: option.color || '#f2f3f5' }}
-                                      >
-                                        {option.name}
-                                      </span>
-                                      <span className="text-xs text-[#949ba4]">Роль</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <UserAvatar
-                                        user={{
-                                          username: option.name,
-                                          avatar_url: option.avatar,
-                                        }}
-                                        size={24}
-                                      />
-                                      <span className="truncate text-[#f2f3f5]">{option.name}</span>
-                                    </>
-                                  )}
-                                </button>
-                              ))
-                            )}
-                          </div>
-                        </div>,
-                        document.body
-                      )}
+                    <ChannelPermissionTargetMenu model={{
+                      showAddMenu, addMenuPos, addMenuRef, addQuery, setAddQuery,
+                      filteredAddOptions, handleAddTarget,
+                    }} />
                   </div>
                 </div>
 
                 <div className="flex min-h-0 flex-1 flex-col">
-                <div className="flex-1 space-y-0.5 overflow-y-auto px-2 pb-2">
-                  {sortedOverwrites.map((item) => {
-                    const active =
-                      selected?.target_type === item.target_type &&
-                      selected?.target_id === item.target_id
-                    const dirty = Boolean(pending[targetKey(item.target_type, item.target_id)])
-                    return (
-                      <button
-                        key={`${item.target_type}-${item.target_id}`}
-                        type="button"
-                        onClick={() =>
-                          setSelected({
-                            target_type: item.target_type,
-                            target_id: item.target_id,
-                          })
-                        }
-                        className={cn(
-                          'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition',
-                          active
-                            ? 'bg-[#404249] text-white'
-                            : 'text-[#b5bac1] hover:bg-[#35373c] hover:text-[#dbdee1]'
-                        )}
-                      >
-                        {item.target_type === 'member' ? (
-                          <UserAvatar
-                            user={{
-                              username: item.target_name,
-                              avatar_url: item.target_avatar_url,
-                            }}
-                            size={22}
-                          />
-                        ) : (
-                          <span
-                            className="h-2.5 w-2.5 shrink-0 rounded-full"
-                            style={{ backgroundColor: item.target_color || '#949ba4' }}
-                          />
-                        )}
-                        <span
-                          className="truncate"
-                          style={
-                            item.target_type === 'role' && item.target_color
-                              ? { color: active ? undefined : item.target_color }
-                              : undefined
-                          }
-                        >
-                          {item.target_name}
-                        </span>
-                        {dirty && (
-                          <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-[#00a8fc]" />
-                        )}
-                      </button>
-                    )
-                  })}
-                </div>
+                <ChannelPermissionTargetList model={{
+                  sortedOverwrites, selected, setSelected, pending,
+                }} />
                 <a
                   href="#"
                   onClick={(event) => event.preventDefault()}

@@ -1,438 +1,48 @@
-import { Message } from '../types';
+import unifiedWebSocketService, { type ConnectionStatus } from './unifiedWebSocketService'
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://miscord.ru';
+type Handler = (data: any) => void
 
-type Handler = (data: any) => void;
-
-class WebSocketService {
-  private ws: WebSocket | null = null;
-  private reconnectAttempts = 0;
-  private maxReconnectAttempts = 8;
-  private reconnectDelay = 1000;
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private shouldReconnect = false;
-  private token: string | null = null;
-  private listeners: { [key: string]: Handler[] } = {};
-  private isReconnecting = false;
-  private lastError: string | null = null;
-  private connectionStatusHandlers: ((status: {
-    isConnected: boolean;
-    isReconnecting: boolean;
-    reconnectAttempts: number;
-    maxReconnectAttempts: number;
-    lastError?: string;
-  }) => void)[] = [];
-
-  private notifyConnectionStatus() {
-    const status = {
-      isConnected: this.isConnected(),
-      isReconnecting: this.isReconnecting,
-      reconnectAttempts: this.reconnectAttempts,
-      maxReconnectAttempts: this.maxReconnectAttempts,
-      lastError: this.lastError || undefined
-    };
-    this.connectionStatusHandlers.forEach(handler => handler(status));
+/** Legacy facade backed by the single /ws/unified connection. */
+class WebSocketServiceFacade {
+  connect(token: string) { unifiedWebSocketService.connect(token) }
+  disconnect() { unifiedWebSocketService.disconnect() }
+  fullDisconnect() { unifiedWebSocketService.fullDisconnect() }
+  isConnected() { return unifiedWebSocketService.isConnected() }
+  send(data: unknown) { return unifiedWebSocketService.send(data) }
+  on(event: string, handler: Handler) { unifiedWebSocketService.on(event, handler) }
+  off(event: string, handler: Handler) { unifiedWebSocketService.off(event, handler) }
+  onConnectionStatusChange(handler: (status: ConnectionStatus) => void) {
+    unifiedWebSocketService.onConnectionStatusChange(handler)
+    return () => unifiedWebSocketService.offConnectionStatusChange(handler)
   }
 
-  onConnectionStatusChange(handler: (status: {
-    isConnected: boolean;
-    isReconnecting: boolean;
-    reconnectAttempts: number;
-    maxReconnectAttempts: number;
-    lastError?: string;
-  }) => void) {
-    this.connectionStatusHandlers.push(handler);
-    this.notifyConnectionStatus();
-
-    return () => {
-      this.connectionStatusHandlers = this.connectionStatusHandlers.filter(
-        (registeredHandler) => registeredHandler !== handler
-      );
-    };
+  onChannelInvitation(handler: Handler) {
+    this.on('channel_invitation', handler)
+    this.on('server_invite', handler)
   }
-
-  // Регистрация обработчиков сообщений
-  onChannelInvitation(handler: (data: {
-    channel_id?: number;
-    channel_name?: string;
-    invited_by?: string;
-    code?: string;
-    server_id?: number;
-    inviter_id?: number;
-    inviter_name?: string;
-    invite_url?: string;
-  }) => void) {
-    // Legacy alias + каноническое имя с бэкенда
-    this.on('channel_invitation', handler);
-    this.on('server_invite', handler);
-  }
-
-  onServerRemoved(handler: (data: {
-    server_id: number;
-    server_name?: string;
-    kind?: string;
-    reason?: string | null;
-    by?: string;
-  }) => void) {
-    this.on('server_removed', handler);
-  }
-
-  onTextChannelUpdated(handler: (data: {
-    text_channel_id: number;
-    name?: string;
-    position?: number;
-    slow_mode_seconds?: number;
-    updated_by?: { id: number; username: string };
-  }) => void) {
-    this.on('text_channel_updated', handler);
-  }
-
-  onVoiceChannelUpdated(handler: (data: {
-    voice_channel_id: number;
-    name?: string;
-    position?: number;
-    max_users?: number;
-    bitrate?: number;
-    video_quality?: 'auto' | '720p';
-    updated_by?: { id: number; username: string };
-  }) => void) {
-    this.on('voice_channel_updated', handler);
-  }
-
-  onTextChannelDeleted(handler: (data: {
-    text_channel_id: number;
-    server_id: number;
-    deleted_by?: { id: number; username: string };
-  }) => void) {
-    this.on('text_channel_deleted', handler);
-  }
-
-  onVoiceChannelDeleted(handler: (data: {
-    voice_channel_id: number;
-    server_id: number;
-    deleted_by?: { id: number; username: string };
-  }) => void) {
-    this.on('voice_channel_deleted', handler);
-  }
-
-  onUserJoinedChannel(handler: (data: {
-    user_id: number;
-    username?: string;
-    display_name?: string | null;
-    avatar_url?: string | null;
-    channel_id: number;
-    user?: {
-      id: number;
-      username?: string;
-      display_name?: string | null;
-      avatar_url?: string | null;
-      email?: string;
-      is_online?: boolean;
-    };
-  }) => void) {
-    this.on('user_joined_channel', handler);
-  }
-
-  onUserLeftChannel(handler: (data: { user_id: number; channel_id: number }) => void) {
-    this.on('user_left_channel', handler);
-  }
-
-  // Новые обработчики для создания каналов
-  onServerCreated(handler: (data: { server: any; created_by?: { id: number; username: string }; invited_by?: string }) => void) {
-    this.on('server_created', handler);
-  }
-
-  onTextChannelCreated(handler: (data: { channel_id: number; text_channel: any; created_by: { id: number; username: string } }) => void) {
-    this.on('text_channel_created', handler);
-  }
-
-  onVoiceChannelCreated(handler: (data: { channel_id: number; voice_channel: any; created_by: { id: number; username: string } }) => void) {
-    this.on('voice_channel_created', handler);
-  }
-
-  // Голосовые уведомления
-  onVoiceChannelJoin(handler: (data: { user_id: number; username: string; voice_channel_id: number; voice_channel_name: string }) => void) {
-    this.on('voice_channel_join', handler);
-  }
-
-  onVoiceChannelLeave(handler: (data: { user_id: number; username: string; voice_channel_id: number }) => void) {
-    this.on('voice_channel_leave', handler);
-  }
-
-  onNewMessage(handler: (message: Message) => void) {
-    this.on('new_message', handler);
-  }
-
-  onTyping(handler: (data: { user: { id: number; username: string }, text_channel_id: number }) => void) {
-    this.on('typing', handler);
-  }
-
-  onMessageDeleted(handler: (data: { message_id: number; text_channel_id: number }) => void) {
-    this.on('message_deleted', handler);
-  }
-
-  onMessageEdited(handler: (message: Message) => void) {
-    this.on('message_edited', handler);
-  }
-
-  // Демонстрация экрана
-  onScreenShareStarted(handler: (data: { user_id: number; username: string }) => void) {
-    this.on('screen_share_started', handler);
-  }
-
-  onScreenShareStopped(handler: (data: { user_id: number; username: string }) => void) {
-    this.on('screen_share_stopped', handler);
-  }
-
-  // Реакции
-  onReactionUpdated(handler: (data: { 
-    message_id: number; 
-    emoji: string; 
-    reaction: any; 
-    was_removed: boolean; 
-    user: { id: number; username: string; display_name: string } 
-  }) => void) {
-    this.on('reaction_updated', handler);
-  }
-
-  // Обновление сервера
-  onServerUpdated(handler: (data: { 
-    server_id: number; 
-    name: string; 
-    description?: string; 
-    icon?: string;
-    banner?: string | null;
-    is_public?: boolean;
-    updated_by: { id: number; username: string; display_name: string } 
-  }) => void) {
-    this.on('server_updated', handler);
-  }
-
-  // Удаление сервера
-  onServerDeleted(handler: (data: { 
-    server_id: number; 
-    server_name: string; 
-    deleted_by: { id: number; username: string } 
-  }) => void) {
-    this.on('server_deleted', handler);
-  }
-
-  onUserStatusChanged(handler: (data: { user_id: number; username: string; is_online: boolean }) => void) {
-    this.on('user_status_changed', handler);
-  }
-
-  onUserProfileUpdated(handler: (data: {
-    user_id: number;
-    username?: string;
-    display_name?: string | null;
-    avatar_url?: string | null;
-  }) => void) {
-    this.on('user_profile_updated', handler);
-  }
-
-  connect(token: string) {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    const currentToken = localStorage.getItem('access_token') || token;
-    if (!currentToken) {
-      this.shouldReconnect = false;
-      this.isReconnecting = false;
-      this.lastError = 'Сессия истекла';
-      this.notifyConnectionStatus();
-      return;
-    }
-
-    if (
-      this.ws?.readyState === WebSocket.OPEN ||
-      this.ws?.readyState === WebSocket.CONNECTING
-    ) {
-      return;
-    }
-
-    this.token = currentToken;
-    this.shouldReconnect = true;
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-
-    this.isReconnecting = true;
-    this.lastError = null;
-    this.notifyConnectionStatus();
-    try {
-      const socket = new WebSocket(
-        `${WS_URL}/ws/notifications?token=${encodeURIComponent(currentToken)}`
-      );
-      this.ws = socket;
-
-      socket.onopen = () => {
-        if (this.ws !== socket) return;
-        this.reconnectAttempts = 0;
-        this.isReconnecting = false;
-        this.lastError = null;
-        this.notifyConnectionStatus();
-      };
-      socket.onmessage = (event) => {
-        if (this.ws !== socket) return;
-        try {
-          const data = JSON.parse(event.data);
-          
-          // Автоматически отвечаем на ping
-          if (data.type === 'ping') {
-            this.send({ type: 'pong' });
-            return;
-          }
-          
-          this.emit(data.type, data);
-        } catch (error) {
-          console.error('Ошибка обработки WebSocket сообщения:', error);
-          this.lastError = 'Ошибка обработки сообщения';
-          this.notifyConnectionStatus();
-        }
-      };
-      socket.onclose = (event) => {
-        if (this.ws !== socket) return;
-        this.ws = null;
-        this.isReconnecting = false;
-        this.lastError = event.reason || 'Соединение закрыто';
-        this.notifyConnectionStatus();
-        if (
-          this.shouldReconnect &&
-          event.code !== 1000 &&
-          event.code !== 4001 &&
-          event.code !== 1008
-        ) {
-          this.handleReconnect();
-        }
-      };
-      socket.onerror = (error) => {
-        if (this.ws !== socket) return;
-        console.error('🔔 Ошибка WebSocket уведомлений:', error);
-        this.lastError = 'Ошибка соединения';
-        this.isReconnecting = false;
-        this.notifyConnectionStatus();
-      };
-    } catch (error) {
-      console.error('Ошибка подключения WebSocket уведомлений:', error);
-      this.lastError = 'Не удалось подключиться';
-      this.isReconnecting = false;
-      this.notifyConnectionStatus();
-      if (this.shouldReconnect) {
-        this.handleReconnect();
-      }
-    }
-  }
-
-  private handleReconnect() {
-    if (!this.shouldReconnect || this.reconnectTimer) return;
-
-    const currentToken =
-      (typeof window !== 'undefined' && localStorage.getItem('access_token')) ||
-      this.token;
-    if (!currentToken) {
-      this.shouldReconnect = false;
-      this.isReconnecting = false;
-      this.lastError = 'Сессия истекла';
-      this.notifyConnectionStatus();
-      return;
-    }
-
-    this.token = currentToken;
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.reconnectAttempts++;
-      this.isReconnecting = true;
-      this.lastError = `Попытка ${this.reconnectAttempts}/${this.maxReconnectAttempts}`;
-      this.notifyConnectionStatus();
-      const delay = Math.min(
-        this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1),
-        30000
-      );
-      this.reconnectTimer = setTimeout(() => {
-        this.reconnectTimer = null;
-        if (this.shouldReconnect && this.token) {
-          this.connect(this.token);
-        }
-      }, delay);
-    } else {
-      this.shouldReconnect = false;
-      this.isReconnecting = false;
-      this.lastError = 'Превышено максимальное количество попыток переподключения';
-      this.notifyConnectionStatus();
-    }
-  }
-
-  on(event: string, handler: Handler) {
-    if (!this.listeners[event]) {
-      this.listeners[event] = [];
-    }
-    this.listeners[event].push(handler);
-  }
-
-  off(event: string, handler: Handler) {
-    if (this.listeners[event]) {
-      this.listeners[event] = this.listeners[event].filter(h => h !== handler);
-    }
-  }
-
-  private emit(event: string, data: any) {
-    if (this.listeners[event] && this.listeners[event].length > 0) {
-      this.listeners[event].forEach(handler => handler(data));
-    } else if (process.env.NODE_ENV === 'development') {
-      // Логируем только критичные необработанные события
-      if (event === 'error') {
-        console.warn('[WS] ⚠️ Нет обработчика для события:', event);
-      }
-    }
-  }
-
-  send(data: any) {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      const messageStr = JSON.stringify(data);
-      this.ws.send(messageStr);
-    } else if (process.env.NODE_ENV === 'development') {
-      console.warn('[WS] WebSocket не открыт, сообщение не отправлено');
-    }
-  }
-
-  disconnect() {
-    this.shouldReconnect = false;
-    this.token = null;
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-
-    const socket = this.ws;
-    this.ws = null;
-    if (socket) {
-      socket.onopen = null;
-      socket.onmessage = null;
-      socket.onerror = null;
-      socket.onclose = null;
-      socket.close(1000, 'Client disconnect');
-    }
-    // НЕ очищаем listeners и connectionStatusHandlers!
-    // Они нужны при переподключении
-    // this.listeners = {};
-    // this.connectionStatusHandlers = [];
-    this.reconnectAttempts = 0;
-    this.isReconnecting = false;
-    this.lastError = null;
-    this.notifyConnectionStatus();
-  }
-
-  // Новый метод для полного отключения (при выходе из приложения)
-  fullDisconnect() {
-    this.disconnect();
-    this.listeners = {};
-    this.connectionStatusHandlers = [];
-  }
-
-  isConnected(): boolean {
-    return this.ws?.readyState === WebSocket.OPEN;
-  }
+  onServerRemoved(handler: Handler) { this.on('server_removed', handler) }
+  onTextChannelUpdated(handler: Handler) { this.on('text_channel_updated', handler) }
+  onVoiceChannelUpdated(handler: Handler) { this.on('voice_channel_updated', handler) }
+  onTextChannelDeleted(handler: Handler) { this.on('text_channel_deleted', handler) }
+  onVoiceChannelDeleted(handler: Handler) { this.on('voice_channel_deleted', handler) }
+  onUserJoinedChannel(handler: Handler) { this.on('user_joined_channel', handler) }
+  onUserLeftChannel(handler: Handler) { this.on('user_left_channel', handler) }
+  onServerCreated(handler: Handler) { this.on('server_created', handler) }
+  onTextChannelCreated(handler: Handler) { this.on('text_channel_created', handler) }
+  onVoiceChannelCreated(handler: Handler) { this.on('voice_channel_created', handler) }
+  onVoiceChannelJoin(handler: Handler) { this.on('voice_channel_join', handler) }
+  onVoiceChannelLeave(handler: Handler) { this.on('voice_channel_leave', handler) }
+  onNewMessage(handler: Handler) { unifiedWebSocketService.onNewMessage(handler) }
+  onTyping(handler: Handler) { this.on('typing', handler) }
+  onMessageDeleted(handler: Handler) { this.on('message_deleted', handler) }
+  onMessageEdited(handler: Handler) { this.on('message_edited', handler) }
+  onScreenShareStarted(handler: Handler) { this.on('screen_share_started', handler) }
+  onScreenShareStopped(handler: Handler) { this.on('screen_share_stopped', handler) }
+  onReactionUpdated(handler: Handler) { this.on('reaction_updated', handler) }
+  onServerUpdated(handler: Handler) { this.on('server_updated', handler) }
+  onServerDeleted(handler: Handler) { this.on('server_deleted', handler) }
+  onUserStatusChanged(handler: Handler) { this.on('user_status_changed', handler) }
+  onUserProfileUpdated(handler: Handler) { this.on('user_profile_updated', handler) }
 }
 
-export default new WebSocketService();
+export default new WebSocketServiceFacade()

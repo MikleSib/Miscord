@@ -5,24 +5,24 @@ import { DirectMessage, User } from '../types'
 import directMessageService from '../services/directMessageService'
 import websocketService from '../services/websocketService'
 import { appendChatFiles, MAX_CHAT_ATTACHMENTS } from '../lib/chatAttachments'
-import { resetChatComposer, resizeChatComposer } from '../lib/chatComposer'
-import { PendingAttachmentPreview } from './PendingAttachmentPreview'
+import { resetChatComposer } from '../lib/chatComposer'
 import { ManagedMessageAttachments } from './ManagedMessageAttachments'
 import { MessageAttachmentGallery } from './MessageAttachmentGallery'
 import { OutgoingMessageCard } from './OutgoingMessageCard'
 import { useOutgoingMessageStore } from '../store/outgoingMessageStore'
 import api from '../services/api'
 import { useAuthStore } from '../store/store'
-import { Send, X, Clock, PlusCircle, Smile, Reply, Trash2, Edit } from 'lucide-react'
+import { Clock, Smile, Reply, Trash2 } from 'lucide-react'
 import { UserAvatar } from './ui/user-avatar'
 import { MediaLightbox, MediaLightboxItem } from './MediaLightbox'
 import { MessageContent } from './MessageContent'
 import { MessageLinkEmbeds } from './MessageLinkEmbeds'
 import { useComposerFormatting } from '../hooks/useComposerFormatting'
 import { EmojiPickerPopover } from './emoji/EmojiPickerPopover'
-import { ComposerEmojiButton } from './emoji/ComposerEmojiButton'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
+import { DirectMessageComposer } from './DirectMessageComposer'
+import { AttachmentDropOverlay } from './AttachmentDropOverlay'
 
 interface DirectMessageAreaProps {
   friend: User
@@ -74,20 +74,17 @@ export function DirectMessageArea({
     if (user && token) void initializeOutgoingQueue(user.id, token)
   }, [user?.id, initializeOutgoingQueue])
 
-  // Загрузка сообщений с пагинацией
   const fetchMessages = async (loadSkip: number = 0, loadLimit: number = 30) => {
     if (isLoading) return
     setIsLoading(true)
     try {
       const messageHistory = await directMessageService.getMessages(friend.id, loadSkip, loadLimit)
-      // Гарантируем, что reactions всегда массив
       const messagesWithReactions = messageHistory.map(msg => ({
         ...msg,
         reactions: msg.reactions || []
       }));
-      
+
       if (loadSkip === 0) {
-        // Первоначальная загрузка
         setMessages(messagesWithReactions)
         setSkip(messagesWithReactions.length)
         setHasMore(messagesWithReactions.length === loadLimit)
@@ -157,9 +154,9 @@ export function DirectMessageArea({
       // WebSocket отправляет { type: 'dm', data: {...message} }
       const message: DirectMessage = payload.data || payload;
       acknowledgeOutgoing(message.client_nonce)
-      
+
       console.log('[DirectMessageArea] Получено DM сообщение:', { payload, message, currentUser: user?.id, friend: friend.id });
-      
+
       if (
         (message.sender_id === user?.id && message.recipient_id === friend.id) ||
         (message.sender_id === friend.id && message.recipient_id === user?.id)
@@ -180,14 +177,14 @@ export function DirectMessageArea({
     const handleDMReactionUpdated = (payload: any) => {
       const data = payload.data || payload;
       console.log('[DirectMessageArea] Р еакция обновлена:', data);
-      
+
       setMessages((prev) => prev.map(msg => {
         if (msg.id !== data.message_id) return msg;
-        
+
         // Обновляем реакции для сообщения
         const updatedReactions = msg.reactions || [];
         const reactionIndex = updatedReactions.findIndex(r => r.emoji === data.emoji);
-        
+
         if (data.reaction.count === 0) {
           // Удаляем реакцию если count = 0
           return {
@@ -244,7 +241,7 @@ export function DirectMessageArea({
     websocketService.on('dm_deleted', handleDMDeleted);
     websocketService.on('dm_reaction_updated', handleDMReactionUpdated);
     websocketService.on('rate_limit', handleRateLimit);
-    
+
     return () => {
       websocketService.off('dm', handleNewMessage);
       websocketService.off('dm_deleted', handleDMDeleted);
@@ -253,7 +250,6 @@ export function DirectMessageArea({
     };
   }, [friend.id, user?.id]);
 
-  // Обработчик прокрутки для подгрузки сообщений
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
@@ -371,7 +367,7 @@ export function DirectMessageArea({
       handleDeletePendingMessage(messageId);
       return;
     }
-    
+
     // Для отправленных сообщений
     try {
       console.log('Удаление отправленного сообщения:', messageId);
@@ -391,7 +387,7 @@ export function DirectMessageArea({
   const canDeleteMessage = (msg: DirectMessage) => {
     if (msg.isPending) return true;
     if (msg.sender_id !== user?.id) return false;
-    
+
     // Можно удалить если прошло менее 5 минут
     const messageTime = new Date(msg.timestamp).getTime();
     const now = new Date().getTime();
@@ -404,7 +400,7 @@ export function DirectMessageArea({
     if (typeof messageId === 'string') {
       return;
     }
-    
+
     try {
       console.log('Добавление реакции:', emoji, 'к сообщению', messageId);
       await api.post(`/api/v1/dms/${messageId}/reactions`, { emoji });
@@ -431,12 +427,10 @@ export function DirectMessageArea({
     scrollToBottom()
   }, [messages]);
 
-  // Функция для определения, является ли сообщение от текущего пользователя
   const isCurrentUserMessage = (message: DirectMessage) => {
     return message.sender_id === user?.id;
   };
 
-  // Функция для получения пользователя для отображения
   const getUserForMessage = (message: DirectMessage) => {
     return isCurrentUserMessage(message) ? user : friend;
   };
@@ -449,15 +443,7 @@ export function DirectMessageArea({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {isDraggingFiles && (
-        <div className="pointer-events-none absolute inset-3 z-50 grid place-items-center rounded-2xl border-2 border-dashed border-[#5865f2] bg-[#1e1f22]/90 backdrop-blur-sm">
-          <div className="text-center">
-            <PlusCircle className="mx-auto mb-3 h-10 w-10 text-[#7c86ff]" />
-            <p className="text-base font-semibold text-white">Добавить файлы в сообщение</p>
-            <p className="mt-1 text-sm text-[#b5bac1]">Изображения до 10 МиБ, остальные файлы до 20 МиБ</p>
-          </div>
-        </div>
-      )}
+      {isDraggingFiles && <AttachmentDropOverlay direct />}
       {/* Top bar */}
       <div className="flex items-center justify-between h-12 px-4 border-b border-[#2c2d32] shadow-md flex-shrink-0">
         <div className="flex items-center">
@@ -475,10 +461,10 @@ export function DirectMessageArea({
           // Показываем автора если это первое сообщение или предыдущее от другого пользователя
           const showAuthor = !prevMsg || prevMsg.sender_id !== msg.sender_id;
           const isPending = msg.isPending || false;
-          
+
           return (
-            <div 
-              key={msg.id} 
+            <div
+              key={msg.id}
               className={`flex items-start gap-3 ${isCurrentUser ? 'justify-end' : ''} mb-2 group relative px-2 py-1 rounded-lg transition-all ${hoveredMessageId === msg.id ? 'bg-[#2c2d32]' : ''}`}
               onMouseEnter={() => setHoveredMessageId(msg.id)}
               onMouseLeave={() => setHoveredMessageId(null)}
@@ -509,7 +495,7 @@ export function DirectMessageArea({
                       <ManagedMessageAttachments attachments={msg.attachments} />
                     </div>
                   )}
-                  
+
                   {/* Message content + превью ссылок */}
                   {msg.content && (
                     <div className={`${isPending ? 'text-gray-400 opacity-70' : 'text-white'} ${isCurrentUser ? 'bg-blue-600' : 'bg-gray-700'} rounded-lg px-3 py-2 ${isPending ? 'bg-opacity-70' : ''}`}>
@@ -599,106 +585,12 @@ export function DirectMessageArea({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
-      <div className="px-4 pb-4 border-t border-[#2c2d32] flex-shrink-0">
-        {isRateLimited && (
-          <div className="mb-2 rounded-md border border-[#5865f2]/30 bg-[#5865f2]/10 px-3 py-2 text-sm text-[#dbdee1]">
-            {rateLimitHint || `Слишком быстро. Подождите ${rateLimitRemainingSeconds} сек.`}
-          </div>
-        )}
-        <form onSubmit={handleSendMessage} className="bg-[#393a41] rounded-lg flex flex-col">
-          {attachmentError && (
-            <div className="m-2 rounded-lg border border-[#da373c]/40 bg-[#da373c]/10 px-3 py-2 text-xs text-[#ffb8ba]">
-              {attachmentError}
-            </div>
-          )}
-          
-          {/* Reply Preview */}
-          {replyingTo && (
-            <div className="flex items-center justify-between p-3 border-b border-[#2c2d32] bg-[#2c2d32]/50">
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                <Reply className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-gray-400">Ответ для {replyingTo.author?.username || friend.username}</p>
-                  <p className="text-sm text-white truncate">{replyingTo.content || 'Изображение'}</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={handleCancelReply}
-                className="text-gray-400 hover:text-white transition-colors flex-shrink-0"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-
-          {/* File Previews */}
-          {files.length > 0 && (
-            <div className="flex gap-2 overflow-x-auto border-b border-[#2c2d32] p-2">
-              {files.map((file, index) => (
-                <PendingAttachmentPreview
-                  key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
-                  file={file}
-                  onRemove={() => handleRemoveFile(index)}
-                />
-              ))}
-            </div>
-          )}
-          
-          {/* Input Row */}
-          <div className="px-4 flex items-center">
-            <input 
-              type="file"
-              ref={fileInputRef}
-              multiple
-              onChange={handleFileChange}
-              className="hidden"
-            />
-            <button 
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="text-gray-400 hover:text-white mr-2"
-              disabled={files.length >= MAX_CHAT_ATTACHMENTS || isSending || isRateLimited}
-              title="Прикрепить файлы"
-            >
-              <PlusCircle className="w-5 h-5" />
-            </button>
-            <textarea
-              ref={messageInputRef}
-              rows={1}
-              style={{ resize: 'none', overflowY: 'hidden' }}
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              onPaste={handlePaste}
-              onKeyDown={(e) => {
-                if (applyFormattingShortcut(e)) return
-                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                  e.preventDefault()
-                  e.currentTarget.form?.requestSubmit()
-                }
-              }}
-              onInput={(e) => resizeChatComposer(e.currentTarget)}
-              placeholder={replyingTo ? 'Напишите ответ...' : `Написать @${friend.username}`}
-              className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none py-3"
-              disabled={isSending || isRateLimited}
-            />
-            <ComposerEmojiButton
-              inputRef={messageInputRef}
-              setValue={setNewMessage}
-              disabled={isSending || isRateLimited}
-              className="mr-2"
-            />
-            <button 
-              type="submit" 
-              className="text-gray-400 hover:text-white disabled:opacity-50" 
-              disabled={(!newMessage.trim() && files.length === 0) || isSending || isRateLimited}
-            >
-              <Send />
-            </button>
-          </div>
-        </form>
-      </div>
+      <DirectMessageComposer model={{
+        isRateLimited, rateLimitHint, rateLimitRemainingSeconds, handleSendMessage,
+        attachmentError, replyingTo, friend, handleCancelReply, files,
+        handleRemoveFile, fileInputRef, handleFileChange, isSending,
+        messageInputRef, newMessage, setNewMessage, handlePaste, applyFormattingShortcut,
+      }} />
 
       <MediaLightbox item={lightboxItem} onClose={() => setLightboxItem(null)} />
     </div>

@@ -1,0 +1,95 @@
+[
+  {
+    "id": "blank",
+    "icon": "＋",
+    "name": "Пустой сервер",
+    "description": "Чистое пространство с одним текстовым и одним голосовым каналом.",
+    "schema_version": 1,
+    "definition": {
+      "roles": [{"key": "everyone", "name": "@everyone", "is_default": true, "permissions": null, "position": 0}],
+      "categories": [],
+      "channels": [
+        {"key": "general", "type": "text", "name": "общий", "position": 0},
+        {"key": "voice", "type": "voice", "name": "Общий", "position": 1, "bitrate": 64, "max_users": 0}
+      ],
+      "overwrites": []
+    }
+  },
+  {
+    "id": "community",
+    "icon": "🌐",
+    "name": "Сообщество",
+    "description": "Новости, общение, предложения и тематический форум.",
+    "schema_version": 1,
+    "definition": {
+      "roles": [
+        {"key": "everyone", "name": "@everyone", "is_default": true, "permissions": null, "position": 0},
+        {"key": "moderator", "name": "Модератор", "color": "#23a55a", "permissions": 17179869184, "position": 10}
+      ],
+      "categories": [
+        {"key": "info", "name": "ИНФОРМАЦИЯ", "position": 0},
+        {"key": "community", "name": "СООБЩЕСТВО", "position": 1}
+      ],
+      "channels": [
+        {"key": "rules", "type": "text", "name": "правила", "category_key": "info", "position": 0},
+        {"key": "news", "type": "text", "name": "новости", "category_key": "info", "position": 1},
+        {"key": "general", "type": "text", "name": "общение", "category_key": "community", "position": 0},
+        {"key": "ideas", "type": "forum", "name": "предложения", "category_key": "community", "position": 1, "forum": {"guidelines": "Опишите идею и ожидаемый результат.", "default_layout": "list", "default_sort": "latest_activity", "require_tag": true, "auto_archive_minutes": 10080, "tags": [{"name": "Идея", "emoji": "💡"}, {"name": "Обсуждение", "emoji": "💬"}]}},
+        {"key": "lounge", "type": "voice", "name": "Гостиная", "category_key": "community", "position": 2, "bitrate": 64, "max_users": 0}
+      ],
+      "overwrites": []
+    }
+  },
+  {
+    "id": "gaming",
+    "icon": "🎮",
+    "name": "Игровой сервер",
+    "description": "Поиск команды, игровые обсуждения и голосовые комнаты.",
+    "schema_version": 1,
+    "definition": {
+      "roles": [{"key": "everyone", "name": "@everyone", "is_default": true, "permissions": null, "position": 0}],
+      "categories": [{"key": "lobby", "name": "ЛОББИ", "position": 0}, {"key": "squads", "name": "КОМАНДЫ", "position": 1}],
+      "channels": [
+        {"key": "general", "type": "text", "name": "общий", "category_key": "lobby", "position": 0},
+        {"key": "looking", "type": "forum", "name": "поиск-команды", "category_key": "lobby", "position": 1, "forum": {"guidelines": "Укажите игру, режим и время.", "default_layout": "gallery", "default_sort": "latest_activity", "require_tag": false, "auto_archive_minutes": 4320, "tags": []}},
+        {"key": "squad1", "type": "voice", "name": "Команда 1", "category_key": "squads", "position": 0, "bitrate": 80, "max_users": 5},
+        {"key": "squad2", "type": "voice", "name": "Команда 2", "category_key": "squads", "position": 1, "bitrate": 80, "max_users": 5}
+      ],
+      "overwrites": []
+    }
+  },
+  {
+    "id": "study",
+    "icon": "📚",
+    "name": "Учебный сервер",
+    "description": "Материалы, вопросы, группы и учебные встречи.",
+    "schema_version": 1,
+    "definition": {
+      "roles": [{"key": "everyone", "name": "@everyone", "is_default": true, "permissions": null, "position": 0}],
+      "categories": [{"key": "classes", "name": "ЗАНЯТИЯ", "position": 0}],
+      "channels": [
+        {"key": "announcements", "type": "text", "name": "объявления", "category_key": "classes", "position": 0},
+        {"key": "questions", "type": "forum", "name": "вопросы", "category_key": "classes", "position": 1, "forum": {"guidelines": "Один вопрос — одна публикация.", "default_layout": "list", "default_sort": "latest_activity", "require_tag": false, "auto_archive_minutes": 10080, "tags": []}},
+        {"key": "lesson", "type": "voice", "name": "Занятие", "category_key": "classes", "position": 2, "bitrate": 64, "max_users": 0}
+      ],
+      "overwrites": []
+    }
+  },
+  {
+    "id": "team",
+    "icon": "🧩",
+    "name": "Команда / проект",
+    "description": "Рабочие обсуждения, решения и встречи команды.",
+    "schema_version": 1,
+    "definition": {
+      "roles": [{"key": "everyone", "name": "@everyone", "is_default": true, "permissions": null, "position": 0}],
+      "categories": [{"key": "work", "name": "ПРОЕКТ", "position": 0}],
+      "channels": [
+        {"key": "updates", "type": "text", "name": "обновления", "category_key": "work", "position": 0},
+        {"key": "tasks", "type": "forum", "name": "задачи", "category_key": "work", "position": 1, "forum": {"guidelines": "Опишите задачу, критерии готовности и ответственного.", "default_layout": "list", "default_sort": "latest_activity", "require_tag": true, "auto_archive_minutes": 10080, "tags": [{"name": "План", "emoji": "🗓️"}, {"name": "В работе", "emoji": "🛠️"}, {"name": "Готово", "emoji": "✅"}]}},
+        {"key": "meeting", "type": "voice", "name": "Встреча", "category_key": "work", "position": 2, "bitrate": 80, "max_users": 0}
+      ],
+      "overwrites": []
+    }
+  }
+]
