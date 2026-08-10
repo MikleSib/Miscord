@@ -307,6 +307,7 @@ export interface BackendChannel {
     name: string;
     type: 'text' | 'voice';
     position: number;
+    category_id?: number | null;
     slow_mode_seconds?: number;
     max_users?: number;
   }>;

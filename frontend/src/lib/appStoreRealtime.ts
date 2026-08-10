@@ -8,6 +8,7 @@ import { applyMemberJoined, applyMemberLeft } from './memberSync'
 import { useVoiceStore } from '../store/slices/voiceSlice'
 import { bindCommunityRealtime } from '../services/communityRealtime'
 import type { AppState } from './appStoreTypes'
+import { mapServerChannel } from './serverChannelMapping'
 
 let notificationHandlersBound = false
 let reconnectRefetchBound = false
@@ -91,18 +92,12 @@ websocketService.onServerCreated((data) => {
   }
 
   // Добавляем новый сервер в список
-  const textChannels = (data.server.text_channels || []).map((tc: any) => ({
-    id: tc.id,
-    name: tc.name,
-    type: 'text' as const,
-    serverId: data.server.id,
-  }));
-  const voiceChannels = (data.server.voice_channels || []).map((vc: any) => ({
-    id: vc.id,
-    name: vc.name,
-    type: 'voice' as const,
-    serverId: data.server.id,
-  }));
+  const textChannels = (data.server.text_channels || []).map((channel: any) =>
+    mapServerChannel(data.server.id, channel, 'text'),
+  );
+  const voiceChannels = (data.server.voice_channels || []).map((channel: any) =>
+    mapServerChannel(data.server.id, channel, 'voice'),
+  );
   const newServer: Server = {
     id: data.server.id,
     name: data.server.name,

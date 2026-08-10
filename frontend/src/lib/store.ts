@@ -8,6 +8,7 @@ import { useDmNotificationStore } from '../store/dmNotificationStore';
 import { useChannelUnreadStore } from '../store/channelUnreadStore';
 import type { AppState } from './appStoreTypes';
 import { disconnectAppRealtime, initializeAppRealtime } from './appStoreRealtime';
+import { mapServerChannel } from './serverChannelMapping';
 export const useStore = create<AppState>()(
   persist(
     (set, get) => ({
@@ -432,26 +433,12 @@ export const useStore = create<AppState>()(
             owner_id: s.owner_id,
             created_at: s.created_at,
             channels: [
-              ...(s.text_channels || []).map((c: any) => ({
-                id: c.id,
-                name: c.name,
-                type: 'text' as const,
-                serverId: s.id,
-                position: c.position,
-                slow_mode_seconds: c.slow_mode_seconds ?? 0,
-                kind: c.kind ?? 'text',
-                parent_id: c.parent_id ?? null,
-              })),
-              ...(s.voice_channels || []).map((c: any) => ({
-                id: c.id,
-                name: c.name,
-                type: 'voice' as const,
-                serverId: s.id,
-                position: c.position,
-                max_users: c.max_users ?? 0,
-                bitrate: c.bitrate ?? 64,
-                video_quality: c.video_quality === '720p' ? '720p' as const : 'auto' as const,
-              })),
+              ...(s.text_channels || []).map((channel: any) =>
+                mapServerChannel(s.id, channel, 'text'),
+              ),
+              ...(s.voice_channels || []).map((channel: any) =>
+                mapServerChannel(s.id, channel, 'voice'),
+              ),
             ]
           }));
           set({ servers, isLoading: false });
@@ -485,19 +472,9 @@ export const useStore = create<AppState>()(
         try {
           const serverDetails = await channelService.getChannelDetails(serverId)
 
-          const channels: Channel[] = (serverDetails.channels || []).map((ch: any) => ({
-            id: ch.id,
-            name: ch.name,
-            type: ch.type,
-            serverId: serverId,
-            position: ch.position,
-            slow_mode_seconds: ch.slow_mode_seconds,
-            max_users: ch.max_users ?? 0,
-            bitrate: ch.bitrate ?? 64,
-            video_quality: ch.video_quality === '720p' ? '720p' as const : 'auto' as const,
-            kind: ch.kind ?? (ch.type === 'text' ? 'text' : undefined),
-            parent_id: ch.parent_id ?? null,
-          }))
+          const channels: Channel[] = (serverDetails.channels || []).map((channel) =>
+            mapServerChannel(serverId, channel, channel.type),
+          )
 
           const updatedServer: Server = {
             id: serverDetails.id,
