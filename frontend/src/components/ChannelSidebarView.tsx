@@ -40,11 +40,6 @@ import { useChannelCategoryStore } from '../store/channelCategoryStore'
 import { useChannelCategories } from './channels/useChannelCategories'
 import { ChannelGroupList } from './channels/ChannelGroupList'
 import { VoiceParticipantList } from './channels/VoiceParticipantList'
-import {
-  buildPlacementsForMove,
-  groupChannelsByCategory,
-  type ChannelGroup,
-} from '../lib/channelGrouping'
 
 export function ChannelSidebarView({ model }: { model: any }) {
   const {
@@ -64,7 +59,7 @@ export function ChannelSidebarView({ model }: { model: any }) {
     handleKickUser, handleViewProfile, handleSendMessage, getParticipantVolume, setParticipantVolume, openCreateChannelModal,
     handleChannelCreated, handleServerHeaderContextMenu, handleServerContextMenuClose, handleServerSettings, handleNotificationSettings, handleChannelSettings,
     handleChannelUpdate, handleChannelDelete, handleCopyServerId, normalizedChannelSearch, textChannels, voiceChannels,
-    isSearching, dropEmptyGroups, textGroups, voiceGroups, serverId, handleDropOnCategory,
+    isSearching, textGroups, voiceGroups, serverId, handleDropOnCategory,
     handleDeleteCategory, handleCreateCategory, groupListProps
   } = model
   return (

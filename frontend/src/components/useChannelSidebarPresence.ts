@@ -39,14 +39,6 @@ import {
 import { useChannelUnreadStore } from '../store/channelUnreadStore'
 import { useChannelCategoryStore } from '../store/channelCategoryStore'
 import { useChannelCategories } from './channels/useChannelCategories'
-import { ChannelGroupList } from './channels/ChannelGroupList'
-import { VoiceParticipantList } from './channels/VoiceParticipantList'
-import {
-  buildPlacementsForMove,
-  groupChannelsByCategory,
-  type ChannelGroup,
-} from '../lib/channelGrouping'
-
 export function useChannelSidebarPresence({ model }: { model: any }) {
   const { currentServer, user, setVoiceChannelMembers, currentVoiceChannelId,
     setVoiceMemberProfile, setScreenSharingUsers, setActiveSharingUsers,

@@ -43,8 +43,8 @@ import { useChannelCategories } from './channels/useChannelCategories'
 import { ChannelGroupList } from './channels/ChannelGroupList'
 import { VoiceParticipantList } from './channels/VoiceParticipantList'
 import {
+  buildSidebarChannelGroups,
   buildPlacementsForMove,
-  groupChannelsByCategory,
   type ChannelGroup,
 } from '../lib/channelGrouping'
 
@@ -469,10 +469,12 @@ export function ChannelSidebar() {
   )
 
   const isSearching = normalizedChannelSearch.length > 0
-  const dropEmptyGroups = (groups: ChannelGroup[]) =>
-    isSearching ? groups.filter((group) => group.channels.length > 0) : groups
-  const textGroups = dropEmptyGroups(groupChannelsByCategory(textChannels, categories))
-  const voiceGroups = dropEmptyGroups(groupChannelsByCategory(voiceChannels, categories))
+  const { textGroups, voiceGroups } = buildSidebarChannelGroups(
+    textChannels,
+    voiceChannels,
+    categories,
+    isSearching,
+  )
   const serverId = currentServer.id
 
   const handleDropOnCategory = (
@@ -533,7 +535,7 @@ export function ChannelSidebar() {
     handleKickUser, handleViewProfile, handleSendMessage, getParticipantVolume, setParticipantVolume, openCreateChannelModal,
     handleChannelCreated, handleServerHeaderContextMenu, handleServerContextMenuClose, handleServerSettings, handleNotificationSettings, handleChannelSettings,
     handleChannelUpdate, handleChannelDelete, handleCopyServerId, normalizedChannelSearch, textChannels, voiceChannels,
-    isSearching, dropEmptyGroups, textGroups, voiceGroups, serverId, handleDropOnCategory,
+    isSearching, textGroups, voiceGroups, serverId, handleDropOnCategory,
     handleDeleteCategory, handleCreateCategory, groupListProps,
   }} />
 }

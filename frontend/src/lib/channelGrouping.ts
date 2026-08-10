@@ -52,6 +52,39 @@ export function groupChannelsByCategory(
   return groups
 }
 
+/** Убирает пустые дубликаты категорий между текстовой и голосовой секциями. */
+export function buildSidebarChannelGroups(
+  textChannels: Channel[],
+  voiceChannels: Channel[],
+  categories: ChannelCategory[],
+  isSearching: boolean,
+): { textGroups: ChannelGroup[]; voiceGroups: ChannelGroup[] } {
+  const textGroups = groupChannelsByCategory(textChannels, categories)
+  const voiceGroups = groupChannelsByCategory(voiceChannels, categories)
+
+  if (isSearching) {
+    return {
+      textGroups: textGroups.filter((group) => group.channels.length > 0),
+      voiceGroups: voiceGroups.filter((group) => group.channels.length > 0),
+    }
+  }
+
+  const occupiedCategoryIds = new Set(
+    [...textChannels, ...voiceChannels]
+      .map((channel) => channel.category_id)
+      .filter((categoryId): categoryId is number => categoryId != null),
+  )
+
+  return {
+    textGroups: textGroups.filter(
+      (group) =>
+        group.channels.length > 0 ||
+        (group.category != null && !occupiedCategoryIds.has(group.category.id)),
+    ),
+    voiceGroups: voiceGroups.filter((group) => group.channels.length > 0),
+  }
+}
+
 /** Пересчитывает позиции после перетаскивания канала в другую категорию. */
 export function buildPlacementsForMove(
   groups: ChannelGroup[],
