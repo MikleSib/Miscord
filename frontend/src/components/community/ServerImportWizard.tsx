@@ -8,7 +8,7 @@ import type { ServerImport } from '../../types/community'
 type Mode = 'template' | 'id'
 
 function errorText(reason: any): string {
-  return reason?.response?.data?.detail || 'Не удалось выполнить перенос'
+  return reason?.response?.data?.detail || reason?.message || 'Не удалось выполнить перенос'
 }
 
 export function ServerImportWizard({ onBack, onCreated }: {
@@ -54,7 +54,7 @@ export function ServerImportWizard({ onBack, onCreated }: {
         window.open(started.authorize_url, 'miscord-server-import', 'popup,width=560,height=760')
       }
     } catch (reason: any) {
-      setError(reason?.message?.startsWith('ID ') ? reason.message : errorText(reason))
+      setError(errorText(reason))
     } finally { setLoading(false) }
   }
 

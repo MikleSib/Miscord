@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field, field_validator
 
 
 class TemplateImportRequest(BaseModel):
     template: str = Field(min_length=2, max_length=512)
+    snapshot: dict[str, Any] | None = None
 
 
 class OAuthImportRequest(BaseModel):

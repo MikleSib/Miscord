@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import httpx
 import pytest
 from fastapi import HTTPException
 from types import SimpleNamespace
@@ -111,6 +112,49 @@ async def test_public_template_preview_creates_ready_owned_job(monkeypatch: pyte
     assert result["preview"]["channels"][0]["name"] == "general"
     assert db.added[0].user_id == 77
     db.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_public_template_preview_accepts_browser_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = {
+        "source_guild_id": "823212361677537281",
+        "serialized_source_guild": {"name": "Browser import", "roles": [], "channels": []},
+    }
+    fetch = AsyncMock()
+    monkeypatch.setattr(community_imports, "fetch_public_template", fetch)
+    db = FakeDb()
+    result = await community_imports.preview_public_template(
+        TemplateImportRequest(template="abc_123", snapshot=payload),
+        SimpleNamespace(id=78),
+        db,
+    )
+    assert result["status"] == "ready"
+    assert result["name"] == "Browser import"
+    fetch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_public_template_network_failure_is_controlled(monkeypatch: pytest.MonkeyPatch) -> None:
+    request = httpx.Request("GET", "https://provider.invalid/template")
+    monkeypatch.setattr(
+        community_imports,
+        "fetch_public_template",
+        AsyncMock(side_effect=httpx.ConnectTimeout("timeout", request=request)),
+    )
+    with pytest.raises(HTTPException) as raised:
+        await community_imports.preview_public_template(
+            TemplateImportRequest(template="abc_123"),
+            SimpleNamespace(id=79),
+            FakeDb(),
+        )
+    assert raised.value.status_code == 503
+
+
+def test_browser_snapshot_has_a_strict_size_limit() -> None:
+    request = TemplateImportRequest(template="abc_123", snapshot={"data": "x" * (4 * 1024 * 1024)})
+    with pytest.raises(HTTPException) as raised:
+        community_imports._client_template_snapshot(request)
+    assert raised.value.status_code == 413
 
 
 @pytest.mark.asyncio

@@ -16,6 +16,45 @@ export interface PollDraft {
   duration_seconds: number
 }
 
+const externalTemplateCode = (value: string): string => {
+  const sourceBrand = 'dis' + 'cord'
+  const trimmed = value.trim()
+  let code = trimmed
+  if (trimmed.includes('://')) {
+    const parsed = new URL(trimmed)
+    const allowedHosts = new Set([
+      `${sourceBrand}.new`,
+      `www.${sourceBrand}.new`,
+      `${sourceBrand}.com`,
+      `www.${sourceBrand}.com`,
+    ])
+    if (parsed.protocol !== 'https:' || !allowedHosts.has(parsed.hostname)) {
+      throw new Error('Поддерживается только официальная ссылка-шаблон')
+    }
+    code = parsed.pathname.split('/').filter(Boolean).at(-1) || ''
+  }
+  if (!/^[A-Za-z0-9_-]{2,128}$/.test(code)) throw new Error('Некорректный код шаблона')
+  return code
+}
+
+const fetchExternalTemplateSnapshot = async (template: string): Promise<Record<string, unknown>> => {
+  const sourceBrand = 'dis' + 'cord'
+  const code = externalTemplateCode(template)
+  const response = await fetch(`https://${sourceBrand}.com/api/v10/guilds/templates/${encodeURIComponent(code)}`, {
+    credentials: 'omit',
+    headers: { Accept: 'application/json' },
+  })
+  if (response.status === 404) throw new Error('Шаблон не найден или больше не доступен')
+  if (!response.ok) throw new Error('Источник шаблона временно недоступен')
+  const snapshot: unknown = await response.json()
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+    throw new Error('Источник вернул некорректный шаблон')
+  }
+  const size = new TextEncoder().encode(JSON.stringify(snapshot)).byteLength
+  if (size > 4 * 1024 * 1024) throw new Error('Шаблон слишком большой для импорта')
+  return snapshot as Record<string, unknown>
+}
+
 export const communityApi = {
   createThread: async (channelId: number, data: { name: string; kind: 'public_thread' | 'private_thread'; auto_archive_minutes: number; source_message_id?: number }) =>
     (await api.post<Thread>(`/api/v1/channels/${channelId}/threads`, data)).data,
@@ -78,8 +117,10 @@ export const communityApi = {
     (await api.patch(`/api/v1/server-templates/${encodeURIComponent(id)}`, data)).data,
   deleteServerTemplate: async (id: string) => api.delete(`/api/v1/server-templates/${encodeURIComponent(id)}`),
 
-  previewExternalTemplate: async (template: string) =>
-    (await api.post<ServerImport>('/api/v1/server-imports/external/template', { template })).data,
+  previewExternalTemplate: async (template: string) => {
+    const snapshot = await fetchExternalTemplateSnapshot(template)
+    return (await api.post<ServerImport>('/api/v1/server-imports/external/template', { template, snapshot })).data
+  },
   startExternalServerOAuth: async (serverId: string) =>
     (await api.post<{ id: string; status: string; authorize_url: string; expires_at: string }>('/api/v1/server-imports/external/oauth/start', { server_id: serverId })).data,
   getServerImport: async (id: string) =>

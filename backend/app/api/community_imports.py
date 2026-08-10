@@ -5,6 +5,7 @@ import secrets
 from datetime import timedelta
 from urllib.parse import urlparse
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from sqlalchemy import select
@@ -16,6 +17,7 @@ from app.db.database import get_db
 from app.models import ExternalServerImport, User
 from app.schemas.server_import import CreateImportedServerRequest, OAuthImportRequest, TemplateImportRequest
 from app.services.external_source_client import (
+    MAX_RESPONSE_BYTES,
     bot_install_url,
     exchange_oauth_code,
     extract_template_code,
@@ -32,6 +34,15 @@ from app.services.server_imports import import_payload, locked_owned_import, new
 from app.services.server_templates import instantiate_template
 
 router = APIRouter()
+
+
+def _client_template_snapshot(request: TemplateImportRequest) -> dict | None:
+    if request.snapshot is None:
+        return None
+    encoded = json.dumps(request.snapshot, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    if len(encoded) > MAX_RESPONSE_BYTES:
+        raise HTTPException(status_code=413, detail="Снимок шаблона слишком большой")
+    return request.snapshot
 
 
 def _require_feature() -> None:
@@ -57,7 +68,15 @@ async def preview_public_template(
 ):
     _require_feature()
     code = extract_template_code(request.template)
-    source_payload = await fetch_public_template(code)
+    source_payload = _client_template_snapshot(request)
+    if source_payload is None:
+        try:
+            source_payload = await fetch_public_template(code)
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="Источник шаблона недоступен с сервера. Повторите импорт в браузере",
+            ) from exc
     try:
         source, external_id, name = template_source(source_payload)
     except ValueError as exc:
