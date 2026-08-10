@@ -93,8 +93,15 @@ export function buildPlacementsForMove(
   targetIndex: number,
 ): { id: number; type: 'text' | 'voice'; position: number; category_id: number | null }[] {
   const target = groups.find((group) => (group.category?.id ?? null) === targetCategoryId)
-  const remaining = (target?.channels ?? []).filter((channel) => channel.id !== movedChannel.id)
-  const index = Math.max(0, Math.min(targetIndex, remaining.length))
+  const originalIndex = target?.channels.findIndex(
+    (channel) => channel.id === movedChannel.id && channel.type === movedChannel.type,
+  ) ?? -1
+  const remaining = (target?.channels ?? []).filter(
+    (channel) => channel.id !== movedChannel.id || channel.type !== movedChannel.type,
+  )
+  const normalizedTargetIndex =
+    originalIndex >= 0 && originalIndex < targetIndex ? targetIndex - 1 : targetIndex
+  const index = Math.max(0, Math.min(normalizedTargetIndex, remaining.length))
   remaining.splice(index, 0, movedChannel)
 
   return remaining.map((channel, position) => ({

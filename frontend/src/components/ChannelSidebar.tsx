@@ -485,7 +485,7 @@ export function ChannelSidebar() {
     const channel = draggingChannel
     setDraggingChannel(null)
     setDropCategoryKey(null)
-    if (!channel || channel.category_id === categoryId) return
+    if (!channel) return
     void moveChannels(buildPlacementsForMove(groups, channel, categoryId, index))
   }
 

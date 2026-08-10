@@ -1,6 +1,6 @@
 'use client'
 
-import type { ReactNode } from 'react'
+import { useState, type DragEvent, type ReactNode } from 'react'
 import { cn } from '../../lib/utils'
 import type { ChannelGroup } from '../../lib/channelGrouping'
 import type { Channel } from '../../types'
@@ -27,6 +27,11 @@ interface ChannelGroupListProps {
   renderChannel: (channel: Channel) => ReactNode
 }
 
+interface DropSlot {
+  groupKey: string
+  index: number
+}
+
 export function ChannelGroupList({
   groups,
   kind,
@@ -46,10 +51,47 @@ export function ChannelGroupList({
   onDeleteCategory,
   renderChannel,
 }: ChannelGroupListProps) {
-  const dragOver = (event: React.DragEvent, groupKey: string) => {
+  const [dropSlot, setDropSlot] = useState<DropSlot | null>(null)
+
+  const dragOver = (event: DragEvent, groupKey: string) => {
     if (!draggingChannel) return
     event.preventDefault()
     onDropTargetChange(groupKey)
+  }
+
+  const dragOverChannel = (
+    event: DragEvent<HTMLDivElement>,
+    groupKey: string,
+    channelIndex: number,
+  ) => {
+    if (!draggingChannel) return
+    event.preventDefault()
+    event.stopPropagation()
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const insertAfter = event.clientY >= bounds.top + bounds.height / 2
+    setDropSlot({ groupKey, index: channelIndex + (insertAfter ? 1 : 0) })
+    onDropTargetChange(groupKey)
+  }
+
+  const dropOnChannel = (
+    event: DragEvent<HTMLDivElement>,
+    categoryId: number | null,
+    groupKey: string,
+    channelIndex: number,
+  ) => {
+    if (!draggingChannel) return
+    event.preventDefault()
+    event.stopPropagation()
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const insertAfter = event.clientY >= bounds.top + bounds.height / 2
+    setDropSlot(null)
+    onDropTargetChange(null)
+    onDropChannel(categoryId, channelIndex + (insertAfter ? 1 : 0))
+  }
+
+  const finishDrag = () => {
+    setDropSlot(null)
+    onDragEnd()
   }
 
   return (
@@ -60,16 +102,36 @@ export function ChannelGroupList({
         const collapsed =
           categoryId != null && Boolean(collapsedCategories[`${serverId}:${categoryId}`])
 
-        const channels = group.channels.map((channel) => (
-          <div
-            key={`${kind}-${channel.id}`}
-            draggable={canManage && !isSearching}
-            onDragStart={() => onDragStart(channel)}
-            onDragEnd={onDragEnd}
-          >
-            {renderChannel(channel)}
-          </div>
-        ))
+        const channels = group.channels.map((channel, channelIndex) => {
+          const showLineBefore =
+            dropSlot?.groupKey === groupKey && dropSlot.index === channelIndex
+          const showLineAfter =
+            channelIndex === group.channels.length - 1 &&
+            dropSlot?.groupKey === groupKey &&
+            dropSlot.index === group.channels.length
+
+          return (
+            <div
+              key={`${kind}-${channel.id}`}
+              className="relative"
+              draggable={canManage && !isSearching}
+              onDragStart={() => onDragStart(channel)}
+              onDragEnd={finishDrag}
+              onDragOver={(event) => dragOverChannel(event, groupKey, channelIndex)}
+              onDrop={(event) =>
+                dropOnChannel(event, categoryId, groupKey, channelIndex)
+              }
+            >
+              {showLineBefore && (
+                <span className="pointer-events-none absolute -top-0.5 inset-x-1 z-20 h-0.5 rounded-full bg-primary" />
+              )}
+              {renderChannel(channel)}
+              {showLineAfter && (
+                <span className="pointer-events-none absolute -bottom-0.5 inset-x-1 z-20 h-0.5 rounded-full bg-primary" />
+              )}
+            </div>
+          )
+        })
 
         if (!group.category) {
           return (
