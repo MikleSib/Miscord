@@ -175,8 +175,9 @@ describe('MicTestSession in an active call', () => {
     });
     FakeAudioContext.sampleAmplitude = 0.0005;
     const session = new MicTestSession();
+    const onGateChange = vi.fn();
 
-    await session.start(options());
+    await session.start({ ...options(), onGateChange });
 
     expect(FakeAudioContext.gains[0]?.value).toBe(0);
     expect(FakeAudioContext.gains[0]?.setTargetAtTime).not.toHaveBeenCalledWith(
@@ -184,6 +185,7 @@ describe('MicTestSession in an active call', () => {
       expect.any(Number),
       expect.any(Number),
     );
+    expect(onGateChange).toHaveBeenLastCalledWith(false);
     session.stop();
   });
 
@@ -198,13 +200,15 @@ describe('MicTestSession in an active call', () => {
     FakeAudioContext.sampleAmplitude = 0.1;
     const session = new MicTestSession();
 
-    await session.start(options());
+    const onGateChange = vi.fn();
+    await session.start({ ...options(), onGateChange });
 
     expect(FakeAudioContext.gains[0]?.setTargetAtTime).toHaveBeenCalledWith(
       1,
       0,
       0.008,
     );
+    expect(onGateChange).toHaveBeenLastCalledWith(true);
     session.stop();
   });
 

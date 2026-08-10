@@ -12,8 +12,10 @@ import {
 import { useVoiceStore } from '../store/slices/voiceSlice';
 import { useStore } from '../lib/store';
 import voiceService from '../services/voiceService';
-import { audioProcessingService } from '../services/audioProcessingService';
 import { useNoiseSuppressionStore } from '../store/noiseSuppressionStore';
+import { useVoiceProcessingSettingsStore } from '../store/voiceProcessingSettingsStore';
+import { getEffectiveProcessingSettings } from '../services/voiceSettings';
+import voiceSettingsController from '../services/voiceSettingsController';
 import { useScreenSharePickerStore } from '../store/screenSharePickerStore';
 import { Switch } from './ui/switch';
 import { Tooltip } from './ui/tooltip';
@@ -33,15 +35,16 @@ export function VoiceConnectionPanel() {
   const [isNoisePanelOpen, setIsNoisePanelOpen] = useState(false);
   const [isNoiseSuppressionToggling, setIsNoiseSuppressionToggling] = useState(false);
   const noisePanelRef = useRef<HTMLDivElement>(null);
-  const noiseSuppressionEnabled = useNoiseSuppressionStore((state) => state.enabled);
-  const noiseSuppressionEngine = useNoiseSuppressionStore((state) => state.engine);
   const noiseSuppressionStatus = useNoiseSuppressionStore((state) => state.runtimeStatus);
-  const setNoiseSuppressionEnabled = useNoiseSuppressionStore((state) => state.setEnabled);
-  const setNoiseSuppressionEngine = useNoiseSuppressionStore((state) => state.setEngine);
-
-  const isNoiseOn = noiseSuppressionEnabled;
-  const isMiscordAI =
-    noiseSuppressionEnabled && noiseSuppressionEngine === 'miscord-ai';
+  const processingProfile = useVoiceProcessingSettingsStore((state) => state.profile);
+  const customProcessing = useVoiceProcessingSettingsStore((state) => state.customSettings);
+  const effectiveProcessing = useMemo(
+    () => getEffectiveProcessingSettings(processingProfile, customProcessing),
+    [processingProfile, customProcessing],
+  );
+  const isNoiseOn = effectiveProcessing.noiseSuppression;
+  const isMiscordAI = isNoiseOn
+    && effectiveProcessing.noiseSuppressionEngine === 'miscord-ai';
 
   const currentChannel = useMemo(
     () =>
@@ -101,16 +104,11 @@ export function VoiceConnectionPanel() {
 
   const handleNoiseEnabledChange = async (nextEnabled: boolean) => {
     setIsNoiseSuppressionToggling(true);
-    // По умолчанию включаем Miscord AI — как основной шумодав
-    if (nextEnabled && noiseSuppressionEngine !== 'miscord-ai') {
-      setNoiseSuppressionEngine('miscord-ai');
-    }
-    setNoiseSuppressionEnabled(nextEnabled);
     try {
-      await audioProcessingService.setNoiseSuppression(
-        nextEnabled,
-        nextEnabled ? 'miscord-ai' : noiseSuppressionEngine
-      );
+      await voiceSettingsController.updateProcessing({
+        ...effectiveProcessing,
+        noiseSuppression: nextEnabled,
+      });
     } finally {
       setIsNoiseSuppressionToggling(false);
     }

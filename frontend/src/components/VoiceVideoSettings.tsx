@@ -81,6 +81,7 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
 
   const [isTesting, setIsTesting] = useState(false);
   const [testLevel, setTestLevel] = useState(0);
+  const [testGateOpen, setTestGateOpen] = useState(false);
   const [callLevel, setCallLevel] = useState(0);
   const [testError, setTestError] = useState<string | null>(null);
   const [testRuntime, setTestRuntime] = useState<{
@@ -133,6 +134,7 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
       vadSensitivity: snapshot.vadSensitivity,
       autoDetectSensitivity: snapshot.autoDetectSensitivity,
       onLevel: setTestLevel,
+      onGateChange: setTestGateOpen,
       onRuntimeStatus: (status, message, engine) =>
         setTestRuntime({ status, message, engine }),
     });
@@ -160,6 +162,7 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
     micTestRef.current.stop();
     setIsTesting(false);
     setTestLevel(0);
+    setTestGateOpen(false);
     setTestRuntime(null);
     restoreCallAfterTest();
   }, [restoreCallAfterTest]);
@@ -404,6 +407,7 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
                 value={vadSensitivity}
                 inputLevel={testLevel}
                 monitoring={isTesting}
+                gateOpen={testGateOpen}
                 onChange={setSensitivity}
               />
             )}

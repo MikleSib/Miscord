@@ -30,6 +30,7 @@ export class AudioProcessingService extends AudioProcessingServiceBase {
   private vadGeneration = 0;
   private readonly fallbackFlight = new SingleFlight();
   private captureConstraintQueue: Promise<void> = Promise.resolve();
+  private suppressionReconcilePromise: Promise<void> | null = null;
 
   constructor(options: AudioProcessingServiceOptions = {}) {
     super(options);
@@ -125,6 +126,41 @@ export class AudioProcessingService extends AudioProcessingServiceBase {
       return;
     }
     await this.activateBrowserSuppression(false, undefined, generation, token);
+  }
+
+  private hasWorkingSuppressionRuntime(): boolean {
+    if (!this.config.noiseSuppression) return this.activeEngine === null;
+    if (this.activeEngine === 'browser') return true;
+    if (this.activeEngine === 'miscord-ai') return this.aiNode !== null;
+    if (this.activeEngine === 'deepfilternet3') {
+      return this.deepFilterNet3Node !== null;
+    }
+    return false;
+  }
+
+  private reconcileNoiseSuppression(force = false): void {
+    if (!this.audioContext || !this.sourceNode) return;
+    if (!force && this.hasWorkingSuppressionRuntime()) return;
+    if (this.suppressionReconcilePromise) return;
+
+    this.suppressionReconcilePromise = (async () => {
+      let mustApply = force;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        if (!mustApply && this.hasWorkingSuppressionRuntime()) return;
+        mustApply = false;
+        await this.setNoiseSuppression(
+          this.config.noiseSuppression,
+          this.config.noiseSuppressionEngine,
+        );
+      }
+    })().catch((error) => {
+      console.error('[Audio] Failed to reconcile noise suppression:', error);
+    }).finally(() => {
+      this.suppressionReconcilePromise = null;
+      if (!this.hasWorkingSuppressionRuntime()) {
+        queueMicrotask(() => this.reconcileNoiseSuppression());
+      }
+    });
   }
 
   protected async applyCaptureConstraints(
@@ -468,15 +504,17 @@ export class AudioProcessingService extends AudioProcessingServiceBase {
       this.config.noiseSuppression !== previousNoiseSuppression ||
       this.config.noiseSuppressionEngine !== previousNoiseSuppressionEngine;
     if (noiseSuppressionChanged) {
-      void this.setNoiseSuppression(this.config.noiseSuppression, this.config.noiseSuppressionEngine);
+      this.reconcileNoiseSuppression(true);
       return;
     }
     if (config.echoCancellation !== undefined || config.autoGainControl !== undefined) {
       void this.applyCaptureConstraints(
         this.config.noiseSuppression,
         this.activeEngine ?? this.config.noiseSuppressionEngine,
-      );
+      ).finally(() => this.reconcileNoiseSuppression());
+      return;
     }
+    this.reconcileNoiseSuppression();
   }
 
   async destroy(

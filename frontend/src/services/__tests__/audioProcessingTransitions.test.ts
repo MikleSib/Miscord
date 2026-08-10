@@ -78,6 +78,12 @@ class TransitionHarness extends AudioProcessingService {
     });
   }
 
+  loseActiveRuntime(): void {
+    this.activeEngine = null;
+    this.aiNode = null;
+    this.deepFilterNet3Node = null;
+  }
+
   protected override applyCaptureConstraints(): Promise<void> {
     return this.constraintResults.shift() ?? Promise.resolve();
   }
@@ -290,5 +296,33 @@ describe('audio processing transition lifecycle', () => {
     service.updateConfig({ autoGainControl: false });
 
     expect(suppressor.createNode).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores a missing neural runtime when another audio setting changes', async () => {
+    const nodes = [0, 1].map(() => Object.assign(new EventTarget(), {
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+    }) as unknown as AudioWorkletNode);
+    const suppressor = {
+      createNode: vi.fn()
+        .mockResolvedValueOnce(nodes[0])
+        .mockResolvedValueOnce(nodes[1]),
+      destroy: vi.fn(),
+      destroyNode: vi.fn(),
+      warmUp: vi.fn(async () => undefined),
+      preload: vi.fn(async () => undefined),
+    };
+    const service = new TransitionHarness();
+    service.injectDeepFilterNetSuppressor(suppressor);
+    await service.setNoiseSuppression(true, 'deepfilternet3');
+    service.loseActiveRuntime();
+
+    service.updateConfig({ echoCancellation: false });
+
+    await vi.waitFor(() => expect(suppressor.createNode).toHaveBeenCalledTimes(2));
+    expect(service.statuses.at(-1)).toEqual({
+      status: 'active',
+      engine: 'deepfilternet3',
+    });
   });
 });

@@ -89,6 +89,7 @@ interface SensitivitySliderProps {
   onChange: (value: number) => void;
   inputLevel?: number;
   monitoring?: boolean;
+  gateOpen?: boolean;
 }
 
 export const SensitivitySlider: React.FC<SensitivitySliderProps> = ({
@@ -96,11 +97,12 @@ export const SensitivitySlider: React.FC<SensitivitySliderProps> = ({
   onChange,
   inputLevel = 0,
   monitoring = false,
+  gateOpen,
 }) => {
   const normalized = Math.max(0, Math.min(100, value));
   const inputDbfs = meterLevelToDbfs(inputLevel);
   const inputPosition = inputDbfs + 100;
-  const isPassing = inputDbfs >= normalized - 100;
+  const isPassing = gateOpen ?? inputDbfs >= normalized - 100;
   return (
     <label className="block py-1">
       <span className="mb-3 flex items-center justify-between gap-4 text-sm">
@@ -119,14 +121,14 @@ export const SensitivitySlider: React.FC<SensitivitySliderProps> = ({
           <>
             <span
               aria-hidden="true"
-              className={`absolute left-0 top-1/2 h-1 -translate-y-1/2 rounded-full transition-[width,background-color] duration-75 ${
+              className={`absolute left-0 top-1/2 h-1 -translate-y-1/2 rounded-full ${
                 isPassing ? 'bg-[#57f287]' : 'bg-[#ffd166]'
               }`}
               style={{ width: `${inputPosition}%` }}
             />
             <span
               aria-hidden="true"
-              className="pointer-events-none absolute top-1/2 z-10 h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white transition-[left] duration-75"
+              className="pointer-events-none absolute top-1/2 z-10 h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white"
               style={{ left: `${inputPosition}%` }}
             />
           </>

@@ -17,6 +17,7 @@ export interface MicTestOptions {
   vadSensitivity: number;
   autoDetectSensitivity: boolean;
   onLevel: (level: number) => void;
+  onGateChange?: (open: boolean) => void;
   onRuntimeStatus?: (
     status: NoiseSuppressionRuntimeStatus,
     message: string | null,
@@ -36,6 +37,8 @@ export class MicTestSession {
   private monitorGain: GainNode | null = null;
   private activityGate: GroupVoiceActivityGate | null = null;
   private manualGateEnabled = false;
+  private monitorGateOpen = false;
+  private onGateChange?: (open: boolean) => void;
   private currentInputDbfs = -100;
   private frameId: number | null = null;
   private usingCallStream = false;
@@ -135,9 +138,12 @@ export class MicTestSession {
     const destination = monitorContext.createMediaStreamDestination();
     const monitorGain = monitorContext.createGain();
     this.monitorGain = monitorGain;
+    this.onGateChange = options.onGateChange;
     this.manualGateEnabled = options.inputMode === 'voice-activity'
       && !options.autoDetectSensitivity;
     monitorGain.gain.value = this.manualGateEnabled ? 0 : 1;
+    this.monitorGateOpen = !this.manualGateEnabled;
+    this.onGateChange?.(this.monitorGateOpen);
     source.connect(monitorGain);
     monitorGain.connect(destination);
     this.activityGate = new GroupVoiceActivityGate((open) =>
@@ -205,6 +211,10 @@ export class MicTestSession {
     if (!context || !gain || context.state === 'closed') return;
     gain.cancelScheduledValues(context.currentTime);
     gain.setTargetAtTime(open ? 1 : 0, context.currentTime, open ? 0.008 : 0.025);
+    if (this.monitorGateOpen !== open) {
+      this.monitorGateOpen = open;
+      this.onGateChange?.(open);
+    }
   }
 
   private startMeter(onLevel: (level: number) => void): void {
@@ -242,6 +252,8 @@ export class MicTestSession {
     this.activityGate = null;
     this.monitorGain = null;
     this.manualGateEnabled = false;
+    this.monitorGateOpen = false;
+    this.onGateChange = undefined;
     this.currentInputDbfs = -100;
 
     if (this.monitorElement) {
