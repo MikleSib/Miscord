@@ -42,12 +42,12 @@ function createPassthroughModule() {
       heap.copyWithin(outputOffset, inputOffset, inputOffset + FRAME_SIZE);
     },
     _dfn3_wasm_get_lsnr: () => 12,
-    _dfn3_wasm_set_min_db_thresh: () => undefined,
-    _dfn3_wasm_set_max_db_erb_thresh: () => undefined,
-    _dfn3_wasm_set_max_db_df_thresh: () => undefined,
-    _dfn3_wasm_set_atten_lim: () => undefined,
-    _dfn3_wasm_set_post_filter_beta: () => undefined,
-    _dfn3_wasm_set_hpf: () => undefined,
+    _dfn3_wasm_set_min_db_thresh: vi.fn(),
+    _dfn3_wasm_set_max_db_erb_thresh: vi.fn(),
+    _dfn3_wasm_set_max_db_df_thresh: vi.fn(),
+    _dfn3_wasm_set_atten_lim: vi.fn(),
+    _dfn3_wasm_set_post_filter_beta: vi.fn(),
+    _dfn3_wasm_set_hpf: vi.fn(),
     _dfn3_wasm_agc_init: vi.fn(),
     _dfn3_wasm_set_input_agc: vi.fn(),
     _dfn3_wasm_set_output_agc: vi.fn(),
@@ -147,22 +147,18 @@ describe('DeepFilterNet3 AudioWorklet streaming behavior', () => {
     expect(energy).toBeCloseTo(0.64, 5);
   });
 
-  it('compensates the disabled browser auto gain with the AGC placed after the model', async () => {
+  it('uses the natural-speech runtime defaults without a second HPF or WASM AGC', async () => {
     const { module } = await createProcessor();
 
-    expect(module._dfn3_wasm_agc_init).toHaveBeenCalled();
-    expect(module._dfn3_wasm_set_output_agc_compression).toHaveBeenCalledWith(18);
-    expect(module._dfn3_wasm_set_output_agc).toHaveBeenLastCalledWith(1);
-    // Перед моделью усиление подняло бы заодно и шум, который она потом убирает.
-    expect(module._dfn3_wasm_set_input_agc).toHaveBeenLastCalledWith(0);
-  });
-
-  it('switches the AGC off from the main thread without recreating the model', async () => {
-    const { processor, module } = await createProcessor();
-
-    processor.port.onmessage?.({ data: { type: 'auto-gain', enabled: false } });
-
+    expect(module._dfn3_wasm_set_min_db_thresh).toHaveBeenCalledWith(-10);
+    expect(module._dfn3_wasm_set_max_db_erb_thresh).toHaveBeenCalledWith(30);
+    expect(module._dfn3_wasm_set_max_db_df_thresh).toHaveBeenCalledWith(20);
+    expect(module._dfn3_wasm_set_atten_lim).toHaveBeenCalledWith(0);
+    expect(module._dfn3_wasm_set_post_filter_beta).toHaveBeenCalledWith(0);
+    expect(module._dfn3_wasm_set_hpf).toHaveBeenCalledWith(0);
+    expect(module._dfn3_wasm_agc_init).not.toHaveBeenCalled();
+    expect(module._dfn3_wasm_set_output_agc_compression).not.toHaveBeenCalled();
     expect(module._dfn3_wasm_set_output_agc).toHaveBeenLastCalledWith(0);
-    expect(module._dfn3_wasm_destroy).not.toHaveBeenCalled();
+    expect(module._dfn3_wasm_set_input_agc).toHaveBeenLastCalledWith(0);
   });
 });

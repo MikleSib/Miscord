@@ -453,7 +453,10 @@ export class AudioProcessingService extends AudioProcessingServiceBase {
     const previousNoiseSuppression = this.config.noiseSuppression;
     const previousNoiseSuppressionEngine = this.config.noiseSuppressionEngine;
     this.config = { ...this.config, ...config };
-    if (config.voiceConditioning !== undefined) this.applyVoiceConditioning();
+    if (
+      config.voiceConditioning !== undefined ||
+      config.autoGainControl !== undefined
+    ) this.applyVoiceConditioning();
     const noiseSuppressionChanged =
       this.config.noiseSuppression !== previousNoiseSuppression ||
       this.config.noiseSuppressionEngine !== previousNoiseSuppressionEngine;
@@ -461,7 +464,6 @@ export class AudioProcessingService extends AudioProcessingServiceBase {
       void this.setNoiseSuppression(this.config.noiseSuppression, this.config.noiseSuppressionEngine);
       return;
     }
-    if (config.autoGainControl !== undefined) this.applyNeuralAutoGain();
     if (config.echoCancellation !== undefined || config.autoGainControl !== undefined) {
       void this.applyCaptureConstraints(
         this.config.noiseSuppression,

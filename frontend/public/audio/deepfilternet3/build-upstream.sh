@@ -176,21 +176,17 @@ class DFN3Worklet extends AudioWorkletProcessor {
             Module._free(wPtr);
 
             // Runtime parameters
-            Module._dfn3_wasm_set_atten_lim(100);          // no attenuation limit
+            Module._dfn3_wasm_set_atten_lim(0);            // no attenuation limit
             Module._dfn3_wasm_set_post_filter_beta(0);     // post-filter disabled
             Module._dfn3_wasm_set_min_db_thresh(-10);
             Module._dfn3_wasm_set_max_db_erb_thresh(30);
             Module._dfn3_wasm_set_max_db_df_thresh(20);
 
-            // High-pass filter: 80Hz 저주파 컷 (기본 ON)
-            Module._dfn3_wasm_set_hpf(1);
+            // The Web Audio graph owns the single high-pass stage.
+            Module._dfn3_wasm_set_hpf(0);                  // Web Audio owns the single HPF
 
-            // Initialize and enable WASM AGC (replaces browser autoGainControl)
-            Module._dfn3_wasm_agc_init();
-            Module._dfn3_wasm_set_input_agc(1);
-            Module._dfn3_wasm_set_output_agc(1);
-            Module._dfn3_wasm_set_input_agc_compression(12);   // 입력: 12dB (~4x) — 보수적, 노이즈 증폭 방지
-            Module._dfn3_wasm_set_output_agc_compression(18);  // 출력: 18dB (~8x) — 공격적, DFN3 후 깨끗한 음성 복원
+            Module._dfn3_wasm_set_input_agc(0);
+            Module._dfn3_wasm_set_output_agc(0);
 
             this.ready = true;
             this.port.postMessage('ready');

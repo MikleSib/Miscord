@@ -42,9 +42,8 @@ export function getEffectiveProcessingSettings(
       noiseSuppression: true,
       noiseSuppressionEngine: 'deepfilternet3',
       echoCancellation: true,
-      // Браузерный AGC при нейросети всё равно выключается: он поднимал бы шум
-      // до модели. Флаг включает AGC внутри DeepFilterNet3 — тот работает уже
-      // по очищенному сигналу и возвращает громкость, потерянную на шумодаве.
+      // Браузерный AGC при нейросети выключается: он поднимал бы шум до модели.
+      // Мягкое выравнивание выполняется один раз после очищенного сигнала.
       autoGainControl: true,
       voiceConditioning: true,
     };

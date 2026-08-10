@@ -24,12 +24,8 @@ import {
 } from './audioProcessingTypes';
 import { linearGain, MAX_INPUT_VOLUME_PERCENT } from './voiceSettingsLogic';
 
-/**
- * Уравнено с браузерным трактом: нейросеть только приглушает полосы, поэтому
- * занижать ей ещё и компенсацию было нечем оправдать. Запас до клиппинга
- * остаётся — выше стоит компрессор, а AGC модели держит пики у -3 dBFS.
- */
-const NEURAL_OUTPUT_MAKEUP = 1.55;
+/** Нейросетевой тракт не поднимает паузы и дыхание постоянным makeup gain. */
+const NEURAL_OUTPUT_MAKEUP = 1;
 
 export abstract class AudioProcessingServiceBase {
   protected readonly miscordNoiseSuppressor = new MiscordNoiseSuppressor();
@@ -250,12 +246,21 @@ export abstract class AudioProcessingServiceBase {
     this.highPassNode.frequency.value = 72;
     this.highPassNode.Q.value = 0.72;
     if (this.usesNeuralEngine()) {
-      this.compressorNode.threshold.value = -20;
-      this.compressorNode.knee.value = 14;
-      this.compressorNode.ratio.value = 1.4;
-      this.compressorNode.attack.value = 0.005;
-      this.compressorNode.release.value = 0.22;
-      this.makeupGainNode.gain.value = NEURAL_OUTPUT_MAKEUP;
+      if (this.config.autoGainControl) {
+        this.compressorNode.threshold.value = -20;
+        this.compressorNode.knee.value = 14;
+        this.compressorNode.ratio.value = 1.4;
+        this.compressorNode.attack.value = 0.005;
+        this.compressorNode.release.value = 0.22;
+        this.makeupGainNode.gain.value = NEURAL_OUTPUT_MAKEUP;
+      } else {
+        this.compressorNode.threshold.value = 0;
+        this.compressorNode.knee.value = 0;
+        this.compressorNode.ratio.value = 1;
+        this.compressorNode.attack.value = 0;
+        this.compressorNode.release.value = 0;
+        this.makeupGainNode.gain.value = 1;
+      }
     } else {
       this.compressorNode.threshold.value = -26;
       this.compressorNode.knee.value = 18;
@@ -286,11 +291,6 @@ export abstract class AudioProcessingServiceBase {
 
   protected applyInputVolumeGain(): void {
     if (this.inputGainNode) this.inputGainNode.gain.value = linearGain(this.inputVolumePercent);
-  }
-
-  /** Пока работает нейросеть, автоусиление даёт она сама, а не браузер. */
-  protected applyNeuralAutoGain(): void {
-    this.deepFilterNet3NoiseSuppressor.setAutoGain(this.config.autoGainControl);
   }
 
   private teardownWithDryHandoff(active: boolean, teardown: () => void): void {
@@ -476,7 +476,6 @@ export abstract class AudioProcessingServiceBase {
         createdNode = await this.deepFilterNet3NoiseSuppressor.createNode(
           this.audioContext,
           {
-            autoGain: this.config.autoGainControl,
             onPerf: (metrics) => {
               if (!this.isActiveNeuralNodeCurrent(
                 generation,
