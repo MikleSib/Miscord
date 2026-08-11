@@ -61,6 +61,10 @@ import type { SearchResultMessage } from '../services/searchService'
 import { EmojiAutocomplete } from './emoji/EmojiAutocomplete'
 import { useShortcodeAutocomplete } from './emoji/useShortcodeAutocomplete'
 import { AttachmentDropOverlay } from './AttachmentDropOverlay'
+import { ChannelWelcome } from './chat/ChannelWelcome'
+import { Permissions } from '../lib/permissions'
+import { useServerPermissions } from '../lib/serverPermissions'
+import { requestChannelSettings } from '../lib/channelSettingsEvents'
 
 const localizedCommandName = (command: MiscordApplicationCommand) => command.name_localizations?.ru || command.name
 
@@ -87,6 +91,10 @@ export function ChatAreaView({ model }: { model: any }) {
     handleSendMessage, handleInputChange, handleInputKeyDown, handleReply, handleContextApplicationCommand, handleCancelReply,
     handleReaction, TypingIndicator
   } = model
+  const { can } = useServerPermissions(currentServer?.id ?? null)
+  const isStandardTextChannel = currentChannel.type === 'text'
+    && (!currentChannel.kind || currentChannel.kind === 'text')
+
   return (
     <div
       className="chat-area relative flex h-full min-w-0 flex-1 flex-col bg-background"
@@ -133,10 +141,12 @@ export function ChatAreaView({ model }: { model: any }) {
               </div>
             )}
 
-            {!hasMoreOlder && messages.length > 0 && !chatLoading && (
-              <div className="py-3 text-center text-xs text-muted-foreground/70">
-                Это начало канала
-              </div>
+            {!hasMoreOlder && !chatLoading && !chatError && isStandardTextChannel && (
+              <ChannelWelcome
+                channelName={currentChannel.name}
+                canManage={can(Permissions.MANAGE_CHANNELS)}
+                onConfigure={() => requestChannelSettings(currentChannel)}
+              />
             )}
 
             {chatError && (

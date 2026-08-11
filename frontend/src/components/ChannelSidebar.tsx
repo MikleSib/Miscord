@@ -47,6 +47,7 @@ import {
   buildPlacementsForMove,
   type ChannelGroup,
 } from '../lib/channelGrouping'
+import { subscribeToChannelSettingsRequests } from '../lib/channelSettingsEvents'
 
 export function ChannelSidebar() {
   const { currentServer, currentChannel, selectChannel, addChannel, loadServers, updateServer } = useStore()
@@ -435,6 +436,18 @@ export function ChannelSidebar() {
       setIsChannelSettingsModalOpen(true);
     }
   };
+
+  useEffect(() => subscribeToChannelSettingsRequests(({ channelId, channelType }) => {
+    if (!currentServer || !canManageChannels) return
+
+    const channel = currentServer.channels.find(
+      (item) => item.id === channelId && item.type === channelType,
+    )
+    if (channel) {
+      setSelectedChannelForSettings(channel)
+      setIsChannelSettingsModalOpen(true)
+    }
+  }), [currentServer, canManageChannels])
 
   const handleChannelUpdate = (updatedChannel: Channel) => {
     setSelectedChannelForSettings(updatedChannel)
