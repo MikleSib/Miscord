@@ -41,6 +41,7 @@ import { useChannelCategories } from './channels/useChannelCategories'
 import { ChannelGroupList } from './channels/ChannelGroupList'
 import { VoiceParticipantList } from './channels/VoiceParticipantList'
 import { VoiceParticipantContextMenu } from './voice/VoiceParticipantContextMenu'
+import { useKeepVoiceChannelVisible } from './channels/useKeepVoiceChannelVisible'
 
 export function ChannelSidebarView({ model }: { model: any }) {
   const {
@@ -63,6 +64,9 @@ export function ChannelSidebarView({ model }: { model: any }) {
     isSearching, textGroups, voiceGroups, serverId, handleDropOnCategory,
     handleDeleteCategory, handleCreateCategory, groupListProps
   } = model
+  const channelScrollRef = useRef<HTMLDivElement>(null)
+  useKeepVoiceChannelVisible(channelScrollRef, currentVoiceChannelId)
+
   return (
     <>
       <div className="app-sidebar flex h-full flex-col border-r">
@@ -117,7 +121,7 @@ export function ChannelSidebarView({ model }: { model: any }) {
         </div>
 
         {/* Channels List */}
-        <div className="channel-sidebar-scroll flex-1 overflow-y-auto scrollbar-thin">
+        <div ref={channelScrollRef} className="channel-sidebar-scroll flex-1 overflow-y-auto scrollbar-thin">
           {/* Text Channels */}
           <div className="pt-4">
             <div className="mb-1 px-3">
@@ -279,6 +283,7 @@ export function ChannelSidebarView({ model }: { model: any }) {
                 return (
                   <div key={channel.id}>
                     <div
+                      data-voice-channel-id={channel.id}
                       className="relative group"
                       onMouseEnter={() => setHoveredChannel(hoverKey)}
                       onMouseLeave={() => setHoveredChannel(null)}
