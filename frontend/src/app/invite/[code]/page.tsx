@@ -220,8 +220,8 @@ export default function InvitePage() {
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      <div className="w-full max-w-md rounded-xl border border-border bg-secondary/40 p-8 shadow-2xl">
+    <div className="mobile-public-page flex min-h-screen items-center justify-center bg-background p-4">
+      <div className="mobile-public-card w-full max-w-md rounded-xl border border-border bg-secondary/40 p-8 shadow-2xl">
         <div className="mb-6 flex items-center justify-center gap-2 text-muted-foreground">
           <MessagesSquare className="h-5 w-5" />
           <span className="text-sm font-semibold">Miscord</span>

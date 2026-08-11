@@ -128,8 +128,8 @@ export function NotificationInbox() {
       </button>
 
       {open && (
-        <section role="dialog" aria-label="Входящие уведомления" className="fixed inset-x-2 top-14 flex max-h-[calc(100dvh-72px)] flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl sm:absolute sm:inset-auto sm:right-0 sm:top-10 sm:h-[560px] sm:w-[390px]">
-          <header className="flex items-center gap-3 border-b border-border px-4 py-3">
+        <section role="dialog" aria-label="Входящие уведомления" className="notification-inbox fixed inset-x-2 top-14 flex max-h-[calc(100dvh-72px)] flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl sm:absolute sm:inset-auto sm:right-0 sm:top-10 sm:h-[560px] sm:w-[390px]">
+          <header className="notification-inbox__header flex items-center gap-3 border-b border-border px-4 py-3">
             <Inbox className="h-5 w-5 text-primary" />
             <h2 className="text-base font-bold">Входящие</h2>
             <button
@@ -143,7 +143,7 @@ export function NotificationInbox() {
               <X className="h-5 w-5" />
             </button>
           </header>
-          <nav className="flex gap-1 overflow-x-auto border-b border-border px-3 py-2" aria-label="Фильтры уведомлений">
+          <nav className="notification-inbox__filters flex gap-1 overflow-x-auto border-b border-border px-3 py-2" aria-label="Фильтры уведомлений">
             {FILTERS.map((filter) => (
               <button
                 key={filter.id}
@@ -175,7 +175,7 @@ export function NotificationInbox() {
               Системные уведомления заблокированы в настройках браузера. Входящие продолжат сохраняться здесь.
             </p>
           )}
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="notification-inbox__list min-h-0 flex-1 overflow-y-auto">
             {state.notifications.map((item) => <NotificationRow key={item.id} item={item} onOpen={() => void openResource(item)} />)}
             {!state.notificationsLoading && state.notifications.length === 0 && (
               <div className="flex h-full min-h-56 flex-col items-center justify-center px-8 text-center text-text-quiet">

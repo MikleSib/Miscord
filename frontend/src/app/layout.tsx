@@ -10,6 +10,7 @@ import './styles/mobile-02.css'
 import './styles/mobile-03.css'
 import './styles/mobile-04.css'
 import './styles/mobile-05.css'
+import './styles/mobile-system.css'
 import ElectronTitleBar from '@/components/ElectronTitleBar'
 
 export const metadata: Metadata = {

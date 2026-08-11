@@ -142,9 +142,9 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-background">
+    <div className="standalone-settings fixed inset-0 z-50 bg-background">
       {/* Header */}
-      <div className="h-14 bg-background border-b border-border flex items-center justify-between px-4">
+      <div className="standalone-settings__header h-14 bg-background border-b border-border flex items-center justify-between px-4">
         <h1 className="text-lg font-semibold text-foreground">Настройки пользователя</h1>
         <Button
           variant="ghost"
@@ -156,9 +156,9 @@ export default function SettingsPage() {
         </Button>
       </div>
 
-      <div className="flex h-[calc(100vh-3.5rem)]">
+      <div className="standalone-settings__body flex h-[calc(100vh-3.5rem)]">
         {/* Sidebar */}
-        <div className="w-64 bg-secondary border-r border-border p-4">
+        <div className="standalone-settings__nav w-64 bg-secondary border-r border-border p-4">
           <nav className="space-y-1">
             {SIDEBAR_ITEMS.map((item) => {
               const Icon = item.icon;
@@ -182,7 +182,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Content */}
-        <div className="flex-1 p-6 overflow-y-auto">
+        <div className="standalone-settings__content flex-1 p-6 overflow-y-auto">
           {activeTab === 'profile' && (
             <div className="max-w-2xl">
               <h2 className="text-xl font-semibold text-foreground mb-6">Мой профиль</h2>
@@ -306,5 +306,3 @@ export default function SettingsPage() {
     </div>
   );
 }
-
- 

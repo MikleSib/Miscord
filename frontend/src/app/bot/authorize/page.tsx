@@ -64,8 +64,8 @@ function AuthorizationContent() {
   }
 
   return (
-    <main className="grid min-h-[100dvh] place-items-center bg-[#1e1f22] px-4 py-10 text-[#f2f3f5]">
-      <section className="w-full max-w-xl overflow-hidden rounded-3xl border border-white/10 bg-[#2b2d31] shadow-2xl shadow-black/30">
+    <main className="mobile-public-page grid min-h-[100dvh] place-items-center bg-[#1e1f22] px-4 py-10 text-[#f2f3f5]">
+      <section className="mobile-public-card w-full max-w-xl overflow-hidden rounded-3xl border border-white/10 bg-[#2b2d31] shadow-2xl shadow-black/30">
         <div className="border-b border-white/10 bg-[#232428] px-6 py-7 text-center">
           <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-2xl bg-[#5865f2]"><Bot className="h-8 w-8" /></div>
           <h1 className="text-2xl font-extrabold">Добавить бота в Miscord</h1>
