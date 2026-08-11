@@ -242,7 +242,7 @@ export function MobileExperience() {
         />
       )}
 
-      {isNarrow && (voice.isConnected || voice.isConnecting) && navigation.pane !== 'call' && (
+      {isNarrow && (voice.isConnected || voice.isConnecting) && navigation.pane === 'chat' && (
         <div className="miscord-mobile-voice-bar">
           <button
             type="button"

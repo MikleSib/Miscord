@@ -156,6 +156,26 @@
     -webkit-overflow-scrolling: touch;
   }
 
+  /*
+   * The user dock is an overlay shared by the server rail and channel column.
+   * Reserve its measured height in the sidebar itself so the scroll viewport
+   * ends above the dock instead of letting channels continue underneath it.
+   */
+  .app-mobile-channels > .app-sidebar {
+    min-height: 0;
+    box-sizing: border-box;
+    padding-bottom: calc(
+      var(--user-dock-height, var(--mobile-profile-dock-height, 4.25rem))
+      + var(--safe-area-bottom)
+      + 0.5rem
+    );
+  }
+
+  .app-mobile-channels .channel-sidebar-scroll {
+    padding-bottom: 0.75rem;
+    scroll-padding-bottom: 0.75rem;
+  }
+
   .mobile-channel-tools,
   .home-friends-tabs,
   .forum-channel-toolbar,
