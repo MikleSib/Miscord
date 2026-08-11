@@ -31,6 +31,7 @@ import { ThreadPanel } from '../components/community/ThreadPanel'
 import { ThreadDialogHost } from '../components/community/ThreadDialogHost'
 import { ForumChannelView } from '../components/community/ForumChannelView'
 import { getUserSettingsTab, OPEN_USER_SETTINGS_EVENT } from '../lib/userSettingsNavigation'
+import { useUserDockClearance } from '../hooks/useUserDockClearance'
 
 bindUserProfileSync()
 bindMemberSync()
@@ -58,6 +59,7 @@ export default function HomePage() {
   const [showUserSidebar, setShowUserSidebar] = useState(true)
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false)
   const [settingsInitialTab, setSettingsInitialTab] = useState<'profile' | 'voice'>('profile')
+  const userDockRef = useUserDockClearance()
 
   useEffect(() => {
     const openSettings = (event: Event) => {
@@ -292,7 +294,7 @@ export default function HomePage() {
       )}
 
       {/* Единый dock: голос + профиль */}
-      <div className="user-dock absolute bottom-2 left-2 z-50">
+      <div ref={userDockRef} className="user-dock absolute bottom-2 left-2 z-50">
         <VoiceConnectionPanel />
         <UserProfileBar embedded onSettingsClick={handleOpenSettings} />
       </div>

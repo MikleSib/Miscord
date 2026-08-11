@@ -139,7 +139,8 @@
   }
 
   .channel-sidebar-scroll {
-    padding-bottom: calc(var(--mobile-profile-dock-height) + var(--safe-area-bottom));
+    padding-bottom: calc(var(--user-dock-height, var(--mobile-profile-dock-height)) + var(--safe-area-bottom) + 0.75rem);
+    scroll-padding-bottom: calc(var(--user-dock-height, var(--mobile-profile-dock-height)) + var(--safe-area-bottom) + 0.75rem);
     overscroll-behavior: contain;
   }
 
