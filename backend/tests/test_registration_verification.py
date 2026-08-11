@@ -6,7 +6,11 @@ from pydantic import ValidationError
 from app.models.registration import RegistrationChallenge
 from app.schemas.registration import RegistrationVerify
 from app.services.registration import _code_digest, _email_hint
-from app.services.registration_email import render_verification_email, render_welcome_email
+from app.services.registration_email import (
+    build_delivery_message,
+    render_verification_email,
+    render_welcome_email,
+)
 from main import app
 
 
@@ -37,6 +41,18 @@ def test_email_template_has_html_text_fallback_and_no_remote_assets() -> None:
     assert "support@miscord.ru" in text
     assert "<img" not in document
     assert "http://" not in document and "https://" not in document
+
+
+def test_delivery_message_has_required_transport_headers() -> None:
+    message = build_delivery_message(
+        "recipient@example.com",
+        "Miscord verification",
+        "Plain text",
+        "<p>HTML</p>",
+    )
+    assert message["Date"]
+    assert message["Message-ID"].endswith("@miscord.ru>")
+    assert message["Reply-To"] == "support@miscord.ru"
 
 
 def test_email_hint_does_not_reveal_full_mailbox() -> None:

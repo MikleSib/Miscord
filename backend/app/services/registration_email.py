@@ -5,13 +5,31 @@ import html
 import smtplib
 import ssl
 from email.message import EmailMessage
-from email.utils import formataddr
+from email.utils import formataddr, formatdate, make_msgid
 
 from app.core.config import settings
 
 
 class MailDeliveryError(RuntimeError):
     pass
+
+
+def build_delivery_message(
+    recipient: str,
+    subject: str,
+    text: str,
+    document: str,
+) -> EmailMessage:
+    message = EmailMessage()
+    message["Subject"] = subject
+    message["From"] = formataddr((settings.MAIL_FROM_NAME, settings.MAIL_FROM_ADDRESS))
+    message["To"] = recipient
+    message["Reply-To"] = settings.MAIL_SUPPORT_ADDRESS
+    message["Date"] = formatdate(localtime=True)
+    message["Message-ID"] = make_msgid(domain="miscord.ru")
+    message.set_content(text)
+    message.add_alternative(document, subtype="html")
+    return message
 
 
 def render_verification_email(code: str, expires_minutes: int) -> tuple[str, str]:
@@ -124,13 +142,7 @@ class RegistrationMailer:
     def _send_message_sync(self, recipient: str, subject: str, text: str, document: str) -> None:
         if not settings.SMTP_HOST:
             raise MailDeliveryError("SMTP is not configured")
-        message = EmailMessage()
-        message["Subject"] = subject
-        message["From"] = formataddr((settings.MAIL_FROM_NAME, settings.MAIL_FROM_ADDRESS))
-        message["To"] = recipient
-        message["Reply-To"] = settings.MAIL_SUPPORT_ADDRESS
-        message.set_content(text)
-        message.add_alternative(document, subtype="html")
+        message = build_delivery_message(recipient, subject, text, document)
 
         try:
             if settings.SMTP_SECURITY == "ssl":
