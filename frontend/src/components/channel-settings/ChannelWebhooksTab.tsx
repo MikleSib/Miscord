@@ -257,7 +257,7 @@ export function ChannelWebhooksTab({ channel }: ChannelWebhooksTabProps) {
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-[#313338] px-5 pb-16 pt-16 text-[#f2f3f5] sm:px-10 lg:px-14">
+    <div className="channel-settings-scroll channel-webhooks-tab h-full overflow-y-auto bg-[#313338] px-5 pb-16 pt-16 text-[#f2f3f5] sm:px-10 lg:px-14">
       <div className="mx-auto w-full max-w-[760px]">
         <header className="border-b border-[#3f4147] pb-7 pr-12 sm:pr-16">
           <h1 className="text-xl font-bold tracking-[-0.02em]">
@@ -307,7 +307,7 @@ export function ChannelWebhooksTab({ channel }: ChannelWebhooksTabProps) {
               const isBusy = busy === webhook.id
               return (
                 <section key={webhook.id} className="py-5">
-                  <div className="flex min-w-0 items-center gap-3">
+                  <div className="channel-webhook-summary flex min-w-0 items-center gap-3">
                     {webhook.avatar_url ? (
                       <img
                         src={webhook.avatar_url}

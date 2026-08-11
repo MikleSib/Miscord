@@ -1,0 +1,97 @@
+/* Mobile channel settings: full-width flow, touch targets and safe-area actions. */
+@media (max-width: 1023px) {
+  .miscord-settings-dialog[data-mobile-detail="open"] .channel-settings-detail {
+    width: 100%;
+    min-width: 0;
+    flex-direction: column;
+    overflow-wrap: break-word;
+    word-break: normal;
+  }
+
+  .channel-settings-mobile-toolbar {
+    width: 100%;
+    flex: 0 0 auto;
+  }
+
+  .channel-settings-detail .channel-settings-scroll {
+    width: 100%;
+    height: auto !important;
+    min-height: 0;
+    flex: 1 1 auto;
+    padding: 1rem max(1rem, var(--safe-area-right)) calc(7rem + var(--safe-area-bottom)) max(1rem, var(--safe-area-left)) !important;
+    overscroll-behavior: contain;
+  }
+}
+
+@media (max-width: 767px) {
+  .channel-permissions-private-card {
+    gap: 1rem;
+  }
+
+  .channel-permissions-workspace {
+    min-height: 0 !important;
+    flex-direction: column;
+    overflow: visible !important;
+  }
+
+  .channel-permissions-targets {
+    width: 100% !important;
+    max-height: 16rem;
+    border-right: 0 !important;
+    border-bottom: 1px solid #1e1f22;
+  }
+
+  .channel-permissions-editor {
+    overflow: visible !important;
+    padding: 1rem !important;
+  }
+
+  .channel-permission-row {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .channel-permission-state {
+    align-self: flex-end;
+  }
+
+  .channel-permission-state button {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  .channel-permission-target-menu {
+    top: auto !important;
+    right: max(0.75rem, var(--safe-area-right));
+    bottom: calc(0.75rem + var(--safe-area-bottom));
+    left: max(0.75rem, var(--safe-area-left)) !important;
+    width: auto !important;
+    max-height: min(28rem, calc(100dvh - 1.5rem - var(--safe-area-top) - var(--safe-area-bottom)));
+  }
+
+  .unsaved-changes-bar {
+    bottom: calc(0.75rem + var(--safe-area-bottom)) !important;
+    width: calc(100% - 1.5rem) !important;
+  }
+
+  .unsaved-changes-bar__content {
+    align-items: stretch !important;
+    flex-direction: column;
+    gap: 0.75rem !important;
+  }
+
+  .unsaved-changes-bar__actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .channel-webhook-summary {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .channel-webhook-summary > button:last-child {
+    width: 100%;
+    min-height: 2.75rem;
+  }
+}

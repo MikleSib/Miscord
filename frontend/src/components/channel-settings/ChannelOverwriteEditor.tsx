@@ -94,7 +94,7 @@ export function ChannelOverwriteEditor({
 
               return (
                 <div key={permission.key}>
-                  <div className="flex items-start justify-between gap-8 py-4">
+                  <div className="channel-permission-row flex items-start justify-between gap-8 py-4">
                     <div className="min-w-0 max-w-[440px]">
                       <p className="text-[15px] font-semibold leading-5 text-white">
                         {permission.label}
@@ -104,7 +104,7 @@ export function ChannelOverwriteEditor({
                       </p>
                     </div>
 
-                    <div className="mt-0.5 flex shrink-0 items-center gap-0.5 rounded bg-[#1e1f22] p-0.5">
+                    <div className="channel-permission-state mt-0.5 flex shrink-0 items-center gap-0.5 rounded bg-[#1e1f22] p-0.5">
                       {(
                         [
                           {

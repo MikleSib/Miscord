@@ -443,7 +443,7 @@ export function ChannelPermissionsTab({
   })
 
   return (
-    <div className="relative h-full overflow-y-auto px-6 pb-28 pt-14 sm:px-10">
+    <div className="channel-settings-scroll relative h-full overflow-y-auto px-6 pb-28 pt-14 sm:px-10">
       <div className="mx-auto w-full max-w-[740px]">
         <h1 className="text-xl font-semibold text-white">Права канала</h1>
         <p className="mt-1 text-sm text-[#b5bac1]">
@@ -456,7 +456,7 @@ export function ChannelPermissionsTab({
           </div>
         )}
 
-        <div className="mt-6 flex items-start justify-between gap-6 rounded-lg bg-[#2b2d31] px-4 py-4">
+        <div className="channel-permissions-private-card mt-6 flex items-start justify-between gap-6 rounded-lg bg-[#2b2d31] px-4 py-4">
           <div className="flex min-w-0 items-start gap-3">
             <Lock className="mt-0.5 h-5 w-5 shrink-0 text-[#dbdee1]" />
             <div>
@@ -489,8 +489,8 @@ export function ChannelPermissionsTab({
           </button>
 
           {advancedOpen && (
-            <div className="mt-4 flex min-h-[480px] overflow-hidden rounded-lg bg-[#2b2d31]">
-              <div className="relative flex w-[200px] shrink-0 flex-col border-r border-[#1e1f22] sm:w-[220px]">
+            <div className="channel-permissions-workspace mt-4 flex min-h-[480px] overflow-hidden rounded-lg bg-[#2b2d31]">
+              <div className="channel-permissions-targets relative flex w-[200px] shrink-0 flex-col border-r border-[#1e1f22] sm:w-[220px]">
                 <div className="flex items-center justify-between px-3 py-3">
                   <p className="text-[11px] font-bold uppercase tracking-wide text-[#949ba4]">
                     Роли/Участники
@@ -537,7 +537,7 @@ export function ChannelPermissionsTab({
                 </div>
               </div>
 
-              <div className="min-w-0 flex-1 overflow-y-auto px-5 py-4">
+              <div className="channel-permissions-editor min-w-0 flex-1 overflow-y-auto px-5 py-4">
                 {selectedOverwrite && selectedDraft ? (
                   <>
                     {!selectedOverwrite.is_default_role && (

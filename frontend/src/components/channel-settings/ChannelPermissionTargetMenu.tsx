@@ -19,7 +19,7 @@ export function ChannelPermissionTargetMenu({ model }: { model: any }) {
           <div
             ref={addMenuRef}
             style={{ top: addMenuPos.top, left: addMenuPos.left }}
-            className="fixed z-[120] w-72 overflow-hidden rounded-lg border border-[#1e1f22] bg-[#111214] shadow-2xl"
+            className="channel-permission-target-menu fixed z-[120] w-72 overflow-hidden rounded-lg border border-[#1e1f22] bg-[#111214] shadow-2xl"
           >
             <div className="border-b border-[#1e1f22] px-3 py-2 text-sm font-semibold text-white">
               Добавить:

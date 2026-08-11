@@ -23,7 +23,7 @@ export function UnsavedChangesBar({
   return (
     <div
       className={cn(
-        'pointer-events-none fixed bottom-6 left-1/2 z-30 w-[min(740px,calc(100%-2rem))] -translate-x-1/2 transition-all duration-300 ease-out',
+        'unsaved-changes-bar pointer-events-none fixed bottom-6 left-1/2 z-30 w-[min(740px,calc(100%-2rem))] -translate-x-1/2 transition-all duration-300 ease-out',
         visible
           ? 'pointer-events-auto translate-y-0 opacity-100'
           : 'translate-y-10 opacity-0',
@@ -31,11 +31,11 @@ export function UnsavedChangesBar({
       )}
       aria-hidden={!visible}
     >
-      <div className="flex items-center justify-between gap-4 rounded-lg bg-[#111214] px-4 py-3 shadow-[0_8px_24px_rgba(0,0,0,0.45)]">
+      <div className="unsaved-changes-bar__content flex items-center justify-between gap-4 rounded-lg bg-[#111214] px-4 py-3 shadow-[0_8px_24px_rgba(0,0,0,0.45)]">
         <p className="text-sm font-medium text-[#f2f3f5]">
           Аккуратнее, вы не сохранили изменения!
         </p>
-        <div className="flex shrink-0 items-center gap-3">
+        <div className="unsaved-changes-bar__actions flex shrink-0 items-center gap-3">
           <button
             type="button"
             onClick={onReset}

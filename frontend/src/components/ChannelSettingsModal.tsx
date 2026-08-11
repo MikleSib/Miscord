@@ -235,7 +235,7 @@ export function ChannelSettingsModal({
           </button>
         </aside>
 
-        <main className="miscord-settings-detail channel-settings-detail relative min-w-0 flex-1 bg-background">
+        <main className="miscord-settings-detail channel-settings-detail relative min-w-0 flex-1 flex-col bg-background">
           <div className="channel-settings-mobile-toolbar">
             <button type="button" onClick={mobileSettings.closeDetail} aria-label="К разделам настроек">
               <ChevronLeft aria-hidden="true" />
@@ -258,7 +258,7 @@ export function ChannelSettingsModal({
           </button>
 
           {activeTab === 'overview' ? (
-            <div className="h-full overflow-y-auto px-6 pb-28 pt-14 sm:px-10">
+            <div className="channel-settings-scroll h-full overflow-y-auto px-6 pb-28 pt-14 sm:px-10">
               <div className="mx-auto w-full max-w-[660px]">
                 <h1 className="channel-settings-content-title mb-5 text-xl font-semibold text-white">Обзор</h1>
 
