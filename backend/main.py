@@ -13,7 +13,7 @@ from sqlalchemy import delete, text, update
 
 from app.core.config import settings
 from app.db.database import engine
-from app.api import auth, channels, channel_categories, channel_permissions, community_forums, community_imports, community_notifications, community_polls, community_templates, community_threads, message_pins, message_search, servers, uploads, reactions, friends, direct_messages, embeds, webhooks, attachment_files, bot_apps, bot_platform, bot_client, bot_oauth, miscord_api, miscord_gateway, miscord_interactions
+from app.api import auth, registration, channels, channel_categories, channel_permissions, community_forums, community_imports, community_notifications, community_polls, community_templates, community_threads, message_pins, message_search, servers, uploads, reactions, friends, direct_messages, embeds, webhooks, attachment_files, bot_apps, bot_platform, bot_client, bot_oauth, miscord_api, miscord_gateway, miscord_interactions
 from app.core.miscord_errors import MiscordAPIError
 from app.services.webhook_rate_limit import Bucket, consume, rate_headers
 from app.websocket.connection_manager import manager
@@ -216,6 +216,7 @@ async def miscord_api_rate_limit_middleware(request: Request, call_next):
 
 # Подключение роутеров
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
+app.include_router(registration.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(channels.router, prefix="/api/v1/channels", tags=["channels"])
 app.include_router(community_threads.router, prefix="/api/v1/channels", tags=["threads"])
 app.include_router(community_forums.router, prefix="/api/v1/channels", tags=["forums"])

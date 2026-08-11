@@ -18,6 +18,7 @@ class User(Base):
     last_activity = Column(DateTime(timezone=True), server_default=func.now())
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    email_verified_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     
     # Отношения
     owned_channels = relationship("Channel", back_populates="owner", cascade="all, delete-orphan")

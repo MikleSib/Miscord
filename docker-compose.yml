@@ -78,6 +78,16 @@ services:
       CLAMAV_HOST: clamav
       CLAMAV_PORT: "3310"
       SECRET_KEY: ${SECRET_KEY:-your-secret-key-here-change-in-production}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_SECURITY: ${SMTP_SECURITY:-ssl}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Miscord}
+      MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-no-reply@miscord.ru}
+      MAIL_SUPPORT_ADDRESS: ${MAIL_SUPPORT_ADDRESS:-support@miscord.ru}
+      MAIL_SALES_ADDRESS: ${MAIL_SALES_ADDRESS:-sales@miscord.ru}
+      EMAIL_VERIFICATION_SECRET: ${EMAIL_VERIFICATION_SECRET:-}
       CORS_ORIGINS: '["http://localhost:3000", "https://miscord.ru", "https://www.miscord.ru"]'
       ICE_SERVERS: '${ICE_SERVERS:-[{"urls":["stun:stun.l.google.com:19302","stun:stun1.l.google.com:19302"]},{"urls":["turn:miscord.ru:3478?transport=udp","turn:miscord.ru:3478?transport=tcp"],"username":"miscord","credential":"change-this-turn-password"}]}'
     ports:

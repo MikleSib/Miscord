@@ -14,7 +14,7 @@ from app.core.media import to_public_media_path
 from app.core.security import create_access_token, get_password_hash, verify_password
 from app.db.database import get_db
 from app.models.user import User
-from app.schemas.user import Token, User as UserSchema, UserCreate, UserUpdate
+from app.schemas.user import Token, User as UserSchema, UserUpdate
 from app.services.image_upload import read_and_validate_image, save_image_bytes
 from app.services.object_storage import ObjectStorageError, delete_object, delete_public_media, store_public_image
 from app.services.rate_limit import rate_limit_auth, rate_limit_user
@@ -59,42 +59,6 @@ async def _broadcast_profile_update(user: User) -> None:
             "avatar_url": user.avatar_url,
         },
     })
-
-@router.post("/register", response_model=UserSchema)
-async def register(
-    request: Request,
-    user_data: UserCreate,
-    db: AsyncSession = Depends(get_db)
-):
-    """Регистрация нового пользователя"""
-    rate_limit_auth(request, "register", limit=5, window=300)
-    # Проверка существующего пользователя
-    result = await db.execute(
-        select(User).where(
-            (User.username == user_data.username) | 
-            (User.email == user_data.email)
-        )
-    )
-    if result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username or email already registered"
-        )
-    
-    # Создание нового пользователя
-    hashed_password = get_password_hash(user_data.password)
-    new_user = User(
-        username=user_data.username,
-        email=user_data.email,
-        display_name=user_data.display_name,
-        hashed_password=hashed_password
-    )
-    
-    db.add(new_user)
-    await db.commit()
-    await db.refresh(new_user)
-    
-    return new_user
 
 @router.post("/login", response_model=Token)
 async def login(

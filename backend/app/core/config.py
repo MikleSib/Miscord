@@ -79,6 +79,24 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 2  # 2 дня
     ENVIRONMENT: str = "development"
 
+    # Transactional registration email. Verification codes are never stored
+    # in plaintext; EMAIL_VERIFICATION_SECRET keys their HMAC digests.
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 465
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_SECURITY: str = "ssl"
+    SMTP_TIMEOUT_SECONDS: int = 12
+    MAIL_FROM_NAME: str = "Miscord"
+    MAIL_FROM_ADDRESS: str = "no-reply@miscord.ru"
+    MAIL_SUPPORT_ADDRESS: str = "support@miscord.ru"
+    MAIL_SALES_ADDRESS: str = "sales@miscord.ru"
+    EMAIL_VERIFICATION_SECRET: str = ""
+    EMAIL_VERIFICATION_TTL_SECONDS: int = 600
+    EMAIL_VERIFICATION_RESEND_SECONDS: int = 60
+    EMAIL_VERIFICATION_MAX_ATTEMPTS: int = 5
+    EMAIL_VERIFICATION_MAX_RESENDS: int = 5
+
     # CORS
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
@@ -125,6 +143,18 @@ class Settings(BaseSettings):
             raise RuntimeError("EXTERNAL_IMPORT_ENCRYPTION_KEY is required for ID-based imports in production.")
         if env in {"production", "prod"} and not self.VOICE_MEDIA_JWT_SECRET:
             raise RuntimeError("VOICE_MEDIA_JWT_SECRET is required for Miscord Voice v1 in production.")
+        if self.SMTP_SECURITY not in {"ssl", "starttls", "plain"}:
+            raise RuntimeError("SMTP_SECURITY must be one of: ssl, starttls, plain.")
+        if env in {"production", "prod"}:
+            required_mail = {
+                "SMTP_HOST": self.SMTP_HOST,
+                "SMTP_USERNAME": self.SMTP_USERNAME,
+                "SMTP_PASSWORD": self.SMTP_PASSWORD,
+                "EMAIL_VERIFICATION_SECRET": self.EMAIL_VERIFICATION_SECRET,
+            }
+            missing_mail = [name for name, value in required_mail.items() if not value]
+            if missing_mail:
+                raise RuntimeError(f"Missing required registration mail settings: {', '.join(missing_mail)}")
         if self.S3_ENABLED:
             required = {
                 "S3_BUCKET": self.S3_BUCKET,

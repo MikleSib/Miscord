@@ -8,6 +8,7 @@ export interface User {
   is_online?: boolean;
   created_at?: string;
   updated_at?: string;
+  email_verified_at?: string;
   is_muted?: boolean;
   is_deafened?: boolean;
   request_id?: number;
@@ -353,6 +354,13 @@ export interface RegisterData {
   display_name: string;
   email: string;
   password: string;
+}
+
+export interface RegistrationChallenge {
+  challenge_id: string;
+  email_hint: string;
+  expires_in: number;
+  resend_in: number;
 }
 
 export interface VoiceUser {

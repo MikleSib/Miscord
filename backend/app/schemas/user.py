@@ -62,6 +62,7 @@ class User(UserBase):
     avatar_url: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
+    email_verified_at: datetime
     request_id: Optional[int] = None # Для входящих запросов в друзья
     friendship_created_at: Optional[datetime] = None
     last_message_at: Optional[datetime] = None

@@ -1,5 +1,5 @@
 import api from './api';
-import { User, AuthTokens, LoginCredentials, RegisterData } from '../types';
+import { User, AuthTokens, LoginCredentials, RegisterData, RegistrationChallenge } from '../types';
 
 class AuthService {
   async login(credentials: LoginCredentials): Promise<AuthTokens> {
@@ -19,8 +19,23 @@ class AuthService {
     return response.data;
   }
 
-  async register(data: RegisterData): Promise<User> {
-    const response = await api.post<User>('/api/v1/auth/register', data);
+  async register(data: RegisterData): Promise<RegistrationChallenge> {
+    const response = await api.post<RegistrationChallenge>('/api/v1/auth/register', data);
+    return response.data;
+  }
+
+  async verifyRegistration(challengeId: string, code: string): Promise<User> {
+    const response = await api.post<User>('/api/v1/auth/register/verify', {
+      challenge_id: challengeId,
+      code,
+    });
+    return response.data;
+  }
+
+  async resendRegistrationCode(challengeId: string): Promise<RegistrationChallenge> {
+    const response = await api.post<RegistrationChallenge>('/api/v1/auth/register/resend', {
+      challenge_id: challengeId,
+    });
     return response.data;
   }
 

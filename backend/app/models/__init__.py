@@ -1,4 +1,5 @@
 from .user import User
+from .registration import RegistrationChallenge
 from .channel import Channel, ChannelCategory, ChannelMember, TextChannel, VoiceChannel, VoiceChannelUser, ChannelType
 from .message import Message
 from .attachment import Attachment
@@ -44,6 +45,7 @@ from .bot import (
 
 __all__ = [
     "User",
+    "RegistrationChallenge",
     "Channel",
     "ChannelCategory",
     "ChannelMember",

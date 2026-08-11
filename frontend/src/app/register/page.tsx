@@ -16,7 +16,8 @@ import {
 } from 'lucide-react'
 import { useAuthStore } from '../../store/store'
 import authService from '../../services/authService'
-import { RegisterData } from '../../types'
+import { RegisterData, RegistrationChallenge } from '../../types'
+import RegisterCodeStep from './RegisterCodeStep'
 
 export default function RegisterPage() {
   const router = useRouter()
@@ -32,6 +33,9 @@ export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isCheckingSession, setIsCheckingSession] = useState(true)
+  const [challenge, setChallenge] = useState<RegistrationChallenge | null>(null)
+  const [verificationCode, setVerificationCode] = useState('')
+  const [verified, setVerified] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -72,8 +76,8 @@ export default function RegisterPage() {
       setValidationError('Имя пользователя должно содержать минимум 3 символа.')
       return
     }
-    if (formData.password.length < 6) {
-      setValidationError('Пароль должен содержать минимум 6 символов.')
+    if (formData.password.length < 8) {
+      setValidationError('Пароль должен содержать минимум 8 символов.')
       return
     }
     if (formData.password !== formData.confirmPassword) {
@@ -84,12 +88,47 @@ export default function RegisterPage() {
     const { confirmPassword, ...registerData } = formData
     registerStart()
     try {
-      await authService.register(registerData as RegisterData)
+      const nextChallenge = await authService.register(registerData as RegisterData)
+      setChallenge(nextChallenge)
       registerSuccess()
-      router.replace('/login')
     } catch (requestError: any) {
       registerFailure(requestError.response?.data?.detail || requestError.message || 'Не удалось создать аккаунт.')
     }
+  }
+
+  const handleVerify = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!challenge || verificationCode.length !== 6) return
+    clearError()
+    registerStart()
+    try {
+      await authService.verifyRegistration(challenge.challenge_id, verificationCode)
+      registerSuccess()
+      setVerified(true)
+      window.setTimeout(() => router.replace('/login'), 1100)
+    } catch (requestError: any) {
+      registerFailure(requestError.response?.data?.detail || requestError.message || 'Не удалось проверить код.')
+    }
+  }
+
+  const handleResend = async () => {
+    if (!challenge) return
+    clearError()
+    registerStart()
+    try {
+      const nextChallenge = await authService.resendRegistrationCode(challenge.challenge_id)
+      setChallenge(nextChallenge)
+      setVerificationCode('')
+      registerSuccess()
+    } catch (requestError: any) {
+      registerFailure(requestError.response?.data?.detail || requestError.message || 'Не удалось отправить новый код.')
+    }
+  }
+
+  const returnToDetails = () => {
+    setChallenge(null)
+    setVerificationCode('')
+    clearError()
   }
 
   const passwordButton = (visible: boolean, toggle: () => void, label: string) => (
@@ -128,6 +167,23 @@ export default function RegisterPage() {
         </section>
 
         <section className="auth-card" aria-labelledby="register-title">
+          {challenge ? (
+            <RegisterCodeStep
+              challenge={challenge}
+              code={verificationCode}
+              error={error}
+              loading={isLoading}
+              verified={verified}
+              onCodeChange={(value) => {
+                setVerificationCode(value)
+                if (error) clearError()
+              }}
+              onVerify={handleVerify}
+              onResend={handleResend}
+              onBack={returnToDetails}
+            />
+          ) : (
+          <>
           <div>
             <p className="text-sm font-semibold text-primary">Новый аккаунт</p>
             <h2 id="register-title" className="mt-2 text-3xl font-bold tracking-[-0.03em]">Присоединяйтесь</h2>
@@ -205,7 +261,7 @@ export default function RegisterPage() {
                     required
                     value={formData.password}
                     onChange={(event) => updateField('password', event.target.value)}
-                    placeholder="Минимум 6 символов"
+                    placeholder="Минимум 8 символов"
                   />
                   {passwordButton(showPassword, () => setShowPassword((visible) => !visible), showPassword ? 'Скрыть пароль' : 'Показать пароль')}
                 </span>
@@ -234,11 +290,11 @@ export default function RegisterPage() {
               {isLoading || isCheckingSession ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  {isCheckingSession ? 'Проверяем сессию' : 'Создаём аккаунт'}
+                  {isCheckingSession ? 'Проверяем сессию' : 'Отправляем код'}
                 </>
               ) : (
                 <>
-                  Создать аккаунт
+                  Получить код
                   <ArrowRight className="h-4 w-4" />
                 </>
               )}
@@ -251,6 +307,8 @@ export default function RegisterPage() {
               Войти
             </Link>
           </p>
+          </>
+          )}
         </section>
       </div>
     </main>
