@@ -172,15 +172,17 @@ export function ForumChannelView({ channel }: { channel: Channel }) {
   return (
     <main className="forum-channel-view flex min-h-0 flex-1 flex-col bg-background">
       <header className="forum-channel-header shrink-0 border-b border-border px-4 py-3 sm:px-6">
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="forum-channel-header__row flex min-w-0 items-center gap-3">
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-surface text-text-body"><MessageSquareText className="h-5 w-5" /></span>
-          <div className="min-w-0 flex-1">
+          <div className="forum-channel-header__identity min-w-0 flex-1">
             <h1 className="truncate font-bold text-foreground">{forum.name}</h1>
             <p className="text-xs text-text-quiet">Показано публикаций: {posts.length}{includeArchived ? ' · включая архив' : ''}</p>
           </div>
-          {postsLoading && posts.length > 0 && <Loader2 className="h-4 w-4 animate-spin text-text-quiet" aria-label="Обновление" />}
-          {canManage && <button type="button" onClick={() => setTagManagerOpen(true)} aria-label="Настройки форума" className="grid h-10 w-10 shrink-0 place-items-center rounded-md text-text-quiet hover:bg-surface hover:text-foreground"><Settings2 className="h-4 w-4" /></button>}
-          <button type="button" onClick={() => setCreateOpen(true)} disabled={!canCreate} title={!canCreate ? 'У вас нет права создавать публикации' : undefined} className="inline-flex h-10 shrink-0 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-white hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-45"><Plus className="h-4 w-4" /><span className="hidden sm:inline">Новая публикация</span></button>
+          <div className="forum-channel-header__actions flex shrink-0 items-center gap-1">
+            {postsLoading && posts.length > 0 && <Loader2 className="h-4 w-4 animate-spin text-text-quiet" aria-label="Обновление" />}
+            {canManage && <button type="button" onClick={() => setTagManagerOpen(true)} aria-label="Настройки форума" className="grid h-10 w-10 shrink-0 place-items-center rounded-md text-text-quiet hover:bg-surface hover:text-foreground"><Settings2 className="h-4 w-4" /></button>}
+            <button type="button" onClick={() => setCreateOpen(true)} disabled={!canCreate} aria-label="Новая публикация" title={!canCreate ? 'У вас нет права создавать публикации' : undefined} className="inline-flex h-10 shrink-0 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-white hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-45"><Plus className="h-4 w-4" /><span className="hidden sm:inline">Новая публикация</span></button>
+          </div>
         </div>
         {forum.settings.guidelines && (
           <details className="mt-3 max-w-3xl text-sm text-text-quiet">

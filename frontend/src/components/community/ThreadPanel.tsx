@@ -1,6 +1,6 @@
 'use client'
 
-import { Archive, Lock, LogOut, MoreHorizontal, Send, Settings2, Unlock, UserPlus, Users, X } from 'lucide-react'
+import { Archive, ChevronLeft, Lock, LogOut, MoreHorizontal, Send, Settings2, Unlock, UserPlus, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useAuthStore } from '../../store/store'
 import { useCommunityStore } from '../../store/communityStore'
@@ -51,6 +51,12 @@ export function ThreadPanel() {
   }, [thread?.id])
 
   useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    const html = document.documentElement
+    if (thread) html.dataset.miscordThread = 'open'
+    else delete html.dataset.miscordThread
+    return () => { delete html.dataset.miscordThread }
+  }, [thread])
   useLayoutEffect(() => {
     if (!thread || loading || !scrollRef.current) return
     const saved = threadScrollPositions.get(thread.id)
@@ -130,8 +136,9 @@ export function ThreadPanel() {
 
   return (
     <aside ref={panelRef} aria-label="Обсуждение" className="thread-panel fixed inset-0 z-[60] flex min-w-0 flex-col border-l border-border bg-background sm:static sm:z-auto sm:w-[420px] sm:max-w-[42vw]">
-      <header className="thread-panel__header flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
-        <div className="min-w-0 flex-1">
+      <header className="thread-panel__header flex h-12 shrink-0 items-center gap-2 border-b border-border px-3">
+        <button type="button" onClick={closePanel} aria-label="Назад" className="thread-panel__back hidden h-11 w-11 shrink-0 place-items-center rounded-md text-text-quiet hover:bg-surface hover:text-foreground sm:hidden"><ChevronLeft className="h-6 w-6" /></button>
+        <div className="thread-panel__identity min-w-0 flex-1">
           <p className="truncate text-sm font-bold">{thread.name}</p>
           <p className="text-[11px] text-text-quiet">Обсуждение · {thread.member_count} участников</p>
         </div>

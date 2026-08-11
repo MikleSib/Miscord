@@ -222,8 +222,31 @@
   }
 
   .thread-panel__header {
-    padding-right: max(var(--mobile-page-gutter-compact), var(--safe-area-right)) !important;
-    padding-left: max(3.75rem, calc(var(--safe-area-left) + 3.75rem)) !important;
+    gap: 0.25rem !important;
+    padding-right: max(0.5rem, var(--safe-area-right)) !important;
+    padding-left: max(0.5rem, var(--safe-area-left)) !important;
+  }
+
+  html[data-miscord-thread="open"] .miscord-mobile-back {
+    display: none !important;
+  }
+
+  .thread-panel__back {
+    display: grid !important;
+  }
+
+  .thread-panel__identity {
+    padding-right: 0.25rem;
+  }
+
+  .thread-panel__identity > p:first-child {
+    font-size: 1rem;
+    line-height: 1.25rem;
+  }
+
+  .thread-panel__header > .relative,
+  .thread-panel__header > button:last-of-type {
+    flex: 0 0 var(--mobile-touch-target);
   }
 
   .thread-panel__messages {
@@ -233,6 +256,76 @@
   .thread-panel__composer {
     padding: 0.75rem max(var(--mobile-page-gutter-compact), var(--safe-area-right)) max(0.75rem, var(--safe-area-bottom)) max(var(--mobile-page-gutter-compact), var(--safe-area-left)) !important;
     background: var(--mobile-canvas);
+  }
+
+  .thread-panel__composer > div {
+    border: 1px solid var(--mobile-border);
+    background: var(--mobile-surface-raised);
+  }
+
+  .forum-channel-header {
+    padding-left: max(3.75rem, calc(var(--safe-area-left) + 3.75rem)) !important;
+  }
+
+  .forum-channel-header__row {
+    width: 100%;
+  }
+
+  .forum-channel-header__identity h1 {
+    font-size: 1rem;
+    line-height: 1.25rem;
+  }
+
+  .forum-channel-header__identity p {
+    margin-top: 0.125rem;
+  }
+
+  .forum-channel-header__actions > button {
+    width: var(--mobile-touch-target);
+    min-width: var(--mobile-touch-target);
+    padding: 0 !important;
+    justify-content: center;
+  }
+
+  .forum-post-list > div {
+    width: 100%;
+    max-width: var(--mobile-content-max);
+    margin-right: auto;
+    margin-left: auto;
+  }
+
+  .miscord-mobile-voice-controls {
+    position: fixed;
+    z-index: 74;
+    right: max(0.75rem, var(--safe-area-right));
+    bottom: calc(var(--mobile-composer-clearance) + var(--safe-area-bottom));
+    display: flex;
+    gap: 0.375rem;
+    padding: 0.375rem;
+    border: 1px solid rgba(55, 185, 114, 0.28);
+    border-radius: 0.875rem;
+    background: rgba(29, 31, 35, 0.96);
+    box-shadow: 0 0.75rem 2rem rgba(0, 0, 0, 0.35);
+  }
+
+  .miscord-mobile-voice-controls > button {
+    display: grid;
+    width: var(--mobile-touch-target);
+    height: var(--mobile-touch-target);
+    place-items: center;
+    color: #dbdee1;
+    border-radius: 0.625rem;
+    background: #35373c;
+  }
+
+  .miscord-mobile-voice-controls > button:last-child {
+    color: #f2f3f5;
+    background: #da373c;
+  }
+
+  .miscord-mobile-voice-controls svg {
+    width: 1.125rem;
+    height: 1.125rem;
   }
 
   .notification-inbox {

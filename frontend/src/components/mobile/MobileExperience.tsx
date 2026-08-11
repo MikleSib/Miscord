@@ -243,17 +243,9 @@ export function MobileExperience() {
       )}
 
       {isNarrow && (voice.isConnected || voice.isConnecting) && navigation.pane === 'chat' && (
-        <div className="miscord-mobile-voice-bar">
-          <button
-            type="button"
-            className="miscord-mobile-voice-summary"
-            onClick={() => commitNavigation({ pane: 'call', memberDrawerOpen: false })}
-          >
-            <span className={voice.isConnected ? 'is-connected' : 'is-connecting'} />
-            <span>
-              <strong>{voiceChannel?.name ?? 'Голосовой канал'}</strong>
-              <small>{voice.isConnected ? 'Голосовая связь подключена' : 'Подключение...'}</small>
-            </span>
+        <div className="miscord-mobile-voice-controls" aria-label="Управление голосовым каналом">
+          <button type="button" onClick={() => commitNavigation({ pane: 'call', memberDrawerOpen: false })} aria-label="Открыть голосовой канал">
+            <Headphones />
           </button>
           {voice.toggleMute && (
             <button type="button" onClick={voice.toggleMute} aria-label={voice.isMuted ? 'Включить микрофон' : 'Выключить микрофон'}>
