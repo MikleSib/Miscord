@@ -82,7 +82,8 @@ if contains_service voice-media; then
 fi
 
 if contains_service backend; then
-  echo "[4/7] applying idempotent bot schema migration"
+  echo "[4/7] applying Alembic and legacy idempotent schema migrations"
+  "${COMPOSE[@]}" run --rm --no-deps backend alembic upgrade head
   "${COMPOSE[@]}" run --rm --no-deps backend python migrate_bot_phase4.py
   "${COMPOSE[@]}" run --rm --no-deps backend python migrate_bot_miscord_v10.py
 else
