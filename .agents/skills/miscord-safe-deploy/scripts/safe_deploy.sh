@@ -2,6 +2,8 @@
 set -Eeuo pipefail
 
 PUBLIC_URL="${MISCORD_PUBLIC_URL:-https://miscord.ru}"
+SMOKE_URL="${MISCORD_SMOKE_URL:-$PUBLIC_URL}"
+GATEWAY_URL="${MISCORD_GATEWAY_URL:-$PUBLIC_URL}"
 ROOT="${MISCORD_ROOT:-$(git rev-parse --show-toplevel)}"
 COMPOSE=(docker compose)
 if [[ -n "${COMPOSE_PROJECT_NAME:-}" ]]; then
@@ -141,14 +143,14 @@ else
 fi
 
 echo "[7/7] checking public frontend, OAuth, API health, and Gateways"
-root_code=$(curl -sS -o /dev/null --max-time 15 -w '%{http_code}' "$PUBLIC_URL/")
-oauth_code=$(curl -sS -L -o /dev/null --max-time 15 -w '%{http_code}' "$PUBLIC_URL/oauth2/authorize")
-api_code=$(curl -sS -o /dev/null --max-time 15 -w '%{http_code}' "$PUBLIC_URL/api/v1/health")
+root_code=$(curl -sS -o /dev/null --max-time 15 -w '%{http_code}' "$SMOKE_URL/")
+oauth_code=$(curl -sS -L -o /dev/null --max-time 15 -w '%{http_code}' "$SMOKE_URL/oauth2/authorize")
+api_code=$(curl -sS -o /dev/null --max-time 15 -w '%{http_code}' "$SMOKE_URL/api/v1/health")
 [[ "$root_code" =~ ^[23][0-9][0-9]$ ]] || { echo "public root returned $root_code" >&2; exit 1; }
 [[ "$oauth_code" == "200" ]] || { echo "public OAuth authorize page returned $oauth_code" >&2; exit 1; }
 [[ "$api_code" == "200" ]] || { echo "public API health returned $api_code" >&2; exit 1; }
 
-"${COMPOSE[@]}" exec -T backend python - <<'PY'
+"${COMPOSE[@]}" exec -T -e MISCORD_GATEWAY_URL="$GATEWAY_URL" backend python - <<'PY'
 import asyncio
 import json
 import os
@@ -157,7 +159,7 @@ import websockets
 
 
 async def probe() -> None:
-    public_url = os.environ.get("MISCORD_PUBLIC_URL", "https://miscord.ru")
+    public_url = os.environ.get("MISCORD_GATEWAY_URL", "https://miscord.ru")
     websocket_base = public_url.replace("https://", "wss://", 1).replace("http://", "ws://", 1)
     gateway_url = websocket_base + "/gateway?v=1&encoding=json"
     async with websockets.connect(gateway_url, open_timeout=10) as socket:
