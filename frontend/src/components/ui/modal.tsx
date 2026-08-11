@@ -1,8 +1,9 @@
 'use client'
 
-import React, { useEffect, useId, useRef } from 'react'
+import React, { useId } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
+import { useModalFocusTrap } from '../../hooks/useModalFocusTrap'
 
 export const MODAL_Z_INDEX = {
   base: 110,
@@ -23,9 +24,6 @@ interface ModalProps {
   children: React.ReactNode
 }
 
-const FOCUSABLE =
-  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
-
 export function Modal({
   open,
   onClose,
@@ -37,55 +35,11 @@ export function Modal({
   zIndex = MODAL_Z_INDEX.base,
   children,
 }: ModalProps) {
-  const panelRef = useRef<HTMLDivElement>(null)
-  const previouslyFocused = useRef<HTMLElement | null>(null)
   const autoTitleId = useId()
   const labelledBy = titleId || (title ? autoTitleId : undefined)
-
-  useEffect(() => {
-    if (!open) return
-
-    previouslyFocused.current = document.activeElement as HTMLElement | null
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-
-    const panel = panelRef.current
-    const focusables = panel?.querySelectorAll<HTMLElement>(FOCUSABLE)
-    focusables?.[0]?.focus()
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !disableClose) {
-        event.preventDefault()
-        onClose()
-        return
-      }
-
-      if (event.key !== 'Tab' || !panel) return
-      const nodes = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-        (el) => !el.hasAttribute('disabled') && el.tabIndex !== -1
-      )
-      if (nodes.length === 0) {
-        event.preventDefault()
-        return
-      }
-      const first = nodes[0]
-      const last = nodes[nodes.length - 1]
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault()
-        last.focus()
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault()
-        first.focus()
-      }
-    }
-
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('keydown', onKeyDown)
-      document.body.style.overflow = previousOverflow
-      previouslyFocused.current?.focus?.()
-    }
-  }, [open, onClose, disableClose])
+  const panelRef = useModalFocusTrap<HTMLDivElement>(open, () => {
+    if (!disableClose) onClose()
+  })
 
   if (!open || typeof document === 'undefined') return null
 

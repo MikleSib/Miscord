@@ -465,9 +465,10 @@ export function DirectMessageArea({
           return (
             <div
               key={msg.id}
-              className={`flex items-start gap-3 ${isCurrentUser ? 'justify-end' : ''} mb-2 group relative px-2 py-1 rounded-lg transition-all ${hoveredMessageId === msg.id ? 'bg-[#2c2d32]' : ''}`}
+              className={`dm-message-row flex items-start gap-3 ${isCurrentUser ? 'justify-end' : ''} mb-2 group relative px-2 py-1 rounded-lg transition-all ${hoveredMessageId === msg.id ? 'bg-[#2c2d32]' : ''}`}
               onMouseEnter={() => setHoveredMessageId(msg.id)}
               onMouseLeave={() => setHoveredMessageId(null)}
+              onPointerUp={(event) => { if (event.pointerType === 'touch') setHoveredMessageId((current) => current === msg.id ? null : msg.id) }}
             >
               {!isCurrentUser && showAuthor && <UserAvatar user={messageUser as User} />}
               {!isCurrentUser && !showAuthor && <div className="w-10" />}
@@ -498,7 +499,7 @@ export function DirectMessageArea({
 
                   {/* Message content + превью ссылок */}
                   {msg.content && (
-                    <div className={`${isPending ? 'text-gray-400 opacity-70' : 'text-white'} ${isCurrentUser ? 'bg-blue-600' : 'bg-gray-700'} rounded-lg px-3 py-2 ${isPending ? 'bg-opacity-70' : ''}`}>
+                    <div className={`${isPending ? 'text-white/80 opacity-80' : 'text-white'} ${isCurrentUser ? 'bg-primary' : 'bg-surface-raised'} rounded-lg px-3 py-2 ${isPending ? 'bg-opacity-80' : ''}`}>
                       <MessageContent
                         content={msg.content}
                         currentUserId={user?.id}
@@ -540,7 +541,7 @@ export function DirectMessageArea({
 
               {/* Action Buttons - показываются при наведении */}
               {hoveredMessageId === msg.id && !isPending && (
-                <div className="absolute top-0 right-12 flex items-center gap-1 bg-[#1e1f22] border border-[#3e3f45] rounded-lg shadow-lg p-1">
+                <div className="dm-message-actions absolute top-0 right-12 flex items-center gap-1 bg-[#1e1f22] border border-[#3e3f45] rounded-lg shadow-lg p-1">
                   <button
                     onClick={() => toggleEmojiPicker(msg.id)}
                     className="p-1.5 hover:bg-[#2c2d32] rounded text-gray-400 hover:text-white transition-colors"
@@ -596,5 +597,3 @@ export function DirectMessageArea({
     </div>
   )
 }
-
-

@@ -18,6 +18,7 @@ import { useScreenSharePickerStore } from '../store/screenSharePickerStore';
 import { useScreenShareSettingsStore } from '../store/screenShareSettingsStore';
 import { StreamModeMenu } from './StreamModeMenu';
 import voiceService from '../services/voiceService';
+import { useModalFocusTrap } from '../hooks/useModalFocusTrap';
 
 const TABS: { id: ScreenSharePickerTab; label: string }[] = [
   { id: 'applications', label: 'Приложения' },
@@ -151,16 +152,8 @@ export function ScreenSharePickerModal() {
     setSelectedSourceId(null);
   }, [activeTab]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') close();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isOpen, close]);
-
   const canShare = isElectron ? Boolean(selectedSourceId) : true;
+  const dialogRef = useModalFocusTrap<HTMLDivElement>(isOpen, close);
 
   const handleShare = async () => {
     setIsStarting(true);
@@ -192,11 +185,11 @@ export function ScreenSharePickerModal() {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[min(720px,calc(100vh-2rem))] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-[#3e3f45] bg-[#232428] shadow-2xl">
+    <div className="miscord-responsive-modal fixed inset-0 z-[200] flex items-center justify-center bg-black/70 p-4">
+      <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="screen-share-picker-title" className="miscord-responsive-modal-card flex max-h-[min(720px,calc(100vh-2rem))] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-2xl outline-none">
         <div className="flex items-center justify-between border-b border-[#3e3f45] px-4 py-3">
           <div>
-            <h2 className="text-lg font-semibold text-[#f2f3f5]">Выберите, что транслировать</h2>
+            <h2 id="screen-share-picker-title" className="text-lg font-semibold text-foreground">Выберите, что транслировать</h2>
             <p className="text-xs text-[#949ba4]">
               {isElectron
                 ? 'Выберите окно или экран, затем нажмите «Передавать»'
@@ -206,7 +199,7 @@ export function ScreenSharePickerModal() {
           <button
             type="button"
             onClick={close}
-            className="rounded-md p-2 text-[#b5bac1] hover:bg-[#3a3c43] hover:text-white"
+            className="grid h-11 w-11 place-items-center rounded-md text-text-muted hover:bg-surface-raised hover:text-white"
             aria-label="Закрыть"
           >
             <X className="h-5 w-5" />

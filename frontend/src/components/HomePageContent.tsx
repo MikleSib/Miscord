@@ -354,7 +354,13 @@ export function HomePageContent() {
   }
 
   const renderContactRow = (contact: User) => (
-    <div key={contact.id} onClick={() => openContactChat(contact)} className="flex items-center justify-between p-2 hover:bg-gray-800 rounded-md cursor-pointer">
+    <div key={contact.id} className="group flex min-h-12 items-center justify-between rounded-md px-2 hover:bg-surface">
+      <button
+        type="button"
+        onClick={() => openContactChat(contact)}
+        className="flex min-w-0 flex-1 items-center rounded-md py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        aria-label={`Открыть переписку с ${getDisplayName(contact)}`}
+      >
       <div className="flex items-center">
         <UserAvatar user={contact} />
         <div className="ml-3">
@@ -364,13 +370,15 @@ export function HomePageContent() {
           </p>
         </div>
       </div>
+      </button>
       <div className="flex items-center gap-2">
         <button 
           onClick={(e) => { 
             e.stopPropagation(); 
             openContactChat(contact); 
           }} 
-          className="p-1 text-text-quiet hover:text-white"
+          className="grid h-11 w-11 place-items-center rounded-md text-text-quiet outline-none hover:bg-surface-raised hover:text-white focus-visible:ring-2 focus-visible:ring-primary"
+          aria-label={`Написать ${getDisplayName(contact)}`}
         >
           <MessageSquare size={20} />
         </button>
@@ -431,10 +439,10 @@ export function HomePageContent() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => handleAcceptRequest(request.request_id!)} className="w-9 h-9 flex items-center justify-center bg-gray-700 hover:bg-green-600 rounded-full text-white">
+                    <button type="button" onClick={() => handleAcceptRequest(request.request_id!)} aria-label={`Принять запрос от ${request.username}`} className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-raised text-white hover:bg-success">
                       <Check size={20} />
                     </button>
-                    <button onClick={() => handleRejectRequest(request.request_id!)} className="w-9 h-9 flex items-center justify-center bg-gray-700 hover:bg-red-600 rounded-full text-white">
+                    <button type="button" onClick={() => handleRejectRequest(request.request_id!)} aria-label={`Отклонить запрос от ${request.username}`} className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-raised text-white hover:bg-destructive">
                       <X size={20} />
                     </button>
                   </div>

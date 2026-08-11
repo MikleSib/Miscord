@@ -11,7 +11,6 @@ import {
   PhoneOff,
   Users,
   VolumeX,
-  X,
 } from 'lucide-react'
 import { useStore } from '../../lib/store'
 import { useOptimizedVoiceStore } from '../../store/slices/optimizedVoiceSlice'
@@ -24,23 +23,11 @@ import { useResponsiveLayout, useVisualViewportVariables } from '../../hooks/use
 
 const HISTORY_KEY = 'miscordMobileNavigation'
 
-function snapshotFromState(): MobileNavigationSnapshot {
-  const state = useMobileNavigationStore.getState()
-  return {
-    rootTab: state.rootTab,
-    pane: state.pane,
-    channelDrawerOpen: state.channelDrawerOpen,
-    memberDrawerOpen: state.memberDrawerOpen,
-    homeDetailOpen: state.homeDetailOpen,
-  }
-}
-
 export function MobileExperience() {
   const initializedRef = useRef(false)
   const previousServerRef = useRef<number | null>(null)
   const previousChannelRef = useRef<string | null>(null)
   const [mounted, setMounted] = useState(false)
-  const [settingsDetailOpen, setSettingsDetailOpen] = useState(false)
   const viewport = useResponsiveLayout()
   const isNarrow = viewport === 'phone' || viewport === 'tablet'
   useVisualViewportVariables()
@@ -90,55 +77,6 @@ export function MobileExperience() {
       delete html.dataset.miscordHomeDetail
     }
   }, [currentServer, navigation.homeDetailOpen, navigation.memberDrawerOpen, navigation.pane, viewport])
-
-  useEffect(() => {
-    const decorateModals = () => {
-      document.querySelectorAll<HTMLElement>('.fixed.inset-0').forEach((overlay) => {
-        if (overlay.id === 'screen-share-overlay' || overlay.classList.contains('screen-share-viewer')) return
-        overlay.classList.add('miscord-responsive-modal')
-        const card = Array.from(overlay.children).find((child) => {
-          const element = child as HTMLElement
-          return element.getAttribute('role') === 'dialog'
-            || (element.classList.contains('relative') && !element.classList.contains('absolute'))
-        }) as HTMLElement | undefined
-        card?.classList.add('miscord-responsive-modal-card')
-        const sidebar = overlay.querySelector<HTMLElement>(
-          '.w-64, .w-60, .w-\\[200px\\], .w-\\[218px\\], .w-\\[220px\\]',
-        )
-        if (!sidebar) return
-        overlay.classList.add('miscord-settings-dialog')
-        sidebar.classList.add('miscord-settings-sidebar')
-        const detail = sidebar.nextElementSibling as HTMLElement | null
-        detail?.classList.add('miscord-settings-detail')
-      })
-    }
-
-    decorateModals()
-    const observer = new MutationObserver(decorateModals)
-    observer.observe(document.body, { childList: true, subtree: true })
-
-    const handleSettingsClick = (event: MouseEvent) => {
-      if (!isNarrow) return
-      const target = event.target as HTMLElement | null
-      const sidebar = target?.closest('.miscord-settings-sidebar')
-      const action = target?.closest('button, a, [role="button"]')
-      if (!sidebar || !action) return
-      const modal = sidebar.closest<HTMLElement>('.miscord-settings-dialog')
-      if (!modal) return
-      modal.dataset.mobileDetail = 'open'
-      setSettingsDetailOpen(true)
-      window.history.pushState(
-        { ...window.history.state, miscordSettingsDetail: true, [HISTORY_KEY]: snapshotFromState() },
-        '',
-      )
-    }
-
-    document.addEventListener('click', handleSettingsClick)
-    return () => {
-      observer.disconnect()
-      document.removeEventListener('click', handleSettingsClick)
-    }
-  }, [isNarrow])
 
   useEffect(() => {
     if (!isNarrow || initializedRef.current) return
@@ -200,43 +138,17 @@ export function MobileExperience() {
 
   useEffect(() => {
     if (!isNarrow) return
-    const handleHomeClick = (event: MouseEvent) => {
-      const target = event.target as HTMLElement | null
-      const sidebar = target?.closest('.app-home-content > .app-sidebar')
-      if (!sidebar || !target?.closest('button, a, [role="button"]')) return
-      window.setTimeout(() => {
-        commitNavigation({ rootTab: 'messages', pane: 'chat', homeDetailOpen: true })
-      }, 0)
-    }
-    document.addEventListener('click', handleHomeClick)
-    return () => document.removeEventListener('click', handleHomeClick)
-  }, [commitNavigation, isNarrow])
-
-  useEffect(() => {
-    if (!isNarrow) return
     const handlePopState = (event: PopStateEvent) => {
-      if (event.state?.miscordSettingsDetail) return
       const snapshot = event.state?.[HISTORY_KEY]
       if (isMobileNavigationSnapshot(snapshot)) {
         useMobileNavigationStore.getState().applySnapshot(snapshot)
       }
-      document.querySelectorAll<HTMLElement>('.miscord-settings-dialog[data-mobile-detail="open"]').forEach((modal) => {
-        delete modal.dataset.mobileDetail
-      })
-      setSettingsDetailOpen(false)
     }
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
   }, [isNarrow])
 
   const goBack = () => {
-    if (settingsDetailOpen) {
-      document.querySelectorAll<HTMLElement>('.miscord-settings-dialog[data-mobile-detail="open"]').forEach((modal) => {
-        delete modal.dataset.mobileDetail
-      })
-      setSettingsDetailOpen(false)
-      return
-    }
     if (navigation.memberDrawerOpen) {
       commitNavigation({ memberDrawerOpen: false }, 'replace')
       return
@@ -301,23 +213,23 @@ export function MobileExperience() {
 
   const mobileLayer = (
     <div className="miscord-mobile-layer" aria-live="polite">
-      {isNarrow && (navigation.pane === 'chat' || settingsDetailOpen) && (
+      {isNarrow && navigation.pane === 'chat' && (
         <button type="button" className="miscord-mobile-back" onClick={goBack} aria-label="Назад">
           <ChevronLeft aria-hidden="true" />
         </button>
       )}
 
-      {isNarrow && currentServer && navigation.pane === 'chat' && (
+      {isNarrow && currentServer && navigation.pane === 'chat' && !navigation.memberDrawerOpen && (
         <button
           type="button"
           className="miscord-mobile-members-button"
           onClick={() => commitNavigation({
             memberDrawerOpen: !useMobileNavigationStore.getState().memberDrawerOpen,
           }, 'replace')}
-          aria-label={navigation.memberDrawerOpen ? 'Закрыть участников' : 'Участники канала'}
-          aria-expanded={navigation.memberDrawerOpen}
+          aria-label="Участники канала"
+          aria-expanded="false"
         >
-          {navigation.memberDrawerOpen ? <X aria-hidden="true" /> : <Users aria-hidden="true" />}
+          <Users aria-hidden="true" />
         </button>
       )}
 

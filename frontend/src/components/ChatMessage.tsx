@@ -173,6 +173,7 @@ export function ChatMessage({
       )}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      onPointerUp={(event) => { if (event.pointerType === 'touch') setIsHovered((current) => !current) }}
       onContextMenu={(event) => {
         event.preventDefault()
         setShowMoreMenu(true)

@@ -37,7 +37,7 @@ export function PollComposerButton({ channelId, disabled }: { channelId: number;
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} disabled={disabled} aria-label="Создать опрос" title="Опрос" className="mr-1 flex h-8 w-8 items-center justify-center rounded-md text-text-quiet hover:bg-surface-raised hover:text-foreground disabled:opacity-40"><BarChart3 className="h-5 w-5" /></button>
+      <button type="button" onClick={() => setOpen(true)} disabled={disabled} aria-label="Создать опрос" title="Опрос" className="mr-1 flex h-11 w-11 items-center justify-center rounded-md text-text-quiet hover:bg-surface-raised hover:text-foreground disabled:opacity-40"><BarChart3 className="h-5 w-5" /></button>
       <Modal open={open} onClose={() => setOpen(false)} title="Создать опрос" contentClassName="max-w-lg bg-surface-raised">
         <div className="p-5">
           <div className="flex items-start justify-between"><div><h2 className="text-xl font-bold">Создать опрос</h2><p className="mt-1 text-sm text-text-quiet">Результаты откроются после завершения.</p></div><button type="button" onClick={() => setOpen(false)} aria-label="Закрыть" className="rounded p-1 text-text-quiet hover:bg-surface"><X className="h-5 w-5" /></button></div>

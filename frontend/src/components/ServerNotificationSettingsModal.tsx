@@ -14,6 +14,7 @@ import {
   ServerNotificationLevel,
   ServerNotificationSettings,
 } from '../types'
+import { useModalFocusTrap } from '../hooks/useModalFocusTrap'
 
 interface ServerNotificationSettingsModalProps {
   isOpen: boolean
@@ -49,6 +50,7 @@ export function ServerNotificationSettingsModal({
   const [channelPickerOpen, setChannelPickerOpen] = useState(false)
   const setLocal = useNotificationSettingsStore((state) => state.setLocal)
   const load = useNotificationSettingsStore((state) => state.load)
+  const dialogRef = useModalFocusTrap<HTMLDivElement>(isOpen, onClose)
 
   const textChannels = useMemo(
     () => (server.channels || []).filter((channel) => channel.type === 'text'),
@@ -86,13 +88,8 @@ export function ServerNotificationSettingsModal({
 
     void fetchSettings()
 
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', onKeyDown)
     return () => {
       cancelled = true
-      document.removeEventListener('keydown', onKeyDown)
     }
   }, [isOpen, load, onClose, server.id])
 
@@ -175,17 +172,19 @@ export function ServerNotificationSettingsModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 flex items-center justify-center bg-black/70 p-4"
+      className="miscord-responsive-modal fixed inset-0 flex items-center justify-center bg-black/70 p-4"
       style={{ zIndex: MODAL_Z_INDEX }}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
     >
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="server-notifications-title"
-        className="flex max-h-[min(90vh,720px)] w-full max-w-[440px] flex-col overflow-hidden rounded-lg bg-[#313338] shadow-2xl"
+        className="miscord-responsive-modal-card flex max-h-[min(90vh,720px)] w-full max-w-[440px] flex-col overflow-hidden rounded-lg bg-surface-raised shadow-2xl outline-none"
       >
         <div className="flex items-center justify-between px-4 pb-2 pt-4">
           <h2 id="server-notifications-title" className="text-xl font-bold text-white">

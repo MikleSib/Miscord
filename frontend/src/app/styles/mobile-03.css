@@ -228,6 +228,26 @@
     padding-right: 0 !important;
     padding-left: 0 !important;
     border-radius: 0;
+    content-visibility: auto;
+    contain-intrinsic-size: 4.5rem;
+  }
+
+  .dm-message-row {
+    content-visibility: auto;
+    contain-intrinsic-size: 4.5rem;
+  }
+
+  .chat-message-actions,
+  .dm-message-actions {
+    right: 0.25rem !important;
+    max-width: calc(100vw - 1rem);
+    overflow-x: auto;
+  }
+
+  .chat-message-actions button,
+  .dm-message-actions button {
+    min-width: 2.75rem !important;
+    min-height: 2.75rem !important;
   }
 
   .chat-message-row > div:last-of-type {

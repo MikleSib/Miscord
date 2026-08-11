@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, X } from 'lucide-react';
 
 import { useStore } from '../lib/store';
 import { UserAvatar } from './ui/user-avatar';
@@ -12,6 +12,7 @@ import { cn } from '../lib/utils';
 import { resolveMediaUrl } from '../lib/mediaUrl';
 import { getMemberDisplayName, groupMembersByRole } from '../lib/memberListGrouping';
 import { Role, ServerMember } from '../types';
+import { useMobileNavigationStore } from '../store/mobileNavigationStore';
 
 type SelectedMemberState = {
   member: ServerMember;
@@ -198,7 +199,15 @@ export function ServerUserSidebar() {
     <>
       <div className="server-members-panel relative flex h-full w-60 flex-col overflow-hidden border-l border-[#3e3f45] bg-[#323339]">
         <div className="server-members-panel__header app-header border-b px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Участники сервера — {members.length}
+          <span>Участники сервера — {members.length}</span>
+          <button
+            type="button"
+            className="server-members-panel__close"
+            onClick={() => useMobileNavigationStore.getState().navigate({ memberDrawerOpen: false })}
+            aria-label="Закрыть список участников"
+          >
+            <X aria-hidden="true" />
+          </button>
         </div>
 
         <div className="server-members-panel__list flex-1 overflow-y-auto p-2 space-y-4">

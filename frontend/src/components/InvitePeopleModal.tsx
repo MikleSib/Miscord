@@ -1,11 +1,12 @@
 'use client'
 
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, Copy, Loader2, X } from 'lucide-react'
 
 import { getOrCreateDefaultInvite } from '../services/defaultInviteService'
 import { Server } from '../types'
+import { useModalFocusTrap } from '../hooks/useModalFocusTrap'
 
 interface InvitePeopleModalProps {
   isOpen: boolean
@@ -21,15 +22,11 @@ export function InvitePeopleModal({ isOpen, onClose, server }: InvitePeopleModal
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
-  const onCloseRef = useRef(onClose)
+  const dialogRef = useModalFocusTrap<HTMLDivElement>(isOpen, onClose)
 
   useEffect(() => {
     setMounted(true)
   }, [])
-
-  useEffect(() => {
-    onCloseRef.current = onClose
-  }, [onClose])
 
   useEffect(() => {
     if (!isOpen) return
@@ -59,13 +56,8 @@ export function InvitePeopleModal({ isOpen, onClose, server }: InvitePeopleModal
 
     void createInvite()
 
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onCloseRef.current()
-    }
-    document.addEventListener('keydown', onKeyDown)
     return () => {
       cancelled = true
-      document.removeEventListener('keydown', onKeyDown)
     }
   }, [isOpen, server.id])
 
@@ -91,17 +83,19 @@ export function InvitePeopleModal({ isOpen, onClose, server }: InvitePeopleModal
 
   return createPortal(
     <div
-      className="fixed inset-0 flex items-center justify-center bg-black/70 p-4"
+      className="miscord-responsive-modal fixed inset-0 flex items-center justify-center bg-black/70 p-4"
       style={{ zIndex: MODAL_Z_INDEX }}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
     >
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="invite-people-title"
-        className="w-full max-w-md overflow-hidden rounded-lg bg-[#313338] shadow-2xl"
+        className="miscord-responsive-modal-card w-full max-w-md overflow-hidden rounded-lg bg-surface-raised shadow-2xl outline-none"
       >
         <div className="flex items-start justify-between px-4 pb-2 pt-4">
           <div className="min-w-0 pr-3">

@@ -57,7 +57,7 @@ function NotificationRow({ item, onOpen }: { item: InboxNotification; onOpen: ()
         type="button"
         onClick={() => { void remove(item.id) }}
         aria-label="Убрать уведомление"
-        className="absolute right-3 top-10 rounded p-1 text-text-quiet opacity-0 transition hover:bg-surface hover:text-foreground group-hover:opacity-100 focus:opacity-100"
+        className="absolute right-2 top-8 grid h-11 w-11 place-items-center rounded-md text-text-quiet opacity-100 transition hover:bg-surface hover:text-foreground sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100"
       >
         <X className="h-4 w-4" />
       </button>
@@ -67,6 +67,10 @@ function NotificationRow({ item, onOpen }: { item: InboxNotification; onOpen: ()
 
 export function NotificationInbox() {
   const [open, setOpen] = useState(false)
+  const [pushPermission, setPushPermission] = useState<NotificationPermission | 'unsupported'>(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported'
+    return Notification.permission
+  })
   const containerRef = useRef<HTMLDivElement>(null)
   const { selectServer, selectChannel } = useStore()
   const state = useCommunityStore()
@@ -100,6 +104,12 @@ export function NotificationInbox() {
     setOpen(false)
   }
 
+  const requestPushPermission = async () => {
+    if (!('Notification' in window)) return
+    const permission = await Notification.requestPermission()
+    setPushPermission(permission)
+  }
+
   return (
     <div ref={containerRef} className="relative z-[70]">
       <button
@@ -107,7 +117,7 @@ export function NotificationInbox() {
         onClick={() => setOpen((value) => !value)}
         aria-label="Открыть уведомления"
         aria-expanded={open}
-        className="interactive-row relative flex items-center p-2 text-muted-foreground hover:text-foreground"
+        className="interactive-row relative flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground hover:bg-surface hover:text-foreground"
       >
         <Bell className="h-[18px] w-[18px]" />
         {state.unreadCount > 0 && (
@@ -118,16 +128,19 @@ export function NotificationInbox() {
       </button>
 
       {open && (
-        <section className="fixed inset-x-2 top-14 flex max-h-[calc(100dvh-72px)] flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl sm:absolute sm:inset-auto sm:right-0 sm:top-10 sm:h-[560px] sm:w-[390px]">
+        <section role="dialog" aria-label="Входящие уведомления" className="fixed inset-x-2 top-14 flex max-h-[calc(100dvh-72px)] flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl sm:absolute sm:inset-auto sm:right-0 sm:top-10 sm:h-[560px] sm:w-[390px]">
           <header className="flex items-center gap-3 border-b border-border px-4 py-3">
             <Inbox className="h-5 w-5 text-primary" />
             <h2 className="text-base font-bold">Входящие</h2>
             <button
               type="button"
               onClick={() => void state.markAllNotificationsRead()}
-              className="ml-auto inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium text-text-quiet hover:bg-surface hover:text-foreground"
+              className="ml-auto inline-flex min-h-11 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-text-quiet hover:bg-surface hover:text-foreground"
             >
               <CheckCheck className="h-4 w-4" /> Все прочитано
+            </button>
+            <button type="button" onClick={close} aria-label="Закрыть входящие" className="grid h-11 w-11 place-items-center rounded-md text-text-quiet hover:bg-surface hover:text-foreground sm:hidden">
+              <X className="h-5 w-5" />
             </button>
           </header>
           <nav className="flex gap-1 overflow-x-auto border-b border-border px-3 py-2" aria-label="Фильтры уведомлений">
@@ -136,12 +149,32 @@ export function NotificationInbox() {
                 key={filter.id}
                 type="button"
                 onClick={() => state.setNotificationFilter(filter.id)}
-                className={cn('whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs font-medium', state.notificationFilter === filter.id ? 'bg-primary text-white' : 'text-text-quiet hover:bg-surface hover:text-foreground')}
+                className={cn('min-h-11 whitespace-nowrap rounded-md px-3 text-xs font-medium', state.notificationFilter === filter.id ? 'bg-primary text-white' : 'text-text-quiet hover:bg-surface hover:text-foreground')}
               >
                 {filter.label}
               </button>
             ))}
           </nav>
+          {pushPermission === 'default' && (
+            <div className="flex items-center gap-3 border-b border-border bg-primary/[0.06] px-4 py-3">
+              <Bell className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+              <p className="min-w-0 flex-1 text-xs leading-5 text-text-body">
+                Включите системные уведомления, чтобы не пропускать ответы и упоминания.
+              </p>
+              <button
+                type="button"
+                onClick={() => void requestPushPermission()}
+                className="min-h-11 shrink-0 rounded-md bg-primary px-3 text-xs font-semibold text-white transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              >
+                Включить
+              </button>
+            </div>
+          )}
+          {pushPermission === 'denied' && (
+            <p className="border-b border-border px-4 py-2 text-xs leading-5 text-text-quiet">
+              Системные уведомления заблокированы в настройках браузера. Входящие продолжат сохраняться здесь.
+            </p>
+          )}
           <div className="min-h-0 flex-1 overflow-y-auto">
             {state.notifications.map((item) => <NotificationRow key={item.id} item={item} onOpen={() => void openResource(item)} />)}
             {!state.notificationsLoading && state.notifications.length === 0 && (

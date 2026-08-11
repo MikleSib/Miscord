@@ -5,11 +5,13 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '../store/store';
 import { Button } from './ui/button';
 import { UserAvatar } from './ui/user-avatar';
-import { X, Upload, Trash2, User, Mic, Volume2, Bot } from 'lucide-react';
+import { ChevronLeft, X, Upload, Trash2, User, Mic, Volume2, Bot } from 'lucide-react';
 import { cn } from '../lib/utils';
 import authService from '../services/authService';
 import { VoiceVideoSettings } from './VoiceVideoSettings';
 import { applyUserProfileUpdate } from '../lib/userProfileSync';
+import { useMobileSettingsDetail } from '../hooks/useMobileSettingsDetail';
+import { useModalFocusTrap } from '../hooks/useModalFocusTrap';
 
 const SIDEBAR_ITEMS = [
   {
@@ -44,6 +46,12 @@ export default function SettingsModal({
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mobileSettings = useMobileSettingsDetail(isOpen, true);
+  const closeModal = () => {
+    mobileSettings.closeDetail();
+    onClose();
+  };
+  const dialogRef = useModalFocusTrap<HTMLDivElement>(isOpen, closeModal);
 
   useEffect(() => {
     if (isOpen) {
@@ -58,28 +66,6 @@ export default function SettingsModal({
       setAvatarFile(null);
     }
   }, [user, isOpen]);
-
-  useEffect(() => {
-    // Обработка нажатия Escape для закрытия модала
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener('keydown', handleEscape);
-      // Блокируем прокрутку фона
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'unset';
-    }
-
-    return () => {
-      document.removeEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'unset';
-    };
-  }, [isOpen, onClose]);
 
   if (!isOpen || !user) {
     return null;
@@ -170,22 +156,39 @@ export default function SettingsModal({
   };
 
   return (
-    <div className="miscord-responsive-modal miscord-settings-dialog fixed inset-0 z-50 flex items-center justify-center">
+    <div
+      className="miscord-responsive-modal miscord-settings-dialog fixed inset-0 z-50 flex items-center justify-center"
+      data-mobile-detail={mobileSettings.mobileDetailAttribute}
+    >
       {/* Фон с размытием */}
       <div
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
+        onClick={closeModal}
       />
 
       {/* Модальное окно */}
-      <div className="miscord-responsive-modal-card miscord-user-settings-panel relative bg-background border border-border rounded-lg shadow-xl w-full max-w-[84rem] h-[min(900px,92vh)] max-h-[92vh] overflow-hidden">
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="user-settings-title"
+        className="miscord-responsive-modal-card miscord-user-settings-panel relative bg-background border border-border rounded-lg shadow-xl w-full max-w-[84rem] h-[min(900px,92vh)] max-h-[92vh] overflow-hidden"
+      >
         {/* Header */}
         <div className="miscord-settings-header h-14 bg-background border-b border-border flex items-center justify-between px-6">
-          <h1 className="text-lg font-semibold text-foreground">Настройки пользователя</h1>
+          {mobileSettings.detailOpen && (
+            <button type="button" onClick={mobileSettings.closeDetail} className="miscord-settings-back" aria-label="К разделам настроек">
+              <ChevronLeft aria-hidden="true" />
+            </button>
+          )}
+          <h1 id="user-settings-title" className="min-w-0 flex-1 truncate text-lg font-semibold text-foreground">
+            {mobileSettings.detailOpen ? SIDEBAR_ITEMS.find((item) => item.id === activeTab)?.label : 'Настройки пользователя'}
+          </h1>
           <Button
             variant="ghost"
             size="sm"
-            onClick={onClose}
+            onClick={closeModal}
             aria-label="Закрыть настройки"
             className="text-muted-foreground hover:text-foreground"
           >
@@ -202,7 +205,10 @@ export default function SettingsModal({
                 return (
                   <button
                     key={item.id}
-                    onClick={() => setActiveTab(item.id as 'profile' | 'voice')}
+                    onClick={() => {
+                      setActiveTab(item.id as 'profile' | 'voice')
+                      mobileSettings.openDetail()
+                    }}
                     className={cn(
                       "w-full flex items-center gap-3 px-3 py-2 text-left rounded-md transition-colors",
                       activeTab === item.id
@@ -233,7 +239,7 @@ export default function SettingsModal({
           <div className="miscord-settings-detail flex-1 p-6 overflow-y-auto">
             {activeTab === 'profile' && (
               <div className="max-w-2xl">
-                <h2 className="text-xl font-semibold text-foreground mb-6">Мой профиль</h2>
+                <h2 className="miscord-settings-content-title text-xl font-semibold text-foreground mb-6">Мой профиль</h2>
 
                 {/* Avatar Section */}
                 <div className="mb-6">

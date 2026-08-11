@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { LucideIcon } from 'lucide-react'
-import { Ban, CopyPlus, Info, Link2, LogOut, ScrollText, Shield, Trash2, Users, X } from 'lucide-react'
+import { Ban, ChevronLeft, CopyPlus, Info, Link2, LogOut, ScrollText, Shield, Trash2, Users, X } from 'lucide-react'
 
 import { Server } from '../types'
 import channelService from '../services/channelService'
@@ -21,6 +21,8 @@ import { ServerBansTab } from './server-settings/ServerBansTab'
 import { ServerAuditLogTab } from './server-settings/ServerAuditLogTab'
 import { ServerBotsTab } from './server-settings/ServerBotsTab'
 import { ServerTemplatesTab } from './server-settings/ServerTemplatesTab'
+import { useMobileSettingsDetail } from '../hooks/useMobileSettingsDetail'
+import { useModalFocusTrap } from '../hooks/useModalFocusTrap'
 
 interface ServerSettingsModalProps {
   isOpen: boolean
@@ -71,6 +73,19 @@ export function ServerSettingsModal({ isOpen, onClose, server, onServerUpdate }:
   const [isDeleting, setIsDeleting] = useState(false)
   const [isLeaving, setIsLeaving] = useState(false)
   const [dangerError, setDangerError] = useState('')
+  const mobileSettings = useMobileSettingsDetail(isOpen)
+  const closeModal = () => {
+    mobileSettings.closeDetail()
+    onClose()
+  }
+  const dialogRef = useModalFocusTrap<HTMLDivElement>(isOpen, () => {
+    if (showDeleteConfirm || showLeaveConfirm) {
+      setShowDeleteConfirm(false)
+      setShowLeaveConfirm(false)
+      return
+    }
+    closeModal()
+  })
 
   useEffect(() => {
     setMounted(true)
@@ -95,29 +110,6 @@ export function ServerSettingsModal({ isOpen, onClose, server, onServerUpdate }:
       setActiveTab('overview')
     }
   }, [visibleTabs, activeTab])
-
-  useEffect(() => {
-    if (!isOpen) return
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      if (showDeleteConfirm || showLeaveConfirm) {
-        setShowDeleteConfirm(false)
-        setShowLeaveConfirm(false)
-        return
-      }
-      onClose()
-    }
-
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    document.addEventListener('keydown', handleEscape)
-
-    return () => {
-      document.body.style.overflow = previousOverflow
-      document.removeEventListener('keydown', handleEscape)
-    }
-  }, [isOpen, onClose, showDeleteConfirm, showLeaveConfirm])
 
   const handleLeaveServer = async () => {
     setIsLeaving(true)
@@ -171,14 +163,15 @@ export function ServerSettingsModal({ isOpen, onClose, server, onServerUpdate }:
 
   return createPortal(
     <div
-      className="fixed inset-0 flex items-center justify-center p-4"
+      className="miscord-responsive-modal miscord-settings-dialog fixed inset-0 flex items-center justify-center p-4"
+      data-mobile-detail={mobileSettings.mobileDetailAttribute}
       style={{ zIndex: MODAL_Z_INDEX }}
     >
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeModal} />
 
-      <div className="relative flex w-full max-w-5xl h-[680px] max-h-[92vh] overflow-hidden rounded-xl border border-border bg-background shadow-2xl">
+      <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="server-settings-title" className="miscord-responsive-modal-card relative flex w-full max-w-5xl h-[680px] max-h-[92vh] overflow-hidden rounded-xl border border-border bg-background shadow-2xl outline-none">
         {/* Sidebar */}
-        <div className="flex w-60 flex-none flex-col border-r border-border bg-secondary">
+        <div className="miscord-settings-sidebar flex w-60 flex-none flex-col border-r border-border bg-secondary">
           <div className="border-b border-border px-4 py-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Настройки сервера
@@ -203,7 +196,10 @@ export function ServerSettingsModal({ isOpen, onClose, server, onServerUpdate }:
                   )}
                   <button
                     type="button"
-                    onClick={() => setActiveTab(tab.id)}
+                    onClick={() => {
+                      setActiveTab(tab.id)
+                      mobileSettings.openDetail()
+                    }}
                     className={cn(
                       'flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm transition-colors',
                       activeTab === tab.id
@@ -243,14 +239,21 @@ export function ServerSettingsModal({ isOpen, onClose, server, onServerUpdate }:
         </div>
 
         {/* Content */}
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex h-14 flex-none items-center justify-between border-b border-border px-6">
-            <h1 className="text-lg font-semibold">{activeTabItem.label}</h1>
+        <div className="miscord-settings-detail server-settings-detail flex min-w-0 flex-1 flex-col">
+          <div className="miscord-settings-header flex h-14 flex-none items-center justify-between border-b border-border px-6">
+            <div className="flex min-w-0 items-center gap-2">
+              {mobileSettings.detailOpen && (
+                <button type="button" onClick={mobileSettings.closeDetail} className="miscord-settings-back" aria-label="К разделам настроек">
+                  <ChevronLeft aria-hidden="true" />
+                </button>
+              )}
+              <h1 id="server-settings-title" className="truncate text-lg font-semibold">{activeTabItem.label}</h1>
+            </div>
             <button
               type="button"
-              onClick={onClose}
+              onClick={closeModal}
               aria-label="Закрыть настройки"
-              className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="grid h-11 w-11 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               <X className="h-5 w-5" />
             </button>

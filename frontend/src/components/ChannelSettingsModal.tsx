@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronDown, Hash, Trash2, Volume2, X } from 'lucide-react'
+import { ChevronDown, ChevronLeft, Hash, Trash2, Volume2, X } from 'lucide-react'
 import { Button } from './ui/button'
 import { Slider } from './ui/slider'
 import { Channel } from '../types'
@@ -18,6 +18,8 @@ import { useServerPermissions } from '../lib/serverPermissions'
 import { ChannelPermissionsTab } from './channel-settings/ChannelPermissionsTab'
 import { ChannelWebhooksTab } from './channel-settings/ChannelWebhooksTab'
 import { UnsavedChangesBar } from './channel-settings/UnsavedChangesBar'
+import { useMobileSettingsDetail } from '../hooks/useMobileSettingsDetail'
+import { useModalFocusTrap } from '../hooks/useModalFocusTrap'
 
 type VideoQuality = 'auto' | '720p'
 
@@ -59,6 +61,18 @@ export function ChannelSettingsModal({
   const [isDeleting, setIsDeleting] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [hasUnsavedOverview, setHasUnsavedOverview] = useState(false)
+  const mobileSettings = useMobileSettingsDetail(isOpen)
+  const closeModal = () => {
+    mobileSettings.closeDetail()
+    onClose()
+  }
+  const dialogRef = useModalFocusTrap<HTMLDivElement>(isOpen, () => {
+    if (showDeleteConfirm) {
+      setShowDeleteConfirm(false)
+      return
+    }
+    closeModal()
+  })
 
   useEffect(() => {
     setMounted(true)
@@ -77,28 +91,6 @@ export function ChannelSettingsModal({
     setHasUnsavedOverview(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- только при открытии / смене канала
   }, [isOpen, channel.id])
-
-  useEffect(() => {
-    if (!isOpen) return
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      if (showDeleteConfirm) {
-        setShowDeleteConfirm(false)
-        return
-      }
-      onClose()
-    }
-
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    document.addEventListener('keydown', handleEscape)
-
-    return () => {
-      document.body.style.overflow = previousOverflow
-      document.removeEventListener('keydown', handleEscape)
-    }
-  }, [isOpen, onClose, showDeleteConfirm])
 
   const handleSave = async () => {
     if (!channelName.trim()) {
@@ -186,12 +178,13 @@ export function ChannelSettingsModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 overflow-hidden bg-[#313338]"
+      className="miscord-responsive-modal miscord-settings-dialog fixed inset-0 overflow-hidden bg-background"
+      data-mobile-detail={mobileSettings.mobileDetailAttribute}
       style={{ zIndex: MODAL_Z_INDEX }}
     >
       {/* Центрированная колонка: навигация + контент */}
-      <div className="mx-auto flex h-full w-full max-w-[1080px]">
-        <aside className="flex w-[200px] shrink-0 flex-col bg-[#2b2d31] px-2 pt-[60px] sm:w-[218px]">
+      <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="channel-settings-title" className="miscord-responsive-modal-card mx-auto flex h-full w-full max-w-[1080px] outline-none">
+        <aside className="miscord-settings-sidebar flex w-[200px] shrink-0 flex-col bg-secondary px-2 pt-[60px] sm:w-[218px]">
           <div className="mb-2 px-2">
             <p className="truncate text-[11px] font-bold uppercase tracking-wide text-[#f2f3f5]">
               <span className="inline-flex items-center gap-1">
@@ -209,12 +202,12 @@ export function ChannelSettingsModal({
           </div>
 
           <nav className="space-y-0.5">
-            <button type="button" onClick={() => setActiveTab('overview')} className={navItemClass('overview')}>
+            <button type="button" onClick={() => { setActiveTab('overview'); mobileSettings.openDetail() }} className={navItemClass('overview')}>
               Обзор
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('permissions')}
+              onClick={() => { setActiveTab('permissions'); mobileSettings.openDetail() }}
               className={navItemClass('permissions')}
             >
               Права доступа
@@ -222,19 +215,12 @@ export function ChannelSettingsModal({
             {channel.type === 'text' && canManageWebhooks && (
               <button
                 type="button"
-                onClick={() => setActiveTab('webhooks')}
+                onClick={() => { setActiveTab('webhooks'); mobileSettings.openDetail() }}
                 className={navItemClass('webhooks')}
               >
                 Интеграция
               </button>
             )}
-            <button
-              type="button"
-              disabled
-              className="w-full cursor-not-allowed rounded px-2.5 py-1.5 text-left text-[15px] text-[#4e5058]"
-            >
-              Приглашения
-            </button>
           </nav>
 
           <div className="my-2 mx-2 h-px bg-[#3f4147]" />
@@ -249,12 +235,21 @@ export function ChannelSettingsModal({
           </button>
         </aside>
 
-        <main className="relative min-w-0 flex-1 bg-[#313338]">
+        <main className="miscord-settings-detail channel-settings-detail relative min-w-0 flex-1 bg-background">
+          <div className="channel-settings-mobile-toolbar">
+            <button type="button" onClick={mobileSettings.closeDetail} aria-label="К разделам настроек">
+              <ChevronLeft aria-hidden="true" />
+            </button>
+            <h1 id="channel-settings-title">{activeTab === 'overview' ? 'Обзор' : activeTab === 'permissions' ? 'Права доступа' : 'Интеграция'}</h1>
+            <button type="button" onClick={closeModal} aria-label="Закрыть настройки">
+              <X aria-hidden="true" />
+            </button>
+          </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={closeModal}
             aria-label="Закрыть"
-            className="absolute right-3 top-4 z-20 flex flex-col items-center gap-1 text-[#b5bac1] transition hover:text-white sm:right-6 sm:top-10"
+            className="channel-settings-desktop-close absolute right-3 top-4 z-20 flex flex-col items-center gap-1 text-text-muted transition hover:text-white sm:right-6 sm:top-10"
           >
             <span className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-current">
               <X className="h-5 w-5" strokeWidth={2.5} />
@@ -265,7 +260,7 @@ export function ChannelSettingsModal({
           {activeTab === 'overview' ? (
             <div className="h-full overflow-y-auto px-6 pb-28 pt-14 sm:px-10">
               <div className="mx-auto w-full max-w-[660px]">
-                <h1 className="mb-5 text-xl font-semibold text-white">Обзор</h1>
+                <h1 className="channel-settings-content-title mb-5 text-xl font-semibold text-white">Обзор</h1>
 
                 {error && (
                   <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">

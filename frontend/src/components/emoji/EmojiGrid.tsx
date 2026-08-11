@@ -13,7 +13,7 @@ export function EmojiGrid({ title, entries, onSelect }: EmojiGridProps) {
 
   return (
     <section className="px-2 pb-2">
-      <h4 className="sticky top-0 z-10 bg-[#2b2d31] py-1 text-[11px] font-semibold uppercase tracking-wide text-[#949ba4]">
+      <h4 className="sticky top-0 z-10 bg-surface-raised py-1 text-[11px] font-semibold uppercase tracking-wide text-text-quiet">
         {title}
       </h4>
       <div className="emoji-picker-grid grid grid-cols-9 gap-0.5">
@@ -23,7 +23,7 @@ export function EmojiGrid({ title, entries, onSelect }: EmojiGridProps) {
             type="button"
             title={`:${name}:`}
             aria-label={name}
-            className="grid h-8 w-8 place-items-center rounded text-xl leading-none transition-colors hover:bg-[#ffffff14] focus-visible:bg-[#ffffff14] focus-visible:outline-none"
+            className="grid h-11 w-11 place-items-center rounded-md text-xl leading-none transition-colors hover:bg-white/10 focus-visible:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             onClick={() => onSelect(char)}
           >
             {char}

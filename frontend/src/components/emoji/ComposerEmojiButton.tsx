@@ -52,7 +52,7 @@ export function ComposerEmojiButton({
         title="Эмодзи"
         onClick={() => setOpen((previous) => !previous)}
         className={cn(
-          'text-[#b5bac1] transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-50',
+          'grid h-11 w-11 place-items-center rounded-md text-text-muted transition-colors hover:bg-surface-raised hover:text-white disabled:cursor-not-allowed disabled:opacity-50',
           className,
         )}
       >

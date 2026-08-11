@@ -5,8 +5,6 @@ import {
   Rss,
   ScreenShare,
   ScreenShareOff,
-  Shapes,
-  VideoOff,
   X,
 } from 'lucide-react';
 import { useVoiceStore } from '../store/slices/voiceSlice';
@@ -248,31 +246,17 @@ export function VoiceConnectionPanel() {
       )}
 
       <div className="user-dock__voice-actions">
-        <Tooltip content="Камера скоро">
-          <span className="inline-flex flex-1">
-            <button type="button" className="voice-control h-9 w-full" disabled aria-label="Камера пока недоступна">
-              <VideoOff className="h-[18px] w-[18px]" />
-            </button>
-          </span>
-        </Tooltip>
         <Tooltip content={isScreenSharing ? 'Остановить демонстрацию' : 'Демонстрация экрана'}>
           <button
             type="button"
             onClick={handleToggleScreenShare}
-            className={`voice-control h-9 flex-[1.4] ${isScreenSharing ? 'is-active' : ''}`}
+            className={`voice-control h-11 w-full ${isScreenSharing ? 'is-active' : ''}`}
             aria-label={isScreenSharing ? 'Остановить демонстрацию экрана' : 'Начать демонстрацию экрана'}
             aria-pressed={isScreenSharing}
             disabled={!isConnected}
           >
             {isScreenSharing ? <ScreenShareOff className="h-[18px] w-[18px]" /> : <ScreenShare className="h-[18px] w-[18px]" />}
           </button>
-        </Tooltip>
-        <Tooltip content="Активности скоро">
-          <span className="inline-flex flex-1">
-            <button type="button" className="voice-control h-9 w-full" disabled aria-label="Активности пока недоступны">
-              <Shapes className="h-[18px] w-[18px]" />
-            </button>
-          </span>
         </Tooltip>
       </div>
     </section>

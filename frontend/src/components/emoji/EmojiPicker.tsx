@@ -59,8 +59,10 @@ export function EmojiPicker({
 
   return (
     <div
+      role="dialog"
+      aria-label="Выбор эмодзи"
       className={cn(
-        'emoji-picker-panel flex h-[340px] w-[340px] flex-col overflow-hidden rounded-lg border border-[#1e1f22] bg-[#2b2d31] shadow-xl',
+        'emoji-picker-panel flex h-[340px] w-[340px] flex-col overflow-hidden rounded-lg border border-border bg-surface-raised shadow-xl',
         className,
       )}
       onClick={(event) => event.stopPropagation()}
@@ -120,14 +122,14 @@ export function EmojiPicker({
             )}
           </div>
 
-          <div className="flex items-center gap-0.5 border-t border-[#1e1f22] px-2 py-1.5">
+          <div className="emoji-picker-categories flex items-center gap-0.5 overflow-x-auto border-t border-border px-2 py-1.5">
             {categories.map((category) => (
               <button
                 key={category.id}
                 type="button"
                 title={category.label}
                 aria-label={category.label}
-                className="grid h-7 w-7 place-items-center rounded text-base transition-colors hover:bg-[#ffffff14]"
+                className="grid h-11 w-11 shrink-0 place-items-center rounded-md text-base transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 onClick={() => scrollToCategory(category)}
               >
                 {category.icon}

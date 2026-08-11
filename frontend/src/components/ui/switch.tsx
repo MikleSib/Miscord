@@ -28,7 +28,7 @@ export function Switch({
   'aria-label': ariaLabel,
   variant = 'success',
 }: SwitchProps) {
-  const onColor = variant === 'brand' ? 'bg-primary' : 'bg-[#23a559]'
+  const onColor = variant === 'brand' ? 'bg-primary' : 'bg-green-500'
   const ringColor =
     variant === 'brand' ? 'focus-visible:ring-[#5865f2]/50' : 'focus-visible:ring-[#23a559]/50'
 
@@ -44,26 +44,28 @@ export function Switch({
         if (!disabled) onCheckedChange(!checked)
       }}
       className={cn(
-        'group relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full',
-        'outline-none transition-colors duration-200 ease-out',
+        'group relative inline-flex h-11 w-11 shrink-0 cursor-pointer items-center rounded-full outline-none',
         'focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-[#313338]',
         ringColor,
         'disabled:cursor-not-allowed disabled:opacity-50',
         'motion-reduce:transition-none',
-        checked ? onColor : 'bg-border-control hover:bg-[#585b64]',
         className
       )}
     >
       <span
-        aria-hidden
-        style={{
-          transitionTimingFunction: 'cubic-bezier(0.34, 1.45, 0.64, 1)',
-        }}
+        aria-hidden="true"
+        className={cn(
+          'absolute left-0 top-1/2 h-6 w-11 -translate-y-1/2 rounded-full transition-colors duration-150 ease-out',
+          checked ? onColor : 'bg-border-control group-hover:bg-[#585b64]',
+          'motion-reduce:transition-none',
+        )}
+      />
+      <span
+        aria-hidden="true"
         className={cn(
           'pointer-events-none absolute top-1/2 h-[18px] w-[18px] -translate-y-1/2 rounded-full bg-white',
-          'shadow-[0_1px_3px_rgba(0,0,0,0.35),0_0_0_1px_rgba(0,0,0,0.04)]',
-          'transition-transform duration-300',
-          'group-active:scale-[0.88] group-disabled:group-active:scale-100',
+          'shadow-[0_1px_3px_rgba(0,0,0,0.35)] transition-transform duration-200 ease-out',
+          'group-active:scale-[0.9] group-disabled:group-active:scale-100',
           'motion-reduce:transition-none motion-reduce:group-active:scale-100',
           checked ? 'translate-x-[23px]' : 'translate-x-[3px]'
         )}

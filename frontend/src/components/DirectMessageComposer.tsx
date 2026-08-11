@@ -43,7 +43,8 @@ export function DirectMessageComposer({ model }: { model: any }) {
               <button
                 type="button"
                 onClick={handleCancelReply}
-                className="text-gray-400 hover:text-white transition-colors flex-shrink-0"
+                aria-label="Отменить ответ"
+                className="grid h-11 w-11 flex-shrink-0 place-items-center rounded-md text-text-quiet hover:bg-surface-raised hover:text-white"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -75,9 +76,10 @@ export function DirectMessageComposer({ model }: { model: any }) {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="text-gray-400 hover:text-white mr-2"
+              className="mr-1 grid h-11 w-11 flex-none place-items-center rounded-md text-text-quiet hover:bg-surface-raised hover:text-white"
               disabled={files.length >= MAX_CHAT_ATTACHMENTS || isSending || isRateLimited}
               title="Прикрепить файлы"
+              aria-label="Прикрепить файлы"
             >
               <PlusCircle className="w-5 h-5" />
             </button>
@@ -108,7 +110,8 @@ export function DirectMessageComposer({ model }: { model: any }) {
             />
             <button
               type="submit"
-              className="text-gray-400 hover:text-white disabled:opacity-50"
+              aria-label="Отправить сообщение"
+              className="grid h-11 w-11 flex-none place-items-center rounded-md text-text-quiet hover:bg-surface-raised hover:text-white disabled:opacity-50"
               disabled={(!newMessage.trim() && files.length === 0) || isSending || isRateLimited}
             >
               <Send />

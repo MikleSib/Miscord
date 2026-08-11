@@ -306,6 +306,7 @@ export function ChatAreaView({ model }: { model: any }) {
                 className="chat-area-composer__attach mr-2"
                 disabled={files.length >= MAX_CHAT_ATTACHMENTS || isLoading || isSlowModeActive}
                 title="Прикрепить файлы"
+                aria-label="Прикрепить файлы"
               >
                 <PlusCircle className="w-5 h-5" />
               </Button>
@@ -350,7 +351,8 @@ export function ChatAreaView({ model }: { model: any }) {
                 type="submit"
                 size="icon"
                 variant="ghost"
-                className="chat-area-composer__send h-8 w-8"
+                className="chat-area-composer__send h-11 w-11"
+                aria-label="Отправить сообщение"
                 disabled={(!messageInput.trim() && files.length === 0) || isLoading || isSlowModeActive}
               >
                 {isLoading ? '...' : <Send className="w-4 h-4" />}
