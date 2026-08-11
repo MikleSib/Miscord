@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 interface UserAvatarProps {
   user?: {
     username?: string
-    display_name?: string
+    display_name?: string | null
     avatar_url?: string | null
   }
   size?: number

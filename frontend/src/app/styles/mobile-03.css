@@ -206,6 +206,42 @@
     height: 1.375rem;
   }
 
+  .forum-channel-header {
+    min-height: calc(var(--mobile-channel-header-height) + var(--safe-area-top));
+    padding-top: calc(var(--safe-area-top) + 0.5rem) !important;
+    padding-right: 0.75rem !important;
+    padding-left: 3.5rem !important;
+  }
+
+  .forum-channel-header > div > span:first-child {
+    display: none;
+  }
+
+  .forum-channel-toolbar {
+    padding: 0.75rem !important;
+  }
+
+  .forum-channel-toolbar > div:first-child > label:first-child {
+    flex-basis: 100%;
+  }
+
+  .forum-channel-toolbar select {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .forum-post-list {
+    padding: 0.75rem !important;
+  }
+
+  .forum-tag-filter {
+    scrollbar-width: none;
+  }
+
+  .forum-tag-filter::-webkit-scrollbar {
+    display: none;
+  }
+
   .mobile-channel-chevron {
     display: block;
   }

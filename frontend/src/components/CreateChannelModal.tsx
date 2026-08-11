@@ -193,7 +193,7 @@ export function CreateChannelModal({
 
   if (!isOpen) return null
 
-  const namePrefix = channelType === 'voice' ? 'volume' : 'hash'
+  const namePrefix = channelType === 'voice' ? 'voice' : channelType === 'forum' ? 'forum' : 'text'
 
   return (
     <Modal
@@ -229,62 +229,6 @@ export function CreateChannelModal({
             <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
               {error}
             </div>
-          )}
-
-          {channelType === 'forum' && (
-            <fieldset className="space-y-3 rounded-lg border border-border bg-canvas-deep/40 p-3">
-              <legend className="px-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                Настройки форума
-              </legend>
-              <label className="block text-xs font-semibold text-muted-foreground">
-                Правила перед публикацией
-                <textarea
-                  value={forumGuidelines}
-                  onChange={(event) => setForumGuidelines(event.target.value)}
-                  maxLength={4000}
-                  rows={3}
-                  placeholder="Опишите тему форума и правила публикаций"
-                  className="mt-1.5 w-full resize-none rounded-md bg-canvas-deep px-3 py-2 text-sm font-normal text-foreground outline-none focus:ring-2 focus:ring-primary"
-                />
-              </label>
-              <div className="grid grid-cols-2 gap-2" role="group" aria-label="Вид публикаций">
-                {(['list', 'gallery'] as const).map((layout) => (
-                  <button
-                    key={layout}
-                    type="button"
-                    onClick={() => setForumLayout(layout)}
-                    className={cn(
-                      'rounded-md border px-3 py-2 text-sm font-medium transition',
-                      forumLayout === layout ? 'border-primary bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:bg-surface',
-                    )}
-                  >
-                    {layout === 'list' ? 'Список' : 'Галерея'}
-                  </button>
-                ))}
-              </div>
-              <label className="flex items-center justify-between gap-3 text-sm text-foreground">
-                Требовать хотя бы один тег
-                <Switch checked={forumRequireTag} onCheckedChange={setForumRequireTag} />
-              </label>
-              <label className="block text-xs font-semibold text-muted-foreground">
-                Интервал между публикациями
-                <select
-                  value={forumSlowMode}
-                  onChange={(event) => setForumSlowMode(Number(event.target.value))}
-                  className="mt-1.5 w-full rounded-md bg-canvas-deep px-3 py-2 text-sm font-normal text-foreground outline-none focus:ring-2 focus:ring-primary"
-                >
-                  <option value={0}>Без ограничений</option>
-                  <option value={5}>5 секунд</option>
-                  <option value={10}>10 секунд</option>
-                  <option value={15}>15 секунд</option>
-                  <option value={30}>30 секунд</option>
-                  <option value={60}>1 минута</option>
-                  <option value={300}>5 минут</option>
-                  <option value={900}>15 минут</option>
-                  <option value={3600}>1 час</option>
-                </select>
-              </label>
-            </fieldset>
           )}
 
           <div>
@@ -347,7 +291,7 @@ export function CreateChannelModal({
             </label>
             <div className="relative">
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                {channelType === 'voice' ? <Volume2 className="h-4 w-4" /> : <Hash className="h-4 w-4" />}
+                {channelType === 'voice' ? <Volume2 className="h-4 w-4" /> : channelType === 'forum' ? <MessageSquare className="h-4 w-4" /> : <Hash className="h-4 w-4" />}
               </span>
               <input
                 id="create-channel-name"
@@ -385,6 +329,66 @@ export function CreateChannelModal({
                 ))}
               </select>
             </div>
+          )}
+
+          {channelType === 'forum' && (
+            <fieldset className="space-y-4 rounded-lg border border-border bg-canvas-deep/40 p-4">
+              <legend className="px-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                Начальные настройки форума
+              </legend>
+              <label className="block text-xs font-semibold text-muted-foreground">
+                Правила перед публикацией
+                <textarea
+                  value={forumGuidelines}
+                  onChange={(event) => setForumGuidelines(event.target.value)}
+                  maxLength={4000}
+                  rows={3}
+                  placeholder="Опишите тему форума и правила публикаций"
+                  className="mt-1.5 w-full resize-y rounded-md bg-canvas-deep px-3 py-2 text-sm font-normal text-foreground outline-none focus:ring-2 focus:ring-primary"
+                />
+              </label>
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground">Вид публикаций</p>
+                <div className="mt-1.5 grid grid-cols-2 gap-2" role="group" aria-label="Вид публикаций">
+                  {(['list', 'gallery'] as const).map((layout) => (
+                    <button
+                      key={layout}
+                      type="button"
+                      aria-pressed={forumLayout === layout}
+                      onClick={() => setForumLayout(layout)}
+                      className={cn(
+                        'min-h-10 rounded-md border px-3 py-2 text-sm font-medium transition',
+                        forumLayout === layout ? 'border-primary bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:bg-surface',
+                      )}
+                    >
+                      {layout === 'list' ? 'Список' : 'Галерея'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <label className="flex items-start justify-between gap-3 text-sm text-foreground">
+                <span><span className="block font-medium">Обязательный тег</span><span className="mt-0.5 block text-xs leading-4 text-text-quiet">После создания добавьте хотя бы один тег в настройках форума.</span></span>
+                <Switch checked={forumRequireTag} onCheckedChange={setForumRequireTag} />
+              </label>
+              <label className="block text-xs font-semibold text-muted-foreground">
+                Интервал между публикациями
+                <select
+                  value={forumSlowMode}
+                  onChange={(event) => setForumSlowMode(Number(event.target.value))}
+                  className="mt-1.5 h-10 w-full rounded-md bg-canvas-deep px-3 text-sm font-normal text-foreground outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value={0}>Без ограничений</option>
+                  <option value={5}>5 секунд</option>
+                  <option value={10}>10 секунд</option>
+                  <option value={15}>15 секунд</option>
+                  <option value={30}>30 секунд</option>
+                  <option value={60}>1 минута</option>
+                  <option value={300}>5 минут</option>
+                  <option value={900}>15 минут</option>
+                  <option value={3600}>1 час</option>
+                </select>
+              </label>
+            </fieldset>
           )}
 
           <div className="flex items-start justify-between gap-4 border-t border-white/5 pt-4">

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import math
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import delete, func, select
@@ -31,7 +32,7 @@ from app.services.bot_event_dispatcher import dispatcher as bot_dispatcher
 from app.services.channel_access import require_text_channel_access
 from app.services.channel_permissions import get_effective_channel_permissions
 from app.services.realtime_events import enqueue_realtime_event
-from app.services.thread_serializer import serialize_thread
+from app.services.forum_post_serializer import serialize_forum_posts
 
 router = APIRouter()
 
@@ -318,10 +319,7 @@ async def create_forum_post(
     await bot_dispatcher.dispatch_guild_event(db, post.channel_id, "THREAD_CREATE", {"id": str(post.id), "guild_id": str(post.channel_id), "parent_id": str(forum.id), "name": post.name, "type": "forum_post"})
     if loaded:
         await bot_dispatcher.dispatch_message_create(db, loaded)
-    response = await serialize_thread(db, post, user.id)
-    response["tag_ids"] = tag_ids
-    response["starter_message_id"] = starter.id
-    return response
+    return (await serialize_forum_posts(db, [post], user.id))[0]
 
 
 @router.get("/{forum_id}/posts")
@@ -330,6 +328,7 @@ async def list_forum_posts(
     tag_ids: list[int] = Query(default=[]),
     query: str | None = Query(default=None, max_length=100),
     include_archived: bool = False,
+    sort: Literal["latest_activity", "created_at"] | None = None,
     limit: int = Query(30, ge=1, le=100),
     before: int | None = None,
     user: User = Depends(get_current_active_user),
@@ -348,15 +347,10 @@ async def list_forum_posts(
         statement = statement.where((TextChannel.name.ilike(f"%{query}%")) | TextChannel.id.in_(message_match))
     for tag_id in set(tag_ids):
         statement = statement.where(TextChannel.id.in_(select(ForumPostTag.post_id).where(ForumPostTag.tag_id == tag_id)))
-    if forum_settings and forum_settings.default_sort == "created_at":
+    effective_sort = sort or (forum_settings.default_sort if forum_settings else "latest_activity")
+    if effective_sort == "created_at":
         statement = statement.order_by(TextChannel.created_at.desc(), TextChannel.id.desc())
     else:
         statement = statement.order_by(TextChannel.last_message_at.desc().nullslast(), TextChannel.id.desc())
     result = await db.execute(statement.limit(limit))
-    posts = []
-    for post in result.scalars().all():
-        item = await serialize_thread(db, post, user.id)
-        item["tag_ids"] = list((await db.execute(select(ForumPostTag.tag_id).where(ForumPostTag.post_id == post.id))).scalars().all())
-        item["starter_message_id"] = await db.scalar(select(Message.id).where(Message.text_channel_id == post.id).order_by(Message.id).limit(1))
-        posts.append(item)
-    return posts
+    return await serialize_forum_posts(db, list(result.scalars().all()), user.id)

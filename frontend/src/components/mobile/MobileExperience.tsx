@@ -219,7 +219,7 @@ export function MobileExperience() {
         </button>
       )}
 
-      {isNarrow && currentServer && navigation.pane === 'chat' && !navigation.memberDrawerOpen && (
+      {isNarrow && currentServer && currentChannel?.kind !== 'forum' && navigation.pane === 'chat' && !navigation.memberDrawerOpen && (
         <button
           type="button"
           className="miscord-mobile-members-button"

@@ -1,6 +1,7 @@
 import api from './api'
 import type {
   Forum,
+  ForumPostSummary,
   InboxNotification,
   Poll,
   ServerTemplatePreview,
@@ -83,9 +84,9 @@ export const communityApi = {
   deleteForumTag: async (forumId: number, tagId: number) =>
     api.delete(`/api/v1/channels/${forumId}/forum-tags/${tagId}`),
   createForumPost: async (forumId: number, data: { title: string; content: string; tag_ids: number[]; attachment_upload_ids?: string[] }) =>
-    (await api.post<Thread>(`/api/v1/channels/${forumId}/posts`, data)).data,
-  listForumPosts: async (forumId: number, params: { tag_ids?: number[]; query?: string; include_archived?: boolean }) =>
-    (await api.get<Thread[]>(`/api/v1/channels/${forumId}/posts`, { params })).data,
+    (await api.post<ForumPostSummary>(`/api/v1/channels/${forumId}/posts`, data)).data,
+  listForumPosts: async (forumId: number, params: { tag_ids?: number[]; query?: string; include_archived?: boolean; sort?: 'latest_activity' | 'created_at'; limit?: number }) =>
+    (await api.get<ForumPostSummary[]>(`/api/v1/channels/${forumId}/posts`, { params })).data,
 
   getPoll: async (pollId: number) => (await api.get<Poll>(`/api/v1/polls/${pollId}`)).data,
   votePoll: async (pollId: number, answerId: number) =>

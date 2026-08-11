@@ -14,6 +14,7 @@ from app.schemas.thread import ThreadCreate, ThreadUpdate
 from app.services.polls import is_poll_closed
 from app.services.server_templates import builtin_templates
 from app.services import thread_access
+from app.services.forum_post_serializer import _preview
 
 
 def test_thread_contract_accepts_only_supported_archive_windows() -> None:
@@ -29,6 +30,12 @@ def test_forum_contract_validates_layout_sort_and_slow_mode() -> None:
     assert forum.slow_mode_seconds == 60
     with pytest.raises(ValidationError):
         ForumCreate(name="Ideas", slow_mode_seconds=17)
+
+
+def test_forum_preview_is_compact_and_whitespace_safe() -> None:
+    assert _preview("  Первая  строка\n\nвторая строка  ") == "Первая строка вторая строка"
+    assert _preview("", limit=20) is None
+    assert _preview("длинное сообщение для превью", limit=12) == "длинное соо…"
 
 
 def test_poll_contract_enforces_answers_duration_and_unique_text() -> None:

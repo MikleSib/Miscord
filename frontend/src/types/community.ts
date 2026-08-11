@@ -18,6 +18,17 @@ export interface Thread {
   starter_message_id?: number | null
 }
 
+export interface ForumPostSummary extends Thread {
+  preview: string | null
+  message_count: number
+  owner: {
+    id: number
+    username: string
+    display_name: string | null
+    avatar_url: string | null
+  } | null
+}
+
 export interface ForumTag {
   id: number
   name: string
