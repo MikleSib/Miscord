@@ -12,6 +12,7 @@ import { VoiceVideoSettings } from './VoiceVideoSettings';
 import { applyUserProfileUpdate } from '../lib/userProfileSync';
 import { useMobileSettingsDetail } from '../hooks/useMobileSettingsDetail';
 import { useModalFocusTrap } from '../hooks/useModalFocusTrap';
+import { LogoutSection } from './settings/LogoutSection';
 
 const SIDEBAR_ITEMS = [
   {
@@ -39,7 +40,7 @@ export default function SettingsModal({
   initialTab = 'profile',
 }: SettingsModalProps) {
   const router = useRouter();
-  const { user } = useAuthStore();
+  const { user, logout } = useAuthStore();
   const [activeTab, setActiveTab] = useState<'profile' | 'voice'>(initialTab);
   const [displayName, setDisplayName] = useState('');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -50,6 +51,11 @@ export default function SettingsModal({
   const closeModal = () => {
     mobileSettings.closeDetail();
     onClose();
+  };
+  const handleLogout = () => {
+    closeModal();
+    logout();
+    router.replace('/login');
   };
   const dialogRef = useModalFocusTrap<HTMLDivElement>(isOpen, closeModal);
 
@@ -353,6 +359,8 @@ export default function SettingsModal({
                     {isLoading ? 'Сохранение...' : 'Сохранить изменения'}
                   </Button>
                 </div>
+
+                <LogoutSection onLogout={handleLogout} />
               </div>
             )}
 

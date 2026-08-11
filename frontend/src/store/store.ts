@@ -58,7 +58,11 @@ export const useAuthStore = create<AuthState>()(
       registerSuccess: () => set({ isLoading: false }),
       registerFailure: (error) => set({ isLoading: false, error }),
       logout: () => {
+        websocketService.fullDisconnect();
         void useOutgoingMessageStore.getState().clearForLogout();
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('access_token');
+        }
         set({
           user: null,
           token: null,

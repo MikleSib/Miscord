@@ -9,6 +9,7 @@ import { X, Upload, Trash2, User } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import authService from '../../services/authService';
 import { applyUserProfileUpdate } from '../../lib/userProfileSync';
+import { LogoutSection } from '../../components/settings/LogoutSection';
 
 const SIDEBAR_ITEMS = [
   {
@@ -21,7 +22,7 @@ const SIDEBAR_ITEMS = [
 export default function SettingsPage() {
   console.log('SettingsPage рендерится');
   const router = useRouter();
-  const { user } = useAuthStore();
+  const { user, logout } = useAuthStore();
   console.log('Текущий пользователь в настройках:', user);
   const [activeTab, setActiveTab] = useState('profile');
   const [displayName, setDisplayName] = useState('');
@@ -55,6 +56,11 @@ export default function SettingsPage() {
 
   const handleClose = () => {
     router.back();
+  };
+
+  const handleLogout = () => {
+    logout();
+    router.replace('/login');
   };
 
   const handleAvatarSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -299,6 +305,8 @@ export default function SettingsPage() {
                   {isLoading ? 'Сохранение...' : 'Сохранить изменения'}
                 </Button>
               </div>
+
+              <LogoutSection onLogout={handleLogout} />
             </div>
           )}
         </div>
