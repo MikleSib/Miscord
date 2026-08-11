@@ -129,8 +129,8 @@ export function ThreadPanel() {
   }
 
   return (
-    <aside ref={panelRef} aria-label="Обсуждение" className="fixed inset-0 z-[60] flex min-w-0 flex-col border-l border-border bg-background sm:static sm:z-auto sm:w-[420px] sm:max-w-[42vw]">
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
+    <aside ref={panelRef} aria-label="Обсуждение" className="thread-panel fixed inset-0 z-[60] flex min-w-0 flex-col border-l border-border bg-background sm:static sm:z-auto sm:w-[420px] sm:max-w-[42vw]">
+      <header className="thread-panel__header flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-bold">{thread.name}</p>
           <p className="text-[11px] text-text-quiet">Обсуждение · {thread.member_count} участников</p>
@@ -151,7 +151,7 @@ export function ThreadPanel() {
         </div>
         <button type="button" onClick={closePanel} aria-label="Закрыть обсуждение" className="grid h-11 w-11 place-items-center rounded-md text-text-quiet hover:bg-surface hover:text-foreground"><X className="h-5 w-5" /></button>
       </header>
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
+      <div ref={scrollRef} className="thread-panel__messages min-h-0 flex-1 overflow-y-auto px-2 py-3">
         {thread.starter_message_id && <p className="mb-3 border-l-2 border-primary px-3 py-1 text-xs text-text-quiet">Обсуждение сообщения #{thread.starter_message_id}</p>}
         {messages.map((message, index) => (
           <ChatMessage
@@ -166,7 +166,7 @@ export function ThreadPanel() {
         {!loading && messages.length === 0 && <p className="px-6 py-12 text-center text-sm text-text-quiet">Начните обсуждение первым сообщением.</p>}
         <div ref={endRef} />
       </div>
-      <form onSubmit={send} className="border-t border-border p-3">
+      <form onSubmit={send} className="thread-panel__composer border-t border-border p-3">
         {readonly && <p className="mb-2 text-xs text-[#f0b232]">Обсуждение доступно только для чтения.</p>}
         <div className="flex items-end gap-2 rounded-xl bg-surface px-3 py-2">
           <textarea rows={1} value={content} onChange={(event) => setContent(event.target.value)} disabled={readonly} placeholder={`Написать в ${thread.name}`} className="max-h-28 min-h-8 flex-1 resize-none bg-transparent py-1 text-sm outline-none disabled:opacity-50" />

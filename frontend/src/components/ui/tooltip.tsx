@@ -91,6 +91,10 @@ export function Tooltip({
     }, SHOW_DELAY_MS)
   }
 
+  const scheduleHoverOpen = () => {
+    if (window.matchMedia('(hover: hover) and (pointer: fine)').matches) scheduleOpen()
+  }
+
   const close = () => {
     clearShowTimer()
     setOpen(false)
@@ -126,9 +130,13 @@ export function Tooltip({
       <span
         ref={triggerRef}
         className={cn('miscord-tooltip-trigger', className)}
-        onMouseEnter={scheduleOpen}
+        onMouseEnter={scheduleHoverOpen}
         onMouseLeave={close}
-        onFocus={scheduleOpen}
+        onFocus={(event) => {
+          if (event.target instanceof HTMLElement && event.target.matches(':focus-visible')) {
+            scheduleOpen()
+          }
+        }}
         onBlur={close}
         aria-describedby={open ? id : undefined}
       >

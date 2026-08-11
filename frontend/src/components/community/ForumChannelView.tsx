@@ -191,19 +191,19 @@ export function ForumChannelView({ channel }: { channel: Channel }) {
       </header>
 
       <section aria-label="Фильтры форума" className="forum-channel-toolbar shrink-0 border-b border-border px-4 py-3 sm:px-6">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="forum-channel-toolbar-controls flex flex-wrap items-center gap-2">
           <label className="flex h-10 min-w-52 flex-[1_1_320px] items-center gap-2 rounded-md bg-canvas-deep px-3 focus-within:ring-2 focus-within:ring-primary">
             <Search className="h-4 w-4 shrink-0 text-text-quiet" />
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по заголовкам и сообщениям" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-text-quiet" />
             {query && <button type="button" onClick={() => setQuery('')} aria-label="Очистить поиск" className="grid h-8 w-8 place-items-center rounded text-text-quiet hover:bg-surface hover:text-foreground"><X className="h-4 w-4" /></button>}
           </label>
           <label className="sr-only" htmlFor="forum-sort">Сортировка</label>
-          <select id="forum-sort" value={sort} onChange={(event) => setSort(event.target.value as ForumSort)} className="h-10 rounded-md bg-canvas-deep px-3 text-sm text-text-body outline-none focus:ring-2 focus:ring-primary">
+          <select id="forum-sort" value={sort} onChange={(event) => setSort(event.target.value as ForumSort)} className="forum-sort-select h-10 rounded-md bg-canvas-deep px-3 text-sm text-text-body outline-none focus:ring-2 focus:ring-primary">
             <option value="latest_activity">Недавняя активность</option>
             <option value="created_at">Новые публикации</option>
           </select>
-          <button type="button" aria-pressed={includeArchived} onClick={() => setIncludeArchived((value) => !value)} className={cn('inline-flex h-10 items-center gap-2 rounded-md border px-3 text-sm', includeArchived ? 'border-primary bg-primary/10 text-foreground' : 'border-border text-text-quiet hover:bg-surface hover:text-foreground')}><Archive className="h-4 w-4" />Архив</button>
-          <div className="flex h-10 rounded-md bg-canvas-deep p-1" role="group" aria-label="Вид публикаций">
+          <button type="button" aria-label={includeArchived ? 'Скрыть архив' : 'Показать архив'} aria-pressed={includeArchived} onClick={() => setIncludeArchived((value) => !value)} className={cn('forum-archive-button inline-flex h-10 items-center gap-2 rounded-md border px-3 text-sm', includeArchived ? 'border-primary bg-primary/10 text-foreground' : 'border-border text-text-quiet hover:bg-surface hover:text-foreground')}><Archive className="h-4 w-4" /><span className="forum-archive-label">Архив</span></button>
+          <div className="forum-layout-switch flex h-10 rounded-md bg-canvas-deep p-1" role="group" aria-label="Вид публикаций">
             <button type="button" onClick={() => changeLayout('list')} aria-label="Список" aria-pressed={layout === 'list'} className={cn('grid w-8 place-items-center rounded', layout === 'list' ? 'bg-surface-raised text-white' : 'text-text-quiet hover:text-white')}><List className="h-4 w-4" /></button>
             <button type="button" onClick={() => changeLayout('gallery')} aria-label="Галерея" aria-pressed={layout === 'gallery'} className={cn('grid w-8 place-items-center rounded', layout === 'gallery' ? 'bg-surface-raised text-white' : 'text-text-quiet hover:text-white')}><Grid2X2 className="h-4 w-4" /></button>
           </div>
