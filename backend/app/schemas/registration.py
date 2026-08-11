@@ -8,10 +8,11 @@ class RegistrationStart(UserCreate):
 
 
 class RegistrationChallengeResponse(BaseModel):
-    challenge_id: str
-    email_hint: str
-    expires_in: int
-    resend_in: int
+    challenge_id: str | None = None
+    email_hint: str = ""
+    expires_in: int = 0
+    resend_in: int = 0
+    registration_complete: bool = False
 
 
 class RegistrationVerify(BaseModel):
@@ -28,4 +29,3 @@ class RegistrationVerify(BaseModel):
 
 class RegistrationResend(BaseModel):
     challenge_id: str = Field(min_length=36, max_length=36)
-

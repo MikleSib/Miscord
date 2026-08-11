@@ -81,6 +81,7 @@ class Settings(BaseSettings):
 
     # Transactional registration email. Verification codes are never stored
     # in plaintext; EMAIL_VERIFICATION_SECRET keys their HMAC digests.
+    EMAIL_VERIFICATION_ENABLED: bool = False
     SMTP_HOST: str = ""
     SMTP_PORT: int = 465
     SMTP_USERNAME: str = ""
@@ -145,7 +146,7 @@ class Settings(BaseSettings):
             raise RuntimeError("VOICE_MEDIA_JWT_SECRET is required for Miscord Voice v1 in production.")
         if self.SMTP_SECURITY not in {"ssl", "starttls", "plain"}:
             raise RuntimeError("SMTP_SECURITY must be one of: ssl, starttls, plain.")
-        if env in {"production", "prod"}:
+        if self.EMAIL_VERIFICATION_ENABLED and env in {"production", "prod"}:
             required_mail = {
                 "SMTP_HOST": self.SMTP_HOST,
                 "SMTP_USERNAME": self.SMTP_USERNAME,

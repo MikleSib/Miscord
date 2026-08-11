@@ -89,6 +89,12 @@ export default function RegisterPage() {
     registerStart()
     try {
       const nextChallenge = await authService.register(registerData as RegisterData)
+      if (nextChallenge.registration_complete) {
+        registerSuccess()
+        setVerified(true)
+        window.setTimeout(() => router.replace('/login'), 700)
+        return
+      }
       setChallenge(nextChallenge)
       registerSuccess()
     } catch (requestError: any) {
@@ -98,7 +104,7 @@ export default function RegisterPage() {
 
   const handleVerify = async (event: FormEvent) => {
     event.preventDefault()
-    if (!challenge || verificationCode.length !== 6) return
+    if (!challenge?.challenge_id || verificationCode.length !== 6) return
     clearError()
     registerStart()
     try {
@@ -112,7 +118,7 @@ export default function RegisterPage() {
   }
 
   const handleResend = async () => {
-    if (!challenge) return
+    if (!challenge?.challenge_id) return
     clearError()
     registerStart()
     try {
@@ -290,11 +296,11 @@ export default function RegisterPage() {
               {isLoading || isCheckingSession ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  {isCheckingSession ? 'Проверяем сессию' : 'Отправляем код'}
+                  {isCheckingSession ? 'Проверяем сессию' : 'Создаём аккаунт'}
                 </>
               ) : (
                 <>
-                  Получить код
+                  Создать аккаунт
                   <ArrowRight className="h-4 w-4" />
                 </>
               )}

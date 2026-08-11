@@ -357,10 +357,11 @@ export interface RegisterData {
 }
 
 export interface RegistrationChallenge {
-  challenge_id: string;
+  challenge_id: string | null;
   email_hint: string;
   expires_in: number;
   resend_in: number;
+  registration_complete?: boolean;
 }
 
 export interface VoiceUser {
