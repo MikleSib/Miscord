@@ -36,6 +36,7 @@ import {
   statusLabel,
 } from './voiceSettingsPresentation';
 import { useVoiceAudioDevices } from './useVoiceAudioDevices';
+import { VoiceSoundSettings } from './settings/VoiceSoundSettings';
 
 interface VoiceVideoSettingsProps {
   isOpen?: boolean;
@@ -583,6 +584,7 @@ const VoiceVideoSettings: React.FC<VoiceVideoSettingsProps> = ({
           </section>
         </>
       )}
+      <VoiceSoundSettings />
     </div>
   );
 };

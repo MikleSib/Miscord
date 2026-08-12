@@ -1,3 +1,6 @@
+import { getSoundEvent, type SoundEventId } from '../lib/soundEvents';
+import { useSoundSettingsStore } from '../store/soundSettingsStore';
+
 class SoundService {
   private joinSound: HTMLAudioElement | null = null;
   private leaveSound: HTMLAudioElement | null = null;
@@ -10,6 +13,8 @@ class SoundService {
   private micOnSound: HTMLAudioElement | null = null;
   private micOffSound: HTMLAudioElement | null = null;
   private isInitialized: boolean = false;
+  private previewAudio: HTMLAudioElement | null = null;
+  private previewTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     this.initializeSounds();
@@ -70,7 +75,12 @@ class SoundService {
     }
   }
 
-  private playOneShot(audio: HTMLAudioElement | null, label: string): void {
+  private playOneShot(
+    audio: HTMLAudioElement | null,
+    label: string,
+    eventId: SoundEventId,
+  ): void {
+    if (!useSoundSettingsStore.getState().isEnabled(eventId)) return;
     if (!this.isInitialized || !audio) {
       console.warn(`🔊 SoundService: звук «${label}» недоступен`);
       return;
@@ -90,14 +100,15 @@ class SoundService {
   }
 
   playJoinSound() {
-    this.playOneShot(this.joinSound, 'подключение к звонку');
+    this.playOneShot(this.joinSound, 'подключение к звонку', 'voice-join');
   }
 
   playLeaveSound() {
-    this.playOneShot(this.leaveSound, 'отключение от звонка');
+    this.playOneShot(this.leaveSound, 'отключение от звонка', 'voice-leave');
   }
 
   playIncomingCallSound() {
+    if (!useSoundSettingsStore.getState().isEnabled('call-incoming')) return;
     if (!this.isInitialized || !this.ringingSound) {
       console.warn('🔊 SoundService не инициализирован или звук звонка недоступен');
       return;
@@ -117,6 +128,7 @@ class SoundService {
   }
 
   playCallingSound() {
+    if (!useSoundSettingsStore.getState().isEnabled('call-outgoing')) return;
     if (!this.isInitialized || !this.callingSound) return;
     try {
       this.callingSound.currentTime = 0;
@@ -130,32 +142,32 @@ class SoundService {
 
   /** Ведущий включил демонстрацию экрана. */
   playStreamStartSound() {
-    this.playOneShot(this.streamStartSound, 'включение стрима');
+    this.playOneShot(this.streamStartSound, 'включение стрима', 'stream-start');
   }
 
   /** Ведущий выключил демонстрацию экрана. */
   playStreamEndSound() {
-    this.playOneShot(this.streamEndSound, 'выключение стрима');
+    this.playOneShot(this.streamEndSound, 'выключение стрима', 'stream-end');
   }
 
   /** Зритель открыл стрим или ведущий узнал о новом зрителе. */
   playStreamJoinSound() {
-    this.playOneShot(this.streamJoinSound, 'присоединение к стриму');
+    this.playOneShot(this.streamJoinSound, 'присоединение к стриму', 'stream-join');
   }
 
   /** Новое личное сообщение (только у получателя). */
   playDmNotificationSound() {
-    this.playOneShot(this.dmNotificationSound, 'уведомление SMS');
+    this.playOneShot(this.dmNotificationSound, 'уведомление SMS', 'message');
   }
 
   /** Включили микрофон. */
   playMicOnSound() {
-    this.playOneShot(this.micOnSound, 'включение микрофона');
+    this.playOneShot(this.micOnSound, 'включение микрофона', 'mic-on');
   }
 
   /** Выключили микрофон. */
   playMicOffSound() {
-    this.playOneShot(this.micOffSound, 'выключение микрофона');
+    this.playOneShot(this.micOffSound, 'выключение микрофона', 'mic-off');
   }
 
   /** Звук по новому состоянию mute: true = выкл, false = вкл. */
@@ -164,9 +176,57 @@ class SoundService {
     else this.playMicOnSound();
   }
 
+  previewSound(eventId: SoundEventId): void {
+    if (typeof Audio === 'undefined') return;
+    this.stopPreview();
+    const event = getSoundEvent(eventId);
+    const audio = new Audio(event.source);
+    audio.preload = 'auto';
+    audio.volume = event.volume;
+    this.previewAudio = audio;
+    audio.play()?.catch((error) => {
+      console.error(`🔊 Ошибка предпрослушивания «${event.label}»:`, error);
+    });
+    this.previewTimer = setTimeout(() => this.stopPreview(), 3000);
+  }
+
+  stopSound(eventId: SoundEventId): void {
+    const audio = this.getAudio(eventId);
+    if (!audio) return;
+    audio.pause();
+    audio.currentTime = 0;
+  }
+
+  private stopPreview(): void {
+    if (this.previewTimer) clearTimeout(this.previewTimer);
+    this.previewTimer = null;
+    if (this.previewAudio) {
+      this.previewAudio.pause();
+      this.previewAudio.currentTime = 0;
+    }
+    this.previewAudio = null;
+  }
+
+  private getAudio(eventId: SoundEventId): HTMLAudioElement | null {
+    const audio: Record<SoundEventId, HTMLAudioElement | null> = {
+      'voice-join': this.joinSound,
+      'voice-leave': this.leaveSound,
+      'call-incoming': this.ringingSound,
+      'call-outgoing': this.callingSound,
+      'stream-start': this.streamStartSound,
+      'stream-end': this.streamEndSound,
+      'stream-join': this.streamJoinSound,
+      message: this.dmNotificationSound,
+      'mic-on': this.micOnSound,
+      'mic-off': this.micOffSound,
+    };
+    return audio[eventId];
+  }
+
   stopAllSounds() {
     if (!this.isInitialized) return;
     try {
+      this.stopPreview();
       for (const audio of [this.ringingSound, this.callingSound]) {
         if (audio) {
           audio.pause();
