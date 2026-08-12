@@ -1,6 +1,7 @@
 """Bounded realtime handlers; shared protocol helpers live in unified_support."""
 
 from .unified_support import *  # noqa: F401,F403
+from app.services.message_delivery import load_message_for_delivery, message_ack_payload
 
 async def websocket_unified_endpoint(
     websocket: WebSocket,
@@ -316,10 +317,8 @@ async def handle_chat_message(
             if existing.text_channel_id != text_channel_id or (existing.content or "") != content:
                 await send_message_failure(user.id, client_nonce, "nonce_conflict", "client_nonce уже использован для другого сообщения")
                 return
-            await manager.send_to_user(user.id, {
-                "type": "message_ack",
-                "data": {"id": existing.id, "client_nonce": existing.client_nonce},
-            })
+            _, existing_payload = await load_message_for_delivery(db, existing.id, user.id)
+            await manager.send_to_user(user.id, message_ack_payload(existing_payload))
             return
 
     pending_uploads = []
@@ -432,9 +431,8 @@ async def handle_chat_message(
 
     db.add(db_message)
     await db.flush()
-    db_poll = None
     if poll_payload is not None:
-        db_poll = await create_poll_for_message(
+        await create_poll_for_message(
             db,
             message=db_message,
             creator_id=user.id,
@@ -447,69 +445,14 @@ async def handle_chat_message(
     await db.commit()
     await db.refresh(db_message)
 
-    message_result = await db.execute(
-        select(Message)
-        .where(Message.id == db_message.id)
-        .options(
-            selectinload(Message.author),
-            selectinload(Message.attachments),
-            selectinload(Message.reactions).selectinload(Reaction.user),
-            selectinload(Message.reply_to).selectinload(Message.author),
-        )
-    )
-    full_message = message_result.scalar_one()
-
-    message_dict = {
-        "id": full_message.id,
-        "client_nonce": full_message.client_nonce,
-        "content": full_message.content,
-        "channelId": full_message.text_channel_id,
-        "timestamp": full_message.timestamp.replace(tzinfo=timezone.utc).isoformat(),
-        "is_edited": full_message.is_edited,
-        "is_deleted": full_message.is_deleted,
-        "author": {
-            "id": full_message.author.id,
-            "username": full_message.author.display_name or full_message.author.username,
-            "email": "",
-            "display_name": full_message.author.display_name,
-            "avatar_url": full_message.author.avatar_url,
-        },
-        "attachments": [
-            {
-                "id": att.id,
-                "file_url": att.file_url,
-                "filename": att.original_filename or "attachment",
-                "content_type": att.content_type or "application/octet-stream",
-                "size_bytes": att.size_bytes or 0,
-            } for att in full_message.attachments
-        ],
-        "reactions": [],
-        "poll": await serialize_poll(db, db_poll, user.id) if db_poll is not None else None,
-        "reply_to": None
-        if not full_message.reply_to else {
-            "id": full_message.reply_to.id,
-            "content": "Message is deleted" if full_message.reply_to.is_deleted else full_message.reply_to.content,
-            "is_deleted": full_message.reply_to.is_deleted,
-            "author": {
-                "id": full_message.reply_to.webhook_id or full_message.reply_to.author.id,
-                "username": full_message.reply_to.webhook_name if full_message.reply_to.webhook_id else (full_message.reply_to.author.display_name or full_message.reply_to.author.username),
-                "email": "",
-                "display_name": None if full_message.reply_to.webhook_id else full_message.reply_to.author.display_name,
-                "avatar_url": full_message.reply_to.webhook_avatar_url if full_message.reply_to.webhook_id else getattr(full_message.reply_to.author, "avatar_url", None),
-                "is_webhook": full_message.reply_to.webhook_id is not None,
-            },
-        }
-    }
+    full_message, message_dict = await load_message_for_delivery(db, db_message.id, user.id)
 
     await manager.send_to_channel(text_channel_id, {
         "type": "new_message",
         "data": message_dict,
     })
     await bot_event_dispatcher.dispatch_message_create(db, full_message)
-    await manager.send_to_user(user.id, {
-        "type": "message_ack",
-        "data": {"id": full_message.id, "client_nonce": full_message.client_nonce},
-    })
+    await manager.send_to_user(user.id, message_ack_payload(message_dict))
 
     await notify_message_mentions(
         db,

@@ -3,6 +3,8 @@ import { create } from 'zustand'
 import { clearOutgoingRecords, deleteOutgoingRecord, loadOutgoingRecords, PersistedOutgoingRecord, saveOutgoingRecord } from '../lib/outgoingMessageDb'
 import uploadService, { UploadedChatFile } from '../services/uploadService'
 import unifiedWebSocketService from '../services/unifiedWebSocketService'
+import { useChatStore } from './chatStore'
+import { applyOutgoingMessageAck } from './outgoingMessageAck'
 import { OutgoingMessageOwnership } from './outgoingMessageOwnership'
 
 export type OutgoingPhase = 'queued' | 'uploading' | 'processing' | 'sending' | 'awaiting_ack' | 'offline' | 'failed'
@@ -248,7 +250,11 @@ function subscribeToSocket() {
   const acknowledge = (payload: any) => useOutgoingMessageStore.getState().acknowledge((payload?.data || payload)?.client_nonce)
   unifiedWebSocketService.on('new_message', acknowledge)
   unifiedWebSocketService.on('dm', acknowledge)
-  unifiedWebSocketService.on('message_ack', acknowledge)
+  unifiedWebSocketService.on('message_ack', (payload: unknown) => applyOutgoingMessageAck(
+    payload,
+    useChatStore.getState().addMessage,
+    useOutgoingMessageStore.getState().acknowledge,
+  ))
   unifiedWebSocketService.on('message_send_failed', (payload: any) => useOutgoingMessageStore.getState().reject(payload?.data || payload))
   unifiedWebSocketService.onConnectionStatusChange(({ isConnected }) => {
     if (!isConnected) {
