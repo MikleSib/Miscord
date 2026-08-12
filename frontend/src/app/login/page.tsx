@@ -245,14 +245,46 @@ function LoginPageContent() {
               <div className="mt-4 grid gap-3">
                 <label className="auth-input-wrap">
                   <Mail className="h-4 w-4 flex-none" />
-                  <input className="auth-input" type="email" value={reset.email} onChange={(event) => setReset((current) => ({ ...current, email: event.target.value }))} placeholder="Почта" />
+                  <input
+                    className="auth-input"
+                    type="email"
+                    name="password-reset-email"
+                    autoComplete="off"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    value={reset.email}
+                    onChange={(event) => setReset((current) => ({ ...current, email: event.target.value }))}
+                    placeholder="Почта"
+                  />
                 </label>
                 {!reset.challengeId ? (
                   <button type="button" className="auth-submit" onClick={() => void startReset()} disabled={!reset.email}>Отправить код</button>
                 ) : (
                   <>
-                    <input className="auth-input-wrap h-11 bg-background px-3" inputMode="numeric" value={reset.code} onChange={(event) => setReset((current) => ({ ...current, code: event.target.value }))} placeholder="Код из письма" />
-                    <input className="auth-input-wrap h-11 bg-background px-3" type="password" value={reset.password} onChange={(event) => setReset((current) => ({ ...current, password: event.target.value }))} placeholder="Новый пароль" />
+                    <input
+                      className="auth-input-wrap h-11 bg-background px-3"
+                      type="text"
+                      name="password-reset-code"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      pattern="[0-9]*"
+                      maxLength={6}
+                      value={reset.code}
+                      onChange={(event) => setReset((current) => ({
+                        ...current,
+                        code: event.target.value.replace(/\D/g, '').slice(0, 6),
+                      }))}
+                      placeholder="Код из письма"
+                    />
+                    <input
+                      className="auth-input-wrap h-11 bg-background px-3"
+                      type="password"
+                      name="password-reset-new-password"
+                      autoComplete="new-password"
+                      value={reset.password}
+                      onChange={(event) => setReset((current) => ({ ...current, password: event.target.value }))}
+                      placeholder="Новый пароль"
+                    />
                     <button type="button" className="auth-submit" onClick={() => void finishReset()} disabled={reset.code.length < 6 || reset.password.length < 8}>Изменить пароль</button>
                   </>
                 )}
