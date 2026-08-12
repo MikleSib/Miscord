@@ -121,6 +121,10 @@ export function ChannelSidebar() {
   const [dropCategoryKey, setDropCategoryKey] = useState<string | null>(null)
   const {
     categories,
+    categoriesReady,
+    categoriesLoading,
+    categoriesError,
+    reloadCategories,
     createCategory,
     renameCategory,
     deleteCategory,
@@ -545,7 +549,7 @@ export function ChannelSidebar() {
   }
 
   return <ChannelSidebarView model={{
-    currentServer, currentVoiceChannelId, isConnecting, user, speakingUsers, categories, updateServer, loadServers,
+    currentServer, currentVoiceChannelId, isConnecting, user, speakingUsers, categories, categoriesReady, categoriesLoading, categoriesError, reloadCategories, updateServer, loadServers,
     isCreateChannelModalOpen, setIsCreateChannelModalOpen, createChannelInitialType, setCreateChannelInitialType, voiceChannelMembers, setVoiceChannelMembers,
     contextMenu, setContextMenu, participantVolumes, setParticipantVolumes, screenSharingUsers, setScreenSharingUsers,
     streamHoverPreview, setStreamHoverPreview, isScreenSharing, setIsScreenSharing, activeSharingUsers, setActiveSharingUsers,

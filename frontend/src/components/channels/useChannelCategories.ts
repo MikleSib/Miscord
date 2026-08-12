@@ -1,12 +1,17 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import categoryService, {
   type ChannelCategory,
   type ChannelPlacement,
 } from '../../services/categoryService'
 import unifiedWebSocketService from '../../services/unifiedWebSocketService'
 import { GatewayEvents } from '../../lib/gatewayEvents'
+import {
+  resolveCategoryLoadView,
+  type CategoriesByServer,
+  type CategoryErrorsByServer,
+} from './channelCategoryLoadState'
 
 interface CategoryEventPayload {
   data?: {
@@ -21,25 +26,57 @@ function sortCategories(categories: ChannelCategory[]): ChannelCategory[] {
 }
 
 export function useChannelCategories(serverId: number | null) {
-  const [categories, setCategories] = useState<ChannelCategory[]>([])
-  const [error, setError] = useState<string | null>(null)
+  const [categoriesByServer, setCategoriesByServer] = useState<CategoriesByServer>({})
+  const [errorsByServer, setErrorsByServer] = useState<CategoryErrorsByServer>({})
+  const requestVersionsRef = useRef(new Map<number, number>())
+  const categoryView = resolveCategoryLoadView(serverId, categoriesByServer, errorsByServer)
+
+  const setCategories = useCallback(
+    (update: ChannelCategory[] | ((previous: ChannelCategory[]) => ChannelCategory[])) => {
+      if (serverId == null) return
+      requestVersionsRef.current.set(serverId, (requestVersionsRef.current.get(serverId) ?? 0) + 1)
+      setCategoriesByServer((previous) => {
+        const base = previous[serverId] ?? []
+        const next = typeof update === 'function' ? update(base) : update
+        return { ...previous, [serverId]: next }
+      })
+      setErrorsByServer((previous) => ({ ...previous, [serverId]: undefined }))
+    },
+    [serverId],
+  )
+
+  const setCurrentError = useCallback((message: string) => {
+    if (serverId == null) return
+    setErrorsByServer((previous) => ({ ...previous, [serverId]: message }))
+  }, [serverId])
 
   const reload = useCallback(async () => {
-    if (serverId == null) {
-      setCategories([])
-      return
-    }
+    if (serverId == null) return
+    const requestedServerId = serverId
+    const requestVersion = (requestVersionsRef.current.get(requestedServerId) ?? 0) + 1
+    requestVersionsRef.current.set(requestedServerId, requestVersion)
+    setErrorsByServer((previous) => ({ ...previous, [requestedServerId]: undefined }))
     try {
-      setCategories(sortCategories(await categoryService.list(serverId)))
-      setError(null)
+      const loaded = sortCategories(await categoryService.list(requestedServerId))
+      if (requestVersionsRef.current.get(requestedServerId) !== requestVersion) return
+      setCategoriesByServer((previous) => ({ ...previous, [requestedServerId]: loaded }))
     } catch {
-      // Категории не критичны: без них каналы просто показываются плоским списком
-      setCategories([])
+      if (requestVersionsRef.current.get(requestedServerId) !== requestVersion) return
+      setErrorsByServer((previous) => ({
+        ...previous,
+        [requestedServerId]: 'Не удалось загрузить категории',
+      }))
     }
   }, [serverId])
 
   useEffect(() => {
-    void reload()
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) void reload()
+    })
+    return () => {
+      cancelled = true
+    }
   }, [reload])
 
   useEffect(() => {
@@ -70,7 +107,7 @@ export function useChannelCategories(serverId: number | null) {
       unifiedWebSocketService.off(GatewayEvents.CHANNEL_CATEGORY_UPDATED, upsert)
       unifiedWebSocketService.off(GatewayEvents.CHANNEL_CATEGORY_DELETED, remove)
     }
-  }, [serverId])
+  }, [serverId, setCategories])
 
   const createCategory = useCallback(
     async (name: string) => {
@@ -78,12 +115,11 @@ export function useChannelCategories(serverId: number | null) {
       try {
         const created = await categoryService.create(serverId, name.trim())
         setCategories((previous) => sortCategories([...previous, created]))
-        setError(null)
       } catch {
-        setError('Не удалось создать категорию')
+        setCurrentError('Не удалось создать категорию')
       }
     },
-    [serverId],
+    [serverId, setCategories, setCurrentError],
   )
 
   const renameCategory = useCallback(async (categoryId: number, name: string) => {
@@ -93,38 +129,37 @@ export function useChannelCategories(serverId: number | null) {
       setCategories((previous) =>
         sortCategories(previous.map((item) => (item.id === categoryId ? updated : item))),
       )
-      setError(null)
     } catch {
-      setError('Не удалось переименовать категорию')
+      setCurrentError('Не удалось переименовать категорию')
     }
-  }, [])
+  }, [setCategories, setCurrentError])
 
   const deleteCategory = useCallback(async (categoryId: number) => {
     try {
       await categoryService.remove(categoryId)
       setCategories((previous) => previous.filter((item) => item.id !== categoryId))
-      setError(null)
     } catch {
-      setError('Не удалось удалить категорию')
+      setCurrentError('Не удалось удалить категорию')
     }
-  }, [])
+  }, [setCategories, setCurrentError])
 
   const moveChannels = useCallback(
     async (placements: ChannelPlacement[]) => {
       if (serverId == null || placements.length === 0) return
       try {
         await categoryService.reorder(serverId, placements)
-        setError(null)
       } catch {
-        setError('Не удалось изменить порядок каналов')
+        setCurrentError('Не удалось изменить порядок каналов')
       }
     },
-    [serverId],
+    [serverId, setCurrentError],
   )
 
   return {
-    categories,
-    categoriesError: error,
+    categories: categoryView.categories,
+    categoriesReady: categoryView.ready,
+    categoriesLoading: categoryView.loading,
+    categoriesError: categoryView.error,
     reloadCategories: reload,
     createCategory,
     renameCategory,

@@ -42,10 +42,11 @@ import { ChannelGroupList } from './channels/ChannelGroupList'
 import { VoiceParticipantList } from './channels/VoiceParticipantList'
 import { VoiceParticipantContextMenu } from './voice/VoiceParticipantContextMenu'
 import { useKeepVoiceChannelVisible } from './channels/useKeepVoiceChannelVisible'
+import { ChannelListLoading } from './channels/ChannelListLoading'
 
 export function ChannelSidebarView({ model }: { model: any }) {
   const {
-    currentServer, currentVoiceChannelId, isConnecting, user, speakingUsers, categories, updateServer, loadServers,
+    currentServer, currentVoiceChannelId, isConnecting, user, speakingUsers, categories, categoriesReady, categoriesLoading, categoriesError, reloadCategories, updateServer, loadServers,
     isCreateChannelModalOpen, setIsCreateChannelModalOpen, createChannelInitialType, setCreateChannelInitialType, voiceChannelMembers, setVoiceChannelMembers,
     contextMenu, setContextMenu, participantVolumes, setParticipantVolumes, screenSharingUsers, setScreenSharingUsers,
     streamHoverPreview, setStreamHoverPreview, isScreenSharing, setIsScreenSharing, activeSharingUsers, setActiveSharingUsers,
@@ -121,7 +122,24 @@ export function ChannelSidebarView({ model }: { model: any }) {
         </div>
 
         {/* Channels List */}
-        <div ref={channelScrollRef} className="channel-sidebar-scroll flex-1 overflow-y-auto scrollbar-thin">
+        <div
+          ref={channelScrollRef}
+          className="channel-sidebar-scroll flex-1 overflow-y-auto scrollbar-thin"
+          aria-busy={categoriesLoading}
+        >
+          {!categoriesReady ? (
+            categoriesError ? (
+              <div className="flex flex-col items-start gap-3 px-5 py-6 text-sm text-muted-foreground" role="alert">
+                <span>{categoriesError}</span>
+                <Button size="sm" variant="outline" onClick={() => void reloadCategories()}>
+                  Повторить
+                </Button>
+              </div>
+            ) : (
+              <ChannelListLoading />
+            )
+          ) : (
+          <>
           {/* Text Channels */}
           <div className="pt-4">
             <div className="mb-1 px-3">
@@ -379,6 +397,8 @@ export function ChannelSidebarView({ model }: { model: any }) {
               )}
             </div>
           </div>
+          </>
+          )}
         </div>
 
       </div>
