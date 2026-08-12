@@ -4,7 +4,7 @@ import React from 'react'
 import { ChatAreaView } from './ChatAreaView'
 import { useChatScroll } from './useChatScroll'
 import { useChatComposerActions } from './useChatComposerActions'
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react'
 import { ChevronRight, Hash, Send, PlusCircle, Pin, X, Users, AtSign } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { useAuthStore } from '../store/store'
@@ -80,6 +80,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   const {
     messages,
     isLoading: chatLoading,
+    isRefreshing: chatRefreshing,
     isLoadingOlder,
     hasMoreOlder,
     error: chatError,
@@ -90,8 +91,18 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     updateMessageReactions,
     updateSingleReaction,
     deleteMessage,
-    editMessage
+    editMessage,
+    setCacheOwner,
+    activateChannel,
   } = useChatStore()
+
+  useLayoutEffect(() => {
+    setCacheOwner(user?.id ?? null)
+  }, [setCacheOwner, user?.id])
+
+  useLayoutEffect(() => {
+    activateChannel(currentChannel?.type === 'text' ? currentChannel.id : null)
+  }, [activateChannel, currentChannel?.id, currentChannel?.type])
 
   // Логируем изменения currentChannel
   useEffect(() => {
@@ -384,7 +395,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     markMentionRead, addMentionNotification, applyFormattingShortcut, shortcodeAutocomplete, mentionCandidates, filteredMentions,
     slashQuery, filteredSlashCommands, applicationNames, autocompleteRequest, mentionNameById, resolveMentionLabel,
     handleMentionClick, getMemberColor, handleProfileMemberUpdated, currentChannel, currentServer, selectChannel,
-    user, token, messages, isLoadingOlder, hasMoreOlder, error: chatError, chatLoading,
+    user, token, messages, isLoadingOlder, hasMoreOlder, error: chatError, chatLoading, chatRefreshing,
     loadMessageHistory, loadOlderMessages, ensureMessageLoaded, addMessage, updateMessageReactions, updateSingleReaction,
     deleteMessage, editMessage, pinnedMessages, pinnedIds, canManagePins, pinsError,
     setPinned,
@@ -409,7 +420,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     markMentionRead, addMentionNotification, applyFormattingShortcut, shortcodeAutocomplete, mentionCandidates, filteredMentions,
     slashQuery, filteredSlashCommands, applicationNames, autocompleteRequest, mentionNameById, resolveMentionLabel,
     handleMentionClick, getMemberColor, handleProfileMemberUpdated, currentChannel, currentServer, selectChannel,
-    user, token, messages, isLoadingOlder, hasMoreOlder, error: chatError, chatLoading,
+    user, token, messages, isLoadingOlder, hasMoreOlder, error: chatError, chatLoading, chatRefreshing,
     loadMessageHistory, loadOlderMessages, ensureMessageLoaded, addMessage, updateMessageReactions, updateSingleReaction,
     deleteMessage, editMessage, pinnedMessages, pinnedIds, canManagePins, pinsError,
     setPinned, slowModeRemainingSeconds, isSlowModeActive, scrollMessagesToBottom, handleMessagesScroll, scrollToMention,
@@ -493,7 +504,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
 
   return <ChatAreaView model={{
     currentChannel, currentServer, showUserSidebar, setShowUserSidebar, pinnedMessages, canManagePins, pinsError,
-    setPinned, chatLoading, messages, isLoadingOlder, hasMoreOlder, chatError, user, pinnedIds,
+    setPinned, chatLoading, chatRefreshing, messages, isLoadingOlder, hasMoreOlder, chatError, user, pinnedIds,
     messageInput, setMessageInput, showPinnedPanel, setShowPinnedPanel, files, setFiles,
     attachmentError, setAttachmentError, isDraggingFiles, setIsDraggingFiles, isLoading, setIsLoading,
     typingUsers, setTypingUsers, replyingTo, setReplyingTo, slowModeUntil, setSlowModeUntil,

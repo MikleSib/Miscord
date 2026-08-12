@@ -62,6 +62,7 @@ import { EmojiAutocomplete } from './emoji/EmojiAutocomplete'
 import { useShortcodeAutocomplete } from './emoji/useShortcodeAutocomplete'
 import { AttachmentDropOverlay } from './AttachmentDropOverlay'
 import { ChannelWelcome } from './chat/ChannelWelcome'
+import { ChatMessageListSkeleton } from './chat/ChatMessageListSkeleton'
 import { Permissions } from '../lib/permissions'
 import { useServerPermissions } from '../lib/serverPermissions'
 import { requestChannelSettings } from '../lib/channelSettingsEvents'
@@ -71,7 +72,7 @@ const localizedCommandName = (command: MiscordApplicationCommand) => command.nam
 export function ChatAreaView({ model }: { model: any }) {
   const {
     currentChannel, currentServer, showUserSidebar, setShowUserSidebar, pinnedMessages, canManagePins, pinsError,
-    setPinned, chatLoading, messages, isLoadingOlder, hasMoreOlder, chatError, user, pinnedIds,
+    setPinned, chatLoading, chatRefreshing, messages, isLoadingOlder, hasMoreOlder, chatError, user, pinnedIds,
     messageInput, setMessageInput, showPinnedPanel, setShowPinnedPanel, files, setFiles,
     attachmentError, setAttachmentError, isDraggingFiles, setIsDraggingFiles, isLoading, setIsLoading,
     typingUsers, setTypingUsers, replyingTo, setReplyingTo, slowModeUntil, setSlowModeUntil,
@@ -123,6 +124,15 @@ export function ChatAreaView({ model }: { model: any }) {
 
       {/* Messages */}
       <div className="relative min-h-0 flex-1">
+        {chatRefreshing && messages.length > 0 && (
+          <div
+            className="pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5 overflow-hidden bg-primary/15"
+            role="status"
+            aria-label="Обновление сообщений"
+          >
+            <div className="h-full w-1/3 animate-pulse bg-primary motion-reduce:animate-none" />
+          </div>
+        )}
         <div
           ref={messagesContainerRef}
           className="chat-scroll chat-area-messages h-full overflow-y-auto px-5 py-4"
@@ -130,9 +140,7 @@ export function ChatAreaView({ model }: { model: any }) {
         >
           <div ref={messagesContentRef} className="space-y-1">
             {chatLoading && messages.length === 0 && (
-              <div className="text-center text-muted-foreground py-4">
-                Загрузка истории сообщений...
-              </div>
+              <ChatMessageListSkeleton />
             )}
 
             {isLoadingOlder && (
