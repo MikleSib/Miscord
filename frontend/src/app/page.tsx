@@ -31,7 +31,9 @@ import { ThreadPanel } from '../components/community/ThreadPanel'
 import { ThreadDialogHost } from '../components/community/ThreadDialogHost'
 import { ForumChannelView } from '../components/community/ForumChannelView'
 import { getUserSettingsTab, OPEN_USER_SETTINGS_EVENT } from '../lib/userSettingsNavigation'
+import type { UserSettingsTab } from '../lib/userSettingsNavigation'
 import { useUserDockClearance } from '../hooks/useUserDockClearance'
+import { GlobalHotkeys } from '../components/GlobalHotkeys'
 
 bindUserProfileSync()
 bindMemberSync()
@@ -58,7 +60,7 @@ export default function HomePage() {
   const [toastNotifications, setToastNotifications] = useState<{ userId: number; username: string; id: string }[]>([])
   const [showUserSidebar, setShowUserSidebar] = useState(true)
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false)
-  const [settingsInitialTab, setSettingsInitialTab] = useState<'profile' | 'voice'>('profile')
+  const [settingsInitialTab, setSettingsInitialTab] = useState<UserSettingsTab>('profile')
   const userDockRef = useUserDockClearance()
 
   useEffect(() => {
@@ -261,6 +263,7 @@ export default function HomePage() {
 
   return (
     <div className="app-shell miscord-responsive-root relative flex h-[100dvh] overflow-hidden">
+      <GlobalHotkeys />
       <MobileExperience />
       <ThreadDialogHost />
       <div className="app-mobile-servers relative z-50">

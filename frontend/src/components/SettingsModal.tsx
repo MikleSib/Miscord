@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '../store/store';
 import { Button } from './ui/button';
 import { UserAvatar } from './ui/user-avatar';
-import { ChevronLeft, X, Upload, Trash2, User, Mic, Volume2, Bot } from 'lucide-react';
+import { ChevronLeft, X, Upload, Trash2, User, Mic, Volume2, Bot, Keyboard } from 'lucide-react';
 import { cn } from '../lib/utils';
 import authService from '../services/authService';
 import { VoiceVideoSettings } from './VoiceVideoSettings';
@@ -13,6 +13,8 @@ import { applyUserProfileUpdate } from '../lib/userProfileSync';
 import { useMobileSettingsDetail } from '../hooks/useMobileSettingsDetail';
 import { useModalFocusTrap } from '../hooks/useModalFocusTrap';
 import { LogoutSection } from './settings/LogoutSection';
+import { HotkeysSettings } from './settings/HotkeysSettings';
+import type { UserSettingsTab } from '../lib/userSettingsNavigation';
 
 const SIDEBAR_ITEMS = [
   {
@@ -24,6 +26,11 @@ const SIDEBAR_ITEMS = [
     id: 'voice',
     label: 'Голос и видео',
     icon: Mic,
+  },
+  {
+    id: 'hotkeys',
+    label: 'Горячие клавиши',
+    icon: Keyboard,
   }
 ];
 
@@ -31,7 +38,7 @@ interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   /** Какую вкладку открыть при показе модалки */
-  initialTab?: 'profile' | 'voice';
+  initialTab?: UserSettingsTab;
 }
 
 export default function SettingsModal({
@@ -41,7 +48,7 @@ export default function SettingsModal({
 }: SettingsModalProps) {
   const router = useRouter();
   const { user, logout } = useAuthStore();
-  const [activeTab, setActiveTab] = useState<'profile' | 'voice'>(initialTab);
+  const [activeTab, setActiveTab] = useState<UserSettingsTab>(initialTab);
   const [displayName, setDisplayName] = useState('');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
@@ -212,7 +219,7 @@ export default function SettingsModal({
                   <button
                     key={item.id}
                     onClick={() => {
-                      setActiveTab(item.id as 'profile' | 'voice')
+                      setActiveTab(item.id as UserSettingsTab)
                       mobileSettings.openDetail()
                     }}
                     className={cn(
@@ -369,6 +376,8 @@ export default function SettingsModal({
                 <VoiceVideoSettings />
               </div>
             )}
+
+            {activeTab === 'hotkeys' && <HotkeysSettings />}
           </div>
         </div>
       </div>

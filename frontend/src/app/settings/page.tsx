@@ -5,17 +5,24 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '../../store/store';
 import { Button } from '../../components/ui/button';
 import { UserAvatar } from '../../components/ui/user-avatar';
-import { X, Upload, Trash2, User } from 'lucide-react';
+import { X, Upload, Trash2, User, Keyboard } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import authService from '../../services/authService';
 import { applyUserProfileUpdate } from '../../lib/userProfileSync';
 import { LogoutSection } from '../../components/settings/LogoutSection';
+import { HotkeysSettings } from '../../components/settings/HotkeysSettings';
+import type { UserSettingsTab } from '../../lib/userSettingsNavigation';
 
 const SIDEBAR_ITEMS = [
   {
     id: 'profile',
     label: 'Профиль',
     icon: User,
+  },
+  {
+    id: 'hotkeys',
+    label: 'Горячие клавиши',
+    icon: Keyboard,
   }
 ];
 
@@ -24,7 +31,7 @@ export default function SettingsPage() {
   const router = useRouter();
   const { user, logout } = useAuthStore();
   console.log('Текущий пользователь в настройках:', user);
-  const [activeTab, setActiveTab] = useState('profile');
+  const [activeTab, setActiveTab] = useState<UserSettingsTab>('profile');
   const [displayName, setDisplayName] = useState('');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
@@ -171,7 +178,7 @@ export default function SettingsPage() {
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveTab(item.id)}
+                  onClick={() => setActiveTab(item.id as UserSettingsTab)}
                   className={cn(
                     "w-full flex items-center gap-3 px-3 py-2 text-left rounded-md transition-colors",
                     activeTab === item.id
@@ -309,6 +316,7 @@ export default function SettingsPage() {
               <LogoutSection onLogout={handleLogout} />
             </div>
           )}
+          {activeTab === 'hotkeys' && <HotkeysSettings />}
         </div>
       </div>
     </div>
