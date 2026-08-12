@@ -25,18 +25,12 @@ export default function InvitePage() {
 
   /** Восстанавливаем сессию: по ссылке могут прийти из браузера без входа. */
   const restoreSession = useCallback(async () => {
-    const savedToken =
-      typeof window === 'undefined' ? null : localStorage.getItem('access_token')
-    if (!savedToken) return false
-
     try {
-      useAuthStore.getState().setToken(savedToken)
-      const user = await authService.getCurrentUser()
-      useAuthStore.getState().loginSuccess(user, savedToken)
-      useStore.getState().setUser(user)
+      const restored = await authService.restoreSession()
+      useAuthStore.getState().loginSuccess(restored.user, restored.accessToken)
+      useStore.getState().setUser(restored.user)
       return true
     } catch {
-      localStorage.removeItem('access_token')
       useAuthStore.getState().logout()
       return false
     }

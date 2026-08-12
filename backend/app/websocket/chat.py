@@ -6,7 +6,6 @@ import json
 from app.db.database import get_db, AsyncSessionLocal
 from app.models import User, Message, TextChannel, ChannelMember, Attachment, Reaction
 from app.schemas.message import MessageCreate, Message as MessageSchema
-from app.core.security import decode_access_token
 from app.websocket.connection_manager import manager
 from app.core.dependencies import get_current_user_ws
 from app.services import direct_message_service
@@ -17,6 +16,7 @@ from app.services.rate_limit import enforce_message_antispam, rate_limit_payload
 from app.services.mentions import notify_message_mentions
 from app.services.message_notifications import notify_channel_message_activity
 from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
+from app.services.communication_safety import can_send_dm
 from fastapi.encoders import jsonable_encoder
 import asyncio
 from datetime import timezone
@@ -24,21 +24,7 @@ from datetime import timezone
 
 async def get_user_by_token_ws(token: str, db: AsyncSession) -> User | None:
     """Получение пользователя по токену для WebSocket без создания новых сессий"""
-    try:
-        payload = decode_access_token(token)
-        if payload is None:
-            return None
-        
-        user_id = payload.get("sub")
-        if user_id is None:
-            return None
-
-        result = await db.execute(select(User).where(User.id == int(user_id)))
-        user = result.scalar_one_or_none()
-        return user if user and user.is_active else None
-    except Exception as e:
-        print(f"[WS_AUTH] Ошибка получения пользователя: {e}")
-        return None
+    return await get_current_user_ws(token, db)
 
 
 async def websocket_chat_endpoint(
@@ -150,6 +136,18 @@ async def websocket_chat_endpoint(
                         continue
                     
                     # Создаем сообщение
+                    if reply_to_id:
+                        reply_channel_id = await db.scalar(
+                            select(Message.text_channel_id).where(Message.id == reply_to_id)
+                        )
+                        if reply_channel_id != text_channel_id:
+                            await websocket.send_text(json.dumps({
+                                "type": "error",
+                                "code": "invalid_reply",
+                                "message": "Reply target does not belong to this channel",
+                            }))
+                            continue
+
                     db_message = Message(
                         content=content if content else None,
                         author_id=user.id,
@@ -370,6 +368,15 @@ async def websocket_notifications_endpoint(
                         if len(content) > 5000 or len(attachments) > 10:
                             continue
 
+                        dm_allowed, dm_error = await can_send_dm(db, user.id, int(recipient_id))
+                        if not dm_allowed:
+                            await websocket.send_text(json.dumps({
+                                "type": "error",
+                                "code": "dm_forbidden",
+                                "message": dm_error or "Direct messages are unavailable",
+                            }))
+                            continue
+
                         allowed, retry_after, limit_message = enforce_message_antispam(
                             user.id,
                             dest_key=f"dm:{min(user.id, int(recipient_id))}:{max(user.id, int(recipient_id))}",
@@ -384,14 +391,22 @@ async def websocket_notifications_endpoint(
                             )))
                             continue
 
-                        db_message = await direct_message_service.create_message(
-                            db, 
-                            sender_id=user.id, 
-                            recipient_id=recipient_id, 
-                            content=content if content else None,
-                            attachments=attachments,
-                            reply_to_id=reply_to_id
-                        )
+                        try:
+                            db_message = await direct_message_service.create_message(
+                                db,
+                                sender_id=user.id,
+                                recipient_id=recipient_id,
+                                content=content if content else None,
+                                attachments=attachments,
+                                reply_to_id=reply_to_id,
+                            )
+                        except direct_message_service.DirectMessageReplyError:
+                            await websocket.send_text(json.dumps({
+                                "type": "error",
+                                "code": "invalid_reply",
+                                "message": "Reply target does not belong to this conversation",
+                            }))
+                            continue
                         
                         author = await db.get(User, user.id)
 

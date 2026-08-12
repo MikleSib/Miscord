@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, Copy, Loader2, MessageSquare, MoreHorizontal, Pencil, Plus, Smile, UserPlus, X } from 'lucide-react';
+import { Ban, Check, Copy, Flag, Loader2, MessageSquare, MoreHorizontal, Pencil, Plus, Smile, UserPlus, X } from 'lucide-react';
 
 import { UserAvatar } from './ui/user-avatar';
 import { Tooltip } from './ui/tooltip';
@@ -18,6 +18,8 @@ import { Permissions } from '../lib/permissions';
 import { useServerPermissions } from '../lib/serverPermissions';
 import { openUserSettings } from '../lib/userSettingsNavigation';
 import { Role, ServerMember, User } from '../types';
+import { safetyService } from '../services/safetyService';
+import { SafetyReportDialog } from './safety/SafetyReportDialog';
 
 const POPOVER_WIDTH = 340;
 
@@ -88,6 +90,7 @@ export function MemberProfilePopover({
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showRolePicker, setShowRolePicker] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  const [reportOpen, setReportOpen] = useState(false);
 
   const assignableRoles = useMemo(
     () => canManageMemberRoles
@@ -316,6 +319,7 @@ export function MemberProfilePopover({
                 <button type="button" onClick={() => void handleCopy(String(member.user_id), 'ID пользователя скопирован')} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-sm text-foreground transition-colors hover:bg-[#35373c]">
                   <Copy className="h-4 w-4" />Копировать ID
                 </button>
+                {!isSelf && <><button type="button" onClick={() => { setShowMoreMenu(false); setReportOpen(true) }} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-sm text-foreground transition-colors hover:bg-[#35373c]"><Flag className="h-4 w-4" />Пожаловаться</button><button type="button" onClick={() => { setShowMoreMenu(false); if (window.confirm(`Заблокировать ${displayName}?`)) void safetyService.block(member.user_id).then(() => onClose()).catch(() => setFeedback({ tone: 'error', text: 'Не удалось заблокировать пользователя' })) }} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"><Ban className="h-4 w-4" />Заблокировать</button></>}
               </div>
             )}
           </div>
@@ -439,6 +443,7 @@ export function MemberProfilePopover({
           </div>
         )}
       </div>
+      <SafetyReportDialog open={reportOpen} onClose={() => setReportOpen(false)} targetUserId={member.user_id} serverId={serverId} />
     </div>,
     document.body
   );

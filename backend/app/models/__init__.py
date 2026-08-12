@@ -1,5 +1,10 @@
 from .user import User
 from .registration import RegistrationChallenge
+from .security import UserBlock, UserSession
+from .safety import AutoModRule, MemberTimeout, SafetyReport, UserPrivacySettings
+from .account_security import AccountChallenge, UserTwoFactor
+from .server_features import ServerOnboarding, ServerOnboardingMember, ScheduledEvent, ScheduledEventInterest
+from .message_state import MessageDraft, ChannelReadState, SavedMessage
 from .channel import Channel, ChannelCategory, ChannelMember, TextChannel, VoiceChannel, VoiceChannelUser, ChannelType
 from .message import Message
 from .attachment import Attachment
@@ -46,6 +51,21 @@ from .bot import (
 __all__ = [
     "User",
     "RegistrationChallenge",
+    "UserSession",
+    "UserBlock",
+    "UserPrivacySettings",
+    "SafetyReport",
+    "MemberTimeout",
+    "AutoModRule",
+    "AccountChallenge",
+    "UserTwoFactor",
+    "ServerOnboarding",
+    "ServerOnboardingMember",
+    "ScheduledEvent",
+    "ScheduledEventInterest",
+    "MessageDraft",
+    "ChannelReadState",
+    "SavedMessage",
     "Channel",
     "ChannelCategory",
     "ChannelMember",

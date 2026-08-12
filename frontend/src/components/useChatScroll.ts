@@ -195,7 +195,7 @@ export function useChatScroll({ model }: { model: any }) {
       loadMessageHistory(currentChannel.id);
 
       // Подключаемся к WebSocket чата только если еще не подключены
-      const accessToken = token || localStorage.getItem('access_token');
+      const accessToken = token;
 
       if (accessToken) {
 

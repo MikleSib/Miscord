@@ -1,4 +1,4 @@
-from fastapi import WebSocket, WebSocketDisconnect, Query, status
+from fastapi import WebSocket, WebSocketDisconnect, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -35,6 +35,7 @@ from app.websocket.group_voice import (
 )
 from app.services.voice_presence import voice_presence
 from app.core.config import settings
+from app.services.user_sessions import is_session_active
 from app.schemas.poll import PollCreate
 from app.services.polls import create_poll_for_message, require_poll_permission, serialize_poll
 from app.services.notifications import create_notification
@@ -79,7 +80,11 @@ async def get_user_by_token_ws(token: str, db: AsyncSession) -> Optional[User]:
             return None
 
         user_id = payload.get("sub")
-        if not user_id:
+        session_id = payload.get("sid")
+        if not user_id or not isinstance(session_id, str):
+            return None
+
+        if not await is_session_active(db, session_id, int(user_id)):
             return None
 
         result = await db.execute(select(User).where(User.id == int(user_id)))

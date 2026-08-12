@@ -120,20 +120,11 @@ export default function DeveloperPortalPage() {
 
     const restoreSession = async () => {
       const authState = useAuthStore.getState();
-      const savedToken = localStorage.getItem('access_token') || authState.token;
-      if (!savedToken) {
-        authState.logout();
-        if (active) setAuthChecked(true);
-        return;
-      }
-
       try {
-        authState.setToken(savedToken);
-        const restoredUser = await authService.getCurrentUser();
+        const restored = await authService.restoreSession();
         if (!active) return;
-        authState.loginSuccess(restoredUser, savedToken);
+        authState.loginSuccess(restored.user, restored.accessToken);
       } catch {
-        localStorage.removeItem('access_token');
         authState.logout();
       } finally {
         if (active) setAuthChecked(true);

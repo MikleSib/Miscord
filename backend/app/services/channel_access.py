@@ -39,10 +39,13 @@ async def user_can_access_text_channel(
 ) -> bool:
     if getattr(text_channel, "kind", "text") in {"public_thread", "private_thread", "forum_post"}:
         from app.services.thread_access import can_access_thread, thread_permissions
+        from app.services.communication_safety import is_timed_out
 
         if not await can_access_thread(db, text_channel, user):
             return False
         if need_send:
+            if await is_timed_out(db, int(text_channel.channel_id), user.id):
+                return False
             if text_channel.archived_at is not None:
                 return False
             permissions = await thread_permissions(db, text_channel, user)
@@ -58,6 +61,9 @@ async def user_can_access_text_channel(
     ):
         return False
     if need_send:
+        from app.services.communication_safety import is_timed_out
+        if user.id != server.owner_id and await is_timed_out(db, server.id, user.id):
+            return False
         base = await get_member_permissions(
             db, server.id, user.id, owner_id=server.owner_id
         )
@@ -114,8 +120,42 @@ async def user_can_access_voice_channel(
         return False
     if user.id != server.owner_id and not await is_member(db, server.id, user.id):
         return False
-    return await can_view_channel(
-        db, server.id, user.id, "voice", voice_channel.id, owner_id=server.owner_id
+    if user.id != server.owner_id:
+        from app.services.communication_safety import is_timed_out
+        if await is_timed_out(db, server.id, user.id):
+            return False
+    permissions = await get_effective_channel_permissions(
+        db, server.id, user.id, "voice", voice_channel.id,
+    )
+    return (
+        has_permission(permissions, Permission.VIEW_CHANNEL)
+        and has_permission(permissions, Permission.CONNECT)
+    )
+
+
+async def get_voice_channel_capabilities(
+    db: AsyncSession,
+    user: User,
+    voice_channel: VoiceChannel,
+) -> tuple[int, bool, bool]:
+    server = await _get_server(db, voice_channel.channel_id)
+    if not server or (user.id != server.owner_id and not await is_member(db, server.id, user.id)):
+        return 0, False, False
+    permissions = await get_effective_channel_permissions(
+        db, server.id, user.id, "voice", voice_channel.id,
+    )
+    can_connect = (
+        has_permission(permissions, Permission.VIEW_CHANNEL)
+        and has_permission(permissions, Permission.CONNECT)
+    )
+    if user.id != server.owner_id:
+        from app.services.communication_safety import is_timed_out
+        if await is_timed_out(db, server.id, user.id):
+            return permissions, False, False
+    return (
+        permissions,
+        can_connect and has_permission(permissions, Permission.SPEAK),
+        can_connect and has_permission(permissions, Permission.STREAM),
     )
 
 

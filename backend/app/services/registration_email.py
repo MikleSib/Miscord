@@ -32,10 +32,15 @@ def build_delivery_message(
     return message
 
 
-def render_verification_email(code: str, expires_minutes: int) -> tuple[str, str]:
+def render_verification_email(
+    code: str,
+    expires_minutes: int,
+    purpose: str = "Подтвердите вашу почту",
+) -> tuple[str, str]:
     safe_code = html.escape(code)
+    safe_purpose = html.escape(purpose)
     text = (
-        "Подтвердите регистрацию в Miscord\n\n"
+        f"{purpose} в Miscord\n\n"
         f"Код подтверждения: {code}\n"
         f"Он действует {expires_minutes} минут.\n\n"
         "Если вы не создавали аккаунт, просто проигнорируйте это письмо.\n"
@@ -51,7 +56,7 @@ def render_verification_email(code: str, expires_minutes: int) -> tuple[str, str
              style="max-width:560px;background:#25262c;border:1px solid #393b44;border-radius:18px;overflow:hidden">
         <tr><td style="padding:28px 32px 18px">
           <div style="font-size:15px;font-weight:700;color:#7c86ff;letter-spacing:.02em">MISCORD</div>
-          <h1 style="margin:18px 0 10px;font-size:28px;line-height:1.2;color:#fff">Подтвердите вашу почту</h1>
+          <h1 style="margin:18px 0 10px;font-size:28px;line-height:1.2;color:#fff">{safe_purpose}</h1>
           <p style="margin:0;color:#b6b8c2;font-size:16px;line-height:1.55">
             Введите этот код на странице регистрации. Он действует {expires_minutes} минут.
           </p>
@@ -129,6 +134,18 @@ class RegistrationMailer:
             self._send_message_sync,
             recipient,
             "Добро пожаловать в Miscord",
+            text,
+            document,
+        )
+
+    async def send_security_code(
+        self, recipient: str, code: str, purpose: str, expires_minutes: int,
+    ) -> None:
+        text, document = render_verification_email(code, expires_minutes, purpose)
+        await asyncio.to_thread(
+            self._send_message_sync,
+            recipient,
+            f"{purpose} — Miscord",
             text,
             document,
         )

@@ -6,6 +6,29 @@ from app.models.direct_message import DirectMessage
 from app.models.attachment import Attachment
 from app.models.user import User
 
+
+class DirectMessageReplyError(ValueError):
+    pass
+
+
+async def require_reply_in_conversation(
+    db: AsyncSession,
+    reply_to_id: int | None,
+    sender_id: int,
+    recipient_id: int,
+) -> None:
+    if reply_to_id is None:
+        return
+    reply = (await db.execute(select(DirectMessage).where(
+        DirectMessage.id == reply_to_id,
+        or_(
+            (DirectMessage.sender_id == sender_id) & (DirectMessage.recipient_id == recipient_id),
+            (DirectMessage.sender_id == recipient_id) & (DirectMessage.recipient_id == sender_id),
+        ),
+    ))).scalar_one_or_none()
+    if reply is None:
+        raise DirectMessageReplyError("Reply target does not belong to this conversation")
+
 async def get_messages(db: AsyncSession, user1_id: int, user2_id: int, skip: int = 0, limit: int = 30):
     result = await db.execute(
         select(DirectMessage).filter(
@@ -32,6 +55,7 @@ async def create_message(
     client_nonce: str = None,
     pending_uploads: list[PendingChatUpload] = None,
 ):
+    await require_reply_in_conversation(db, reply_to_id, sender_id, recipient_id)
     db_message = DirectMessage(
         client_nonce=client_nonce,
         sender_id=sender_id,

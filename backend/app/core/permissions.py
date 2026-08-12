@@ -118,6 +118,10 @@ DEFAULT_PERMISSIONS = int(
     | Permission.EMBED_LINKS
     | Permission.ATTACH_FILES
     | Permission.USE_APPLICATION_COMMANDS
+    | Permission.CONNECT
+    | Permission.SPEAK
+    | Permission.STREAM
+    | Permission.USE_VAD
 )
 
 # Метаданные для фронтенда: ключ, подпись, описание, группа

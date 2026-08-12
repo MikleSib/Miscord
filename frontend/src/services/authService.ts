@@ -1,11 +1,13 @@
 import api from './api';
 import { User, AuthTokens, LoginCredentials, RegisterData, RegistrationChallenge } from '../types';
+import { useAuthStore } from '../store/store';
 
 class AuthService {
   async login(credentials: LoginCredentials): Promise<AuthTokens> {
     const formData = new FormData();
     formData.append('username', credentials.username);
     formData.append('password', credentials.password);
+    if (credentials.otp) formData.append('otp', credentials.otp);
     
     const response = await api.post<AuthTokens>('/api/v1/auth/login', formData, {
       headers: {
@@ -13,9 +15,6 @@ class AuthService {
       },
     });
     
-    if (typeof window !== 'undefined') {
-    localStorage.setItem('access_token', response.data.access_token);
-    }
     return response.data;
   }
 
@@ -65,17 +64,32 @@ class AuthService {
     await api.delete('/api/v1/auth/avatar');
   }
 
-  logout(): void {
-    if (typeof window !== 'undefined') {
-    localStorage.removeItem('access_token');
-    }
+  async logout(): Promise<void> {
+    await api.post('/api/v1/auth/logout').catch(() => undefined);
+  }
+
+  async restoreSession(): Promise<{ user: User; accessToken: string }> {
+    if (typeof window !== 'undefined') localStorage.removeItem('access_token');
+    const response = await api.post<AuthTokens>('/api/v1/auth/refresh');
+    useAuthStore.getState().setToken(response.data.access_token);
+    const user = await this.getCurrentUser();
+    return { user, accessToken: response.data.access_token };
+  }
+
+  async startPasswordReset(email: string) {
+    return (await api.post<{ challenge_id: string; message: string }>('/api/v1/auth/password-reset/start', { email })).data;
+  }
+
+  async finishPasswordReset(challengeId: string, code: string, newPassword: string) {
+    await api.post('/api/v1/auth/password-reset/finish', {
+      challenge_id: challengeId,
+      code,
+      new_password: newPassword,
+    });
   }
 
   getToken(): string | null {
-    if (typeof window !== 'undefined') {
-    return localStorage.getItem('access_token');
-    }
-    return null;
+    return useAuthStore.getState().token;
   }
 }
 

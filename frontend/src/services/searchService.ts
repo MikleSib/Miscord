@@ -1,7 +1,7 @@
 import api from './api'
 import type { Message } from '../types'
 
-export type SearchHasFilter = 'link' | 'file' | 'image'
+export type SearchHasFilter = 'link' | 'file' | 'image' | 'video' | 'audio' | 'poll' | 'embed'
 
 export interface SearchResultMessage extends Message {
   text_channel_id: number
@@ -22,6 +22,10 @@ export interface MessageSearchParams {
   channelId?: number | null
   authorId?: number | null
   has?: SearchHasFilter | null
+  pinned?: boolean | null
+  sort?: 'newest' | 'oldest'
+  before?: string | null
+  after?: string | null
   offset?: number
   limit?: number
 }
@@ -33,6 +37,10 @@ class SearchService {
     channelId,
     authorId,
     has,
+    pinned,
+    sort,
+    before,
+    after,
     offset = 0,
     limit = 25,
   }: MessageSearchParams): Promise<MessageSearchResponse> {
@@ -42,6 +50,10 @@ class SearchService {
         channel_id: channelId ?? undefined,
         author_id: authorId ?? undefined,
         has: has ?? undefined,
+        pinned: pinned ?? undefined,
+        sort: sort ?? 'newest',
+        before: before || undefined,
+        after: after || undefined,
         offset,
         limit,
       },

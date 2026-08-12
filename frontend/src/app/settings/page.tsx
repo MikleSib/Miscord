@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '../../store/store';
 import { Button } from '../../components/ui/button';
 import { UserAvatar } from '../../components/ui/user-avatar';
-import { Accessibility, X, Upload, Trash2, User, Keyboard } from 'lucide-react';
+import { Accessibility, Bookmark, X, Upload, Trash2, User, Keyboard, ShieldCheck } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import authService from '../../services/authService';
 import { applyUserProfileUpdate } from '../../lib/userProfileSync';
@@ -13,8 +13,20 @@ import { LogoutSection } from '../../components/settings/LogoutSection';
 import { HotkeysSettings } from '../../components/settings/HotkeysSettings';
 import type { UserSettingsTab } from '../../lib/userSettingsNavigation';
 import { AccessibilitySettings } from '../../components/settings/AccessibilitySettings';
+import { SecuritySettings } from '../../components/settings/SecuritySettings';
+import { SavedMessagesSettings } from '../../components/settings/SavedMessagesSettings';
 
 const SIDEBAR_ITEMS = [
+  {
+    id: 'saved',
+    label: 'Сохранённые',
+    icon: Bookmark,
+  },
+  {
+    id: 'security',
+    label: 'Безопасность',
+    icon: ShieldCheck,
+  },
   {
     id: 'profile',
     label: 'Профиль',
@@ -324,6 +336,8 @@ export default function SettingsPage() {
           )}
           {activeTab === 'hotkeys' && <HotkeysSettings />}
           {activeTab === 'accessibility' && <AccessibilitySettings />}
+          {activeTab === 'security' && <SecuritySettings />}
+          {activeTab === 'saved' && <SavedMessagesSettings onNavigate={() => router.push('/')} />}
         </div>
       </div>
     </div>

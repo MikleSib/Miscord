@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useEffect, useRef, useState } from 'react'
-import { Reply, Smile, Trash2, Edit3, Pin, PinOff, Puzzle, MessageCircle } from 'lucide-react'
+import { Reply, Smile, Trash2, Edit3, Pin, PinOff, Puzzle, MessageCircle, Bookmark, Flag } from 'lucide-react'
 import { Message, User } from '../types'
 import { UserAvatar } from './ui/user-avatar'
 import { Button } from './ui/button'
@@ -24,6 +24,8 @@ import { cn } from '../lib/utils'
 import { ApplicationMessageComponents } from './ApplicationMessageComponents'
 import type { MiscordApplicationCommand } from '../types/bot'
 import { MessagePoll } from './community/MessagePoll'
+import { messageStateService } from '../services/messageStateService'
+import { SafetyReportDialog } from './safety/SafetyReportDialog'
 
 interface ChatMessageProps {
   message: Message;
@@ -68,6 +70,8 @@ export function ChatMessage({
   const [editContent, setEditContent] = useState(message.content || '')
   const [showMoreMenu, setShowMoreMenu] = useState(false)
   const [lightboxItem, setLightboxItem] = useState<MediaLightboxItem | null>(null)
+  const [saved, setSaved] = useState(false)
+  const [reportOpen, setReportOpen] = useState(false)
   const rowRef = useRef<HTMLDivElement>(null)
 
   const { deleteMessage, editMessage } = useChatStore()
@@ -210,6 +214,24 @@ export function ChatMessage({
               <Reply className="w-4 h-4" />
             </Button>
           </Tooltip>
+          <Tooltip content={saved ? 'Убрать из сохранённых' : 'Сохранить сообщение'}>
+            <Button
+              size="sm"
+              variant="ghost"
+              className={cn('h-8 px-2', saved && 'text-primary')}
+              onClick={() => {
+                const next = !saved
+                setSaved(next)
+                const request = next
+                  ? messageStateService.saveMessage(message.id)
+                  : messageStateService.unsaveMessage(message.id)
+                void request.catch(() => setSaved(!next))
+              }}
+              aria-label={saved ? 'Убрать из сохранённых' : 'Сохранить сообщение'}
+            >
+              <Bookmark className="h-4 w-4" fill={saved ? 'currentColor' : 'none'} />
+            </Button>
+          </Tooltip>
           {canPin && onTogglePin && !message.is_deleted && (
             <Tooltip content={isPinned ? 'Открепить' : 'Закрепить'}>
               <Button
@@ -248,6 +270,11 @@ export function ChatMessage({
                 </Button>
               </Tooltip>
             </>
+          )}
+          {!canEditDelete && currentUser && !message.author.is_bot && (
+            <Tooltip content="Пожаловаться">
+              <Button size="sm" variant="ghost" className="h-8 px-2 text-muted-foreground hover:text-destructive" onClick={() => setReportOpen(true)} aria-label="Пожаловаться на сообщение"><Flag className="h-4 w-4" /></Button>
+            </Tooltip>
           )}
         </div>
       )}
@@ -408,6 +435,7 @@ export function ChatMessage({
       </div>
 
       <MediaLightbox item={lightboxItem} onClose={() => setLightboxItem(null)} />
+      <SafetyReportDialog open={reportOpen} onClose={() => setReportOpen(false)} targetUserId={message.author.id} channelId={message.channelId} messageId={message.id} />
     </div>
   )
 }

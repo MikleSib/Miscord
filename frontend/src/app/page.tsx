@@ -34,6 +34,9 @@ import { getUserSettingsTab, OPEN_USER_SETTINGS_EVENT } from '../lib/userSetting
 import type { UserSettingsTab } from '../lib/userSettingsNavigation'
 import { useUserDockClearance } from '../hooks/useUserDockClearance'
 import { GlobalHotkeys } from '../components/GlobalHotkeys'
+import { ServerOnboardingGate } from '../components/server-settings/ServerOnboardingGate'
+import { messageStateService } from '../services/messageStateService'
+import { useChannelUnreadStore } from '../store/channelUnreadStore'
 
 bindUserProfileSync()
 bindMemberSync()
@@ -85,15 +88,14 @@ export default function HomePage() {
         // Попробуем восстановить пользователя из токена
         try {
           if (typeof window !== 'undefined') {
-            const savedToken = localStorage.getItem('access_token');
-            if (savedToken) {
+            const restored = await authService.restoreSession();
+            if (restored.accessToken) {
               // Устанавливаем токен в store
-              useAuthStore.getState().setToken(savedToken);
+              useAuthStore.getState().setToken(restored.accessToken);
 
               // Получаем данные пользователя
-              const user = await authService.getCurrentUser();
-              useAuthStore.getState().loginSuccess(user, savedToken);
-              setStoreUser(user);
+              useAuthStore.getState().loginSuccess(restored.user, restored.accessToken);
+              setStoreUser(restored.user);
 
               return; // Продолжаем инициализацию
             }
@@ -101,9 +103,6 @@ export default function HomePage() {
         } catch (error) {
           console.error('[HomePage] Ошибка восстановления пользователя:', error);
           // Токен недействителен, очищаем его
-          if (typeof window !== 'undefined') {
-            localStorage.removeItem('access_token');
-          }
           useAuthStore.getState().logout();
         }
 
@@ -116,6 +115,12 @@ export default function HomePage() {
 
       // Загружаем серверы пользователя
       await loadServers()
+      const unread = await messageStateService.listUnreads().catch(() => [])
+      useChannelUnreadStore.getState().hydrate(unread.map((item) => ({
+        messageId: item.message_id, textChannelId: item.text_channel_id,
+        serverId: item.server_id, channelName: item.channel_name || undefined,
+        createdAt: Date.now(),
+      })))
 
     }
 
@@ -266,6 +271,7 @@ export default function HomePage() {
       <GlobalHotkeys />
       <MobileExperience />
       <ThreadDialogHost />
+      {currentServer && <ServerOnboardingGate server={currentServer} />}
       <div className="app-mobile-servers relative z-50">
         <ServerList />
       </div>

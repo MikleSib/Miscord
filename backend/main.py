@@ -13,7 +13,7 @@ from sqlalchemy import delete, text, update
 
 from app.core.config import settings
 from app.db.database import engine
-from app.api import auth, registration, channels, channel_categories, channel_permissions, community_forums, community_imports, community_notifications, community_polls, community_templates, community_threads, message_pins, message_search, servers, uploads, reactions, friends, direct_messages, embeds, webhooks, attachment_files, bot_apps, bot_platform, bot_client, bot_oauth, miscord_api, miscord_gateway, miscord_interactions
+from app.api import account_security, auth, registration, channels, channel_categories, channel_permissions, community_forums, community_imports, community_notifications, community_polls, community_templates, community_threads, message_pins, message_search, message_state, safety, server_features, servers, uploads, reactions, friends, direct_messages, embeds, webhooks, attachment_files, bot_apps, bot_platform, bot_client, bot_oauth, miscord_api, miscord_gateway, miscord_interactions
 from app.core.miscord_errors import MiscordAPIError
 from app.services.webhook_rate_limit import Bucket, consume, rate_headers
 from app.websocket.connection_manager import manager
@@ -216,6 +216,7 @@ async def miscord_api_rate_limit_middleware(request: Request, call_next):
 
 # Подключение роутеров
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
+app.include_router(account_security.router, prefix="/api/v1/auth", tags=["account-security"])
 app.include_router(registration.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(channels.router, prefix="/api/v1/channels", tags=["channels"])
 app.include_router(community_threads.router, prefix="/api/v1/channels", tags=["threads"])
@@ -224,6 +225,9 @@ app.include_router(community_polls.router, prefix="/api/v1", tags=["polls"])
 app.include_router(community_notifications.router, prefix="/api/v1", tags=["notifications"])
 app.include_router(community_templates.router, prefix="/api/v1", tags=["server-templates"])
 app.include_router(community_imports.router, prefix="/api/v1", tags=["server-imports"])
+app.include_router(safety.router, prefix="/api/v1", tags=["safety"])
+app.include_router(server_features.router, prefix="/api/v1", tags=["server-features"])
+app.include_router(message_state.router, prefix="/api/v1", tags=["message-state"])
 app.include_router(channel_permissions.router, prefix="/api/v1/channels", tags=["channel-permissions"])
 app.include_router(message_pins.router, prefix="/api/v1/channels", tags=["message-pins"])
 app.include_router(message_search.router, prefix="/api/v1/channels", tags=["message-search"])
@@ -248,9 +252,9 @@ app.include_router(miscord_interactions.router, prefix="/api/v1", tags=["miscord
 
 # НОВЫЙ УНИФИЦИРОВАННЫЙ ENDPOINT (рекомендуется использовать)
 @app.websocket("/ws/unified")
-async def websocket_unified_endpoint_route(websocket: WebSocket, token: str):
+async def websocket_unified_endpoint_route(websocket: WebSocket):
     """Единый унифицированный WebSocket endpoint для всех типов соединений"""
-    await websocket_unified_endpoint(websocket, token)
+    await websocket_unified_endpoint(websocket)
 
 @app.websocket("/gateway")
 async def websocket_gateway_endpoint_route(websocket: WebSocket):

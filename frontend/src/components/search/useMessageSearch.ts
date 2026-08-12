@@ -12,11 +12,21 @@ const PAGE_SIZE = 25
 export interface SearchFilters {
   channelId: number | null
   has: SearchHasFilter | null
+  authorId: number | null
+  pinned: boolean | null
+  sort: 'newest' | 'oldest'
+  before: string
+  after: string
+}
+
+const EMPTY_FILTERS: SearchFilters = {
+  channelId: null, has: null, authorId: null, pinned: null,
+  sort: 'newest', before: '', after: '',
 }
 
 export function useMessageSearch(serverId: number | null) {
   const [query, setQuery] = useState('')
-  const [filters, setFilters] = useState<SearchFilters>({ channelId: null, has: null })
+  const [filters, setFilters] = useState<SearchFilters>(EMPTY_FILTERS)
   const [result, setResult] = useState<MessageSearchResponse | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -24,7 +34,8 @@ export function useMessageSearch(serverId: number | null) {
 
   const run = useCallback(
     async (offset: number) => {
-      if (serverId == null || query.trim().length < 2) {
+      const hasFilter = filters.authorId != null || filters.has != null || filters.pinned != null || Boolean(filters.before || filters.after)
+      if (serverId == null || (!hasFilter && query.trim().length < 2)) {
         setResult(null)
         setError(null)
         return
@@ -38,6 +49,11 @@ export function useMessageSearch(serverId: number | null) {
           query: query.trim(),
           channelId: filters.channelId,
           has: filters.has,
+          authorId: filters.authorId,
+          pinned: filters.pinned,
+          sort: filters.sort,
+          before: filters.before ? new Date(`${filters.before}T23:59:59`).toISOString() : null,
+          after: filters.after ? new Date(`${filters.after}T00:00:00`).toISOString() : null,
           offset,
           limit: PAGE_SIZE,
         })
@@ -57,7 +73,7 @@ export function useMessageSearch(serverId: number | null) {
         if (requestId === requestIdRef.current) setIsLoading(false)
       }
     },
-    [filters.channelId, filters.has, query, serverId],
+    [filters, query, serverId],
   )
 
   useEffect(() => {
@@ -70,7 +86,7 @@ export function useMessageSearch(serverId: number | null) {
   const reset = useCallback(() => {
     requestIdRef.current += 1
     setQuery('')
-    setFilters({ channelId: null, has: null })
+    setFilters(EMPTY_FILTERS)
     setResult(null)
     setError(null)
     setIsLoading(false)

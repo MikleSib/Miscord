@@ -9,6 +9,7 @@ import { useChannelUnreadStore } from '../store/channelUnreadStore';
 import type { AppState } from './appStoreTypes';
 import { disconnectAppRealtime, initializeAppRealtime } from './appStoreRealtime';
 import { mapServerChannel } from './serverChannelMapping';
+import { useAuthStore } from '../store/store';
 export const useStore = create<AppState>()(
   persist(
     (set, get) => ({
@@ -73,7 +74,7 @@ export const useStore = create<AppState>()(
             // Управление WebSocket чата только если это не тот же канал
             if (!isSameChannel) {
               if (channel.type === 'text' && user) {
-                const token = localStorage.getItem('access_token');
+                const token = useAuthStore.getState().token;
                 if (token) {
                   console.log('[store] Отключаем предыдущее соединение чата');
                   chatService.disconnect();
@@ -532,7 +533,7 @@ export const useStore = create<AppState>()(
 if (typeof window !== 'undefined') {
   const { currentChannel, user } = useStore.getState();
   if (currentChannel && currentChannel.type === 'text' && user) {
-    const token = localStorage.getItem('access_token');
+    const token = useAuthStore.getState().token;
     if (token) {
       console.log('[store init] Автоматическое подключение к каналу', currentChannel.id);
       chatService.disconnect();

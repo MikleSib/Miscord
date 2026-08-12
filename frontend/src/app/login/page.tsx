@@ -3,7 +3,7 @@
 import { FormEvent, Suspense, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { ArrowRight, Eye, EyeOff, Loader2, LockKeyhole, MessagesSquare, User } from 'lucide-react'
+import { ArrowRight, Eye, EyeOff, Loader2, LockKeyhole, Mail, MessagesSquare, ShieldCheck, User } from 'lucide-react'
 import { useAuthStore } from '../../store/store'
 import { useStore } from '../../lib/store'
 import authService from '../../services/authService'
@@ -29,7 +29,11 @@ function LoginPageContent() {
     clearError,
   } = useAuthStore()
   const { setUser: setStoreUser } = useStore()
-  const [formData, setFormData] = useState({ username: '', password: '' })
+  const [formData, setFormData] = useState({ username: '', password: '', otp: '' })
+  const [needsTwoFactor, setNeedsTwoFactor] = useState(false)
+  const [resetOpen, setResetOpen] = useState(false)
+  const [reset, setReset] = useState({ email: '', challengeId: '', code: '', password: '' })
+  const [resetMessage, setResetMessage] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [isCheckingSession, setIsCheckingSession] = useState(true)
 
@@ -38,17 +42,12 @@ function LoginPageContent() {
 
     const restoreSession = async () => {
       try {
-        const savedToken = localStorage.getItem('access_token')
-        if (!savedToken) return
-
-        useAuthStore.getState().setToken(savedToken)
-        const restoredUser = await authService.getCurrentUser()
+        const restored = await authService.restoreSession()
         if (!active) return
-        useAuthStore.getState().loginSuccess(restoredUser, savedToken)
-        setStoreUser(restoredUser)
+        useAuthStore.getState().loginSuccess(restored.user, restored.accessToken)
+        setStoreUser(restored.user)
         router.replace(redirectTo)
       } catch {
-        localStorage.removeItem('access_token')
         useAuthStore.getState().logout()
       } finally {
         if (active) setIsCheckingSession(false)
@@ -78,7 +77,36 @@ function LoginPageContent() {
       loginSuccess(currentUser, access_token)
       setStoreUser(currentUser)
     } catch (requestError: any) {
-      loginFailure(requestError.response?.data?.detail || 'Не удалось войти. Проверьте логин и пароль.')
+      const detail = requestError.response?.data?.detail
+      if (requestError.response?.status === 428 && detail?.code === 'two_factor_required') {
+        setNeedsTwoFactor(true)
+        loginFailure('Введите код приложения-аутентификатора или резервный код.')
+      } else {
+        loginFailure(typeof detail === 'string' ? detail : detail?.message || 'Не удалось войти. Проверьте логин и пароль.')
+      }
+    }
+  }
+
+  const startReset = async () => {
+    setResetMessage('')
+    try {
+      const result = await authService.startPasswordReset(reset.email)
+      setReset((current) => ({ ...current, challengeId: result.challenge_id }))
+      setResetMessage(result.message)
+    } catch {
+      setResetMessage('Не удалось отправить код. Попробуйте позже.')
+    }
+  }
+
+  const finishReset = async () => {
+    setResetMessage('')
+    try {
+      await authService.finishPasswordReset(reset.challengeId, reset.code, reset.password)
+      setResetOpen(false)
+      setReset({ email: '', challengeId: '', code: '', password: '' })
+      setResetMessage('Пароль изменён. Теперь войдите с новым паролем.')
+    } catch (error: any) {
+      setResetMessage(error.response?.data?.detail || 'Не удалось изменить пароль.')
     }
   }
 
@@ -143,6 +171,25 @@ function LoginPageContent() {
               </span>
             </label>
 
+            {needsTwoFactor && (
+              <label className="auth-field">
+                <span className="text-sm font-medium text-foreground">Код двухфакторной аутентификации</span>
+                <span className="auth-input-wrap">
+                  <ShieldCheck className="h-4 w-4 flex-none" aria-hidden="true" />
+                  <input
+                    className="auth-input"
+                    name="otp"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    required
+                    value={formData.otp}
+                    onChange={(event) => setFormData((current) => ({ ...current, otp: event.target.value }))}
+                    placeholder="6 цифр или резервный код"
+                  />
+                </span>
+              </label>
+            )}
+
             <label className="auth-field">
               <span className="text-sm font-medium text-foreground">Пароль</span>
               <span className="auth-input-wrap">
@@ -182,6 +229,37 @@ function LoginPageContent() {
               )}
             </button>
           </form>
+
+          <button
+            type="button"
+            className="mt-4 text-sm font-semibold text-primary hover:underline hover:underline-offset-4"
+            onClick={() => setResetOpen((open) => !open)}
+          >
+            Забыли пароль?
+          </button>
+
+          {resetOpen && (
+            <div className="mt-5 border-t border-border pt-5">
+              <h3 className="text-base font-semibold">Восстановление доступа</h3>
+              <p className="mt-1 text-sm text-muted-foreground">Получите код на подтверждённую почту аккаунта.</p>
+              <div className="mt-4 grid gap-3">
+                <label className="auth-input-wrap">
+                  <Mail className="h-4 w-4 flex-none" />
+                  <input className="auth-input" type="email" value={reset.email} onChange={(event) => setReset((current) => ({ ...current, email: event.target.value }))} placeholder="Почта" />
+                </label>
+                {!reset.challengeId ? (
+                  <button type="button" className="auth-submit" onClick={() => void startReset()} disabled={!reset.email}>Отправить код</button>
+                ) : (
+                  <>
+                    <input className="auth-input-wrap h-11 bg-background px-3" inputMode="numeric" value={reset.code} onChange={(event) => setReset((current) => ({ ...current, code: event.target.value }))} placeholder="Код из письма" />
+                    <input className="auth-input-wrap h-11 bg-background px-3" type="password" value={reset.password} onChange={(event) => setReset((current) => ({ ...current, password: event.target.value }))} placeholder="Новый пароль" />
+                    <button type="button" className="auth-submit" onClick={() => void finishReset()} disabled={reset.code.length < 6 || reset.password.length < 8}>Изменить пароль</button>
+                  </>
+                )}
+                {resetMessage && <p className="text-sm text-muted-foreground" role="status">{resetMessage}</p>}
+              </div>
+            </div>
+          )}
 
           <p className="mt-6 text-sm text-muted-foreground">
             Нет аккаунта?{' '}

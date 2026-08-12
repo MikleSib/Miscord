@@ -37,6 +37,12 @@ def _answers(payload: dict) -> list[dict]:
 
 def upgrade() -> None:
     bind = op.get_bind()
+    legacy_poll_exists = bind.execute(sa.text(
+        "SELECT 1 FROM information_schema.columns "
+        "WHERE table_schema=current_schema() AND table_name='messages' AND column_name='poll'"
+    )).scalar()
+    if not legacy_poll_exists:
+        return
     rows = bind.execute(sa.text("SELECT id, author_id, timestamp, poll FROM messages WHERE poll IS NOT NULL ORDER BY id")).mappings()
     for row in rows:
         payload = row["poll"] if isinstance(row["poll"], dict) else {}
@@ -77,4 +83,10 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # Legacy JSON remains intact, so only normalized rows originating from it are removed.
-    op.execute("DELETE FROM polls WHERE message_id IN (SELECT id FROM messages WHERE poll IS NOT NULL)")
+    bind = op.get_bind()
+    legacy_poll_exists = bind.execute(sa.text(
+        "SELECT 1 FROM information_schema.columns "
+        "WHERE table_schema=current_schema() AND table_name='messages' AND column_name='poll'"
+    )).scalar()
+    if legacy_poll_exists:
+        op.execute("DELETE FROM polls WHERE message_id IN (SELECT id FROM messages WHERE poll IS NOT NULL)")

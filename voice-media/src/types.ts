@@ -17,6 +17,7 @@ export interface MediaClaims {
   server_mute?: boolean;
   server_deaf?: boolean;
   can_speak?: boolean;
+  can_stream?: boolean;
   application_id?: number;
   guild_id?: number;
   protocol_version: number;

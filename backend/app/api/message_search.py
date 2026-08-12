@@ -30,10 +30,12 @@ SEARCH_LIMIT_PER_MINUTE = 30
 async def search_server_messages(
     server_id: int,
     request: Request,
-    q: str = Query(..., min_length=2, max_length=MAX_QUERY_LENGTH),
+    q: str = Query(default="", max_length=MAX_QUERY_LENGTH),
     channel_id: Optional[int] = Query(None),
     author_id: Optional[int] = Query(None),
-    has: Optional[Literal["link", "file", "image"]] = Query(None),
+    has: Optional[Literal["link", "file", "image", "video", "audio", "poll", "embed"]] = Query(None),
+    pinned: Optional[bool] = Query(None),
+    sort: Literal["newest", "oldest"] = Query("newest"),
     before: Optional[datetime] = Query(None),
     after: Optional[datetime] = Query(None),
     offset: int = Query(0, ge=0, le=500),
@@ -61,11 +63,13 @@ async def search_server_messages(
         )
 
     query = normalize_query(q)
-    if len(query) < 2:
+    if query and len(query) < 2:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Запрос слишком короткий",
         )
+    if not (query or author_id or has or before or after or pinned is not None):
+        raise HTTPException(status_code=400, detail="Добавьте текст или хотя бы один фильтр")
 
     channel_ids = await list_searchable_channel_ids(
         db, server_id, current_user.id, owner_id=server.owner_id
@@ -83,6 +87,8 @@ async def search_server_messages(
         has_filter=has,
         before=before,
         after=after,
+        pinned=pinned,
+        sort=sort,
         offset=offset,
         limit=limit,
     )

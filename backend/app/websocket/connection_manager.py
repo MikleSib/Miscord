@@ -82,9 +82,10 @@ class ConnectionManager:
                 await asyncio.sleep(5)
 
 
-    async def connect(self, websocket: WebSocket, user_id: int, channel_id: int = None):
+    async def connect(self, websocket: WebSocket, user_id: int, channel_id: int = None, *, accept: bool = True):
         """Подключение WebSocket."""
-        await websocket.accept()
+        if accept:
+            await websocket.accept()
         
         if user_id not in self.active_connections:
             self.active_connections[user_id] = []

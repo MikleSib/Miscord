@@ -11,6 +11,8 @@ from app.services.friend_service import normalize_login
 from app.websocket.connection_manager import manager
 from app.core.dependencies import get_current_user
 from app.services.notifications import create_notification
+from app.models.safety import UserPrivacySettings
+from app.services.communication_safety import is_blocked_between, share_server
 
 router = APIRouter()
 
@@ -36,6 +38,15 @@ async def send_friend_request(
             status_code=404,
             detail="Пользователь не найден. Укажите логин (@username), а не отображаемое имя.",
         )
+
+    if await is_blocked_between(db, current_user.id, friend.id):
+        raise HTTPException(status_code=403, detail="Запрос этому пользователю недоступен.")
+    privacy = await db.get(UserPrivacySettings, friend.id)
+    friend_request_mode = privacy.friend_requests if privacy else "everyone"
+    if friend_request_mode == "nobody":
+        raise HTTPException(status_code=403, detail="Пользователь отключил запросы в друзья.")
+    if friend_request_mode == "server_members" and not await share_server(db, current_user.id, friend.id):
+        raise HTTPException(status_code=403, detail="Пользователь принимает запросы только от участников общих серверов.")
 
     friend_request = await friend_service.create_friend_request(db, user_from_id=current_user.id, user_to_id=friend.id)
     if not friend_request:

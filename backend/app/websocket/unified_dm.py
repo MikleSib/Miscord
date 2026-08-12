@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import DirectMessage, PendingChatUpload, User
 from app.services import direct_message_service
 from app.services.rate_limit import enforce_message_antispam, rate_limit_payload
+from app.services.communication_safety import can_send_dm
 
 
 async def send_message_failure(
@@ -64,6 +65,13 @@ async def handle_dm_message(
     ):
         return
 
+    allowed_dm, dm_error = await can_send_dm(db, user.id, int(recipient_id))
+    if not allowed_dm:
+        await send_message_failure(
+            user.id, client_nonce, "dm_forbidden", dm_error or "Личные сообщения недоступны.",
+        )
+        return
+
     if client_nonce:
         existing = (await db.execute(select(DirectMessage).where(
             DirectMessage.sender_id == user.id,
@@ -112,16 +120,22 @@ async def handle_dm_message(
         ))
         return
 
-    db_message = await direct_message_service.create_message(
-        db,
-        sender_id=user.id,
-        recipient_id=recipient_id,
-        content=content or None,
-        attachments=attachments,
-        reply_to_id=reply_to_id,
-        client_nonce=client_nonce,
-        pending_uploads=pending_uploads,
-    )
+    try:
+        db_message = await direct_message_service.create_message(
+            db,
+            sender_id=user.id,
+            recipient_id=recipient_id,
+            content=content or None,
+            attachments=attachments,
+            reply_to_id=reply_to_id,
+            client_nonce=client_nonce,
+            pending_uploads=pending_uploads,
+        )
+    except direct_message_service.DirectMessageReplyError:
+        await send_message_failure(
+            user.id, client_nonce, "invalid_reply", "Сообщение для ответа не найдено в этом диалоге.",
+        )
+        return
     author = await db.get(User, user.id)
     message_dict = {
         "id": db_message.id,

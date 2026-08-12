@@ -76,7 +76,8 @@ class Settings(BaseSettings):
     # Безопасность
     SECRET_KEY: str = "your-secret-key-here-change-in-production"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 2  # 2 дня
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    USER_REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     ENVIRONMENT: str = "development"
 
     # Transactional registration email. Verification codes are never stored

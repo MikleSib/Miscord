@@ -12,6 +12,7 @@ interface MessageSearchResultsProps {
   isLoading: boolean
   error: string | null
   query: string
+  hasActiveFilter?: boolean
   pageSize: number
   onGoToPage: (offset: number) => void
   onJump: (message: SearchResultMessage) => void
@@ -22,6 +23,7 @@ export function MessageSearchResults({
   isLoading,
   error,
   query,
+  hasActiveFilter = false,
   pageSize,
   onGoToPage,
   onJump,
@@ -30,7 +32,7 @@ export function MessageSearchResults({
     return <p className="px-4 py-6 text-center text-sm text-[#f0b232]">{error}</p>
   }
 
-  if (query.trim().length < 2) {
+  if (query.trim().length < 2 && !hasActiveFilter) {
     return (
       <p className="px-4 py-8 text-center text-sm text-[#949ba4]">
         Введите минимум два символа, чтобы найти сообщения

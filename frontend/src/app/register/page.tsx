@@ -42,13 +42,9 @@ export default function RegisterPage() {
 
     const restoreSession = async () => {
       try {
-        const savedToken = localStorage.getItem('access_token')
-        if (!savedToken) return
-        useAuthStore.getState().setToken(savedToken)
-        await authService.getCurrentUser()
+        await authService.restoreSession()
         if (active) router.replace('/')
       } catch {
-        localStorage.removeItem('access_token')
         useAuthStore.getState().logout()
       } finally {
         if (active) setIsCheckingSession(false)

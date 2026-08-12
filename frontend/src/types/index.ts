@@ -347,6 +347,7 @@ export interface AuthTokens {
 export interface LoginCredentials {
   username: string;
   password: string;
+  otp?: string;
 }
 
 export interface RegisterData {

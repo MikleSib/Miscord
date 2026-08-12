@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.db.database import AsyncSessionLocal
-from app.models import Friendship, UserNotification
+from app.models import UserBlock, UserNotification
 from app.models.friendship import FriendshipStatus
 from app.services.realtime_events import enqueue_realtime_event
 
@@ -55,11 +55,10 @@ async def create_notification(
         return None
     if actor_user_id is not None:
         blocked = await db.scalar(
-            select(Friendship.id).where(
-                Friendship.status == FriendshipStatus.BLOCKED,
+            select(UserBlock.id).where(
                 or_(
-                    and_(Friendship.user_a_id == user_id, Friendship.user_b_id == actor_user_id),
-                    and_(Friendship.user_a_id == actor_user_id, Friendship.user_b_id == user_id),
+                    and_(UserBlock.blocker_id == user_id, UserBlock.blocked_id == actor_user_id),
+                    and_(UserBlock.blocker_id == actor_user_id, UserBlock.blocked_id == user_id),
                 ),
             )
         )

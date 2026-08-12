@@ -17,8 +17,12 @@ interface MessageSearchBoxProps {
 
 const HAS_FILTERS: { value: SearchHasFilter; label: string }[] = [
   { value: 'link', label: 'Ссылки' },
-  { value: 'image', label: 'Медиа' },
+  { value: 'image', label: 'Изображения' },
+  { value: 'video', label: 'Видео' },
+  { value: 'audio', label: 'Аудио' },
   { value: 'file', label: 'Файлы' },
+  { value: 'poll', label: 'Опросы' },
+  { value: 'embed', label: 'Embeds' },
 ]
 
 export function MessageSearchBox({
@@ -141,6 +145,11 @@ export function MessageSearchBox({
                 {filter.label}
               </button>
             ))}
+            <button type="button" onClick={() => search.setFilters((value) => ({ ...value, pinned: value.pinned === true ? null : true }))} className={cn('rounded-full px-2.5 py-1 text-[11px] transition-colors', search.filters.pinned ? 'bg-[#5865f2] text-white' : 'bg-[#1e1f22] text-[#b5bac1] hover:text-white')}>Закреплённые</button>
+            <button type="button" onClick={() => search.setFilters((value) => ({ ...value, sort: value.sort === 'newest' ? 'oldest' : 'newest' }))} className="rounded-full bg-[#1e1f22] px-2.5 py-1 text-[11px] text-[#b5bac1] hover:text-white">{search.filters.sort === 'newest' ? 'Сначала новые' : 'Сначала старые'}</button>
+            <input type="number" min={1} value={search.filters.authorId ?? ''} onChange={(event) => search.setFilters((value) => ({ ...value, authorId: event.target.value ? Number(event.target.value) : null }))} className="h-7 w-24 rounded bg-[#1e1f22] px-2 text-[11px] text-white outline-none" placeholder="ID автора" aria-label="ID автора" />
+            <input type="date" value={search.filters.after} onChange={(event) => search.setFilters((value) => ({ ...value, after: event.target.value }))} className="h-7 rounded bg-[#1e1f22] px-2 text-[11px] text-white" aria-label="Сообщения после даты" />
+            <input type="date" value={search.filters.before} onChange={(event) => search.setFilters((value) => ({ ...value, before: event.target.value }))} className="h-7 rounded bg-[#1e1f22] px-2 text-[11px] text-white" aria-label="Сообщения до даты" />
           </div>
 
           <MessageSearchResults
@@ -148,6 +157,7 @@ export function MessageSearchBox({
             isLoading={search.isLoading}
             error={search.error}
             query={search.query}
+            hasActiveFilter={search.filters.authorId != null || search.filters.has != null || search.filters.pinned != null || Boolean(search.filters.before || search.filters.after)}
             pageSize={search.pageSize}
             onGoToPage={search.goToPage}
             onJump={(message) => {

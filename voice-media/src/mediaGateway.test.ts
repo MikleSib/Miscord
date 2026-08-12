@@ -134,14 +134,15 @@ describe('media gateway speaking hints', () => {
   });
 
   it('requires SPEAK permission for microphone and screen audio producers', () => {
-    const denied = { claims: { can_speak: false } } as never;
+    const denied = { claims: { can_speak: false, can_stream: false } } as never;
     const missing = { claims: {} } as never;
-    const allowed = { claims: { can_speak: true } } as never;
+    const allowed = { claims: { can_speak: true, can_stream: true } } as never;
 
     expect(() => requireCanProduceSource(denied, 'microphone')).toThrow('SPEAK permission required');
     expect(() => requireCanProduceSource(missing, 'screen-audio')).toThrow('SPEAK permission required');
     expect(() => requireCanProduceSource(allowed, 'microphone')).not.toThrow();
-    expect(() => requireCanProduceSource(denied, 'screen-video')).not.toThrow();
+    expect(() => requireCanProduceSource(denied, 'screen-video')).toThrow('STREAM permission required');
+    expect(() => requireCanProduceSource(allowed, 'screen-video')).not.toThrow();
   });
 
   it('rejects a duplicate source before allocating another producer', () => {

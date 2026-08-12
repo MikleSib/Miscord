@@ -26,9 +26,7 @@ export const useAppInitialization = () => {
         } catch (error) {
           console.error('[useAppInitialization] Ошибка восстановления пользователя из API:', error);
           // Если не удалось восстановить из API, очищаем токен
-          if (typeof window !== 'undefined') {
-            localStorage.removeItem('access_token');
-          }
+          useAuthStore.getState().logout();
         }
       }
 

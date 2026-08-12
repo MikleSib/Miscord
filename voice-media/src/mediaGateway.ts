@@ -80,6 +80,9 @@ export function requireCanProduceSource(peer: Peer, source: MediaSource): void {
   if ((source === 'microphone' || source === 'screen-audio') && peer.claims.can_speak !== true) {
     throw new Error('SPEAK permission required');
   }
+  if ((source === 'screen-video' || source === 'screen-audio') && peer.claims.can_stream !== true) {
+    throw new Error('STREAM permission required');
+  }
 }
 
 export function requireSourceAvailable(peer: Peer, source: MediaSource): void {

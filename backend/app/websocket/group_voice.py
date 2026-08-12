@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import User, VoiceChannel, VoiceChannelUser
 from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
-from app.services.channel_access import user_can_access_voice_channel
+from app.services.channel_access import get_voice_channel_capabilities, user_can_access_voice_channel
 from app.services.media_ticket import create_media_ticket, media_ws_url
 from app.services.miscord_serializers import miscord_voice_state
 from app.services.voice_presence import voice_presence
@@ -122,6 +122,7 @@ async def join_voice(
     if channel is None:
         await websocket.send_text(json.dumps({"type": "error", "code": "voice_channel_not_found"}))
         return None, None
+    permissions, can_speak, can_stream = await get_voice_channel_capabilities(db, user, channel)
     if not await user_can_access_voice_channel(db, user, channel):
         await websocket.send_text(json.dumps({"type": "error", "code": "voice_channel_forbidden"}))
         return None, None
@@ -195,6 +196,9 @@ async def join_voice(
         "server_deafened": False,
         "is_sharing_screen": False,
         "is_bot": False,
+        "permissions": permissions,
+        "can_speak": can_speak,
+        "can_stream": can_stream,
     }
     await voice_presence.register(presence)
     participants = [
@@ -214,6 +218,8 @@ async def join_voice(
         self_deaf=is_deafened,
         server_mute=False,
         server_deaf=False,
+        can_speak=can_speak,
+        can_stream=can_stream,
     )
     await websocket.send_text(json.dumps({
         "type": "voice_joined",
@@ -330,6 +336,8 @@ async def update_voice_state(
     elif field == "is_deafened" and presence:
         effective_value = value or bool(presence.get("server_deafened", False))
         await voice_presence.update(session_id, self_deafened=value, is_deafened=effective_value)
+    elif field == "is_sharing_screen" and value and presence and not bool(presence.get("can_stream")):
+        return
     elif session_id:
         await voice_presence.update(session_id, **{field: value})
     if field in {"is_muted", "is_deafened"}:
@@ -384,12 +392,22 @@ async def refresh_ticket(
     session_id: Optional[str],
     websocket: WebSocket,
     request_id: Optional[str],
+    db: AsyncSession,
 ) -> None:
     if not channel_id or not session_id:
         return
     presence = await voice_presence.get_for_user(user.id)
     if not presence or presence.get("session_id") != session_id:
         return
+    channel = await db.get(VoiceChannel, channel_id)
+    if channel is None:
+        return
+    permissions, can_speak, can_stream = await get_voice_channel_capabilities(db, user, channel)
+    if not permissions:
+        return
+    await voice_presence.update(
+        session_id, permissions=permissions, can_speak=can_speak, can_stream=can_stream,
+    )
     ticket, _ = create_media_ticket(
         user_id=user.id,
         channel_id=channel_id,
@@ -402,6 +420,8 @@ async def refresh_ticket(
         self_deaf=bool(presence.get("self_deafened", presence.get("is_deafened", False))),
         server_mute=bool(presence.get("server_muted", False)),
         server_deaf=bool(presence.get("server_deafened", False)),
+        can_speak=can_speak,
+        can_stream=can_stream,
     )
     await websocket.send_text(json.dumps({
         "type": "voice_media_ticket_refresh",

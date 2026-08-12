@@ -4,7 +4,6 @@ from .unified_support import *  # noqa: F401,F403
 
 async def websocket_unified_endpoint(
     websocket: WebSocket,
-    token: str = Query(...),
 ):
     db: Optional[AsyncSession] = None
     user: Optional[User] = None
@@ -16,12 +15,23 @@ async def websocket_unified_endpoint(
 
     try:
         db = AsyncSessionLocal()
+        await websocket.accept()
+        try:
+            raw_identify = await asyncio.wait_for(websocket.receive_text(), timeout=10.0)
+            identify = json.loads(raw_identify)
+            token = identify.get("token") if isinstance(identify, dict) and identify.get("type") == "identify" else None
+        except (asyncio.TimeoutError, json.JSONDecodeError, WebSocketDisconnect):
+            token = None
+        if not isinstance(token, str) or not token:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Identify required")
+            return
         user = await get_user_by_token_ws(token, db)
         if not user:
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 
-        await manager.connect(websocket, user.id)
+        await manager.connect(websocket, user.id, accept=False)
+        await websocket.send_text(json.dumps({"type": "identified", "protocol_version": 1}))
         await user_activity_service.update_user_activity(user.id, db)
         _structured_log(user, "connect", ws_id=ws_id)
 
@@ -183,6 +193,7 @@ async def websocket_unified_endpoint(
                             session_id=current_voice_connection_id,
                             websocket=websocket,
                             request_id=request_id,
+                            db=db,
                         )
 
                     elif msg_type == "voice_speaking":
@@ -352,6 +363,23 @@ async def handle_chat_message(
             return
     if len(content) > 5000 or len(attachments) > 10:
         await send_message_failure(user.id, client_nonce, "validation_error", "Превышен лимит текста или вложений")
+        return
+
+    from app.services.communication_safety import evaluate_automod
+    automod_allowed, automod_reason = await evaluate_automod(
+        db,
+        int(text_channel.channel_id),
+        content,
+        user_id=user.id,
+        channel_id=int(text_channel_id),
+    )
+    if not automod_allowed:
+        await send_message_failure(
+            user.id,
+            client_nonce,
+            "automod_blocked",
+            automod_reason or "Сообщение заблокировано AutoMod.",
+        )
         return
 
     allowed, retry_after, limit_message = enforce_message_antispam(

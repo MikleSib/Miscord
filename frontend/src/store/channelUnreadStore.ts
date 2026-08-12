@@ -33,6 +33,7 @@ interface ChannelUnreadState {
   ) => void
   markChannelRead: (textChannelId: number) => void
   clearAll: () => void
+  hydrate: (items: PendingChannelUnread[]) => void
 }
 
 export const useChannelUnreadStore = create<ChannelUnreadState>((set, get) => ({
@@ -72,6 +73,7 @@ export const useChannelUnreadStore = create<ChannelUnreadState>((set, get) => ({
   },
 
   clearAll: () => set({ pending: [] }),
+  hydrate: (items) => set({ pending: items }),
 }))
 
 export function selectChannelHasUnread(

@@ -47,7 +47,7 @@ class UnifiedWebSocketService {
     this.notifyConnectionStatus();
 
     try {
-      this.ws = new WebSocket(`${UNIFIED_WS_URL}/ws/unified?token=${token}`);
+      this.ws = new WebSocket(`${UNIFIED_WS_URL}/ws/unified`);
       this.setupWebSocketHandlers();
     } catch (error) {
       console.error('[UnifiedWS] Ошибка создания WebSocket:', error);
@@ -72,6 +72,7 @@ class UnifiedWebSocketService {
       this.missedHeartbeats = 0;
       this.notifyConnectionStatus();
       this.startHeartbeat();
+      this.send({ type: 'identify', token: this.token });
       for (const textChannelId of this.channelSubscriptions) {
         this.send({ type: 'subscribe_channel', text_channel_id: textChannelId });
       }

@@ -6,6 +6,7 @@ from app.db.database import get_db
 from app.core.security import decode_access_token
 from app.models.user import User
 from app.schemas.user import TokenData
+from app.services.user_sessions import is_session_active
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 security = HTTPBearer()
@@ -26,7 +27,8 @@ async def get_current_user(
         raise credentials_exception
     
     user_id = payload.get("sub")
-    if user_id is None:
+    session_id = payload.get("sid")
+    if user_id is None or not isinstance(session_id, str):
         raise credentials_exception
     
     token_data = TokenData(user_id=int(user_id))
@@ -36,7 +38,7 @@ async def get_current_user(
     )
     user = result.scalar_one_or_none()
     
-    if user is None or user.is_bot:
+    if user is None or user.is_bot or not await is_session_active(db, session_id, int(user_id)):
         raise credentials_exception
     
     return user
@@ -60,7 +62,11 @@ async def get_optional_user(
         return None
 
     user_id = payload.get("sub")
-    if user_id is None:
+    session_id = payload.get("sid")
+    if user_id is None or not isinstance(session_id, str):
+        return None
+
+    if not await is_session_active(db, session_id, int(user_id)):
         return None
 
     result = await db.execute(select(User).where(User.id == int(user_id)))
@@ -81,7 +87,10 @@ async def get_current_user_ws(token: str, db: AsyncSession) -> User | None:
     try:
         payload = decode_access_token(token)
         user_id = payload.get("sub")
-        if user_id is None:
+        session_id = payload.get("sid")
+        if user_id is None or not isinstance(session_id, str):
+            return None
+        if not await is_session_active(db, session_id, int(user_id)):
             return None
     except Exception:
         return None

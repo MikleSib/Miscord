@@ -5,6 +5,7 @@ import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import {
   Ban,
+  Clock3,
   Crown,
   Loader2,
   MoreVertical,
@@ -28,6 +29,7 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { Dropdown, DropdownItem } from './Dropdown'
 import { PromptDialog } from './PromptDialog'
 import { EmptyState, ErrorBanner, TabShell, TextInput } from './layout'
+import { safetyService } from '../../services/safetyService'
 
 interface ServerMembersTabProps {
   server: Server
@@ -38,6 +40,7 @@ type PendingAction =
   | { kind: 'ban'; member: ServerMember }
   | { kind: 'transfer'; member: ServerMember }
   | { kind: 'nickname'; member: ServerMember }
+  | { kind: 'timeout'; member: ServerMember }
   | null
 
 export function ServerMembersTab({ server }: ServerMembersTabProps) {
@@ -48,6 +51,7 @@ export function ServerMembersTab({ server }: ServerMembersTabProps) {
   const canBan = can(Permissions.BAN_MEMBERS)
   const canManageRoles = can(Permissions.MANAGE_ROLES)
   const canManageNicknames = can(Permissions.MANAGE_NICKNAMES)
+  const canModerate = can(Permissions.MODERATE_MEMBERS)
 
   const [members, setMembers] = useState<ServerMember[]>([])
   const [roles, setRoles] = useState<Role[]>([])
@@ -196,6 +200,9 @@ export function ServerMembersTab({ server }: ServerMembersTabProps) {
         const trimmed = (nicknameValue ?? '').trim()
         await serverService.updateMemberNickname(server.id, member.user_id, trimmed || null)
         patchMember(member.user_id, { nickname: trimmed || null })
+      } else if (kind === 'timeout') {
+        const hours = Math.max(1, Math.min(672, Number(nicknameValue) || 1))
+        await safetyService.timeoutMember(server.id, member.user_id, hours * 3600, 'Назначено в настройках участников')
       }
 
       closeAction()
@@ -424,6 +431,17 @@ export function ServerMembersTab({ server }: ServerMembersTabProps) {
                             Исключить
                           </DropdownItem>
                         )}
+                        {canModerate && actionable && (
+                          <DropdownItem
+                            icon={Clock3}
+                            onClick={() => {
+                              close()
+                              setPendingAction({ kind: 'timeout', member })
+                            }}
+                          >
+                            Ограничить общение
+                          </DropdownItem>
+                        )}
                         {canBan && actionable && (
                           <DropdownItem
                             icon={Ban}
@@ -505,6 +523,19 @@ export function ServerMembersTab({ server }: ServerMembersTabProps) {
         placeholder={pendingAction?.member?.username}
         initialValue={pendingAction?.member?.nickname || ''}
         maxLength={64}
+        isPending={isSubmitting}
+        error={actionError}
+        onConfirm={(value) => handleConfirmAction(value)}
+        onCancel={closeAction}
+      />
+      <PromptDialog
+        open={pendingAction?.kind === 'timeout'}
+        title="Ограничить общение"
+        description={<>Участник <strong>{memberLabel(pendingAction?.member)}</strong> не сможет писать, подключаться к голосу и запускать трансляции. Укажите срок от 1 до 672 часов.</>}
+        label="Срок в часах"
+        placeholder="1"
+        initialValue="1"
+        maxLength={3}
         isPending={isSubmitting}
         error={actionError}
         onConfirm={(value) => handleConfirmAction(value)}

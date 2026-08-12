@@ -65,6 +65,8 @@ import type { SearchResultMessage } from '../services/searchService'
 import { EmojiAutocomplete } from './emoji/EmojiAutocomplete'
 import { useShortcodeAutocomplete } from './emoji/useShortcodeAutocomplete'
 import { AttachmentDropOverlay } from './AttachmentDropOverlay'
+import { usePersistentMessageDraft } from '../hooks/usePersistentMessageDraft'
+import { messageStateService } from '../services/messageStateService'
 
 const localizedCommandName = (command: MiscordApplicationCommand) => command.name_localizations?.ru || command.name
 
@@ -96,6 +98,11 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   }, [currentChannel]);
 
   const [messageInput, setMessageInput] = useState('')
+  usePersistentMessageDraft(
+    currentChannel?.type === 'text' ? currentChannel.id : null,
+    messageInput,
+    setMessageInput,
+  )
   const mentionIntent = useChatComposerIntentStore((state) => state.mention)
   const consumeMentionIntent = useChatComposerIntentStore((state) => state.consumeMention)
   const [showPinnedPanel, setShowPinnedPanel] = useState(false)
@@ -148,6 +155,13 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
   const programmaticScrollRef = useRef(false)
   /** Чтобы скролл вверх не запросил одну пачку несколько раз подряд */
   const loadingOlderLockRef = useRef(false)
+
+  useEffect(() => {
+    if (currentChannel?.type !== 'text' || !stickToBottomRef.current) return
+    const lastMessage = messages[messages.length - 1]
+    if (!lastMessage) return
+    void messageStateService.markRead(currentChannel.id, lastMessage.id).catch(() => undefined)
+  }, [currentChannel?.id, currentChannel?.type, messages])
 
   useEffect(() => {
     if (!mentionIntent || currentChannel?.type !== 'text' || currentChannel.id !== mentionIntent.channelId) return

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '../store/store';
 import { Button } from './ui/button';
 import { UserAvatar } from './ui/user-avatar';
-import { Accessibility, ChevronLeft, X, Upload, Trash2, User, Mic, Volume2, Bot, Keyboard } from 'lucide-react';
+import { Accessibility, Bookmark, ChevronLeft, X, Upload, Trash2, User, Mic, Bot, Keyboard, ShieldCheck } from 'lucide-react';
 import { cn } from '../lib/utils';
 import authService from '../services/authService';
 import { VoiceVideoSettings } from './VoiceVideoSettings';
@@ -16,8 +16,20 @@ import { LogoutSection } from './settings/LogoutSection';
 import { HotkeysSettings } from './settings/HotkeysSettings';
 import type { UserSettingsTab } from '../lib/userSettingsNavigation';
 import { AccessibilitySettings } from './settings/AccessibilitySettings';
+import { SecuritySettings } from './settings/SecuritySettings';
+import { SavedMessagesSettings } from './settings/SavedMessagesSettings';
 
 const SIDEBAR_ITEMS = [
+  {
+    id: 'saved',
+    label: 'Сохранённые',
+    icon: Bookmark,
+  },
+  {
+    id: 'security',
+    label: 'Безопасность',
+    icon: ShieldCheck,
+  },
   {
     id: 'profile',
     label: 'Профиль',
@@ -385,6 +397,8 @@ export default function SettingsModal({
 
             {activeTab === 'hotkeys' && <HotkeysSettings />}
             {activeTab === 'accessibility' && <AccessibilitySettings />}
+            {activeTab === 'security' && <SecuritySettings />}
+            {activeTab === 'saved' && <SavedMessagesSettings onNavigate={closeModal} />}
           </div>
         </div>
       </div>

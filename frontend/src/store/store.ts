@@ -39,7 +39,7 @@ interface StoreState {
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       user: null,
       token: null,
       isAuthenticated: false,
@@ -58,11 +58,16 @@ export const useAuthStore = create<AuthState>()(
       registerSuccess: () => set({ isLoading: false }),
       registerFailure: (error) => set({ isLoading: false, error }),
       logout: () => {
+        const token = get().token;
+        if (typeof window !== 'undefined') {
+          void fetch('/api/v1/auth/logout', {
+            method: 'POST',
+            credentials: 'include',
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          }).catch(() => undefined);
+        }
         websocketService.fullDisconnect();
         void useOutgoingMessageStore.getState().clearForLogout();
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('access_token');
-        }
         set({
           user: null,
           token: null,
@@ -77,11 +82,9 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'auth-storage',
-      partialize: (state) => ({ 
-        token: state.token,
-        user: state.user,
-        isAuthenticated: state.isAuthenticated 
-      }),
+      partialize: () => ({}),
+      version: 2,
+      migrate: () => ({}),
       skipHydration: false, // Включаем гидратацию для восстановления состояния
     }
   )

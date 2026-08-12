@@ -41,6 +41,7 @@ def create_media_ticket(
     server_mute: bool = False,
     server_deaf: bool = False,
     can_speak: bool = True,
+    can_stream: bool = False,
 ) -> tuple[str, str]:
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(seconds=settings.VOICE_MEDIA_TICKET_TTL_SECONDS)
@@ -66,6 +67,7 @@ def create_media_ticket(
         "server_mute": server_mute,
         "server_deaf": server_deaf,
         "can_speak": can_speak,
+        "can_stream": can_stream,
     }
     if application_id is not None:
         payload["application_id"] = application_id

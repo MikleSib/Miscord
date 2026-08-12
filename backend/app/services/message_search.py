@@ -32,7 +32,7 @@ MAX_QUERY_LENGTH = 200
 # Русская конфигурация покрывает и латиницу: стоп-слова разные, токенизация общая.
 FTS_CONFIG = "russian"
 
-HasFilter = Literal["link", "file", "image"]
+HasFilter = Literal["link", "file", "image", "video", "audio", "poll", "embed"]
 
 
 async def list_searchable_channel_ids(
@@ -94,15 +94,19 @@ def _apply_filters(
     has_filter: Optional[HasFilter],
     before: Optional[datetime],
     after: Optional[datetime],
+    pinned: Optional[bool],
 ) -> Select:
     # bindparam через SQLAlchemy: пользовательская строка никогда не попадает в SQL текстом
-    tsquery = func.websearch_to_tsquery(FTS_CONFIG, query)
     stmt = stmt.where(
         Message.text_channel_id.in_(channel_ids),
         Message.is_deleted.is_(False),
-        Message.content.isnot(None),
-        func.to_tsvector(FTS_CONFIG, func.coalesce(Message.content, "")).op("@@")(tsquery),
     )
+    if query:
+        tsquery = func.websearch_to_tsquery(FTS_CONFIG, query)
+        stmt = stmt.where(
+            Message.content.isnot(None),
+            func.to_tsvector(FTS_CONFIG, func.coalesce(Message.content, "")).op("@@")(tsquery),
+        )
 
     if author_id is not None:
         stmt = stmt.where(Message.author_id == author_id)
@@ -110,20 +114,24 @@ def _apply_filters(
         stmt = stmt.where(Message.timestamp < before)
     if after is not None:
         stmt = stmt.where(Message.timestamp > after)
+    if pinned is not None:
+        stmt = stmt.where(Message.pinned.is_(pinned))
 
     if has_filter == "link":
         stmt = stmt.where(Message.content.ilike("%http%"))
-    elif has_filter in ("file", "image"):
+    elif has_filter in ("file", "image", "video", "audio"):
         attachment_condition = Attachment.message_id == Message.id
         if has_filter == "image":
-            attachment_condition = and_(
-                attachment_condition,
-                or_(
-                    Attachment.content_type.ilike("image/%"),
-                    Attachment.content_type.ilike("video/%"),
-                ),
-            )
+            attachment_condition = and_(attachment_condition, Attachment.content_type.ilike("image/%"))
+        elif has_filter == "video":
+            attachment_condition = and_(attachment_condition, Attachment.content_type.ilike("video/%"))
+        elif has_filter == "audio":
+            attachment_condition = and_(attachment_condition, Attachment.content_type.ilike("audio/%"))
         stmt = stmt.where(select(Attachment.id).where(attachment_condition).exists())
+    elif has_filter == "poll":
+        stmt = stmt.where(Message.poll.isnot(None))
+    elif has_filter == "embed":
+        stmt = stmt.where(func.jsonb_array_length(Message.embeds) > 0)
 
     return stmt
 
@@ -137,11 +145,13 @@ async def search_messages(
     has_filter: Optional[HasFilter] = None,
     before: Optional[datetime] = None,
     after: Optional[datetime] = None,
+    pinned: Optional[bool] = None,
+    sort: Literal["newest", "oldest"] = "newest",
     offset: int = 0,
     limit: int = SEARCH_PAGE_SIZE,
 ) -> tuple[list[Message], int]:
     """Возвращает страницу результатов и общее число совпадений."""
-    if not channel_ids or not query:
+    if not channel_ids or not (query or author_id or has_filter or before or after or pinned is not None):
         return [], 0
 
     filters = dict(
@@ -151,6 +161,7 @@ async def search_messages(
         has_filter=has_filter,
         before=before,
         after=after,
+        pinned=pinned,
     )
 
     count_stmt = _apply_filters(select(func.count()).select_from(Message), **filters)
@@ -164,7 +175,10 @@ async def search_messages(
             selectinload(Message.author),
             selectinload(Message.attachments),
         )
-        .order_by(Message.timestamp.desc(), Message.id.desc())
+        .order_by(
+            Message.timestamp.asc() if sort == "oldest" else Message.timestamp.desc(),
+            Message.id.asc() if sort == "oldest" else Message.id.desc(),
+        )
         .offset(min(offset, MAX_SEARCH_RESULTS))
         .limit(limit)
     )

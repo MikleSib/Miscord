@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { LucideIcon } from 'lucide-react'
-import { Ban, ChevronLeft, CopyPlus, Info, Link2, LogOut, ScrollText, Shield, Trash2, Users, X } from 'lucide-react'
+import { Ban, CalendarDays, ChevronLeft, ClipboardCheck, CopyPlus, Flag, Info, Link2, LogOut, ScrollText, Shield, ShieldCheck, Trash2, Users, X } from 'lucide-react'
 
 import { Server } from '../types'
 import channelService from '../services/channelService'
@@ -21,6 +21,10 @@ import { ServerBansTab } from './server-settings/ServerBansTab'
 import { ServerAuditLogTab } from './server-settings/ServerAuditLogTab'
 import { ServerBotsTab } from './server-settings/ServerBotsTab'
 import { ServerTemplatesTab } from './server-settings/ServerTemplatesTab'
+import { ServerOnboardingTab } from './server-settings/ServerOnboardingTab'
+import { ServerEventsTab } from './server-settings/ServerEventsTab'
+import { ServerAutoModTab } from './server-settings/ServerAutoModTab'
+import { ServerReportsTab } from './server-settings/ServerReportsTab'
 import { useMobileSettingsDetail } from '../hooks/useMobileSettingsDetail'
 import { useModalFocusTrap } from '../hooks/useModalFocusTrap'
 
@@ -31,18 +35,20 @@ interface ServerSettingsModalProps {
   onServerUpdate: (updatedServer: Server) => void
 }
 
-type TabId = 'overview' | 'members' | 'roles' | 'bots' | 'templates' | 'invites' | 'bans' | 'audit'
+type TabId = 'overview' | 'members' | 'roles' | 'bots' | 'templates' | 'onboarding' | 'events' | 'automod' | 'reports' | 'invites' | 'bans' | 'audit'
 
 interface TabItem {
   id: TabId
   label: string
   icon: LucideIcon
-  group?: 'users' | 'moderation'
+  group?: 'community' | 'users' | 'moderation'
   /** Право, без которого вкладка не показывается. undefined — доступна всем участникам. */
   permission?: number
 }
 
 const TABS: TabItem[] = [
+  { id: 'onboarding', label: 'Onboarding', icon: ClipboardCheck, group: 'community', permission: Permissions.MANAGE_SERVER },
+  { id: 'events', label: 'События', icon: CalendarDays, group: 'community' },
   { id: 'templates', label: 'Шаблоны', icon: CopyPlus, group: 'users', permission: Permissions.ADMINISTRATOR },
   { id: 'overview', label: 'Профиль сервера', icon: Info },
   { id: 'members', label: 'Участники', icon: Users, group: 'users' },
@@ -50,10 +56,13 @@ const TABS: TabItem[] = [
   { id: 'bots', label: 'Боты', icon: Users, group: 'users', permission: Permissions.MANAGE_SERVER },
   { id: 'invites', label: 'Приглашения', icon: Link2, group: 'users', permission: Permissions.CREATE_INVITE },
   { id: 'bans', label: 'Блокировки', icon: Ban, group: 'moderation', permission: Permissions.BAN_MEMBERS },
+  { id: 'automod', label: 'AutoMod', icon: ShieldCheck, group: 'moderation', permission: Permissions.MANAGE_SERVER },
+  { id: 'reports', label: 'Жалобы', icon: Flag, group: 'moderation', permission: Permissions.MODERATE_MEMBERS },
   { id: 'audit', label: 'Журнал аудита', icon: ScrollText, group: 'moderation', permission: Permissions.VIEW_AUDIT_LOG },
 ]
 
 const GROUP_LABELS: Record<string, string> = {
+  community: 'Сообщество',
   users: 'Пользователи',
   moderation: 'Модерация',
 }
@@ -273,6 +282,10 @@ export function ServerSettingsModal({ isOpen, onClose, server, onServerUpdate }:
             {activeTab === 'roles' && <ServerRolesTab server={server} />}
             {activeTab === 'bots' && <ServerBotsTab server={server} />}
             {activeTab === 'templates' && <ServerTemplatesTab server={server} />}
+            {activeTab === 'onboarding' && <ServerOnboardingTab server={server} />}
+            {activeTab === 'events' && <ServerEventsTab server={server} />}
+              {activeTab === 'automod' && <ServerAutoModTab server={server} />}
+              {activeTab === 'reports' && <ServerReportsTab server={server} />}
             {activeTab === 'invites' && <ServerInvitesTab server={server} />}
             {activeTab === 'bans' && <ServerBansTab server={server} />}
             {activeTab === 'audit' && <ServerAuditLogTab server={server} />}
