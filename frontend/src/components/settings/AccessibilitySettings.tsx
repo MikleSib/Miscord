@@ -133,7 +133,9 @@ export function AccessibilitySettings() {
         <Accessibility className="h-6 w-6 text-primary" aria-hidden="true" />
         <div><h2 className="text-2xl font-semibold text-foreground">Специальные возможности</h2><p className="mt-1 text-sm text-muted-foreground">Настройте читаемость и плотность Miscord под себя.</p></div>
       </div>
-      <Preview />
+      <div className="md:sticky md:top-0 md:z-20 md:-mx-2 md:bg-background md:px-2 md:pb-3 md:pt-1 md:shadow-[0_14px_14px_-18px_rgba(0,0,0,0.9)]">
+        <Preview />
+      </div>
 
       <div className="mt-10 space-y-8">
         <section className="space-y-6">
