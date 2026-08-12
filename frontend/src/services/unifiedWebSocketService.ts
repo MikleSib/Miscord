@@ -301,9 +301,8 @@ export class UnifiedWebSocketService {
    */
   public fullDisconnect(): void {
     this.disconnect();
-    this.listeners.clear();
-    this.connectionStatusHandlers.clear();
     this.seenEventIds.clear();
+    this.channelSubscriptions.clear();
     this.token = null;
   }
 

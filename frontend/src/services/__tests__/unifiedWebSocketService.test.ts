@@ -63,4 +63,33 @@ describe('UnifiedWebSocketService readiness handshake', () => {
     expect(socket.sent[1]).toEqual({ type: 'subscribe_channel', text_channel_id: 42 });
     service.disconnect();
   });
+
+  it('keeps application handlers across logout while clearing user channel subscriptions', () => {
+    const service = new UnifiedWebSocketService();
+    const voiceJoined = vi.fn();
+    const messageAck = vi.fn();
+    const connectionStates: boolean[] = [];
+    service.on('voice_joined', voiceJoined);
+    service.on('message_ack', messageAck);
+    service.onConnectionStatusChange(({ isConnected }) => connectionStates.push(isConnected));
+    service.subscribeChannel(42);
+
+    service.connect('first-token');
+    instances[0].open();
+    instances[0].receive({ type: 'identified', protocol_version: 1 });
+    service.fullDisconnect();
+
+    service.connect('second-token');
+    const socket = instances[1];
+    socket.open();
+    socket.receive({ type: 'identified', protocol_version: 1 });
+    socket.receive({ type: 'voice_joined', channel_id: 7, protocol_version: 1 });
+    socket.receive({ type: 'message_ack', data: { client_nonce: 'nonce-1' } });
+
+    expect(socket.sent).toEqual([{ type: 'identify', token: 'second-token' }]);
+    expect(voiceJoined).toHaveBeenCalledOnce();
+    expect(messageAck).toHaveBeenCalledOnce();
+    expect(connectionStates.at(-1)).toBe(true);
+    service.fullDisconnect();
+  });
 });

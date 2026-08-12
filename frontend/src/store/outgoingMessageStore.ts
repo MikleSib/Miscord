@@ -244,8 +244,8 @@ function subscribeToSocket() {
   unifiedWebSocketService.on('dm', acknowledge)
   unifiedWebSocketService.on('message_ack', acknowledge)
   unifiedWebSocketService.on('message_send_failed', (payload: any) => useOutgoingMessageStore.getState().reject(payload?.data || payload))
-  unifiedWebSocketService.onConnectionStatusChange((connected) => {
-    if (!connected) {
+  unifiedWebSocketService.onConnectionStatusChange(({ isConnected }) => {
+    if (!isConnected) {
       useOutgoingMessageStore.setState((state) => ({ messages: state.messages.map((message) => message.phase === 'queued' || message.phase === 'sending' ? { ...message, phase: 'offline' as OutgoingPhase } : message) }))
       return
     }
