@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import { clearOutgoingRecords, deleteOutgoingRecord, loadOutgoingRecords, PersistedOutgoingRecord, saveOutgoingRecord } from '../lib/outgoingMessageDb'
 import uploadService, { UploadedChatFile } from '../services/uploadService'
 import unifiedWebSocketService from '../services/unifiedWebSocketService'
+import { OutgoingMessageOwnership } from './outgoingMessageOwnership'
 
 export type OutgoingPhase = 'queued' | 'uploading' | 'processing' | 'sending' | 'awaiting_ack' | 'offline' | 'failed'
 export type OutgoingAttachmentPhase = 'queued' | 'uploading' | 'processing' | 'uploaded' | 'failed'
@@ -52,8 +53,10 @@ let uploadSlots = 0
 let subscribed = false
 let broadcast: BroadcastChannel | null = null
 let leaderRelease: (() => void) | null = null
-let isLeader = true
+let leadershipAbort: AbortController | null = null
+let leadershipGeneration = 0
 let persistTimer: number | null = null
+const ownership = new OutgoingMessageOwnership()
 
 const conversationKey = (message: OutgoingMessage) => `${message.conversation.type}:${message.conversation.id}`
 
@@ -172,7 +175,7 @@ async function uploadAttachment(message: OutgoingMessage, attachment: OutgoingAt
 
 async function processMessage(initial: OutgoingMessage) {
   const key = conversationKey(initial)
-  if (activeConversations.has(key) || !isLeader) return
+  if (activeConversations.has(key) || !ownership.canProcess(initial.clientNonce)) return
   activeConversations.add(key)
   try {
     if (!navigator.onLine || !unifiedWebSocketService.isConnected()) {
@@ -225,14 +228,17 @@ async function processMessage(initial: OutgoingMessage) {
 }
 
 function scheduleQueue() {
-  if (typeof window === 'undefined' || !isLeader) return
+  if (typeof window === 'undefined') return
   const messages = [...useOutgoingMessageStore.getState().messages].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
   const seen = new Set<string>()
   for (const message of messages) {
     const key = conversationKey(message)
     if (seen.has(key)) continue
     seen.add(key)
-    if (message.phase === 'queued' || message.phase === 'offline') void processMessage(message)
+    if (
+      ownership.canProcess(message.clientNonce)
+      && (message.phase === 'queued' || message.phase === 'offline')
+    ) void processMessage(message)
   }
 }
 
@@ -258,20 +264,39 @@ function subscribeToSocket() {
   })
 }
 
-async function acquireLeadership(userId: number) {
+function releaseLeadership() {
+  leadershipGeneration += 1
+  leadershipAbort?.abort()
+  leadershipAbort = null
+  leaderRelease?.()
+  leaderRelease = null
+  ownership.setLeader(false)
+}
+
+function acquireLeadership(userId: number) {
+  releaseLeadership()
   if (navigator.locks) {
-    void navigator.locks.request(`miscord-outgoing-${userId}`, { ifAvailable: true }, async (lock) => {
-      if (!lock) { isLeader = false; return }
-      isLeader = true
-      scheduleQueue()
-      await new Promise<void>((resolve) => { leaderRelease = resolve })
+    const generation = leadershipGeneration
+    const controller = new AbortController()
+    leadershipAbort = controller
+    void navigator.locks.request(
+      `miscord-outgoing-${userId}`,
+      { signal: controller.signal },
+      async (lock) => {
+        if (!lock || generation !== leadershipGeneration) return
+        ownership.setLeader(true)
+        scheduleQueue()
+        await new Promise<void>((resolve) => { leaderRelease = resolve })
+        if (generation === leadershipGeneration) ownership.setLeader(false)
+      },
+    ).catch((error) => {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        console.error('[OutgoingQueue] leadership failed', error)
+      }
     })
     return
   }
-  const key = `miscord-outgoing-lease-${userId}`
-  const now = Date.now()
-  isLeader = Number(localStorage.getItem(key) || 0) < now
-  if (isLeader) localStorage.setItem(key, String(now + 15_000))
+  ownership.setLeader(true)
 }
 
 export const useOutgoingMessageStore = create<OutgoingState>((set, get) => ({
@@ -284,13 +309,15 @@ export const useOutgoingMessageStore = create<OutgoingState>((set, get) => ({
       return
     }
     const previousUserId = get().initializedUserId
+    // Mark initialization before IndexedDB awaits so React remounts cannot
+    // start a second leader election for the same browser tab.
+    set({ initializedUserId: userId })
     if (previousUserId && previousUserId !== userId) {
       const previousMessages = get().messages
       await Promise.allSettled(previousMessages.flatMap((message) => message.attachments.map((attachment) => attachment.uploadId).filter((id): id is string => Boolean(id))).map((id) => uploadService.deleteUpload(id)))
       await clearOutgoingRecords(previousUserId)
     }
-    leaderRelease?.()
-    leaderRelease = null
+    releaseLeadership()
     const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
     const persisted = await loadOutgoingRecords(userId)
     const expired = (persisted as unknown as OutgoingMessage[]).filter((item) => new Date(item.createdAt).getTime() < sevenDaysAgo)
@@ -304,17 +331,19 @@ export const useOutgoingMessageStore = create<OutgoingState>((set, get) => ({
           ? { ...attachment, progress: 100, phase: 'uploaded' as OutgoingAttachmentPhase }
           : { ...attachment, progress: 0, phase: 'queued' as OutgoingAttachmentPhase }),
       }))
-    set({ messages: restored, initializedUserId: userId })
+    set({ messages: restored })
     unifiedWebSocketService.connect(token)
     subscribeToSocket()
     if (typeof BroadcastChannel !== 'undefined') {
       broadcast?.close()
       broadcast = new BroadcastChannel(`miscord-outgoing-${userId}`)
       broadcast.onmessage = async () => {
-        if (!isLeader) set({ messages: await loadOutgoingRecords(userId) as unknown as OutgoingMessage[] })
+        if (!ownership.isLeader()) {
+          set({ messages: await loadOutgoingRecords(userId) as unknown as OutgoingMessage[] })
+        }
       }
     }
-    await acquireLeadership(userId)
+    acquireLeadership(userId)
     scheduleQueue()
   },
   enqueue: ({ userId, conversation, content, files = [], replyToId }) => {
@@ -330,10 +359,16 @@ export const useOutgoingMessageStore = create<OutgoingState>((set, get) => ({
       attachments: files.map((file) => ({ localId: crypto.randomUUID(), file, progress: 0, phase: 'queued' })),
       sendAttempt: 0,
     }
+    ownership.claim(clientNonce)
     set((state) => ({ messages: [...state.messages, message] }))
-    void saveOutgoingRecord(message as unknown as PersistedOutgoingRecord).catch(() => set({ persistenceWarning: 'Сообщение отправляется, но не сохранится после обновления страницы.' }))
-    broadcast?.postMessage({ type: 'changed' })
-    scheduleQueue()
+    // Persist first: otherwise another tab may receive the broadcast before
+    // IndexedDB contains the message and permanently miss the queued record.
+    void saveOutgoingRecord(message as unknown as PersistedOutgoingRecord)
+      .catch(() => set({ persistenceWarning: 'Сообщение отправляется, но не сохранится после обновления страницы.' }))
+      .finally(() => {
+        broadcast?.postMessage({ type: 'changed' })
+        scheduleQueue()
+      })
     return clientNonce
   },
   retry: (clientNonce) => {
@@ -351,6 +386,7 @@ export const useOutgoingMessageStore = create<OutgoingState>((set, get) => ({
     message.attachments.forEach((attachment) => controllers.get(`${clientNonce}:${attachment.localId}`)?.abort())
     await Promise.allSettled(message.attachments.map((attachment) => attachment.uploadId).filter((id): id is string => Boolean(id)).map((id) => uploadService.deleteUpload(id)))
     set((state) => ({ messages: state.messages.filter((item) => item.clientNonce !== clientNonce) }))
+    ownership.release(clientNonce)
     await deleteOutgoingRecord(clientNonce)
     broadcast?.postMessage({ type: 'changed' })
     scheduleQueue()
@@ -361,8 +397,10 @@ export const useOutgoingMessageStore = create<OutgoingState>((set, get) => ({
     if (timer) window.clearTimeout(timer)
     ackTimers.delete(clientNonce)
     set((state) => ({ messages: state.messages.filter((item) => item.clientNonce !== clientNonce) }))
+    ownership.release(clientNonce)
+    dirtyRecords.delete(clientNonce)
     void deleteOutgoingRecord(clientNonce)
-    broadcast?.postMessage({ type: 'changed' })
+      .finally(() => broadcast?.postMessage({ type: 'changed' }))
     scheduleQueue()
   },
   reject: (payload) => {
@@ -398,8 +436,8 @@ export const useOutgoingMessageStore = create<OutgoingState>((set, get) => ({
     ackTimers.clear()
     await Promise.allSettled(messages.flatMap((message) => message.attachments.map((attachment) => attachment.uploadId).filter((id): id is string => Boolean(id))).map((id) => uploadService.deleteUpload(id)))
     if (userId) await clearOutgoingRecords(userId)
-    leaderRelease?.()
-    leaderRelease = null
+    releaseLeadership()
+    ownership.clear()
     broadcast?.close()
     broadcast = null
     set({ messages: [], initializedUserId: null, persistenceWarning: null })
