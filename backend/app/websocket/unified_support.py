@@ -44,6 +44,17 @@ from app.services.channel_access import user_can_access_text_channel
 
 voice_connections: Dict[int, Dict[int, dict]] = {}
 
+_SENSITIVE_LOG_FIELDS = {
+    "attachments",
+    "content",
+    "data",
+    "message",
+    "password",
+    "payload",
+    "secret",
+    "token",
+}
+
 
 def _extract_request_id(message_data: dict) -> Optional[str]:
     request_id = message_data.get("request_id")
@@ -58,7 +69,11 @@ def _structured_log(user: Optional[User], event: str, **fields: Any) -> None:
     if user:
         payload["user_id"] = user.id
         payload["username"] = getattr(user, "username", None)
-    payload.update({k: v for k, v in fields.items() if v is not None})
+    payload.update({
+        key: value
+        for key, value in fields.items()
+        if value is not None and key.lower() not in _SENSITIVE_LOG_FIELDS
+    })
     print(f"[UnifiedWS] {json.dumps(payload, ensure_ascii=False)}")
 
 

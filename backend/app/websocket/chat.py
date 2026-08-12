@@ -68,7 +68,7 @@ async def websocket_chat_endpoint(
         try:
             while True:
                 data = await websocket.receive_text()
-                print(f"[WS_CHAT] Получено сообщение от {user.username}: {data}")
+                print(f"[WS_CHAT] Frame received from user_id={user.id}")
                 
                 try:
                     message_data = json.loads(data)
@@ -85,7 +85,10 @@ async def websocket_chat_endpoint(
                     attachments = message_data.get("attachments", [])
                     reply_to_id = message_data.get("reply_to_id")
 
-                    print(f"[WS_CHAT] Обработка сообщения: content='{content}', msg_channel_id={msg_channel_id}, attachments={len(attachments)} файлов, reply_to={reply_to_id}")
+                    print(
+                        f"[WS_CHAT] Message metadata: channel_id={msg_channel_id}, "
+                        f"attachments={len(attachments)}, has_reply={reply_to_id is not None}"
+                    )
 
                     # Проверяем, что сообщение для этого канала
                     if msg_channel_id != text_channel_id:
@@ -216,7 +219,7 @@ async def websocket_chat_endpoint(
                         }
                     }
                     
-                    print(f"[WS_CHAT] Отправка сообщения в канал {text_channel_id}: {message_dict}")
+                    print(f"[WS_CHAT] Delivering message_id={full_message.id} to channel_id={text_channel_id}")
                     
                     # Отправляем сообщение всем подключенным к этому каналу
                     await manager.send_to_channel(text_channel_id, {
@@ -320,7 +323,7 @@ async def websocket_notifications_endpoint(
             while True:
                 try:
                     data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
-                    print(f"[WS_NOTIFICATIONS] Получено сообщение от {user.username}: {data}")
+                    print(f"[WS_NOTIFICATIONS] Frame received from user_id={user.id}")
 
                     # Проверяем, что data является строкой перед парсингом
                     if not isinstance(data, str):
@@ -330,12 +333,12 @@ async def websocket_notifications_endpoint(
                     try:
                         message_data = json.loads(data)
                     except json.JSONDecodeError as e:
-                        print(f"[WS_NOTIFICATIONS] Ошибка парсинга JSON: {e}, данные: {data}")
+                        print(f"[WS_NOTIFICATIONS] Invalid JSON: {e}")
                         continue
 
                     # Проверяем, что message_data является словарем
                     if not isinstance(message_data, dict):
-                        print(f"[WS_NOTIFICATIONS] Ошибка: message_data не является словарем, тип: {type(message_data)}, данные: {message_data}")
+                        print(f"[WS_NOTIFICATIONS] Invalid payload type: {type(message_data)}")
                         # Попробуем повторно распарсить, возможно это двойной JSON
                         try:
                             message_data = json.loads(message_data)

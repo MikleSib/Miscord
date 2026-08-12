@@ -4,9 +4,23 @@ import json
 import redis.asyncio as redis
 import asyncio
 import time
+import re
 
 from app.core.config import settings
 from app.core.metrics import record_websocket_connected, record_websocket_disconnected
+
+_SAFE_EVENT_TYPE = re.compile(r"^[a-zA-Z0-9_.:-]{1,80}$")
+
+
+def _event_type(payload: dict | str) -> str:
+    """Return bounded event metadata without ever logging message contents."""
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return "unknown"
+    value = payload.get("type") if isinstance(payload, dict) else None
+    return value if isinstance(value, str) and _SAFE_EVENT_TYPE.fullmatch(value) else "unknown"
 
 class ConnectionManager:
     def __init__(self):
@@ -59,7 +73,7 @@ class ConnectionManager:
 
                         if raw_channel == "broadcast":
                             # Создание каналов, статус онлайн, смена аватара и т.п.
-                            print(f"Redis: Broadcasting message to all users: {data[:200]}")
+                            print(f"Redis: Broadcasting event type={_event_type(data)}")
                             all_users = list(self.active_connections.keys())
                             for user_id in all_users:
                                 await self._send_to_user_str(user_id, data)
@@ -67,10 +81,10 @@ class ConnectionManager:
                         elif raw_channel.startswith("user:"):
                             user_id = int(raw_channel.split(':', 1)[1])
                             if user_id in self.active_connections:
-                                print(f"Redis: Forwarding personal message to user {user_id}: {data}")
+                                print(f"Redis: Forwarding event type={_event_type(data)} to user {user_id}")
                                 await self._send_to_user_str(user_id, data)
                             else:
-                                print(f"Redis: User {user_id} not connected locally, message dropped: {data}")
+                                print(f"Redis: User {user_id} not connected; event type={_event_type(data)} dropped")
                         
                         elif raw_channel.startswith("channel:"):
                             channel_id = int(raw_channel.split(':', 1)[1])
@@ -159,7 +173,7 @@ class ConnectionManager:
 
     async def send_personal_message(self, message: dict, user_id: int):
         """Отправка личного сообщения через Redis."""
-        print(f"[WS] Отправка личного сообщения пользователю {user_id}: {message}")
+        print(f"[WS] Sending event type={_event_type(message)} to user {user_id}")
         if self.redis_client:
             channel = f"user:{user_id}"
             await self.redis_client.publish(channel, json.dumps(message))
