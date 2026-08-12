@@ -19,8 +19,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     networks:
       - miscord_network
     healthcheck:
@@ -91,8 +89,6 @@ services:
       EMAIL_VERIFICATION_SECRET: ${EMAIL_VERIFICATION_SECRET:-}
       CORS_ORIGINS: '["http://localhost:3000", "https://miscord.ru", "https://www.miscord.ru"]'
       ICE_SERVERS: '${ICE_SERVERS:-[{"urls":["stun:stun.l.google.com:19302","stun:stun1.l.google.com:19302"]},{"urls":["turn:miscord.ru:3478?transport=udp","turn:miscord.ru:3478?transport=tcp"],"username":"miscord","credential":"change-this-turn-password"}]}'
-    ports:
-      - "8000:8000"
     depends_on:
       backend-migrate:
         condition: service_completed_successfully
