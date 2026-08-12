@@ -11,6 +11,7 @@ from .attachment import Attachment
 from .reaction import Reaction
 from .friendship import Friendship
 from .direct_message import DirectMessage
+from .e2ee import SecretDmSession, UserE2eeDevice
 from .server_role import Role, MemberRole
 from .server_ban import ServerBan
 from .invite import Invite
@@ -78,6 +79,8 @@ __all__ = [
     "Reaction",
     "Friendship",
     "DirectMessage",
+    "SecretDmSession",
+    "UserE2eeDevice",
     "Role",
     "MemberRole",
     "ServerBan",

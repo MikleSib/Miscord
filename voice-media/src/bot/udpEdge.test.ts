@@ -40,6 +40,7 @@ class FakeRoom extends EventEmitter {
   readonly addConsumer = vi.fn();
   readonly removePeer = vi.fn(() => { this.current = false; });
   readonly setExternalProducerSpeaking = vi.fn(async () => undefined);
+  readonly e2ee = { registerBot: vi.fn() };
 
   isCurrentPeer(peer: unknown): boolean {
     return this.current && peer === this.peer;
@@ -59,7 +60,10 @@ function openSocket() {
 }
 
 function session(room: FakeRoom): BotMediaSession {
-  return new BotMediaSession(botClaims(), room as never, openSocket(), { sendOp: vi.fn() }, 20_100);
+  return new BotMediaSession(
+    botClaims(), room as never, openSocket(), { sendOp: vi.fn() }, 20_100,
+    { protocol_version: 1, credential_id: '123:bot-session', public_key: 'cHVibGlj' },
+  );
 }
 
 afterEach(() => vi.restoreAllMocks());

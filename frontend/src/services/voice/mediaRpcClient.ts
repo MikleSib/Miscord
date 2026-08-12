@@ -13,8 +13,12 @@ export class MediaRpcClient {
   private readonly listeners = new Map<string, Set<Listener>>();
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
-  async connect(url: string, ticket: string): Promise<any> {
-    this.close();
+  async connect(
+    url: string,
+    ticket: string,
+    identify: Record<string, unknown> = {},
+  ): Promise<any> {
+    this.resetSocket();
     const socket = new WebSocket(url);
     this.socket = socket;
     await new Promise<void>((resolve, reject) => {
@@ -30,7 +34,7 @@ export class MediaRpcClient {
     });
     socket.onmessage = (event) => this.receive(event.data);
     socket.onclose = (event) => this.failAll(new Error(event.reason || 'Media connection closed'));
-    const identified = await this.request('identify', { ticket });
+    const identified = await this.request('identify', { ticket, ...identify });
     this.heartbeatTimer = setInterval(() => {
       void this.request('ping', {}, 5_000).catch(() => this.close());
     }, 20_000);
@@ -59,12 +63,16 @@ export class MediaRpcClient {
   }
 
   close(): void {
+    this.resetSocket();
+    this.listeners.clear();
+  }
+
+  private resetSocket(): void {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     this.heartbeatTimer = null;
     this.socket?.close(1000, 'Client leaving voice');
     this.socket = null;
     this.failAll(new Error('Media client closed'));
-    this.listeners.clear();
   }
 
   private receive(raw: string): void {

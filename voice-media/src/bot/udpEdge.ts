@@ -5,6 +5,7 @@ import type { Consumer, DirectTransport, Producer } from 'mediasoup/types';
 import type WebSocket from 'ws';
 
 import { config } from '../config.js';
+import type { E2eeBotHello } from '../e2eeCoordinator.js';
 import { metrics } from '../metrics.js';
 import type { Peer, Room } from '../room.js';
 import type { MediaClaims } from '../types.js';
@@ -49,6 +50,7 @@ export class BotMediaSession {
     readonly socket: WebSocket,
     private sender: VoiceSender,
     readonly udpPort: number,
+    private readonly e2eeHello: E2eeBotHello,
   ) {
     this.producerHandler = (producer, peer) => {
       if (!this.claims.self_deaf && peer.claims.session_id !== this.claims.session_id) {
@@ -62,6 +64,9 @@ export class BotMediaSession {
     if (this.closed) throw new Error('Bot media session is closed');
     this.peer = this.room.addPeer(this.claims, this.socket);
     try {
+      this.room.e2ee.registerBot(
+        this.peer, this.e2eeHello, (op, data) => this.sender.sendOp(op, data),
+      );
       this.assertStartActive();
       this.directTransport = await this.room.createDirectTransport(this.peer);
       this.assertStartActive();
@@ -182,7 +187,13 @@ export class BotMediaSession {
       const ssrc = randomSsrc();
       this.outboundSsrc.set(producer.id, ssrc);
       this.outboundUserIds.set(producer.id, String(owner.claims.sub));
-      this.sender.sendOp(11, { user_id: owner.claims.sub, audio_ssrc: ssrc, video_ssrc: 0 });
+      this.sender.sendOp(11, {
+        user_id: owner.claims.sub,
+        audio_ssrc: ssrc,
+        video_ssrc: 0,
+        e2ee_sender: owner.e2eeCredentialId,
+        source: producer.appData.source,
+      });
       this.sender.sendOp(5, { speaking: 1, delay: 0, ssrc, user_id: owner.claims.sub });
       consumer.on('rtp', (packet) => this.sendPacket(packet, producer.id, udpEdge));
       consumer.on('producerclose', () => this.closeConsumer(producer.id, consumer));

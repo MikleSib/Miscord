@@ -13,6 +13,8 @@ import nacl.bindings
 import websockets
 from websockets.exceptions import ConnectionClosed
 
+from e2ee import BotE2EE
+
 
 MODE = "aead_xchacha20_poly1305_rtpsize"
 OPUS_PAYLOAD_TYPE = 120
@@ -30,6 +32,8 @@ class RtpCipher:
             raise ValueError("Voice key must contain 32 bytes")
         self.key = key
         self.counter = 0
+        self.received: set[int] = set()
+        self.highest_received = -1
 
     def encrypt(self, packet: bytes) -> bytes:
         if len(packet) < 12:
@@ -43,6 +47,42 @@ class RtpCipher:
             payload, header, nonce, self.key,
         )
         return header + ciphertext + suffix
+
+    def decrypt(self, packet: bytes) -> bytes:
+        header_length = rtp_header_length(packet)
+        if len(packet) < header_length + 20:
+            raise ValueError("Encrypted RTP packet is too short")
+        counter = struct.unpack_from(">I", packet, len(packet) - 4)[0]
+        if counter in self.received or (
+            self.highest_received >= 0 and counter + 1024 < self.highest_received
+        ):
+            raise ValueError("Replayed RTP packet")
+        header = packet[:header_length]
+        ciphertext = packet[header_length:-4]
+        nonce = struct.pack(">I", counter) + bytes(20)
+        plaintext = nacl.bindings.crypto_aead_xchacha20poly1305_ietf_decrypt(
+            ciphertext, header, nonce, self.key,
+        )
+        self.received.add(counter)
+        self.highest_received = max(self.highest_received, counter)
+        floor = self.highest_received - 1024
+        self.received = {value for value in self.received if value >= floor}
+        return header + plaintext
+
+
+def rtp_header_length(packet: bytes) -> int:
+    if len(packet) < 12 or packet[0] >> 6 != 2:
+        raise ValueError("Invalid RTP packet")
+    length = 12 + (packet[0] & 0x0F) * 4
+    if len(packet) < length:
+        raise ValueError("Invalid RTP CSRC list")
+    if packet[0] & 0x10:
+        if len(packet) < length + 4:
+            raise ValueError("Invalid RTP extension")
+        length += 4 + struct.unpack_from(">H", packet, length + 2)[0] * 4
+    if len(packet) < length:
+        raise ValueError("Truncated RTP extension")
+    return length
 
 
 class VoiceConnection:
@@ -74,6 +114,10 @@ class VoiceConnection:
         self._udp_receive_task: asyncio.Task | None = None
         self._send_lock = asyncio.Lock()
         self._speaking = False
+        self.e2ee = BotE2EE(f"{user_id}:{session_id}")
+        self._dave_active = asyncio.Event()
+        self._inbound_senders: dict[int, tuple[str, str, str]] = {}
+        self.on_opus: Callable[[bytes, str], Awaitable[None]] | None = None
 
     @property
     def is_connected(self) -> bool:
@@ -95,10 +139,13 @@ class VoiceConnection:
             "user_id": str(self.user_id),
             "session_id": self.session_id,
             "token": self.token,
-            "max_dave_protocol_version": 0,
+            "max_dave_protocol_version": 1,
+            "e2ee_public_key": self.e2ee.public_key_b64,
         })
         ready = await self._receive_op(2)
         self.ssrc = int(ready["ssrc"])
+        if int(ready.get("dave_protocol_version", 0)) != 1:
+            raise RuntimeError("Voice server did not enable DAVE/E2EE protocol v1")
         host, port = str(ready["ip"]), int(ready["port"])
         if MODE not in ready.get("modes", []):
             raise RuntimeError(f"Voice mode {MODE} is unavailable")
@@ -108,9 +155,10 @@ class VoiceConnection:
             "data": {"address": address, "port": local_port, "mode": MODE},
         })
         description = await self._receive_op(4)
-        if description.get("mode") != MODE or int(description.get("dave_protocol_version", 0)) != 0:
+        if description.get("mode") != MODE or int(description.get("dave_protocol_version", 0)) != 1:
             raise RuntimeError("Unexpected voice session description")
         self.cipher = RtpCipher(bytes(description["secret_key"]))
+        await asyncio.wait_for(self._receive_until_dave_active(), timeout=20)
         self._heartbeat_task = asyncio.create_task(self._heartbeat(interval))
         self._receive_task = asyncio.create_task(self._receive_loop())
         self._udp_receive_task = asyncio.create_task(self._udp_receive_loop())
@@ -120,10 +168,13 @@ class VoiceConnection:
             raise RuntimeError("Voice UDP transport is not connected")
         if not self.is_connected:
             raise RuntimeError("Voice Gateway disconnected; run /play again to reconnect")
+        if not self._dave_active.is_set():
+            await asyncio.wait_for(self._dave_active.wait(), timeout=20)
         if not self._speaking:
             self._speaking = True
             await self._send_op(5, {"speaking": 1, "delay": 0, "ssrc": self.ssrc})
-        packet = make_rtp(opus_packet, self.sequence, self.timestamp, self.ssrc)
+        protected = self.e2ee.encrypt_frame(opus_packet)
+        packet = make_rtp(protected, self.sequence, self.timestamp, self.ssrc)
         self.sequence = (self.sequence + 1) & 0xFFFF
         self.timestamp = (self.timestamp + SAMPLES_PER_FRAME) & 0xFFFFFFFF
         await asyncio.get_running_loop().sock_sendto(self.udp, self.cipher.encrypt(packet), self.remote)
@@ -184,6 +235,39 @@ class VoiceConnection:
             payload = json.loads(await self.websocket.recv())
             if int(payload.get("op", -1)) == expected:
                 return payload.get("d") or {}
+            await self._handle_control(payload)
+
+    async def _handle_control(self, payload: dict) -> None:
+        op = int(payload.get("op", -1))
+        data = payload.get("d") or {}
+        if op == 24:
+            self._dave_active.clear()
+            epoch = self.e2ee.install_envelope(data)
+            await self._send_op(23, {"transition_id": str(epoch)})
+        elif op == 22:
+            if int(data.get("dave_protocol_version", 0)) != 1:
+                raise RuntimeError("DAVE/E2EE downgrade rejected")
+            if int(data.get("transition_id", -1)) != self.e2ee.active_epoch:
+                raise RuntimeError("DAVE/E2EE transition mismatch")
+            self._dave_active.set()
+        elif op == 11:
+            ssrc = int(data.get("audio_ssrc", 0))
+            sender = str(data.get("e2ee_sender") or "")
+            if ssrc and sender:
+                self._inbound_senders[ssrc] = (
+                    sender, str(data.get("source") or "microphone"), str(data.get("user_id") or ""),
+                )
+        elif op == 13:
+            user_id = str(data.get("user_id") or "")
+            self._inbound_senders = {
+                ssrc: sender for ssrc, sender in self._inbound_senders.items() if sender[2] != user_id
+            }
+
+    async def _receive_until_dave_active(self) -> None:
+        if not self.websocket:
+            raise RuntimeError("Voice WebSocket is not connected")
+        while not self._dave_active.is_set():
+            await self._handle_control(json.loads(await self.websocket.recv()))
 
     async def _heartbeat(self, interval_ms: int) -> None:
         while True:
@@ -196,8 +280,7 @@ class VoiceConnection:
         try:
             async for raw in self.websocket:
                 payload = json.loads(raw)
-                if payload.get("op") == 13:
-                    print(f"voice participant disconnected: {payload.get('d', {}).get('user_id')}")
+                await self._handle_control(payload)
         except ConnectionClosed as exc:
             print(f"voice gateway disconnected: code={exc.code} reason={exc.reason or 'none'}")
         finally:
@@ -210,4 +293,18 @@ class VoiceConnection:
             return
         loop = asyncio.get_running_loop()
         while True:
-            await loop.sock_recvfrom(self.udp, 65535)
+            packet, source = await loop.sock_recvfrom(self.udp, 65535)
+            if source != self.remote or not self.cipher:
+                continue
+            try:
+                clear = self.cipher.decrypt(packet)
+                header_length = rtp_header_length(clear)
+                ssrc = struct.unpack_from(">I", clear, 8)[0]
+                sender = self._inbound_senders.get(ssrc)
+                if not sender:
+                    continue
+                opus = self.e2ee.decrypt_frame(clear[header_length:], sender[0], sender[1])
+                if self.on_opus:
+                    await self.on_opus(opus, sender[2])
+            except (ValueError, nacl.exceptions.CryptoError):
+                continue

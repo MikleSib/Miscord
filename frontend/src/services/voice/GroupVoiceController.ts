@@ -109,10 +109,9 @@ export class GroupVoiceController {
       await this.transport.setMicrophoneMuted(initiallyGated);
       await this.transport.setDeafened(this.isDeafened);
       await this.transport.connect(
-        payload.transport.ws_url,
-        payload.transport.ticket,
-        result.input.track,
-        initiallyGated,
+        payload.transport.ws_url, payload.transport.ticket,
+        result.input.track, initiallyGated,
+        { userId: payload.self.user_id, sessionId: payload.session_id },
       );
       assertCurrent();
       await this.transport.setDeafened(this.isDeafened);

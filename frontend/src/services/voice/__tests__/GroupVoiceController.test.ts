@@ -391,7 +391,7 @@ describe('GroupVoiceController lifecycle', () => {
       'ws://media',
       'ticket-1',
       processedB.getAudioTracks()[0],
-      false,
+      false, { userId: 1, sessionId: 'session-1' },
     );
     await controller.leaveVoiceChannel();
   });
@@ -535,7 +535,7 @@ describe('GroupVoiceController lifecycle', () => {
     expect(await monitoring).toBe(processed);
     expect(mocks.capture).toHaveBeenCalledTimes(1);
     expect(mocks.transports[0].connect).toHaveBeenCalledWith(
-      'ws://media', 'ticket-1', processed.getAudioTracks()[0], true,
+      'ws://media', 'ticket-1', processed.getAudioTracks()[0], true, { userId: 1, sessionId: 'session-1' },
     );
     expect(mocks.transports[0].setMicrophoneMuted).toHaveBeenLastCalledWith(true);
     await controller.endMicrophoneMonitor();
@@ -554,7 +554,7 @@ describe('GroupVoiceController lifecycle', () => {
     await joining;
 
     expect(mocks.transports[0].connect).toHaveBeenCalledWith(
-      'ws://media', 'ticket-1', expect.anything(), true,
+      'ws://media', 'ticket-1', expect.anything(), true, { userId: 1, sessionId: 'session-1' },
     );
     expect(mocks.transports[0].setMicrophoneMuted).toHaveBeenLastCalledWith(true);
     await controller.leaveVoiceChannel();

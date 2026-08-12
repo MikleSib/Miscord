@@ -1,0 +1,31 @@
+[package]
+name = "miscord-mls"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+getrandom_old = { package = "getrandom", version = "0.2.15", features = ["js"] }
+js-sys = "=0.3.104"
+openmls = { version = "=0.8.1", features = ["js"] }
+openmls_basic_credential = { version = "=0.5.0", features = ["clonable"] }
+openmls_rust_crypto = "=0.5.1"
+openmls_traits = "=0.5.0"
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.149"
+tls_codec = { version = "=0.4.2", features = ["derive", "serde", "mls"] }
+wasm-bindgen = "=0.2.127"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

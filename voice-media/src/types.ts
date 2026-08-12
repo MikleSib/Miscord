@@ -39,6 +39,18 @@ export interface RpcRequest {
   spatial_layer?: number;
   temporal_layer?: number;
   speaking?: boolean;
+  e2ee?: {
+    protocol_version: number;
+    credential_id: string;
+    key_package: string;
+  };
+  target_session_id?: string;
+  credential_id?: string;
+  epoch?: string;
+  commit?: string;
+  welcome?: string;
+  ratchet_tree?: string;
+  bot_envelopes?: unknown[];
 }
 
 export interface ProducerDescriptor {
@@ -46,4 +58,5 @@ export interface ProducerDescriptor {
   user_id: number;
   source: MediaSource;
   kind: MediaKind;
+  e2ee_sender: string;
 }

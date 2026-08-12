@@ -70,6 +70,7 @@ function claims(index: number, sessionId = `session-${index}`): MediaClaims {
   return {
     sub: String(10_000 + index), jti: `jti-${index}`, channel_id: 700,
     session_id: sessionId, room_epoch: 'hardening-epoch', username: `user-${index}`,
+    is_bot: true,
     protocol_version: 1,
   };
 }

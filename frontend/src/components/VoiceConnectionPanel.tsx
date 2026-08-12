@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Loader,
+  LockKeyhole,
   Phone,
   Rss,
   ScreenShare,
@@ -17,6 +18,7 @@ import voiceSettingsController from '../services/voiceSettingsController';
 import { useScreenSharePickerStore } from '../store/screenSharePickerStore';
 import { Switch } from './ui/switch';
 import { Tooltip } from './ui/tooltip';
+import { useVoiceEncryptionStore } from '../store/voiceEncryptionStore';
 
 export function VoiceConnectionPanel() {
   const {
@@ -43,6 +45,8 @@ export function VoiceConnectionPanel() {
   const isNoiseOn = effectiveProcessing.noiseSuppression;
   const isMiscordAI = isNoiseOn
     && effectiveProcessing.noiseSuppressionEngine === 'miscord-ai';
+  const encryptionActive = useVoiceEncryptionStore((state) => state.active);
+  const verificationCode = useVoiceEncryptionStore((state) => state.verificationCode);
 
   const currentChannel = useMemo(
     () =>
@@ -159,6 +163,11 @@ export function VoiceConnectionPanel() {
           <div className="min-w-0">
             <p className={`user-dock__voice-title truncate ${isConnected ? 'is-connected' : ''}`}>
               {statusTitle}
+              {encryptionActive && (
+                <Tooltip content={verificationCode ? `E2EE: ${verificationCode}` : 'Сквозное шифрование включено'}>
+                  <LockKeyhole className="ml-1 inline h-3.5 w-3.5 align-[-2px]" aria-label="Сквозное шифрование включено" />
+                </Tooltip>
+              )}
             </p>
             <p className="user-dock__voice-subtitle truncate">
               {channelLabel} / {serverLabel}

@@ -29,6 +29,9 @@ CHANNEL_PINS_UPDATED = "channel_pins_updated"
 DM = "dm"
 DM_DELETED = "dm_deleted"
 DM_REACTION_UPDATED = "dm_reaction_updated"
+SECRET_DM = "secret_dm"
+SECRET_DM_SESSION = "secret_dm_session"
+SECRET_DM_SESSION_RESET = "secret_dm_session_reset"
 
 # Серверы и каналы
 SERVER_CREATED = "server_created"
@@ -131,6 +134,9 @@ USER_GATEWAY_EVENTS: frozenset[str] = frozenset(
         DM,
         DM_DELETED,
         DM_REACTION_UPDATED,
+        SECRET_DM,
+        SECRET_DM_SESSION,
+        SECRET_DM_SESSION_RESET,
         SERVER_CREATED,
         SERVER_UPDATED,
         SERVER_DELETED,

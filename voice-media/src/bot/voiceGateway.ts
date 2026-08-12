@@ -29,6 +29,9 @@ const OP = {
   RESUMED: 9,
   CLIENT_CONNECT: 11,
   CLIENT_DISCONNECT: 13,
+  DAVE_EXECUTE_TRANSITION: 22,
+  DAVE_TRANSITION_READY: 23,
+  DAVE_PREPARE_EPOCH: 24,
 } as const;
 
 interface VoicePayload {
@@ -109,13 +112,18 @@ export class VoiceConnection implements VoiceSender {
         this.sendOp(OP.SESSION_DESCRIPTION, {
           mode,
           secret_key: [...this.record.media.secretKey],
-          dave_protocol_version: 0,
+          dave_protocol_version: 1,
         });
         return;
       }
       case OP.SPEAKING:
         this.record.speaking = Number(data.speaking ?? 0) !== 0;
         await this.record.media.setSpeaking(this.record.speaking);
+        return;
+      case OP.DAVE_TRANSITION_READY:
+        await this.record.media.room.e2ee.botEpochReady(
+          this.record.claims.session_id, data.transition_id ?? data.epoch,
+        );
         return;
       default:
         throw new VoiceCloseError(4002, 'Unsupported voice opcode');
@@ -135,6 +143,11 @@ export class VoiceConnection implements VoiceSender {
     const claims = await ticketVerifier.verify(token);
     this.assertOpen();
     if (!claims.is_bot) throw new VoiceCloseError(4004, 'Bot voice ticket required');
+    if (Number(data.max_dave_protocol_version ?? 0) < 1) {
+      throw new VoiceCloseError(4017, 'DAVE/E2EE protocol v1 is required');
+    }
+    const publicKey = String(data.e2ee_public_key ?? '');
+    if (!publicKey) throw new VoiceCloseError(4020, 'Bot E2EE public key required');
     if (
       String(claims.session_id) !== String(data.session_id ?? '') ||
       String(claims.sub) !== String(data.user_id ?? '') ||
@@ -143,10 +156,16 @@ export class VoiceConnection implements VoiceSender {
       throw new VoiceCloseError(4004, 'Voice ticket scope mismatch');
     }
 
-    await sessionIdentifyQueue.run(claims.session_id, () => this.establishSession(claims, token));
+    await sessionIdentifyQueue.run(
+      claims.session_id, () => this.establishSession(claims, token, publicKey),
+    );
   }
 
-  private async establishSession(claims: MediaClaims, token: string): Promise<void> {
+  private async establishSession(
+    claims: MediaClaims,
+    token: string,
+    publicKey: string,
+  ): Promise<void> {
     this.assertOpen();
     const lease = await rooms.acquire(Number(claims.channel_id), claims.room_epoch);
     let media: BotMediaSession | undefined;
@@ -155,7 +174,14 @@ export class VoiceConnection implements VoiceSender {
       this.assertOpen();
       const previous = sessions.get(claims.session_id);
       if (previous) previous.close(4000, 'Voice session replaced');
-      media = new BotMediaSession(claims, lease.room, this.socket, this, udpEdge.advertisedPort());
+      media = new BotMediaSession(
+        claims, lease.room, this.socket, this, udpEdge.advertisedPort(),
+        {
+          protocol_version: 1,
+          credential_id: `${claims.sub}:${claims.session_id}`,
+          public_key: publicKey,
+        },
+      );
       await media.start();
       this.assertOpen();
       udpEdge.register(media);
@@ -171,7 +197,7 @@ export class VoiceConnection implements VoiceSender {
         modes: supportedModes(),
         heartbeat_interval: HEARTBEAT_INTERVAL_MS,
         channel_id: String(claims.channel_id),
-        dave_protocol_version: 0,
+        dave_protocol_version: 1,
       });
     } catch (error) {
       if (record) record.close(4006, 'Voice session setup failed');

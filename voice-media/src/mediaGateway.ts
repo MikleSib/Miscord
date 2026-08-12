@@ -9,7 +9,7 @@ import { rooms } from './roomRegistry.js';
 import { ticketVerifier } from './ticketVerifier.js';
 import type { MediaSource, RpcRequest } from './types.js';
 
-const MAX_MESSAGE_BYTES = 64 * 1024;
+const MAX_MESSAGE_BYTES = 512 * 1024;
 export const MEDIA_RPC_METRIC_TYPES = [
   'identify',
   'create_transport',
@@ -24,6 +24,10 @@ export const MEDIA_RPC_METRIC_TYPES = [
   'set_speaking',
   'close_producer',
   'set_consumer_layers',
+  'e2ee_epoch_ready',
+  'e2ee_commit_add',
+  'e2ee_commit_remove',
+  'e2ee_commit_rotate',
   'ping',
 ] as const;
 type MediaRpcMetricType = typeof MEDIA_RPC_METRIC_TYPES[number] | 'unknown';
@@ -140,7 +144,7 @@ export class MediaGateway {
     let peer: Peer | undefined;
     let room: Room | undefined;
     let socketClosed = false;
-    const requests = new SerialTaskQueue();
+    const requests = new SerialTaskQueue(16);
     const identifyTimer = setTimeout(() => socket.close(4003, 'Identify required'), 10_000);
 
     const processMessage = async (raw: RawData): Promise<void> => {
@@ -157,23 +161,27 @@ export class MediaGateway {
         metricType = normalizeRpcMetricType(request.type);
         if (typeof request.type !== 'string' || !request.type) throw new Error('Message type is required');
         if (!peer) {
-          if (request.type !== 'identify' || !request.ticket) throw new Error('Identify required');
+          if (request.type !== 'identify' || !request.ticket || !request.e2ee) {
+            throw new Error('Identify with E2EE key package required');
+          }
           const claims = await ticketVerifier.verify(request.ticket);
           const lease = await rooms.acquire(Number(claims.channel_id), claims.room_epoch);
           room = lease.room;
           try {
             if (socketClosed) return;
             peer = room.addPeer(claims, socket);
+            const e2ee = room.e2ee.register(peer, request.e2ee);
+            clearTimeout(identifyTimer);
+            reply(socket, request, {
+              protocol_version: 1,
+              session_id: claims.session_id,
+              router_rtp_capabilities: room.router.rtpCapabilities,
+              producers: room.descriptors(claims.session_id),
+              e2ee,
+            });
           } finally {
             lease.release();
           }
-          clearTimeout(identifyTimer);
-          reply(socket, request, {
-            protocol_version: 1,
-            session_id: claims.session_id,
-            router_rtp_capabilities: room.router.rtpCapabilities,
-            producers: room.descriptors(claims.session_id),
-          });
           room.broadcast('peer_joined', {
             user_id: Number(claims.sub),
             username: claims.username,
@@ -188,7 +196,11 @@ export class MediaGateway {
         await this.dispatch(socket, room, peer, request);
       } catch (error) {
         fail(socket, request, error);
-        if (!peer) socket.close(4004, 'Authentication failed');
+        if (!peer || request.type === 'identify') {
+          if (peer && room) room.removePeer(peer.claims.session_id, peer);
+          peer = undefined;
+          socket.close(4004, 'Authentication failed');
+        }
       } finally {
         const duration = Number(process.hrtime.bigint() - started) / 1_000_000_000;
         metrics.rpcDuration.observe({ type: metricType }, duration);
@@ -309,6 +321,13 @@ export class MediaGateway {
           spatialLayer: request.spatial_layer ?? 0,
           temporalLayer: request.temporal_layer,
         });
+        reply(socket, request);
+        return;
+      case 'e2ee_epoch_ready':
+      case 'e2ee_commit_add':
+      case 'e2ee_commit_remove':
+      case 'e2ee_commit_rotate':
+        await room.e2ee.handle(peer, request);
         reply(socket, request);
         return;
       case 'ping':

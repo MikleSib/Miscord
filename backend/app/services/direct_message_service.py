@@ -32,6 +32,7 @@ async def require_reply_in_conversation(
 async def get_messages(db: AsyncSession, user1_id: int, user2_id: int, skip: int = 0, limit: int = 30):
     result = await db.execute(
         select(DirectMessage).filter(
+            DirectMessage.encryption_version == 0,
             or_(
                 (DirectMessage.sender_id == user1_id) & (DirectMessage.recipient_id == user2_id),
                 (DirectMessage.sender_id == user2_id) & (DirectMessage.recipient_id == user1_id)

@@ -150,7 +150,10 @@ describe('Voice Gateway session setup', () => {
     const second = new VoiceConnection(new VoiceSocket() as never);
     const payload = {
       op: 0,
-      d: { token: 'token', session_id: 'shared-session', user_id: '42', server_id: '500' },
+      d: {
+        token: 'token', session_id: 'shared-session', user_id: '42', server_id: '500',
+        max_dave_protocol_version: 1, e2ee_public_key: 'cHVibGlj',
+      },
     };
 
     const firstSetup = first.handle(payload);
@@ -192,7 +195,10 @@ describe('Voice Gateway session setup', () => {
       const connection = new VoiceConnection(new VoiceSocket() as never);
       await connection.handle({
         op: 0,
-        d: { token: 'token', session_id: 'redis-session', user_id: '43', server_id: '500' },
+        d: {
+          token: 'token', session_id: 'redis-session', user_id: '43', server_id: '500',
+          max_dave_protocol_version: 1, e2ee_public_key: 'cHVibGlj',
+        },
       });
       const cleanup = new BotVoiceGateway();
       cleanup.revoke('redis-session');

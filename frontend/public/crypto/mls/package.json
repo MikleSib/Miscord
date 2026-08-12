@@ -1,0 +1,16 @@
+{
+  "name": "miscord-mls",
+  "type": "module",
+  "version": "0.1.0",
+  "license": "MIT",
+  "files": [
+    "miscord_mls_bg.wasm",
+    "miscord_mls.js",
+    "miscord_mls.d.ts"
+  ],
+  "main": "miscord_mls.js",
+  "types": "miscord_mls.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

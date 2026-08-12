@@ -12,6 +12,8 @@ import authService from '../services/authService'
 import { consumePendingDirectMessage } from '../lib/dmNavigation'
 import { useDmNotificationStore } from '../store/dmNotificationStore'
 import { Modal } from './ui/modal'
+import { SecretDirectMessageArea } from './SecretDirectMessageArea'
+import { secretDmCrypto } from '../services/e2ee/secretDmCrypto'
 
 type Tab = 'online' | 'all' | 'pending' | 'blocked'
 
@@ -67,6 +69,7 @@ export function HomePageContent() {
   const [addFriendError, setAddFriendError] = useState('')
   const [selectedFriend, setSelectedFriend] = useState<User | null>(null)
   const [initialMessage, setInitialMessage] = useState<string | null>(null)
+  const [secretMode, setSecretMode] = useState(false)
   
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const setActiveDmView = useDmNotificationStore((state) => state.setActiveView);
@@ -91,6 +94,22 @@ export function HomePageContent() {
 
     getcurrentUser()
   }, [])
+
+  useEffect(() => {
+    if (!currentUser) return
+    const userId = currentUser.id
+    void secretDmCrypto.initialize(userId).catch(() => undefined)
+    return () => { void secretDmCrypto.close(userId) }
+  }, [currentUser?.id])
+
+  useEffect(() => {
+    if (!currentUser) return
+    const refresh = () => { void secretDmCrypto.refreshKeyPackage(currentUser.id).catch(() => undefined) }
+    websocketService.on('secret_dm_session', refresh)
+    return () => websocketService.off('secret_dm_session', refresh)
+  }, [currentUser?.id])
+
+  useEffect(() => { setSecretMode(false) }, [selectedFriend?.id])
 
   useEffect(() => {
     const openPendingDirectMessage = () => {
@@ -493,11 +512,14 @@ export function HomePageContent() {
 
       {/* Main content area */}
       <div className="app-home-detail flex h-full min-w-0 flex-1 flex-col bg-[#323339]">
-        {selectedFriend ? (
+        {selectedFriend && secretMode ? (
+          <SecretDirectMessageArea friend={selectedFriend} onClose={() => setSecretMode(false)} />
+        ) : selectedFriend ? (
           <DirectMessageArea
             friend={selectedFriend}
             initialMessage={initialMessage}
             onInitialMessageSent={() => setInitialMessage(null)}
+            onOpenSecret={() => setSecretMode(true)}
           />
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-center text-gray-400">

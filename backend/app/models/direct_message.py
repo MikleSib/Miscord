@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, List, Optional
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, LargeBinary
 from sqlalchemy.orm import relationship, Mapped
 from datetime import datetime
 from app.db.database import Base
@@ -17,6 +17,10 @@ class DirectMessage(Base):
 
     id: Mapped[int] = Column(Integer, primary_key=True, index=True)
     content: Mapped[Optional[str]] = Column(String, nullable=True)  # Nullable для поддержки отправки только фото
+    encryption_version = Column(Integer, nullable=False, default=0, server_default="0")
+    ciphertext = Column(LargeBinary, nullable=True)
+    secret_session_id = Column(String(36), ForeignKey("secret_dm_sessions.id", ondelete="SET NULL"), nullable=True)
+    sender_device_id = Column(String(36), nullable=True)
     timestamp: Mapped[datetime] = Column(DateTime, default=datetime.utcnow)
     reply_to_id: Mapped[Optional[int]] = Column(Integer, ForeignKey("direct_messages.id"), nullable=True)
     

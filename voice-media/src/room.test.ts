@@ -82,6 +82,7 @@ function claims(index: number): MediaClaims {
     session_id: `session-${index}`,
     room_epoch: 'epoch-1',
     username: `user-${index}`,
+    is_bot: true,
     protocol_version: 1,
   };
 }
@@ -271,7 +272,7 @@ describe('Room SFU limits', () => {
   it('never activity-pauses microphone consumers when the room has four or fewer producers', async () => {
     const room = await Room.create(500, 'epoch-1');
     const speakers = Array.from({ length: 4 }, (_, index) => addPeer(room, index));
-    const listener = addPeer(room, 20);
+    const listener = room.addPeer({ ...claims(20), is_bot: false }, socket());
     const producers: FakeProducer[] = [];
     const consumers: FakeConsumer[] = [];
 

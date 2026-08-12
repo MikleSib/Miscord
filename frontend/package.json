@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build --webpack",
+    "minify:mls": "node scripts/minify-mls.mjs",
     "start": "next start",
     "lint": "eslint src --max-warnings=1134",
     "test:voice": "vitest run src/services/__tests__/voiceVolume.test.ts src/services/__tests__/voiceSettings.test.ts src/services/voice/__tests__",

@@ -17,6 +17,7 @@ import { config } from './config.js';
 import { ConsumerPauseCoordinator } from './consumerPauseCoordinator.js';
 import { DirectTransportRegistry } from './directTransportRegistry.js';
 import { metrics } from './metrics.js';
+import { RoomE2ee } from './roomE2ee.js';
 import type { MediaClaims, MediaSource, ProducerDescriptor } from './types.js';
 import { workerPool } from './workerPool.js';
 
@@ -30,6 +31,7 @@ export interface Peer {
   selfMuted: boolean;
   serverMuted: boolean;
   serverDeafened: boolean;
+  e2eeCredentialId?: string;
 }
 
 function notify(socket: WebSocket, type: string, data: Record<string, unknown>): void {
@@ -52,6 +54,7 @@ export class Room extends EventEmitter {
   readonly directTransports: Map<string, DirectTransport>;
   private readonly directTransportRegistry: DirectTransportRegistry;
   private readonly audioObserver: AudioLevelObserver;
+  readonly e2ee: RoomE2ee;
   private readonly consumerPauses = new ConsumerPauseCoordinator();
   private observedMicrophones = new Set<string>();
   private externalMicrophones = new Map<string, number>();
@@ -83,6 +86,7 @@ export class Room extends EventEmitter {
     this.webRtcServer = webRtcServer;
     this.workerPid = workerPid;
     this.audioObserver = audioObserver;
+    this.e2ee = new RoomE2ee(channelId, epoch, this.peers);
     this.directTransportRegistry = new DirectTransportRegistry(
       router,
       (peer) => !this.closed && this.isCurrentPeer(peer),
@@ -168,6 +172,7 @@ export class Room extends EventEmitter {
           user_id: Number(peer.claims.sub),
           source: producer.appData.source as MediaSource,
           kind: producer.kind,
+          e2ee_sender: peer.e2eeCredentialId ?? '',
         });
       }
     }
@@ -235,6 +240,13 @@ export class Room extends EventEmitter {
       producer.close();
       throw new Error('Media session was replaced');
     }
+    const e2eeReady = peer.claims.is_bot
+      ? this.e2ee.isBotReady(peer.claims.session_id)
+      : this.e2ee.isReady(peer.claims.session_id);
+    if (!e2eeReady && !peer.claims.is_bot) {
+      producer.close();
+      throw new Error('MLS media keys are not active');
+    }
     if (peer.sourceProducers.has(source)) {
       producer.close();
       throw new Error(`${source} producer already exists`);
@@ -269,6 +281,10 @@ export class Room extends EventEmitter {
       ) {
         throw new Error('Media session was replaced');
       }
+      if (
+        this.e2ee.transitioning
+        || (peer.claims.is_bot && this.e2ee.hasMembers() && !e2eeReady)
+      ) await producer.pause();
     } catch (error) {
       producer.close();
       throw error;
@@ -278,6 +294,7 @@ export class Room extends EventEmitter {
       user_id: Number(peer.claims.sub),
       kind: producer.kind,
       source,
+      e2ee_sender: peer.e2eeCredentialId ?? '',
     }, peer.claims.session_id);
     this.emit('producerAvailable', producer, peer);
   }
@@ -349,7 +366,7 @@ export class Room extends EventEmitter {
 
   async setProducerSelfMuted(peer: Peer, producer: Producer, muted: boolean): Promise<void> {
     peer.selfMuted = muted;
-    if (muted || peer.serverMuted) await producer.pause();
+    if (muted || peer.serverMuted || this.e2ee.transitioning) await producer.pause();
     else await producer.resume();
   }
 
@@ -364,7 +381,7 @@ export class Room extends EventEmitter {
       const microphoneId = peer.sourceProducers.get('microphone');
       const microphone = microphoneId ? peer.producers.get(microphoneId) : undefined;
       if (microphone) {
-        if (peer.serverMuted || peer.selfMuted) await microphone.pause();
+        if (peer.serverMuted || peer.selfMuted || this.e2ee.transitioning) await microphone.pause();
         else await microphone.resume();
       }
     }
@@ -417,6 +434,8 @@ export class Room extends EventEmitter {
     for (const transport of peer.transports.values()) transport.close();
     this.directTransportRegistry.remove(sessionId, expectedPeer);
     this.peers.delete(sessionId);
+    if (peer.claims.is_bot) void this.e2ee.unregisterBot(sessionId).catch(() => undefined);
+    else void this.e2ee.unregister(sessionId).catch(() => undefined);
     metrics.peers.dec();
     this.broadcast('peer_closed', { user_id: Number(peer.claims.sub), session_id: sessionId });
     if (!suppressEmpty && this.peers.size === 0 && this.directTransports.size === 0) {
@@ -431,6 +450,7 @@ export class Room extends EventEmitter {
     if (this.activityRetryTimer) clearTimeout(this.activityRetryTimer);
     this.activityRetryTimer = undefined;
     this.activityRefresh.close();
+    this.e2ee.close();
     for (const sessionId of [...this.peers.keys()]) this.removePeer(sessionId);
     this.directTransportRegistry.close();
     this.audioObserver.close();

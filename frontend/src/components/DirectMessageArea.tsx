@@ -23,17 +23,20 @@ import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { DirectMessageComposer } from './DirectMessageComposer'
 import { AttachmentDropOverlay } from './AttachmentDropOverlay'
+import { DirectMessageHeader } from './DirectMessageHeader'
 
 interface DirectMessageAreaProps {
   friend: User
   initialMessage?: string | null
   onInitialMessageSent?: () => void
+  onOpenSecret: () => void
 }
 
 export function DirectMessageArea({
   friend,
   initialMessage = null,
   onInitialMessageSent,
+  onOpenSecret,
 }: DirectMessageAreaProps) {
   const [messages, setMessages] = useState<DirectMessage[]>([])
   const [newMessage, setNewMessage] = useState('')
@@ -444,13 +447,7 @@ export function DirectMessageArea({
       onDrop={handleDrop}
     >
       {isDraggingFiles && <AttachmentDropOverlay direct />}
-      {/* Top bar */}
-      <div className="flex items-center justify-between h-12 px-4 border-b border-[#2c2d32] shadow-md flex-shrink-0">
-        <div className="flex items-center">
-          <UserAvatar user={friend} />
-          <h2 className="text-white font-semibold ml-3">{friend.username}</h2>
-        </div>
-      </div>
+      <DirectMessageHeader friend={friend} onOpenSecret={onOpenSecret} />
 
       {/* Messages */}
       <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 chat-scroll">

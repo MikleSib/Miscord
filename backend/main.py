@@ -15,7 +15,7 @@ from sqlalchemy import delete, text, update
 from app.core.config import settings
 from app.core.metrics import record_http, refresh_runtime_gauges, route_label
 from app.db.database import engine
-from app.api import account_security, auth, registration, capabilities, channels, channel_categories, channel_permissions, community_forums, community_imports, community_notifications, community_polls, community_templates, community_threads, message_pins, message_search, message_state, safety, server_features, servers, uploads, reactions, friends, direct_messages, embeds, webhooks, attachment_files, bot_apps, bot_platform, bot_client, bot_oauth, miscord_api, miscord_gateway, miscord_interactions
+from app.api import account_security, auth, registration, capabilities, channels, channel_categories, channel_permissions, community_forums, community_imports, community_notifications, community_polls, community_templates, community_threads, e2ee_dms, message_pins, message_search, message_state, safety, server_features, servers, uploads, reactions, friends, direct_messages, embeds, webhooks, attachment_files, bot_apps, bot_platform, bot_client, bot_oauth, miscord_api, miscord_gateway, miscord_interactions
 from app.core.miscord_errors import MiscordAPIError
 from app.services.webhook_rate_limit import Bucket, consume, rate_headers
 from app.websocket.connection_manager import manager
@@ -257,6 +257,7 @@ app.include_router(uploads.router, prefix="/api/v1", tags=["uploads"])
 app.include_router(reactions.router, prefix="/api/v1", tags=["reactions"])
 app.include_router(friends.router, prefix="/api/v1/friends", tags=["friends"])
 app.include_router(direct_messages.router, prefix="/api/v1/dms", tags=["dms"])
+app.include_router(e2ee_dms.router, prefix="/api/v1/e2ee", tags=["e2ee"])
 app.include_router(embeds.router, prefix="/api/v1", tags=["embeds"])
 app.include_router(miscord_api.router, prefix="/api/v1", tags=["miscord-api-v1"])
 app.include_router(webhooks.router, prefix="/api/v1", tags=["webhooks"])

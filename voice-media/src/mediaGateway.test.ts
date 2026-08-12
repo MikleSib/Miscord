@@ -78,7 +78,9 @@ describe('media gateway RPC metrics', () => {
     vi.spyOn(rooms, 'acquire').mockReturnValue(pendingLease.promise);
     await attachGateway(gateway, socket);
 
-    socket.emit('message', Buffer.from(JSON.stringify({ type: 'identify', ticket: 'test' })));
+    socket.emit('message', Buffer.from(JSON.stringify({
+      type: 'identify', ticket: 'test', e2ee: { protocol_version: 1 },
+    })));
     await vi.waitFor(() => expect(ticketVerifier.verify).toHaveBeenCalledOnce());
     socket.emit('close', 1000);
     pendingLease.resolve({ room: { addPeer } as never, release });

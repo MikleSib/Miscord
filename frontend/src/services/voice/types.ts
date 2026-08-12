@@ -29,6 +29,7 @@ export interface ProducerDescriptor {
   user_id: number;
   source: MediaSource;
   kind: 'audio' | 'video';
+  e2ee_sender: string;
 }
 
 export interface RemoteMedia {

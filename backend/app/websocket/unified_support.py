@@ -25,6 +25,7 @@ from app.services.mentions import notify_message_mentions
 from app.services.message_notifications import notify_channel_message_activity
 from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
 from app.websocket.unified_dm import handle_dm_message, send_message_failure
+from app.websocket.unified_secret_dm import handle_secret_dm_message
 from app.websocket.group_voice import (
     join_voice as join_group_voice,
     leave_voice as leave_group_voice,

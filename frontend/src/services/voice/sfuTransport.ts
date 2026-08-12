@@ -3,6 +3,8 @@ import type { Consumer, Producer, Transport } from 'mediasoup-client/types';
 
 import { MediaRpcClient } from './mediaRpcClient';
 import type { MediaSource, ProducerDescriptor, RemoteMedia } from './types';
+import { VoiceE2EE } from './e2ee/voiceE2EE';
+import { useVoiceEncryptionStore } from '../../store/voiceEncryptionStore';
 
 type RemoteMediaHandler = (media: RemoteMedia) => void;
 type SpeakersHandler = (userIds: number[]) => void;
@@ -32,18 +34,33 @@ export class SfuTransport {
   private remoteMediaHandler?: RemoteMediaHandler;
   private speakersHandler?: SpeakersHandler;
   private failureHandler?: (message: string) => void;
+  private e2ee?: VoiceE2EE;
 
   async connect(
     url: string,
     ticket: string,
     microphoneTrack: MediaStreamTrack,
     initiallyMuted = false,
+    e2eeContext?: { userId: number; sessionId: string },
   ): Promise<void> {
     if (!this.microphoneGateInitialized) {
       this.microphoneGate.desired = initiallyMuted;
       this.microphoneGateInitialized = true;
     }
-    const identified = await this.rpc.connect(url, ticket);
+    let identified: any;
+    if (e2eeContext) {
+      const credentialId = `${e2eeContext.userId}:${e2eeContext.sessionId}`;
+      this.e2ee = new VoiceE2EE(this.rpc, credentialId);
+      this.e2ee.onFailure((message) => {
+        useVoiceEncryptionStore.getState().setError(message);
+        this.failureHandler?.(message);
+      });
+      this.e2ee.onEpochActive((code) => useVoiceEncryptionStore.getState().setActive(code));
+      identified = await this.rpc.connect(url, ticket, { e2ee: await this.e2ee.hello() });
+      await this.e2ee.activate(identified.e2ee);
+    } else {
+      identified = await this.rpc.connect(url, ticket);
+    }
     await this.device.load({ routerRtpCapabilities: identified.router_rtp_capabilities });
     this.bindNotifications();
     this.sendTransport = await this.createTransport('send');
@@ -54,7 +71,7 @@ export class SfuTransport {
       // Older WebKit builds may expose contentHint as read-only.
     }
     const producerTrack = microphoneTrack.clone();
-    producerTrack.enabled = !this.microphoneGate.desired;
+    producerTrack.enabled = false;
     this.pendingMicrophoneTrack = producerTrack;
     try { producerTrack.contentHint = 'speech'; } catch { /* Read-only in older WebKit. */ }
     try {
@@ -72,6 +89,7 @@ export class SfuTransport {
         },
         appData: { source: 'microphone' },
       });
+      this.e2ee?.protectSender(this.microphone.rtpSender, 'microphone');
     } catch (error) {
       producerTrack.stop();
       throw error;
@@ -82,7 +100,7 @@ export class SfuTransport {
       const gate = this.setMicrophoneMuted(true);
       producerTrack.enabled = true;
       await gate;
-    }
+    } else producerTrack.enabled = true;
     for (const descriptor of identified.producers as ProducerDescriptor[]) {
       this.producerDirectory.set(descriptor.producer_id, descriptor);
       if (descriptor.source === 'microphone') await this.consume(descriptor);
@@ -165,9 +183,13 @@ export class SfuTransport {
     await this.stopScreenShare();
     const videoTrack = stream.getVideoTracks()[0];
     if (!videoTrack) throw new Error('Screen video track is missing');
+    const protectedTracks: MediaStreamTrack[] = [];
     try {
+      const protectedVideoTrack = videoTrack.clone();
+      protectedTracks.push(protectedVideoTrack);
+      protectedVideoTrack.enabled = false;
       this.screenVideo = await this.sendTransport.produce({
-        track: videoTrack,
+        track: protectedVideoTrack,
         encodings: [
           { maxBitrate: 300_000, scaleResolutionDownBy: 4 },
           { maxBitrate: 1_200_000, scaleResolutionDownBy: 2 },
@@ -176,10 +198,15 @@ export class SfuTransport {
         codecOptions: { videoGoogleStartBitrate: 1_000 },
         appData: { source: 'screen-video' },
       });
+      this.e2ee?.protectSender(this.screenVideo.rtpSender, 'screen-video');
+      protectedVideoTrack.enabled = true;
       const audioTrack = stream.getAudioTracks()[0];
       if (audioTrack) {
+        const protectedAudioTrack = audioTrack.clone();
+        protectedTracks.push(protectedAudioTrack);
+        protectedAudioTrack.enabled = false;
         this.screenAudio = await this.sendTransport.produce({
-          track: audioTrack,
+          track: protectedAudioTrack,
           encodings: [{ maxBitrate: 160_000 }],
           codecOptions: {
             opusStereo: true,
@@ -190,9 +217,12 @@ export class SfuTransport {
           },
           appData: { source: 'screen-audio' },
         });
+        this.e2ee?.protectSender(this.screenAudio.rtpSender, 'screen-audio');
+        protectedAudioTrack.enabled = true;
       }
     } catch (error) {
       await this.stopScreenShare();
+      for (const track of protectedTracks) track.stop();
       throw error;
     }
     const videoProducer = this.screenVideo;
@@ -263,6 +293,9 @@ export class SfuTransport {
     this.recvTransport?.close();
     this.sendTransport = null;
     this.recvTransport = null;
+    this.e2ee?.close();
+    this.e2ee = undefined;
+    useVoiceEncryptionStore.getState().reset();
     this.rpc.close();
     this.microphone = null;
     this.microphoneGate = { desired: false, tail: Promise.resolve() };
@@ -358,6 +391,11 @@ export class SfuTransport {
         rtpParameters: result.rtp_parameters,
         appData: { source: result.source, userId: result.user_id },
       });
+      this.e2ee?.protectReceiver(
+        consumer.rtpReceiver,
+        descriptor.e2ee_sender,
+        descriptor.source,
+      );
       if (this.recvTransport !== transport || !this.producerDirectory.has(producerId)) {
         consumer.close();
         await this.rpc.request('close_consumer', { consumer_id: consumer.id }).catch(() => undefined);

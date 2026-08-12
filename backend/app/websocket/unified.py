@@ -218,6 +218,9 @@ async def websocket_unified_endpoint(
                     elif msg_type == "dm_message":
                         await handle_dm_message(user, message_data, db, manager)
 
+                    elif msg_type == "secret_dm_message":
+                        await handle_secret_dm_message(user, message_data, db, manager)
+
                     elif msg_type == "pong":
                         await user_activity_service.heartbeat_user(user.id, db)
 

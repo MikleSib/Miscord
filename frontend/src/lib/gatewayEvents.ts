@@ -25,6 +25,9 @@ export const GatewayEvents = {
   DM: 'dm',
   DM_DELETED: 'dm_deleted',
   DM_REACTION_UPDATED: 'dm_reaction_updated',
+  SECRET_DM: 'secret_dm',
+  SECRET_DM_SESSION: 'secret_dm_session',
+  SECRET_DM_SESSION_RESET: 'secret_dm_session_reset',
 
   SERVER_CREATED: 'server_created',
   SERVER_UPDATED: 'server_updated',
