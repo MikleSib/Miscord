@@ -150,7 +150,23 @@ api_code=$(curl -sS -o /dev/null --max-time 15 -w '%{http_code}' "$SMOKE_URL/api
 [[ "$oauth_code" == "200" ]] || { echo "public OAuth authorize page returned $oauth_code" >&2; exit 1; }
 [[ "$api_code" == "200" ]] || { echo "public API health returned $api_code" >&2; exit 1; }
 
-"${COMPOSE[@]}" exec -T -e MISCORD_GATEWAY_URL="$GATEWAY_URL" backend python - <<'PY'
+gateway_host=$(python3 -c 'import sys; from urllib.parse import urlparse; print(urlparse(sys.argv[1]).hostname or "")' "$GATEWAY_URL")
+if [[ -z "$gateway_host" ]]; then
+  echo "unable to determine Gateway host from MISCORD_GATEWAY_URL" >&2
+  exit 1
+fi
+
+# The backend service shares a Docker network alias with the public hostname.
+# Run the probe image on the host network so WSS reaches host TLS instead of
+# the internal HTTP-only Nginx listener.
+backend_probe_image=$("${COMPOSE[@]}" images -q backend | head -n 1)
+if [[ -z "$backend_probe_image" ]]; then
+  echo "unable to determine the backend image for Gateway probes" >&2
+  exit 1
+fi
+docker run --rm -i --network host \
+  -e MISCORD_GATEWAY_URL="$GATEWAY_URL" \
+  "$backend_probe_image" python - <<'PY'
 import asyncio
 import json
 import os
