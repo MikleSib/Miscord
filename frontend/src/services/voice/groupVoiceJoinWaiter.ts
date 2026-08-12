@@ -13,7 +13,7 @@ export class GroupVoiceJoinWaiter {
     this.reject(new Error('Новый вход в голосовой канал отменил предыдущий.'));
     return new Promise((resolve, reject) => {
       const timer = setTimeout(
-        () => this.reject(new Error('Медиасервис не ответил. Повторите подключение.')),
+        () => this.reject(new Error('Сервер не подтвердил вход в голосовой канал. Повторите подключение.')),
         10_000,
       );
       this.pending = { resolve, reject, timer };

@@ -80,14 +80,15 @@ export class GroupVoiceController {
       : snapshot;
     this.applyRuntimeSettings(this.settings);
     this.currentChannelId = channelId;
-    const joined = this.joinWaiter.wait();
-    unifiedWebSocketService.joinVoiceChannel(channelId, this.isMuted, this.isDeafened);
     const microphone = this.prepareMicrophone(assertCurrent).then(
       (input) => ({ ok: true as const, input }),
       (error) => ({ ok: false as const, error }),
     );
 
     try {
+      await unifiedWebSocketService.waitUntilReady(); assertCurrent();
+      unifiedWebSocketService.joinVoiceChannel(channelId, this.isMuted, this.isDeafened);
+      const joined = this.joinWaiter.wait();
       const payload = await joined;
       assertCurrent();
 

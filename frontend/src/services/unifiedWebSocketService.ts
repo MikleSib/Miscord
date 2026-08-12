@@ -1,14 +1,10 @@
-/**
- * Унифицированный WebSocket сервис для всего приложения
- * Единое соединение для: чатов, голоса, уведомлений, P2P звонков
- */
-
 import { Message } from '../types';
 import { ConnectionStatus, UNIFIED_WS_URL, UnifiedWebSocketHandler as Handler } from './unifiedWebSocketTypes'
+import { UnifiedWebSocketReadiness } from './unifiedWebSocketReadiness';
 
 export type { ConnectionStatus } from './unifiedWebSocketTypes'
 
-class UnifiedWebSocketService {
+export class UnifiedWebSocketService {
   private ws: WebSocket | null = null;
   private reconnectAttempts = 0; private maxReconnectAttempts = 60;
   private reconnectDelay = 1000; private listeners: Map<string, Set<Handler>> = new Map();
@@ -20,23 +16,19 @@ class UnifiedWebSocketService {
   private shouldReconnect = true;
   private seenEventIds = new Set<string>();
   private channelSubscriptions = new Set<number>();
+  private readonly readiness = new UnifiedWebSocketReadiness();
 
-  /**
-   * Подключение к WebSocket серверу
-   */
   public connect(token: string): void {
     if (typeof window === 'undefined') return;
 
     this.token = token;
     this.shouldReconnect = true;
 
-    // Если уже подключены, не переподключаемся
     if (this.ws?.readyState === WebSocket.OPEN) {
       console.log('[UnifiedWS] Уже подключен');
       return;
     }
 
-    // Если идет попытка подключения, не делаем еще одну
     if (this.ws?.readyState === WebSocket.CONNECTING) {
       console.log('[UnifiedWS] Подключение уже в процессе');
       return;
@@ -44,6 +36,7 @@ class UnifiedWebSocketService {
 
     this.isReconnecting = true;
     this.lastError = null;
+    this.readiness.markUnavailable();
     this.notifyConnectionStatus();
 
     try {
@@ -58,24 +51,16 @@ class UnifiedWebSocketService {
     }
   }
 
-  /**
-   * Настройка обработчиков WebSocket событий
-   */
   private setupWebSocketHandlers(): void {
     if (!this.ws) return;
 
     this.ws.onopen = () => {
       console.log('[UnifiedWS] ✅ Соединение установлено');
-      this.reconnectAttempts = 0;
-      this.isReconnecting = false;
       this.lastError = null;
       this.missedHeartbeats = 0;
       this.notifyConnectionStatus();
       this.startHeartbeat();
       this.send({ type: 'identify', token: this.token });
-      for (const textChannelId of this.channelSubscriptions) {
-        this.send({ type: 'subscribe_channel', text_channel_id: textChannelId });
-      }
     };
 
     this.ws.onmessage = (event) => {
@@ -97,6 +82,17 @@ class UnifiedWebSocketService {
           return;
         }
 
+        if (data.type === 'identified' && data.protocol_version === 1) {
+          this.readiness.markReady();
+          this.reconnectAttempts = 0;
+          this.isReconnecting = false;
+          this.lastError = null;
+          for (const textChannelId of this.channelSubscriptions) {
+            this.send({ type: 'subscribe_channel', text_channel_id: textChannelId });
+          }
+          this.notifyConnectionStatus();
+        }
+
         console.log('[UnifiedWS] 📨 Получено:', data.type);
         this.emit(data.type, data);
       } catch (error) {
@@ -108,6 +104,7 @@ class UnifiedWebSocketService {
 
     this.ws.onclose = (event) => {
       console.log('[UnifiedWS] 🔌 Соединение закрыто:', event.code, event.reason);
+      this.readiness.markUnavailable();
       this.isReconnecting = false;
       this.lastError = event.reason || 'Соединение закрыто';
       this.notifyConnectionStatus();
@@ -120,15 +117,13 @@ class UnifiedWebSocketService {
 
     this.ws.onerror = (error) => {
       console.error('[UnifiedWS] ❌ Ошибка WebSocket:', error);
+      this.readiness.markUnavailable();
       this.lastError = 'Ошибка соединения';
       this.isReconnecting = false;
       this.notifyConnectionStatus();
     };
   }
 
-  /**
-   * Запуск heartbeat для поддержания соединения
-   */
   private startHeartbeat(): void {
     this.stopHeartbeat();
 
@@ -184,6 +179,7 @@ class UnifiedWebSocketService {
     } else {
       this.isReconnecting = false;
       this.lastError = 'Превышено максимальное количество попыток переподключения';
+      this.readiness.fail(new Error('Не удалось восстановить соединение с сервером.'));
       this.notifyConnectionStatus();
     }
   }
@@ -287,6 +283,7 @@ class UnifiedWebSocketService {
   public disconnect(): void {
     this.shouldReconnect = false;
     this.stopHeartbeat();
+    this.readiness.fail(new Error('Соединение с сервером закрыто.'));
 
     if (this.ws) {
       this.ws.close(1000, 'Client disconnect');
@@ -314,8 +311,10 @@ class UnifiedWebSocketService {
    * Проверка состояния соединения
    */
   public isConnected(): boolean {
-    return this.ws?.readyState === WebSocket.OPEN;
+    return this.ws?.readyState === WebSocket.OPEN && this.readiness.isReady;
   }
+
+  public waitUntilReady(timeoutMs = 30_000): Promise<void> { return this.readiness.wait(timeoutMs); }
 
   /**
    * Получение текущего статуса
@@ -369,12 +368,13 @@ class UnifiedWebSocketService {
    * Присоединение к голосовому каналу
    */
   public joinVoiceChannel(voiceChannelId: number, isMuted = false, isDeafened = false): void {
-    this.send({
+    const sent = this.send({
       type: 'join_voice',
       voice_channel_id: voiceChannelId,
       is_muted: isMuted,
       is_deafened: isDeafened,
     });
+    if (!sent) throw new Error('Соединение с сервером восстанавливается. Повторите подключение.');
   }
 
   /**

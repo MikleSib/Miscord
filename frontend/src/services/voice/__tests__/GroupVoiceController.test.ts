@@ -48,7 +48,7 @@ vi.mock('../../unifiedWebSocketService', () => ({
     on: vi.fn((type, handler) => mocks.handlers.set(type, handler)),
     onUserJoinedVoice: vi.fn(), onUserLeftVoice: vi.fn(), onUserMuted: vi.fn(),
     onUserDeafened: vi.fn(), onUserSpeaking: vi.fn(), onScreenShareStarted: vi.fn(),
-    onScreenShareStopped: vi.fn(), joinVoiceChannel: mocks.join, leaveVoiceChannel: mocks.leave,
+    onScreenShareStopped: vi.fn(), joinVoiceChannel: mocks.join, leaveVoiceChannel: mocks.leave, waitUntilReady: vi.fn(async () => undefined),
     updateSpeakingStatus: vi.fn(), updateMuteStatus: vi.fn(), updateDeafenStatus: vi.fn(),
     startScreenShare: vi.fn(), stopScreenShare: vi.fn(), send: vi.fn(() => true),
   },

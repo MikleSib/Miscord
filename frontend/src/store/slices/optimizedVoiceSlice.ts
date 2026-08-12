@@ -89,9 +89,8 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
       if (!unifiedWebSocketService.isConnected()) {
         console.log('[OptimizedVoiceSlice] Unified WebSocket не подключен, подключаемся...');
         unifiedWebSocketService.connect(token);
-        // Даем время на подключение
-        await new Promise(resolve => setTimeout(resolve, 500));
       }
+      await unifiedWebSocketService.waitUntilReady();
 
       // Настраиваем обработчики событий ПЕРЕД подключением
       optimizedVoiceService.onParticipantJoined((participant) => {
