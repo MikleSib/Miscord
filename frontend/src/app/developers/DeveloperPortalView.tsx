@@ -60,7 +60,7 @@ export function DeveloperPortalView({ model }: { model: any }) {
   return (
     <main className="developer-portal min-h-[100dvh] bg-[#1e1f22] text-[#f2f3f5]">
       <header className="developer-portal__header sticky top-0 z-20 flex min-h-14 items-center gap-3 border-b border-white/10 bg-[#1e1f22]/95 px-4 backdrop-blur md:px-7">
-        <button onClick={() => router.push('/')} className="grid h-11 w-11 place-items-center rounded-xl text-[#b5bac1] hover:bg-white/10 hover:text-white" aria-label="Вернуться в Miscord">
+        <button onClick={() => router.push('/app')} className="grid h-11 w-11 place-items-center rounded-xl text-[#b5bac1] hover:bg-white/10 hover:text-white" aria-label="Вернуться в Miscord">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div className="grid h-10 w-10 place-items-center rounded-xl bg-[#5865f2] shadow-lg shadow-[#5865f2]/20">

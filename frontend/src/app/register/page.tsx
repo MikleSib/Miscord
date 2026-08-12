@@ -43,7 +43,7 @@ export default function RegisterPage() {
     const restoreSession = async () => {
       try {
         await authService.restoreSession()
-        if (active) router.replace('/')
+        if (active) router.replace('/app')
       } catch {
         useAuthStore.getState().logout()
       } finally {

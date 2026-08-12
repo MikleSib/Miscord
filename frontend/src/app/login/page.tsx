@@ -10,7 +10,7 @@ import authService from '../../services/authService'
 
 /** Разрешаем только внутренние пути вида `/invite/abc`, без внешних URL. */
 function safeRedirectPath(value: string | null): string {
-  if (!value || !value.startsWith('/') || value.startsWith('//')) return '/'
+  if (!value || !value.startsWith('/') || value.startsWith('//')) return '/app'
   return value
 }
 

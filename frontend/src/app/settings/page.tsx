@@ -337,7 +337,7 @@ export default function SettingsPage() {
           {activeTab === 'hotkeys' && <HotkeysSettings />}
           {activeTab === 'accessibility' && <AccessibilitySettings />}
           {activeTab === 'security' && <SecuritySettings />}
-          {activeTab === 'saved' && <SavedMessagesSettings onNavigate={() => router.push('/')} />}
+          {activeTab === 'saved' && <SavedMessagesSettings onNavigate={() => router.push('/app')} />}
         </div>
       </div>
     </div>

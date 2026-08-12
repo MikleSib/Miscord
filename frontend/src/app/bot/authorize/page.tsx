@@ -75,7 +75,7 @@ function AuthorizationContent() {
           {loading && <div className="flex min-h-48 items-center justify-center text-[#b5bac1]"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Загружаем приложение...</div>}
           {!loading && error && <div className="mb-4 rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-300">{error}</div>}
           {!loading && installed && preview && (
-            <div className="py-8 text-center"><CheckCircle2 className="mx-auto mb-3 h-12 w-12 text-[#53d487]" /><h2 className="text-xl font-bold">{preview.application.name} установлен</h2><button onClick={() => router.push('/')} className="mt-6 min-h-11 rounded-xl bg-[#5865f2] px-5 font-bold hover:bg-[#4752c4]">Вернуться в Miscord</button></div>
+            <div className="py-8 text-center"><CheckCircle2 className="mx-auto mb-3 h-12 w-12 text-[#53d487]" /><h2 className="text-xl font-bold">{preview.application.name} установлен</h2><button onClick={() => router.push('/app')} className="mt-6 min-h-11 rounded-xl bg-[#5865f2] px-5 font-bold hover:bg-[#4752c4]">Вернуться в Miscord</button></div>
           )}
           {!loading && !installed && preview && (
             <div className="space-y-5">
@@ -83,7 +83,7 @@ function AuthorizationContent() {
               <div><label className="mb-2 block text-xs font-bold uppercase tracking-wider text-[#b5bac1]">Добавить на сервер</label><select value={serverId ?? ''} onChange={(event) => setServerId(Number(event.target.value))} className="min-h-12 w-full rounded-xl border border-white/10 bg-[#1e1f22] px-3 outline-none focus:border-[#5865f2]"><option value="" disabled>Выберите сервер</option>{preview.servers.map((server) => <option key={server.id} value={server.id} disabled={!server.can_grant}>{server.name}{server.already_installed ? ' (уже установлен)' : ''}{!server.can_grant ? ' (недостаточно прав)' : ''}</option>)}</select></div>
               <div className="rounded-2xl border border-white/10 p-4"><div className="mb-3 flex items-center gap-2 font-bold"><ShieldCheck className="h-5 w-5 text-[#53d487]" /> Запрашиваемые права</div>{preview.permission_names.length ? <ul className="space-y-2 text-sm text-[#b5bac1]">{preview.permission_names.map((name) => <li key={name}>• {name}</li>)}</ul> : <p className="text-sm text-[#949ba4]">Специальные права не запрашиваются.</p>}</div>
               {!preview.servers.length && <p className="rounded-xl bg-[#1e1f22] p-3 text-sm text-[#b5bac1]">Нет серверов, которыми вы можете управлять.</p>}
-              <div className="flex gap-3"><button onClick={() => router.push('/')} className="min-h-12 flex-1 rounded-xl bg-[#4e5058] font-bold hover:bg-[#5d6069]">Отмена</button><button disabled={!serverId || submitting} onClick={authorize} className="min-h-12 flex-1 rounded-xl bg-[#5865f2] font-bold hover:bg-[#4752c4] disabled:cursor-not-allowed disabled:opacity-50">{submitting ? 'Авторизация...' : 'Авторизовать'}</button></div>
+              <div className="flex gap-3"><button onClick={() => router.push('/app')} className="min-h-12 flex-1 rounded-xl bg-[#4e5058] font-bold hover:bg-[#5d6069]">Отмена</button><button disabled={!serverId || submitting} onClick={authorize} className="min-h-12 flex-1 rounded-xl bg-[#5865f2] font-bold hover:bg-[#4752c4] disabled:cursor-not-allowed disabled:opacity-50">{submitting ? 'Авторизация...' : 'Авторизовать'}</button></div>
             </div>
           )}
         </div>

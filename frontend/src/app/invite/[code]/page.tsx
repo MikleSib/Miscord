@@ -79,7 +79,7 @@ export default function InvitePage() {
     setError('')
     try {
       await serverService.acceptInvite(code)
-      router.replace('/')
+      router.replace('/app')
     } catch (joinError: any) {
       console.error('Ошибка присоединения по приглашению:', joinError)
       setError(joinError.response?.data?.detail || 'Не удалось присоединиться к серверу')
@@ -109,7 +109,7 @@ export default function InvitePage() {
           </p>
           <button
             type="button"
-            onClick={() => router.replace('/')}
+            onClick={() => router.replace('/app')}
             className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
           >
             На главную
@@ -183,7 +183,7 @@ export default function InvitePage() {
         ) : preview.is_member ? (
           <button
             type="button"
-            onClick={() => router.replace('/')}
+            onClick={() => router.replace('/app')}
             className="w-full rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
           >
             Вы уже участник — открыть сервер

@@ -57,8 +57,8 @@ function createWindow() {
   console.log('isDev:', isDev);
   
   // Всегда загружаем сайт miscord.ru (не локальные файлы)
-  console.log('Загружаем https://miscord.ru/');
-  mainWindow.loadURL('https://miscord.ru/');
+  console.log('Загружаем https://miscord.ru/app/');
+  mainWindow.loadURL('https://miscord.ru/app/');
 
   // Показываем окно когда оно готово
   mainWindow.once('ready-to-show', () => {

@@ -73,7 +73,7 @@ test('community shell, threads, forum and inbox work across desktop and mobile',
   await page.getByPlaceholder('Ваш логин').fill(account.username)
   await page.getByPlaceholder('Введите пароль').fill(account.password)
   await page.getByRole('button', { name: 'Войти' }).click()
-  await expect(page).toHaveURL(/\/$/)
+  await expect(page).toHaveURL(/\/app\/?$/)
 
   await expect(page.getByRole('button', { name: account.serverName })).toBeVisible()
   await page.getByRole('button', { name: account.serverName }).click()

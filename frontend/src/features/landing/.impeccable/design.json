@@ -1,0 +1,323 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-12T19:40:37.3415211+07:00",
+  "title": "Design System: Miscord Public Landing",
+  "extensions": {
+    "colorMeta": {
+      "community-cobalt": {
+        "role": "primary",
+        "displayName": "Community Cobalt",
+        "canonical": "#5865f2",
+        "tonalRamp": [
+          "oklch(15% 0.08 277)",
+          "oklch(26% 0.12 277)",
+          "oklch(38% 0.16 277)",
+          "oklch(50% 0.20 277)",
+          "oklch(62% 0.22 277)",
+          "oklch(73% 0.17 277)",
+          "oklch(84% 0.10 277)",
+          "oklch(95% 0.03 277)"
+        ]
+      },
+      "community-cobalt-hover": {
+        "role": "primary",
+        "displayName": "Lifted Cobalt",
+        "canonical": "#6975f5",
+        "tonalRamp": [
+          "oklch(15% 0.07 276)",
+          "oklch(26% 0.11 276)",
+          "oklch(38% 0.15 276)",
+          "oklch(50% 0.18 276)",
+          "oklch(62% 0.19 276)",
+          "oklch(73% 0.15 276)",
+          "oklch(84% 0.09 276)",
+          "oklch(95% 0.03 276)"
+        ]
+      },
+      "night-ink": {
+        "role": "neutral",
+        "displayName": "Night Ink",
+        "canonical": "#090d25",
+        "tonalRamp": [
+          "oklch(15% 0.04 273)",
+          "oklch(26% 0.05 273)",
+          "oklch(38% 0.05 273)",
+          "oklch(50% 0.04 273)",
+          "oklch(62% 0.035 273)",
+          "oklch(73% 0.028 273)",
+          "oklch(84% 0.02 273)",
+          "oklch(95% 0.01 273)"
+        ]
+      },
+      "evening-field": {
+        "role": "neutral",
+        "displayName": "Evening Field",
+        "canonical": "#12183d",
+        "tonalRamp": [
+          "oklch(15% 0.05 273)",
+          "oklch(26% 0.07 273)",
+          "oklch(38% 0.07 273)",
+          "oklch(50% 0.06 273)",
+          "oklch(62% 0.05 273)",
+          "oklch(73% 0.04 273)",
+          "oklch(84% 0.025 273)",
+          "oklch(95% 0.01 273)"
+        ]
+      },
+      "product-panel": {
+        "role": "neutral",
+        "displayName": "Product Panel",
+        "canonical": "#171b30",
+        "tonalRamp": [
+          "oklch(15% 0.025 273)",
+          "oklch(26% 0.04 273)",
+          "oklch(38% 0.04 273)",
+          "oklch(50% 0.035 273)",
+          "oklch(62% 0.03 273)",
+          "oklch(73% 0.025 273)",
+          "oklch(84% 0.018 273)",
+          "oklch(95% 0.008 273)"
+        ]
+      },
+      "off-white": {
+        "role": "neutral",
+        "displayName": "Screen White",
+        "canonical": "#f7f8ff",
+        "tonalRamp": [
+          "oklch(15% 0.004 277)",
+          "oklch(26% 0.005 277)",
+          "oklch(38% 0.006 277)",
+          "oklch(50% 0.007 277)",
+          "oklch(62% 0.008 277)",
+          "oklch(73% 0.009 277)",
+          "oklch(84% 0.01 277)",
+          "oklch(95% 0.01 277)"
+        ]
+      },
+      "cobalt-mist": {
+        "role": "neutral",
+        "displayName": "Cobalt Mist",
+        "canonical": "#c8cdf5",
+        "tonalRamp": [
+          "oklch(15% 0.018 276)",
+          "oklch(26% 0.026 276)",
+          "oklch(38% 0.034 276)",
+          "oklch(50% 0.042 276)",
+          "oklch(62% 0.048 276)",
+          "oklch(73% 0.05 276)",
+          "oklch(84% 0.045 276)",
+          "oklch(95% 0.018 276)"
+        ]
+      },
+      "focus-lavender": {
+        "role": "primary",
+        "displayName": "Focus Lavender",
+        "canonical": "#aeb5ff",
+        "tonalRamp": [
+          "oklch(15% 0.035 275)",
+          "oklch(26% 0.055 275)",
+          "oklch(38% 0.075 275)",
+          "oklch(50% 0.095 275)",
+          "oklch(62% 0.11 275)",
+          "oklch(73% 0.105 275)",
+          "oklch(84% 0.08 275)",
+          "oklch(95% 0.025 275)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "hero-display": {
+        "displayName": "Hero Display",
+        "purpose": "The two-line first-viewport promise."
+      },
+      "section-display": {
+        "displayName": "Section Display",
+        "purpose": "The two-line handoff from the evening scene into product proof."
+      },
+      "lead": {
+        "displayName": "Lead",
+        "purpose": "Short explanatory copy beneath the hero promise."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "The supporting explanation beside the second-section display."
+      },
+      "label": {
+        "displayName": "Action Label",
+        "purpose": "Navigation and pill actions."
+      },
+      "micro-label": {
+        "displayName": "Demo Label",
+        "purpose": "Provenance and grouping inside compact product surfaces."
+      }
+    },
+    "shadows": [
+      {
+        "name": "primary-action-lift",
+        "value": "0 14px 34px rgba(25, 34, 143, 0.3)",
+        "purpose": "Resting lift for the cobalt registration action."
+      },
+      {
+        "name": "primary-action-hover",
+        "value": "0 18px 38px rgba(25, 34, 143, 0.36)",
+        "purpose": "Fine-pointer hover lift for the cobalt registration action."
+      },
+      {
+        "name": "voice-proof-float",
+        "value": "0 20px 54px rgba(0, 0, 0, 0.34)",
+        "purpose": "Separates the translucent live-room proof from the photograph."
+      },
+      {
+        "name": "desktop-stage",
+        "value": "0 38px 90px rgba(1, 4, 22, 0.38)",
+        "purpose": "Grounds the full Living Desktop silhouette on the cobalt field."
+      }
+    ],
+    "motion": [
+      {
+        "name": "landing-expressive-ease",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Hero entrances and physical button movement."
+      },
+      {
+        "name": "photo-settle",
+        "value": "1400ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Moves the photograph from a slightly enlarged, muted state into place."
+      },
+      {
+        "name": "copy-enter",
+        "value": "760ms 80ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Reveals the promise upward after the photograph begins to settle."
+      },
+      {
+        "name": "proof-enter",
+        "value": "800ms 170ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Brings the voice proof in after the message is readable."
+      },
+      {
+        "name": "interaction-fast",
+        "value": "160ms",
+        "purpose": "Button translation, navigation color, and skip-link movement."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "compact",
+        "value": "520px"
+      },
+      {
+        "name": "mobile",
+        "value": "820px"
+      },
+      {
+        "name": "reduced-desktop-proof",
+        "value": "1060px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Account Action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The cobalt registration action used beneath the first-viewport promise.",
+      "html": "<a class=\"ds-primary-action\" href=\"#\">Создать аккаунт <svg viewBox=\"0 0 24 24\" width=\"19\" height=\"19\" aria-hidden=\"true\"><path d=\"M5 12h14M13 6l6 6-6 6\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></a>",
+      "css": ".ds-primary-action { display: inline-flex; min-height: 52px; align-items: center; justify-content: center; gap: 10px; padding: 0 25px; border-radius: 999px; color: #f7f8ff; background: #5865f2; box-shadow: 0 14px 34px rgba(25,34,143,.3); font: 800 14px/1.2 Manrope, sans-serif; text-decoration: none; transition: transform 160ms cubic-bezier(.16,1,.3,1), background-color 180ms ease-out, box-shadow 180ms ease-out; } .ds-primary-action:hover { transform: translateY(-2px); background: #6975f5; box-shadow: 0 18px 38px rgba(25,34,143,.36); } .ds-primary-action:active { transform: scale(.97); } .ds-primary-action:focus-visible { outline: 3px solid #aeb5ff; outline-offset: 4px; }"
+    },
+    {
+      "name": "Light Login Action",
+      "kind": "button",
+      "refersTo": "button-light",
+      "description": "The compact inverse action in the header.",
+      "html": "<a class=\"ds-light-action\" href=\"#\">Войти</a>",
+      "css": ".ds-light-action { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; padding: 0 22px; border-radius: 999px; color: #090d25; background: #f7f8ff; font: 800 14px/1.2 Manrope, sans-serif; text-decoration: none; transition: transform 160ms cubic-bezier(.16,1,.3,1), background-color 180ms ease-out; } .ds-light-action:hover { transform: translateY(-2px); background: #e7e9ff; } .ds-light-action:active { transform: scale(.97); } .ds-light-action:focus-visible { outline: 3px solid #aeb5ff; outline-offset: 4px; }"
+    },
+    {
+      "name": "Header Navigation",
+      "kind": "nav",
+      "description": "The centered pair of secondary routes that sits between the brand and login action on desktop.",
+      "html": "<nav class=\"ds-header-nav\" aria-label=\"Основная навигация\"><a href=\"#\">Возможности</a><a href=\"#\">Разработчикам</a></nav>",
+      "css": ".ds-header-nav { display: flex; align-items: center; gap: 30px; font-family: Manrope, sans-serif; } .ds-header-nav a { color: rgba(247,248,255,.82); font-size: 14px; font-weight: 700; text-decoration: none; transition: color 160ms ease-out; } .ds-header-nav a:hover { color: #f7f8ff; } .ds-header-nav a:focus-visible { outline: 3px solid #aeb5ff; outline-offset: 4px; }"
+    },
+    {
+      "name": "Live Status Chip",
+      "kind": "chip",
+      "description": "A quiet green semantic chip used only to show that the demonstrated room is live.",
+      "html": "<span class=\"ds-live-status\">в эфире</span>",
+      "css": ".ds-live-status { display: inline-flex; align-items: center; padding: 5px 9px; border-radius: 999px; color: #c6f7d4; background: rgba(54,196,103,.19); font: 800 11px/1.2 Manrope, sans-serif; }"
+    },
+    {
+      "name": "Voice Room Proof",
+      "kind": "card",
+      "refersTo": "voice-room-proof",
+      "description": "The translucent first-viewport proof that connects the photographed evening to a live Miscord room.",
+      "html": "<article class=\"ds-voice-proof\"><span class=\"ds-demo-label\">Демо</span><div class=\"ds-voice-title\"><strong>◉ После работы</strong><span class=\"ds-live-status\">в эфире</span></div><div class=\"ds-people\"><span style=\"background:#ffb86b\">М</span><span style=\"background:#73d2ff\">А</span><span style=\"background:#f49ac2\">К</span><span style=\"background:#9fe870\">И</span><small>4 в комнате</small></div><div class=\"ds-voice-controls\"><span>◉ Микрофон включён</span><b>◌</b></div></article>",
+      "css": ".ds-voice-proof { width: 352px; padding: 19px; border-radius: 16px; color: #f7f8ff; background: rgba(10,15,40,.82); box-shadow: 0 20px 54px rgba(0,0,0,.34); backdrop-filter: blur(18px) saturate(1.2); font-family: Manrope, sans-serif; } .ds-demo-label { color: rgba(224,228,255,.58); font-size: 10px; font-weight: 800; letter-spacing: .11em; text-transform: uppercase; } .ds-voice-title { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 10px; font-size: 14px; } .ds-live-status { padding: 5px 9px; border-radius: 999px; color: #c6f7d4; background: rgba(54,196,103,.19); font-size: 11px; font-weight: 800; } .ds-people { display: flex; align-items: center; margin-top: 18px; } .ds-people > span { display: grid; width: 36px; height: 36px; place-items: center; margin-right: -7px; border: 3px solid #11162d; border-radius: 50%; color: #101324; font-size: 12px; font-weight: 900; } .ds-people small { margin-left: 18px; color: rgba(230,233,255,.7); font-size: 12px; } .ds-voice-controls { display: flex; min-height: 46px; align-items: center; justify-content: space-between; margin-top: 18px; padding: 0 8px 0 13px; border-radius: 12px; color: rgba(241,243,255,.88); background: rgba(247,248,255,.09); font-size: 12px; font-weight: 700; } .ds-voice-controls b { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 9px; background: rgba(247,248,255,.1); } @media (prefers-reduced-transparency: reduce) { .ds-voice-proof { background: #11162d; backdrop-filter: none; } }"
+    },
+    {
+      "name": "Living Desktop Stage",
+      "kind": "custom",
+      "refersTo": "living-desktop",
+      "description": "One continuous dark desktop that demonstrates channels, conversation, voice, and screen sharing together.",
+      "html": "<section class=\"ds-desktop\"><header><strong><i>M</i> Miscord</strong><span>Демо интерфейса</span></header><div class=\"ds-desktop-grid\"><aside><b>Вечерний клуб</b><small>ТЕКСТОВЫЕ КАНАЛЫ</small><mark># общий</mark><span># игровые-находки</span><small>ГОЛОСОВЫЕ КАНАЛЫ</small><span>◉ После работы</span></aside><main><h4># общий</h4><p><b>Кира</b><br>Я создала комнату. Кто сегодня в кооп?</p><p><b>Макс</b><br>Уже захожу. Закинь экран.</p><div>Написать в #общий</div></main><aside class=\"ds-activity\"><small>СЕЙЧАС ВМЕСТЕ</small><strong>▣<br>Макс делится экраном</strong><span>● Голос подключён</span></aside></div></section>",
+      "css": ".ds-desktop { width: min(100%, 900px); overflow: hidden; border-radius: 16px; color: #e8eafa; background: #171b30; box-shadow: 0 38px 90px rgba(1,4,22,.38); font-family: Manrope, sans-serif; } .ds-desktop > header { display: flex; height: 48px; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid #303449; background: #15182a; font-size: 10px; font-weight: 800; letter-spacing: .11em; text-transform: uppercase; } .ds-desktop header strong { display: inline-flex; align-items: center; gap: 9px; font-size: 12px; letter-spacing: 0; text-transform: none; } .ds-desktop header i { display: grid; width: 27px; height: 27px; place-items: center; border-radius: 9px; color: #f7f8ff; background: #5865f2; font-style: normal; font-weight: 900; } .ds-desktop-grid { display: grid; grid-template-columns: 190px minmax(300px,1fr) 200px; min-height: 360px; } .ds-desktop-grid aside { display: flex; flex-direction: column; gap: 9px; padding: 18px 14px; background: #1d2030; color: #a3a8bf; font-size: 12px; } .ds-desktop-grid aside small { margin-top: 8px; color: #787e97; font-size: 9px; font-weight: 800; letter-spacing: .08em; } .ds-desktop-grid mark { padding: 7px 8px; border-radius: 7px; color: #f7f8ff; background: #343748; } .ds-desktop-grid main { padding: 0 18px 18px; background: #242737; } .ds-desktop-grid main h4 { margin: 0 -18px 28px; padding: 16px 19px; border-bottom: 1px solid #303449; font-size: 13px; } .ds-desktop-grid main p { margin: 20px 0; color: #c8cbdc; font-size: 12px; line-height: 1.45; } .ds-desktop-grid main p b { color: #f2f3fa; } .ds-desktop-grid main div { margin-top: 28px; padding: 14px; border-radius: 10px; color: #858aa3; background: #373a4b; font-size: 11px; } .ds-desktop-grid .ds-activity { border-left: 1px solid #303449; } .ds-activity strong { display: grid; min-height: 140px; place-items: center; padding: 17px; border-radius: 12px; color: #e3e5f5; background: #313caa; text-align: center; font-size: 11px; } .ds-activity span { padding: 12px; border-radius: 10px; color: #78d89b; background: #2a2e3e; font-size: 10px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Shared Evening",
+    "overview": "The public landing is a Persuade surface built as an inhabited evening, not a software catalogue. A full-bleed photograph supplies the first emotional fact: people are already together. Large off-white Russian type states the promise on the left, while a compact translucent voice room on the right proves that the scene belongs to Miscord.\n\nThe second act moves from photography into a deep cobalt field and a dense, dark product stage. It shows text, voice, presence, and screen sharing in one composed desktop rather than splitting them into generic feature cards. The product surfaces are synthetic demonstrations and must remain clearly labeled as demos; the design makes no customer, scale, or performance claims.",
+    "keyCharacteristics": [
+      "Full-bleed night photography with directional darkening for readable type.",
+      "Oversized, tightly led Manrope display copy paired with compact product typography.",
+      "One cobalt action color against off-white type and near-black navy fields.",
+      "A floating live-room proof followed by a wide, layered desktop proof.",
+      "Pill actions, softly rounded dark surfaces, and physical but restrained motion."
+    ],
+    "rules": [
+      {
+        "name": "The One Cobalt Rule",
+        "body": "Cobalt marks brand, primary action, or an active product state; do not introduce a second decorative accent.",
+        "section": "colors"
+      },
+      {
+        "name": "The Night Stays Blue Rule",
+        "body": "Dark surfaces remain navy and cobalt-derived. Neutral black or gray may appear inside the compact product demo, but must not replace the landing's blue atmosphere.",
+        "section": "colors"
+      },
+      {
+        "name": "The Two-Line Promise Rule",
+        "body": "Keep the hero and section statements short enough to preserve their authored two-line composition; do not turn the landing into a stack of marketing paragraphs.",
+        "section": "typography"
+      },
+      {
+        "name": "The Scene Before Chrome Rule",
+        "body": "In the first viewport, protect the people, the promise, and the primary action before preserving secondary navigation or duplicate product controls.",
+        "section": "layout"
+      },
+      {
+        "name": "The One Stage Shadow Rule",
+        "body": "Elevate the whole proof, not every panel inside it. Internal product hierarchy is tonal and bordered.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Soft Outside, Compact Inside Rule",
+        "body": "Keep the landing's calls to action pill-shaped and its main proof surfaces softly rounded; reduce radii as the interface becomes denser.",
+        "section": "shapes"
+      }
+    ],
+    "dos": [
+      "Do lead with a localized evening photograph, a two-line Russian promise, and one unambiguous account action.",
+      "Do prove text, voice, presence, and screen sharing inside the same Living Desktop composition.",
+      "Do label every synthetic voice-room or interface representation as a demo.",
+      "Do preserve the 3px Focus Lavender outline, semantic landmarks, skip link, and reduced-motion and reduced-transparency behavior.",
+      "Do remove secondary chrome at narrow widths while keeping the emotional scene, core message, and registration path intact."
+    ],
+    "donts": [
+      "Don't replace the first viewport with a generic SaaS split hero, feature-card grid, metric strip, or invented customer proof.",
+      "Don't detach the product UI into multiple floating cards; the compact desktop is one continuous room.",
+      "Don't add decorative accent colors outside cobalt; green is reserved for live presence and connected voice state inside product proof.",
+      "Don't make every dark surface translucent or shadowed; blur belongs to the live-room overlay and elevation belongs to the two proof silhouettes.",
+      "Don't expose synthetic product content without its Demo label or present it as a production-authenticated capture."
+    ]
+  }
+}

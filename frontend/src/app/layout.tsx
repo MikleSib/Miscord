@@ -5,7 +5,6 @@ import './styles/components.css'
 import './styles/responsive.css'
 import ElectronTitleBar from '@/components/ElectronTitleBar'
 import { AccessibilityRuntime } from '@/components/AccessibilityRuntime'
-import { CapabilitiesProvider } from '@/features/capabilities/capabilities'
 
 export const metadata: Metadata = {
   title: {
@@ -28,11 +27,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ru" className="dark">
       <body className="bg-background text-foreground">
-        <CapabilitiesProvider>
-          <AccessibilityRuntime />
-          <ElectronTitleBar />
-          {children}
-        </CapabilitiesProvider>
+        <AccessibilityRuntime />
+        <ElectronTitleBar />
+        {children}
       </body>
     </html>
   )

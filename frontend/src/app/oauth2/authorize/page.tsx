@@ -126,7 +126,7 @@ function OAuthAuthorizationContent() {
       window.location.assign(destination.toString())
       return
     }
-    router.push('/')
+    router.push('/app')
   }
 
   const isBotInstall = preview?.integration_type === 0 && (preview.scopes.includes('bot') ?? false)
@@ -146,7 +146,7 @@ function OAuthAuthorizationContent() {
           {loading && <div className="flex min-h-52 items-center justify-center text-[#b5bac1]"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Загружаем приложение…</div>}
           {!loading && error && <div role="alert" className="mb-4 rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-300">{error}</div>}
           {!loading && authorized && preview && (
-            <div className="py-8 text-center"><CheckCircle2 className="mx-auto mb-3 h-12 w-12 text-[#53d487]" /><h2 className="text-xl font-bold">{preview.application.name} авторизовано</h2><button onClick={() => router.push('/')} className="mt-6 min-h-11 rounded-xl bg-[#5865f2] px-5 font-bold hover:bg-[#4752c4]">Вернуться в Miscord</button></div>
+            <div className="py-8 text-center"><CheckCircle2 className="mx-auto mb-3 h-12 w-12 text-[#53d487]" /><h2 className="text-xl font-bold">{preview.application.name} авторизовано</h2><button onClick={() => router.push('/app')} className="mt-6 min-h-11 rounded-xl bg-[#5865f2] px-5 font-bold hover:bg-[#4752c4]">Вернуться в Miscord</button></div>
           )}
           {!loading && !authorized && preview && (
             <div className="space-y-5">
