@@ -5,13 +5,14 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '../../store/store';
 import { Button } from '../../components/ui/button';
 import { UserAvatar } from '../../components/ui/user-avatar';
-import { X, Upload, Trash2, User, Keyboard } from 'lucide-react';
+import { Accessibility, X, Upload, Trash2, User, Keyboard } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import authService from '../../services/authService';
 import { applyUserProfileUpdate } from '../../lib/userProfileSync';
 import { LogoutSection } from '../../components/settings/LogoutSection';
 import { HotkeysSettings } from '../../components/settings/HotkeysSettings';
 import type { UserSettingsTab } from '../../lib/userSettingsNavigation';
+import { AccessibilitySettings } from '../../components/settings/AccessibilitySettings';
 
 const SIDEBAR_ITEMS = [
   {
@@ -23,6 +24,11 @@ const SIDEBAR_ITEMS = [
     id: 'hotkeys',
     label: 'Горячие клавиши',
     icon: Keyboard,
+  },
+  {
+    id: 'accessibility',
+    label: 'Специальные возможности',
+    icon: Accessibility,
   }
 ];
 
@@ -317,6 +323,7 @@ export default function SettingsPage() {
             </div>
           )}
           {activeTab === 'hotkeys' && <HotkeysSettings />}
+          {activeTab === 'accessibility' && <AccessibilitySettings />}
         </div>
       </div>
     </div>

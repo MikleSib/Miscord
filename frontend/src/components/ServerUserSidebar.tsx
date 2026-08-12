@@ -43,7 +43,7 @@ function MemberRow({
       type="button"
       onClick={(event) => onSelect(member, event.currentTarget.getBoundingClientRect())}
       className={cn(
-        'interactive-row flex w-full items-center gap-2 px-2 py-1.5 text-left',
+        'server-member-row interactive-row flex w-full items-center gap-2 px-2 py-1.5 text-left',
         dimmed && 'opacity-60',
         isSelected && 'bg-[#393a3f]'
       )}
@@ -65,7 +65,7 @@ function MemberRow({
         />
       </div>
       <span
-        className="min-w-0 flex-1 truncate text-sm font-medium"
+        className="server-member-display-name min-w-0 flex-1 truncate text-sm font-medium"
         style={member.color ? { color: member.color } : undefined}
       >
         {displayName}

@@ -11,7 +11,9 @@ import './styles/mobile-03.css'
 import './styles/mobile-04.css'
 import './styles/mobile-05.css'
 import './styles/mobile-system.css'
+import './styles/accessibility.css'
 import ElectronTitleBar from '@/components/ElectronTitleBar'
+import { AccessibilityRuntime } from '@/components/AccessibilityRuntime'
 
 export const metadata: Metadata = {
   title: {
@@ -34,6 +36,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ru" className="dark">
       <body className="bg-background text-foreground">
+        <AccessibilityRuntime />
         <ElectronTitleBar />
         {children}
       </body>

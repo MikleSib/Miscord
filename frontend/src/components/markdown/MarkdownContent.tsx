@@ -30,7 +30,7 @@ export function MarkdownContent({
   if (blocks.length === 0) return null
 
   return (
-    <div className={cn('space-y-1 text-sm leading-relaxed', className)}>
+    <div className={cn('message-markdown-content space-y-1 text-sm leading-relaxed', className)}>
       <MarkdownProvider value={context}>
         <MarkdownBlocks blocks={blocks} />
       </MarkdownProvider>

@@ -163,6 +163,7 @@ export function ChatMessage({
       ref={rowRef}
       id={`chat-message-${message.id}`}
       data-message-id={message.id}
+      data-show-author={showAuthor}
       style={{ transition: 'background-color 2s ease-out' }}
       className={cn(
         'chat-message-row group relative flex items-start gap-3 rounded px-2 py-1',
@@ -278,21 +279,16 @@ export function ChatMessage({
       />
 
       {/* Avatar */}
-      {showAuthor ? (
-        <UserAvatar
-          user={message.author}
-          size={40}
-        />
-      ) : (
-        <div className="w-10 flex-shrink-0" />
-      )}
+      <div className="chat-message-avatar-slot w-10 flex-shrink-0">
+        {showAuthor && <UserAvatar user={message.author} size={40} />}
+      </div>
 
       <div className="flex flex-col flex-1">
         {/* Author and timestamp */}
         {showAuthor && (
           <div className="flex items-baseline gap-2">
             <span
-              className="font-semibold hover:underline cursor-default"
+              className="chat-message-author cursor-default font-semibold hover:underline"
               style={authorColor ? { color: authorColor } : undefined}
             >
               {message.author.username}
@@ -327,7 +323,7 @@ export function ChatMessage({
         {message.reply_to && (
           <div className="mb-1 pl-2 border-l-2 border-muted text-xs text-muted-foreground">
             <span
-              className="font-medium"
+              className="chat-message-reply-author font-medium"
               style={replyAuthorColor ? { color: replyAuthorColor } : undefined}
             >
               {message.reply_to.author.username}
