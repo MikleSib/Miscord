@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
@@ -10,6 +11,7 @@ from app.core.config import settings
 from app.db.database import AsyncSessionLocal
 from app.models import Message, Poll, TextChannel
 from app.services.realtime_events import enqueue_realtime_event
+from app.core.metrics import record_background_job
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +37,16 @@ class CommunityJobs:
 
     async def _run(self) -> None:
         while True:
+            started_at = time.perf_counter()
             try:
                 await self.run_once()
             except asyncio.CancelledError:
                 raise
             except Exception:
+                record_background_job("community_scheduler", "error", time.perf_counter() - started_at)
                 logger.exception("Community scheduled jobs failed")
+            else:
+                record_background_job("community_scheduler", "success", time.perf_counter() - started_at)
             await asyncio.sleep(30)
 
     async def run_once(self) -> tuple[int, int]:

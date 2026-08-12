@@ -11,6 +11,7 @@ from app.models import ChannelMember, Message, TextChannel
 from app.schemas.webhook import AllowedMentions
 from app.services.mentions import extract_mention_ids
 from app.websocket.connection_manager import manager
+from app.core.metrics import NOTIFICATION_QUEUE, record_delivery
 
 
 @dataclass(frozen=True)
@@ -40,8 +41,10 @@ class WebhookNotificationDispatcher:
     def enqueue(self, job: NotificationJob) -> bool:
         try:
             self.queue.put_nowait(job)
+            NOTIFICATION_QUEUE.set(self.queue.qsize())
             return True
         except asyncio.QueueFull:
+            record_delivery("notification", "queue_full")
             return False
 
     async def _worker(self) -> None:
@@ -49,8 +52,13 @@ class WebhookNotificationDispatcher:
             job = await self.queue.get()
             try:
                 await manager.send_personal_message(job.payload, job.user_id)
+                record_delivery("notification", "success")
+            except Exception:
+                record_delivery("notification", "error")
+                raise
             finally:
                 self.queue.task_done()
+                NOTIFICATION_QUEUE.set(self.queue.qsize())
 
 
 dispatcher = WebhookNotificationDispatcher()
@@ -103,4 +111,3 @@ async def enqueue_webhook_mentions(
                 },
             )
         )
-

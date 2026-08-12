@@ -5,12 +5,14 @@ import { useEffect, useState } from 'react'
 import unifiedWebSocketService from '../../services/unifiedWebSocketService'
 import type { PollDraft } from '../../services/communityApi'
 import { Modal } from '../ui/modal'
+import { useCapabilities } from '../../features/capabilities/capabilities'
 
 const DURATIONS = [
   [3600, '1 час'], [14400, '4 часа'], [28800, '8 часов'], [86400, '1 день'], [259200, '3 дня'], [604800, '7 дней'],
 ] as const
 
 export function PollComposerButton({ channelId, disabled }: { channelId: number; disabled?: boolean }) {
+  const capabilities = useCapabilities()
   const [open, setOpen] = useState(false)
   const [question, setQuestion] = useState('')
   const [answers, setAnswers] = useState([{ text: '', emoji: '' }, { text: '', emoji: '' }])
@@ -34,6 +36,8 @@ export function PollComposerButton({ channelId, disabled }: { channelId: number;
     unifiedWebSocketService.send({ type: 'chat_message', text_channel_id: channelId, content: '', poll, client_nonce: crypto.randomUUID() })
     setOpen(false)
   }
+
+  if (!capabilities.polls) return null
 
   return (
     <>

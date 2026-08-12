@@ -20,6 +20,7 @@ import { ChannelWebhooksTab } from './channel-settings/ChannelWebhooksTab'
 import { UnsavedChangesBar } from './channel-settings/UnsavedChangesBar'
 import { useMobileSettingsDetail } from '../hooks/useMobileSettingsDetail'
 import { useModalFocusTrap } from '../hooks/useModalFocusTrap'
+import { useCapabilities } from '../features/capabilities/capabilities'
 
 type VideoQuality = 'auto' | '720p'
 
@@ -45,8 +46,9 @@ export function ChannelSettingsModal({
   onChannelDelete,
   onPermissionsChange,
 }: ChannelSettingsModalProps) {
+  const capabilities = useCapabilities()
   const { can } = useServerPermissions(isOpen ? channel.serverId : null)
-  const canManageWebhooks = can(Permissions.MANAGE_WEBHOOKS)
+  const canManageWebhooks = capabilities.webhooks && can(Permissions.MANAGE_WEBHOOKS)
   const [activeTab, setActiveTab] = useState<SettingsTab>('overview')
   const [channelName, setChannelName] = useState(channel.name)
   const [slowModeSeconds, setSlowModeSeconds] = useState(channel.slow_mode_seconds ?? 0)
@@ -91,6 +93,10 @@ export function ChannelSettingsModal({
     setHasUnsavedOverview(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- только при открытии / смене канала
   }, [isOpen, channel.id])
+
+  useEffect(() => {
+    if (!canManageWebhooks && activeTab === 'webhooks') setActiveTab('overview')
+  }, [activeTab, canManageWebhooks])
 
   const handleSave = async () => {
     if (!channelName.trim()) {

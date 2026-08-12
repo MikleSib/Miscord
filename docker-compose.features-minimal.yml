@@ -1,0 +1,12 @@
+services:
+  backend:
+    environment:
+      THREADS_ENABLED: "false"
+      FORUMS_ENABLED: "false"
+      POLLS_ENABLED: "false"
+      INBOX_ENABLED: "false"
+      SERVER_TEMPLATES_ENABLED: "false"
+      SERVER_IMPORTS_ENABLED: "false"
+      WEBHOOKS_ENABLED: "false"
+      WEBHOOK_FILES_ENABLED: "false"
+      BOT_PLATFORM_ENABLED: "false"

@@ -27,6 +27,7 @@ import { ServerAutoModTab } from './server-settings/ServerAutoModTab'
 import { ServerReportsTab } from './server-settings/ServerReportsTab'
 import { useMobileSettingsDetail } from '../hooks/useMobileSettingsDetail'
 import { useModalFocusTrap } from '../hooks/useModalFocusTrap'
+import { useCapabilities } from '../features/capabilities/capabilities'
 
 interface ServerSettingsModalProps {
   isOpen: boolean
@@ -73,6 +74,7 @@ const MODAL_Z_INDEX = 100
 export function ServerSettingsModal({ isOpen, onClose, server, onServerUpdate }: ServerSettingsModalProps) {
   const { removeServer, selectServer } = useStore()
   const { can, isOwner } = useServerPermissions(isOpen ? server.id : null)
+  const capabilities = useCapabilities()
 
   const [mounted, setMounted] = useState(false)
 
@@ -101,8 +103,12 @@ export function ServerSettingsModal({ isOpen, onClose, server, onServerUpdate }:
   }, [])
 
   const visibleTabs = useMemo(
-    () => TABS.filter((tab) => tab.permission === undefined || can(tab.permission)),
-    [can]
+    () => TABS.filter((tab) => {
+      if (tab.id === 'templates' && !capabilities.serverTemplates) return false
+      if (tab.id === 'bots' && !capabilities.botPlatform) return false
+      return tab.permission === undefined || can(tab.permission)
+    }),
+    [can, capabilities.botPlatform, capabilities.serverTemplates]
   )
 
   useEffect(() => {

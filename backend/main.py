@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request, WebSocket
+from fastapi import FastAPI, HTTPException, Request, Response, WebSocket
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,12 +8,14 @@ import asyncio
 import logging
 import re
 import hashlib
+import secrets
 import time
 from sqlalchemy import delete, text, update
 
 from app.core.config import settings
+from app.core.metrics import record_http, refresh_runtime_gauges, route_label
 from app.db.database import engine
-from app.api import account_security, auth, registration, channels, channel_categories, channel_permissions, community_forums, community_imports, community_notifications, community_polls, community_templates, community_threads, message_pins, message_search, message_state, safety, server_features, servers, uploads, reactions, friends, direct_messages, embeds, webhooks, attachment_files, bot_apps, bot_platform, bot_client, bot_oauth, miscord_api, miscord_gateway, miscord_interactions
+from app.api import account_security, auth, registration, capabilities, channels, channel_categories, channel_permissions, community_forums, community_imports, community_notifications, community_polls, community_templates, community_threads, message_pins, message_search, message_state, safety, server_features, servers, uploads, reactions, friends, direct_messages, embeds, webhooks, attachment_files, bot_apps, bot_platform, bot_client, bot_oauth, miscord_api, miscord_gateway, miscord_interactions
 from app.core.miscord_errors import MiscordAPIError
 from app.services.webhook_rate_limit import Bucket, consume, rate_headers
 from app.websocket.connection_manager import manager
@@ -132,6 +134,23 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def prometheus_http_middleware(request: Request, call_next):
+    started_at = time.perf_counter()
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    finally:
+        record_http(
+            request.method,
+            route_label(request),
+            status_code,
+            time.perf_counter() - started_at,
+        )
+
+
 @app.exception_handler(RequestValidationError)
 async def protocol_validation_error_handler(request: Request, exc: RequestValidationError):
     from fastapi.encoders import jsonable_encoder
@@ -216,6 +235,7 @@ async def miscord_api_rate_limit_middleware(request: Request, call_next):
 
 # Подключение роутеров
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
+app.include_router(capabilities.router, prefix="/api/v1", tags=["capabilities"])
 app.include_router(account_security.router, prefix="/api/v1/auth", tags=["account-security"])
 app.include_router(registration.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(channels.router, prefix="/api/v1/channels", tags=["channels"])
@@ -309,6 +329,25 @@ async def health_check():
         "status": "healthy" if redis_status == "ok" and scanner in {"ok", "disabled"} else "degraded",
         "components": components,
     }
+
+
+@app.get("/metrics", include_in_schema=False)
+async def prometheus_metrics(request: Request):
+    from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
+    if not settings.METRICS_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    if settings.METRICS_BEARER_TOKEN:
+        expected = f"Bearer {settings.METRICS_BEARER_TOKEN}"
+        authorization = request.headers.get("authorization", "")
+        if not secrets.compare_digest(authorization, expected):
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid metrics token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    await refresh_runtime_gauges()
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 # Подключаем статические файлы
 app.mount("/static", StaticFiles(directory="static"), name="static")

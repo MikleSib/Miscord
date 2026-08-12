@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from app.core.config import settings
+from app.core.metrics import record_delivery
 from app.services.bot_security import sign_interaction_request
 from app.services.miscord_snowflake import generate_snowflake
 
@@ -108,24 +109,35 @@ async def deliver_event_webhook(
     payload: dict[str, Any],
     ciphertext: str,
 ) -> bool:
-    safe_url = await validate_endpoint_url(url)
-    response = await _post_signed(safe_url, payload, ciphertext)
-    return response.status_code == 204
+    try:
+        safe_url = await validate_endpoint_url(url)
+        response = await _post_signed(safe_url, payload, ciphertext)
+        delivered = response.status_code == 204
+    except Exception:
+        record_delivery("event_webhook", "error")
+        raise
+    record_delivery("event_webhook", "success" if delivered else "error")
+    return delivered
 
 
 async def deliver_interaction_http(application, ciphertext: str, payload: dict[str, Any]) -> dict[str, Any]:
-    if not application.interactions_endpoint_url:
-        raise InteractionEndpointError("Interaction endpoint is not configured")
-    safe_url = await validate_endpoint_url(application.interactions_endpoint_url)
-    response = await _post_signed(safe_url, payload, ciphertext)
-    if response.status_code < 200 or response.status_code >= 300:
-        raise InteractionEndpointError(f"Interaction endpoint returned HTTP {response.status_code}")
-    if len(response.content) > 1024 * 1024:
-        raise InteractionEndpointError("Interaction endpoint response is too large")
     try:
-        data = response.json()
-    except ValueError as exc:
-        raise InteractionEndpointError("Interaction endpoint returned invalid JSON") from exc
-    if not isinstance(data, dict) or not isinstance(data.get("type"), int):
-        raise InteractionEndpointError("Interaction endpoint returned an invalid callback")
+        if not application.interactions_endpoint_url:
+            raise InteractionEndpointError("Interaction endpoint is not configured")
+        safe_url = await validate_endpoint_url(application.interactions_endpoint_url)
+        response = await _post_signed(safe_url, payload, ciphertext)
+        if response.status_code < 200 or response.status_code >= 300:
+            raise InteractionEndpointError(f"Interaction endpoint returned HTTP {response.status_code}")
+        if len(response.content) > 1024 * 1024:
+            raise InteractionEndpointError("Interaction endpoint response is too large")
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise InteractionEndpointError("Interaction endpoint returned invalid JSON") from exc
+        if not isinstance(data, dict) or not isinstance(data.get("type"), int):
+            raise InteractionEndpointError("Interaction endpoint returned an invalid callback")
+    except Exception:
+        record_delivery("interaction", "error")
+        raise
+    record_delivery("interaction", "success")
     return data

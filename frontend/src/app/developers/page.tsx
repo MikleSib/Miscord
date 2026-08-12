@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import {
   ArrowLeft,
   Bot,
@@ -32,9 +33,33 @@ import type {
   BotCommandDispatchPayload,
   BotCommandDispatchResponse,
 } from '../../types/bot';
+import { useCapabilities } from '../../features/capabilities/capabilities';
 
 
 export default function DeveloperPortalPage() {
+  const capabilities = useCapabilities();
+
+  if (!capabilities.ready) {
+    return <main className="grid min-h-screen place-items-center bg-[#1e1f22] text-[#dbdee1]" aria-busy="true">Проверяем доступность портала…</main>;
+  }
+
+  if (!capabilities.botPlatform) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#1e1f22] px-5 text-[#dbdee1]">
+        <section data-testid="bot-platform-disabled" className="w-full max-w-lg rounded-md border border-[#303238] bg-[#2b2d31] p-7 text-center">
+          <Bot className="mx-auto h-9 w-9 text-[#8e929b]" aria-hidden="true" />
+          <h1 className="mt-4 text-xl font-semibold text-[#f2f3f5]">Портал разработчиков пока выключен</h1>
+          <p className="mt-2 text-sm leading-6 text-[#b5bac1]">Сервер не принимает настройки приложений и ботов, поэтому недоступные формы скрыты.</p>
+          <Link href="/" className="mt-5 inline-flex min-h-10 items-center justify-center rounded-[5px] bg-[#5865f2] px-4 text-sm font-semibold text-white hover:bg-[#4752c4]">Вернуться в Miscord</Link>
+        </section>
+      </main>
+    );
+  }
+
+  return <DeveloperPortalContent />;
+}
+
+function DeveloperPortalContent() {
   const router = useRouter();
   const initializedApplicationId = useRef<number | null>(null);
   const user = useAuthStore((state) => state.user);

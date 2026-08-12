@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -13,6 +15,9 @@ from app.db.database import AsyncSessionLocal
 from app.models import UserBlock, UserNotification
 from app.models.friendship import FriendshipStatus
 from app.services.realtime_events import enqueue_realtime_event
+from app.core.metrics import record_background_job
+
+logger = logging.getLogger(__name__)
 
 NOTIFICATION_TYPES = {
     "mention",
@@ -122,10 +127,19 @@ class NotificationRetention:
     async def _run(self) -> None:
         while True:
             await asyncio.sleep(3600)
-            async with AsyncSessionLocal() as db:
-                cutoff = datetime.now(timezone.utc) - timedelta(days=90)
-                await db.execute(delete(UserNotification).where(UserNotification.created_at < cutoff))
-                await db.commit()
+            started_at = time.perf_counter()
+            try:
+                async with AsyncSessionLocal() as db:
+                    cutoff = datetime.now(timezone.utc) - timedelta(days=90)
+                    await db.execute(delete(UserNotification).where(UserNotification.created_at < cutoff))
+                    await db.commit()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                record_background_job("notification_retention", "error", time.perf_counter() - started_at)
+                logger.exception("Notification retention job failed")
+            else:
+                record_background_job("notification_retention", "success", time.perf_counter() - started_at)
 
 
 notification_retention = NotificationRetention()

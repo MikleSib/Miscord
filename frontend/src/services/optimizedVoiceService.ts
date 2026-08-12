@@ -1,6 +1,3 @@
-/**
- * Compatibility import for existing UI modules.
- * Group voice is implemented exclusively by the mediasoup SFU controller.
- */
-export { groupVoiceController as optimizedVoiceService } from './voice/GroupVoiceController';
-export { groupVoiceController as default } from './voice/GroupVoiceController';
+/** Compatibility API backed by the on-demand SFU controller. */
+export { lazyVoiceController as optimizedVoiceService } from './voice/lazyVoiceController';
+export { lazyVoiceController as default } from './voice/lazyVoiceController';

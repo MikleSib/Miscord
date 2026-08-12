@@ -2,6 +2,8 @@
 
 from .unified_support import *  # noqa: F401,F403
 from app.services.message_delivery import load_message_for_delivery, message_ack_payload
+from app.core.metrics import record_voice_join
+from time import perf_counter
 
 async def websocket_unified_endpoint(
     websocket: WebSocket,
@@ -105,15 +107,22 @@ async def websocket_unified_endpoint(
                         await handle_typing(user, message_data, manager, current_text_channels, db)
 
                     elif msg_type == "join_voice":
-                        current_voice_channel, current_voice_connection_id = await join_group_voice(
-                            user=user,
-                            message=message_data,
-                            db=db,
-                            websocket=websocket,
-                            manager=manager,
-                            local_connections=voice_connections,
-                            request_id=request_id,
-                        )
+                        voice_join_started_at = perf_counter()
+                        try:
+                            current_voice_channel, current_voice_connection_id = await join_group_voice(
+                                user=user,
+                                message=message_data,
+                                db=db,
+                                websocket=websocket,
+                                manager=manager,
+                                local_connections=voice_connections,
+                                request_id=request_id,
+                            )
+                            voice_join_status = "success" if current_voice_connection_id else "rejected"
+                        except Exception:
+                            record_voice_join("error", perf_counter() - voice_join_started_at)
+                            raise
+                        record_voice_join(voice_join_status, perf_counter() - voice_join_started_at)
 
                     elif msg_type == "leave_voice":
                         if current_voice_channel:

@@ -9,6 +9,7 @@ import type { SearchResultMessage } from '../../services/searchService'
 import type { Channel, Message } from '../../types'
 import { ThreadLauncher } from '../community/ThreadLauncher'
 import { NotificationInbox } from '../community/NotificationInbox'
+import { useCapabilities } from '../../features/capabilities/capabilities'
 
 interface ChatAreaHeaderProps {
   channel: Channel
@@ -41,6 +42,7 @@ export function ChatAreaHeader({
   onJumpToMessage,
   onJumpToSearchResult,
 }: ChatAreaHeaderProps) {
+  const capabilities = useCapabilities()
   const isTextChannel = channel.type === 'text'
   const slowMode = channel.slow_mode_seconds ?? 0
 
@@ -70,7 +72,7 @@ export function ChatAreaHeader({
           />
         )}
 
-        {isTextChannel && (
+        {isTextChannel && capabilities.threads && (
           <ThreadLauncher channelId={channel.id} />
         )}
 
@@ -87,7 +89,7 @@ export function ChatAreaHeader({
           </Tooltip>
         )}
 
-        <NotificationInbox />
+        {capabilities.inbox && <NotificationInbox />}
 
         <Tooltip
           content={showUserSidebar ? 'Скрыть список участников' : 'Показать список участников'}

@@ -1,0 +1,45 @@
+:root {
+    /* Miscord palette — DESIGN.md values as HSL components */
+    --background: 231 7% 21%;
+    --canvas-deep: 225 6% 13%;
+    --foreground: 210 17% 95%;
+    --card: 228 6% 18%;
+    --card-foreground: 210 17% 95%;
+    --popover: 228 6% 18%;
+    --popover-foreground: 210 17% 95%;
+    --primary: 235 86% 65%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 228 6% 18%;
+    --secondary-foreground: 210 17% 95%;
+    --muted: 230 7% 21%;
+    --muted-foreground: 220 6% 73%;
+    --accent: 230 7% 21%;
+    --accent-foreground: 210 17% 95%;
+    --destructive: 359 87% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 145 65% 39%;
+    --warning: 40 86% 57%;
+    --border: 225 6% 21%;
+    --input: 228 6% 18%;
+    --ring: 235 86% 65%;
+    --rail: 228 6% 18%;
+    --sidebar: 228 6% 18%;
+    --surface: 228 6% 18%;
+    --surface-raised: 230 7% 21%;
+    --surface-deep: 220 8% 7%;
+    --border-control: 230 5% 33%;
+    --focus-link: 199 100% 49%;
+    --text-body: 210 9% 87%;
+    --text-quiet: 225 5% 58%;
+    --server-rail-width: 5.75rem;
+    --channel-sidebar-width: clamp(18.5rem, calc(100vw - 13.5rem), 22rem);
+    --left-dock-width: calc(var(--server-rail-width) + var(--channel-sidebar-width));
+    --member-sidebar-width: 15rem;
+    --radius-control: 5px;
+    --radius-panel: 6px;
+    --radius-media: 8px;
+    --radius-navigation: 12px;
+    --radius: 5px;
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+}

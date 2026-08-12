@@ -1,6 +1,3 @@
-/**
- * Screen sharing and group audio share one SFU controller.
- * The previous peer-per-participant implementation was intentionally removed.
- */
-export { groupVoiceController as voiceService } from './voice/GroupVoiceController';
-export { groupVoiceController as default } from './voice/GroupVoiceController';
+/** Lightweight import path. The SFU/VAD stack is loaded on first voice action. */
+export { lazyVoiceController as voiceService } from './voice/lazyVoiceController';
+export { lazyVoiceController as default } from './voice/lazyVoiceController';

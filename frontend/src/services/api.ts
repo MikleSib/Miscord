@@ -63,7 +63,7 @@ api.interceptors.response.use((response) => response, async (error) => {
 
 export const channelApi = {
   getChannelMessages: async (channelId: number, limit = 50, before?: number) => {
-    const params: any = { limit };
+    const params: { limit: number; before?: number } = { limit };
     if (before) {
       params.before = before;
     }

@@ -1,0 +1,49 @@
+@layer base, components, utilities, responsive;
+@tailwind base;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body {
+    width: 100%;
+    min-height: 100%;
+    background: #323339;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    margin: 0;
+    overflow: hidden;
+    font-family: "Segoe UI Variable Text", "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    text-rendering: optimizeLegibility;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  button,
+  [role="button"] {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    color: hsl(var(--primary-foreground));
+    background: hsl(var(--primary) / 0.72);
+  }
+}

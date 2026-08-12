@@ -3,8 +3,10 @@ from fastapi import WebSocket
 import json
 import redis.asyncio as redis
 import asyncio
+import time
 
 from app.core.config import settings
+from app.core.metrics import record_websocket_connected, record_websocket_disconnected
 
 class ConnectionManager:
     def __init__(self):
@@ -15,6 +17,10 @@ class ConnectionManager:
         self.voice_channel_connections: Dict[int, Dict[int, WebSocket]] = {}
         self.redis_client = None
         self.pubsub_task = None
+        self._last_disconnect_at: Dict[int, float] = {}
+
+    def _active_connection_count(self) -> int:
+        return sum(len(connections) for connections in self.active_connections.values())
 
     async def init_redis(self):
         """Инициализация Redis и запуск слушателя pub/sub."""
@@ -91,6 +97,11 @@ class ConnectionManager:
             self.active_connections[user_id] = []
         if websocket not in self.active_connections[user_id]:
             self.active_connections[user_id].append(websocket)
+            disconnected_at = self._last_disconnect_at.pop(user_id, None)
+            record_websocket_connected(
+                active=self._active_connection_count(),
+                reconnect=disconnected_at is not None and time.monotonic() - disconnected_at <= 120,
+            )
         
         if channel_id:
             if channel_id not in self.channel_connections:
@@ -129,17 +140,22 @@ class ConnectionManager:
 
     async def disconnect(self, websocket: WebSocket, user_id: int, channel_id: int = None):
         """Отключение WebSocket."""
+        removed = False
         if user_id in self.active_connections:
             if websocket in self.active_connections[user_id]:
                 self.active_connections[user_id].remove(websocket)
+                removed = True
             if not self.active_connections[user_id]:
                 del self.active_connections[user_id]
+                self._last_disconnect_at[user_id] = time.monotonic()
         
         if channel_id and channel_id in self.channel_connections:
             if self.channel_connections[channel_id].get(user_id) is websocket:
                 del self.channel_connections[channel_id][user_id]
             if not self.channel_connections[channel_id]:
                 del self.channel_connections[channel_id]
+        if removed:
+            record_websocket_disconnected(active=self._active_connection_count())
 
     async def send_personal_message(self, message: dict, user_id: int):
         """Отправка личного сообщения через Redis."""

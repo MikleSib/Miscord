@@ -7,6 +7,10 @@ const nextConfig = {
   distDir: process.env.NODE_ENV === 'development' ? '.next-dev' : '.next',
   output: process.env.ELECTRON ? 'export' : 'standalone',
   outputFileTracingRoot: __dirname,
+  compiler: {
+    // Keep diagnostics in development without shipping the legacy debug noise.
+    removeConsole: process.env.NODE_ENV === 'production' ? { exclude: ['error'] } : false,
+  },
   trailingSlash: true,
   images: {
     unoptimized: true

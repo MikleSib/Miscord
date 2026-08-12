@@ -10,6 +10,7 @@ import optimizedVoiceService from '../../services/optimizedVoiceService';
 import unifiedWebSocketService from '../../services/unifiedWebSocketService';
 import { useAuthStore } from '../store';
 import soundService from '../../services/soundService';
+import type { VoiceParticipant } from '../../services/voice/types';
 
 export interface VoiceState {
   isConnected: boolean;
@@ -121,9 +122,9 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
         get().setSpeaking(resolvedUserId, isSpeaking);
       });
       
-      const applyParticipants = (participants: any[]) => {
+      const applyParticipants = (participants: VoiceParticipant[]) => {
         // Преобразуем участников, убедившись что is_muted и is_deafened всегда boolean
-        const normalizedParticipants: VoiceUser[] = participants.map((p: any) => ({
+        const normalizedParticipants: VoiceUser[] = participants.map((p) => ({
           user_id: p.user_id,
           username: p.username,
           display_name: p.display_name,
@@ -225,10 +226,11 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
         error: null,
       });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[OptimizedVoiceSlice] ❌ Ошибка подключения к голосовому каналу:', error);
+      const message = error instanceof Error ? error.message : null;
       set({ 
-        error: error.message || 'Ошибка подключения к голосовому каналу',
+        error: message || 'Ошибка подключения к голосовому каналу',
         isConnected: false,
         isConnecting: false,
         currentVoiceChannelId: null,

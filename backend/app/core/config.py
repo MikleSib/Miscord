@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379"
 
+    # Prometheus exporter. Keep the endpoint private at the reverse proxy or
+    # configure a bearer token for environments where it is directly reachable.
+    METRICS_ENABLED: bool = True
+    METRICS_BEARER_TOKEN: str = ""
+
     # Miscord Voice v1 media plane
     VOICE_MEDIA_JWT_SECRET: str = ""
     VOICE_MEDIA_WS_URL: str = ""
