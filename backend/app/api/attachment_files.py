@@ -18,7 +18,12 @@ from app.services.object_storage import (
 router = APIRouter()
 
 
-def _redirect(storage_key: str, expires_in: int | None = None) -> RedirectResponse:
+def _redirect(
+    storage_key: str,
+    expires_in: int | None = None,
+    *,
+    cache_control: str = "private, no-store",
+) -> RedirectResponse:
     try:
         url = delivery_url(storage_key, expires_in=expires_in)
     except (ObjectStorageError, ValueError) as exc:
@@ -27,7 +32,7 @@ def _redirect(storage_key: str, expires_in: int | None = None) -> RedirectRespon
         url,
         status_code=307,
         headers={
-            "Cache-Control": "private, no-store",
+            "Cache-Control": cache_control,
             "Referrer-Policy": "no-referrer",
             "X-Content-Type-Options": "nosniff",
         },
@@ -60,4 +65,9 @@ async def download_attachment(
         if is_public_object_key(attachment.storage_key)
         else attachment_object_key(attachment.storage_key)
     )
-    return _redirect(object_key, max(60, expires - int(time.time())))
+    remaining = max(1, expires - int(time.time()))
+    return _redirect(
+        object_key,
+        max(60, remaining),
+        cache_control=f"private, max-age={remaining}",
+    )

@@ -141,8 +141,16 @@ def _signing_key() -> bytes:
     return hashlib.sha256(value.encode("utf-8")).digest()
 
 
+def stable_attachment_expiry(now: int | None = None) -> int:
+    """Keep serialized attachment URLs stable within one configured TTL window."""
+    current = int(time.time()) if now is None else now
+    ttl = max(60, settings.ATTACHMENT_URL_TTL_SECONDS)
+    cache_window = max(1, min(3600, ttl // 4))
+    return (current // cache_window) * cache_window + ttl
+
+
 def attachment_url(attachment_id: int, filename: str | None, expires: int | None = None) -> str:
-    expires = expires or int(time.time()) + settings.ATTACHMENT_URL_TTL_SECONDS
+    expires = expires or stable_attachment_expiry()
     clean_name = safe_filename(filename)
     payload = f"{attachment_id}:{expires}:{clean_name}".encode("utf-8")
     signature = hmac.new(_signing_key(), payload, hashlib.sha256).hexdigest()
