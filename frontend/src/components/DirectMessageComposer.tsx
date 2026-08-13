@@ -15,45 +15,40 @@ export function DirectMessageComposer({ model }: { model: any }) {
     applyFormattingShortcut,
   } = model
   return (
-    <>
-      {/* Input */}
-      <div className="px-4 pb-4 border-t border-[#2c2d32] flex-shrink-0">
+      <div className="direct-message-composer">
         {isRateLimited && (
-          <div className="mb-2 rounded-md border border-[#5865f2]/30 bg-[#5865f2]/10 px-3 py-2 text-sm text-[#dbdee1]">
+          <div className="direct-message-composer__notice" role="status">
             {rateLimitHint || `Слишком быстро. Подождите ${rateLimitRemainingSeconds} сек.`}
           </div>
         )}
-        <form onSubmit={handleSendMessage} className="bg-[#393a41] rounded-lg flex flex-col">
+        <form onSubmit={handleSendMessage} className="direct-message-composer__form">
           {attachmentError && (
-            <div className="m-2 rounded-lg border border-[#da373c]/40 bg-[#da373c]/10 px-3 py-2 text-xs text-[#ffb8ba]">
+            <div className="direct-message-composer__error" role="alert">
               {attachmentError}
             </div>
           )}
 
-          {/* Reply Preview */}
           {replyingTo && (
-            <div className="flex items-center justify-between p-3 border-b border-[#2c2d32] bg-[#2c2d32]/50">
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                <Reply className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-gray-400">Ответ для {replyingTo.author?.username || friend.username}</p>
-                  <p className="text-sm text-white truncate">{replyingTo.content || 'Изображение'}</p>
+            <div className="direct-message-composer__reply">
+              <div>
+                <Reply aria-hidden="true" />
+                <div>
+                  <p>Ответ для <strong>{replyingTo.author?.display_name || replyingTo.author?.username || friend.display_name || friend.username}</strong></p>
+                  <span>{replyingTo.content || 'Вложение'}</span>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={handleCancelReply}
                 aria-label="Отменить ответ"
-                className="grid h-11 w-11 flex-shrink-0 place-items-center rounded-md text-text-quiet hover:bg-surface-raised hover:text-white"
               >
-                <X className="w-4 h-4" />
+                <X aria-hidden="true" />
               </button>
             </div>
           )}
 
-          {/* File Previews */}
           {files.length > 0 && (
-            <div className="flex gap-2 overflow-x-auto border-b border-[#2c2d32] p-2">
+            <div className="direct-message-composer__files">
               {files.map((file: File, index: number) => (
                 <PendingAttachmentPreview
                   key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
@@ -64,8 +59,7 @@ export function DirectMessageComposer({ model }: { model: any }) {
             </div>
           )}
 
-          {/* Input Row */}
-          <div className="px-4 flex items-center">
+          <div className="direct-message-composer__row">
             <input
               type="file"
               ref={fileInputRef}
@@ -76,7 +70,7 @@ export function DirectMessageComposer({ model }: { model: any }) {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="mr-1 grid h-11 w-11 flex-none place-items-center rounded-md text-text-quiet hover:bg-surface-raised hover:text-white"
+              className="direct-message-composer__attach"
               disabled={files.length >= MAX_CHAT_ATTACHMENTS || isSending || isRateLimited}
               title="Прикрепить файлы"
               aria-label="Прикрепить файлы"
@@ -99,26 +93,25 @@ export function DirectMessageComposer({ model }: { model: any }) {
               }}
               onInput={(e) => resizeChatComposer(e.currentTarget)}
               placeholder={replyingTo ? 'Напишите ответ...' : `Написать @${friend.username}`}
-              className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none py-3"
+              aria-label={`Сообщение для ${friend.display_name || friend.username}`}
               disabled={isSending || isRateLimited}
             />
-            <ComposerEmojiButton
-              inputRef={messageInputRef}
-              setValue={setNewMessage}
-              disabled={isSending || isRateLimited}
-              className="mr-2"
-            />
-            <button
-              type="submit"
-              aria-label="Отправить сообщение"
-              className="grid h-11 w-11 flex-none place-items-center rounded-md text-text-quiet hover:bg-surface-raised hover:text-white disabled:opacity-50"
-              disabled={(!newMessage.trim() && files.length === 0) || isSending || isRateLimited}
-            >
-              <Send />
-            </button>
+            <div className="direct-message-composer__actions">
+              <ComposerEmojiButton
+                inputRef={messageInputRef}
+                setValue={setNewMessage}
+                disabled={isSending || isRateLimited}
+              />
+              <button
+                type="submit"
+                aria-label="Отправить сообщение"
+                disabled={(!newMessage.trim() && files.length === 0) || isSending || isRateLimited}
+              >
+                <Send aria-hidden="true" />
+              </button>
+            </div>
           </div>
         </form>
       </div>
-    </>
   )
 }
