@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { X } from 'lucide-react'
+import { AlertCircle, AtSign, Loader2, UserPlus, X } from 'lucide-react'
 import { User } from '../types'
 import friendService from '../services/friendService'
 import directMessageService from '../services/directMessageService'
@@ -15,12 +15,14 @@ import { useAuthStore } from '../store/store'
 import { useHomeNavigationData } from '../hooks/useHomeNavigationData'
 import { HomeConversationSidebar } from './home/HomeConversationSidebar'
 import { HomeFriendsPanel, type FriendsTab } from './home/HomeFriendsPanel'
+import { getFriendRequestError } from '../lib/friendRequestError'
 
 export function HomePageContent() {
   const [activeTab, setActiveTab] = useState<FriendsTab>('online')
   const [isAddFriendModalOpen, setIsAddFriendModalOpen] = useState(false)
   const [friendUsername, setFriendUsername] = useState('')
   const [addFriendError, setAddFriendError] = useState('')
+  const [isAddingFriend, setIsAddingFriend] = useState(false)
   const [initialMessage, setInitialMessage] = useState<string | null>(null)
   const [secretMode, setSecretMode] = useState(false)
   const [friendsPanelOpen, setFriendsPanelOpen] = useState(false)
@@ -251,17 +253,26 @@ export function HomePageContent() {
   ])
 
   const handleAddFriend = async () => {
-    if (!friendUsername.trim()) return
+    if (!friendUsername.trim() || isAddingFriend) return
     setAddFriendError('')
+    setIsAddingFriend(true)
     try {
       await friendService.sendFriendRequest(friendUsername)
       setFriendUsername('')
       setIsAddFriendModalOpen(false)
-      // TODO: Показать пользователю уведомление об успехе
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Ошибка добавления в друзья:', error)
-      setAddFriendError(error.response?.data?.detail || 'Не удалось отправить запрос')
+      setAddFriendError(getFriendRequestError(error))
+    } finally {
+      setIsAddingFriend(false)
     }
+  }
+
+  const closeAddFriendModal = () => {
+    if (isAddingFriend) return
+    setIsAddFriendModalOpen(false)
+    setAddFriendError('')
+    setFriendUsername('')
   }
 
   const handleAcceptRequest = async (requestId: number) => {
@@ -368,9 +379,9 @@ export function HomePageContent() {
       {/* Add Friend Modal */}
       <Modal
         open={isAddFriendModalOpen}
-        onClose={() => setIsAddFriendModalOpen(false)}
+        onClose={closeAddFriendModal}
         title="Добавить в друзья"
-        contentClassName="add-friend-dialog bg-[#323339]"
+        contentClassName="add-friend-dialog border border-border bg-surface-raised"
       >
         <form
           className="add-friend-dialog__body p-6"
@@ -380,38 +391,66 @@ export function HomePageContent() {
           }}
         >
           <header className="add-friend-dialog__header">
-            <div>
-              <h2 className="text-xl font-bold text-white">Добавить в друзья</h2>
-              <p className="mt-2 text-sm leading-5 text-text-quiet">
-                Введите логин пользователя (@username), а не отображаемое имя. Регистр букв не важен.
-              </p>
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="add-friend-dialog__icon" aria-hidden="true"><UserPlus /></span>
+              <div>
+                <h2 className="text-xl font-semibold text-text-strong">Добавить в друзья</h2>
+                <p className="mt-1 text-sm leading-5 text-text-muted">
+                  Найдите человека по точному логину. Регистр букв не важен.
+                </p>
+              </div>
             </div>
             <button
               type="button"
-              onClick={() => setIsAddFriendModalOpen(false)}
+              onClick={closeAddFriendModal}
+              disabled={isAddingFriend}
               className="add-friend-dialog__close text-text-quiet"
-              aria-label="Закрыть"
+              aria-label="Закрыть окно"
             >
               <X aria-hidden="true" />
             </button>
           </header>
-          <label className="mt-5 block">
-            <span className="sr-only">Имя пользователя</span>
-            <input
-              type="text"
-              value={friendUsername}
-              onChange={(event) => setFriendUsername(event.target.value)}
-              placeholder="Например: sava или @sava"
-              autoComplete="off"
-              autoCapitalize="none"
-              spellCheck={false}
-              className="h-11 w-full rounded-md border border-gray-700 bg-canvas-deep px-3 text-white outline-none focus:ring-2 focus:ring-primary"
-            />
+          <label className="mt-6 block" htmlFor="friend-username">
+            <span className="mb-2 block text-sm font-semibold text-text-strong">Логин пользователя</span>
+            <span className={`add-friend-dialog__input ${addFriendError ? 'is-invalid' : ''}`}>
+              <AtSign aria-hidden="true" />
+              <input
+                id="friend-username"
+                type="text"
+                value={friendUsername}
+                onChange={(event) => {
+                  setFriendUsername(event.target.value.replace(/^@+/, ''))
+                  if (addFriendError) setAddFriendError('')
+                }}
+                placeholder="например, famberlazy"
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                disabled={isAddingFriend}
+                aria-invalid={Boolean(addFriendError)}
+                aria-describedby={addFriendError ? 'add-friend-error' : 'add-friend-help'}
+              />
+            </span>
+            <span id="add-friend-help" className="mt-2 block text-xs leading-4 text-text-quiet">
+              Используйте логин после знака @, а не отображаемое имя.
+            </span>
           </label>
-          {addFriendError && <p className="mt-3 text-sm text-red-400" role="alert">{addFriendError}</p>}
-          <div className="add-friend-dialog__actions mt-5 flex justify-end gap-2">
-            <button type="button" onClick={() => setIsAddFriendModalOpen(false)} className="rounded-md px-4 py-2 text-white">Отмена</button>
-            <button type="submit" className="rounded-md bg-primary px-4 py-2 font-semibold text-white">Отправить запрос</button>
+          {addFriendError && (
+            <div id="add-friend-error" className="add-friend-dialog__error" role="alert">
+              <AlertCircle aria-hidden="true" />
+              <span>{addFriendError}</span>
+            </div>
+          )}
+          <div className="add-friend-dialog__actions mt-6 flex justify-end gap-2">
+            <button type="button" onClick={closeAddFriendModal} disabled={isAddingFriend} className="add-friend-dialog__cancel">Отмена</button>
+            <button
+              type="submit"
+              disabled={!friendUsername.trim() || isAddingFriend}
+              className="add-friend-dialog__submit"
+            >
+              {isAddingFriend ? <Loader2 className="animate-spin" aria-hidden="true" /> : <UserPlus aria-hidden="true" />}
+              {isAddingFriend ? 'Отправляем…' : 'Отправить запрос'}
+            </button>
           </div>
         </form>
       </Modal>

@@ -50,7 +50,7 @@ async def send_friend_request(
 
     friend_request = await friend_service.create_friend_request(db, user_from_id=current_user.id, user_to_id=friend.id)
     if not friend_request:
-        raise HTTPException(status_code=400, detail="Friend request already sent or users are already friends.")
+        raise HTTPException(status_code=400, detail="Запрос уже отправлен или пользователь уже у вас в друзьях.")
 
     # Отправляем уведомление по WebSocket
     # Добавляем request_id к объекту current_user для отправки
@@ -108,7 +108,7 @@ async def accept_friend_request(
     """
     friend = await friend_service.accept_friend_request(db, request_id=request_id, current_user_id=current_user.id)
     if not friend:
-        raise HTTPException(status_code=404, detail="Friend request not found or you are not the recipient.")
+        raise HTTPException(status_code=404, detail="Запрос в друзья не найден или уже обработан.")
 
     acceptor_schema = RelationshipUser.model_validate(current_user)
     await manager.send_personal_message(
@@ -136,7 +136,7 @@ async def reject_friend_request(
         db, request_id=request_id, current_user_id=current_user.id
     )
     if other_user_id is None:
-        raise HTTPException(status_code=404, detail="Friend request not found or you are not the recipient.")
+        raise HTTPException(status_code=404, detail="Запрос в друзья не найден или уже обработан.")
 
     if other_user_id:
         await manager.send_personal_message(
@@ -146,4 +146,4 @@ async def reject_friend_request(
             },
             other_user_id,
         )
-    return {"message": "Friend request rejected."}
+    return {"message": "Запрос в друзья отклонён."}
