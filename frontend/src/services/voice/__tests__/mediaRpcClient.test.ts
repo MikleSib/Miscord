@@ -59,4 +59,29 @@ describe('MediaRpcClient', () => {
     expect(response.protocol_version).toBe(1);
     client.close();
   });
+
+  it('does not report an intentional client close as a connection failure', async () => {
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    const client = new MediaRpcClient();
+    await client.connect('ws://localhost/ws/media', 'one-time-ticket');
+    const onFailure = vi.fn();
+    client.on('connection_failed', onFailure);
+
+    client.close();
+
+    expect(onFailure).not.toHaveBeenCalled();
+  });
+
+  it('reports an unexpected remote close as a connection failure', async () => {
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    const client = new MediaRpcClient();
+    await client.connect('ws://localhost/ws/media', 'one-time-ticket');
+    const onFailure = vi.fn();
+    client.on('connection_failed', onFailure);
+
+    instances[0].onclose?.({ reason: 'Media service unavailable' });
+
+    expect(onFailure).toHaveBeenCalledWith({ message: 'Media service unavailable' });
+    client.close();
+  });
 });

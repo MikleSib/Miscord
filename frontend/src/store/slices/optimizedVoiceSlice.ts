@@ -45,6 +45,8 @@ export interface VoiceState {
 
 }
 
+let voiceConnectionAttempt = 0;
+
 export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
   isConnected: false,
   isConnecting: false,
@@ -60,6 +62,7 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
 
   
   connectToVoiceChannel: async (channelId) => {
+    let attemptId: number | null = null;
     try {
       console.log('[OptimizedVoiceSlice] 🎤 Подключение к каналу:', channelId);
       
@@ -73,6 +76,8 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
         get().disconnectFromVoiceChannel();
         await new Promise(resolve => setTimeout(resolve, 100));
       }
+
+      attemptId = ++voiceConnectionAttempt;
       
       set({
         error: null,
@@ -197,6 +202,9 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
       // Подключаемся к голосовому каналу
       console.log('[OptimizedVoiceSlice] Вызываем optimizedVoiceService.joinVoiceChannel');
       await optimizedVoiceService.joinVoiceChannel(channelId);
+
+      // A voluntary disconnect or a newer channel switch owns the state now.
+      if (attemptId !== voiceConnectionAttempt) return;
       
       console.log('[OptimizedVoiceSlice] ✅ Успешно подключились к голосовому каналу');
 
@@ -227,6 +235,7 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
       });
 
     } catch (error: unknown) {
+      if (attemptId === null || attemptId !== voiceConnectionAttempt) return;
       console.error('[OptimizedVoiceSlice] ❌ Ошибка подключения к голосовому каналу:', error);
       const message = error instanceof Error ? error.message : null;
       set({ 
@@ -244,6 +253,7 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
     // Воспроизводим звук отключения
     soundService.playLeaveSound();
     
+    ++voiceConnectionAttempt;
     optimizedVoiceService.leaveVoiceChannel();
     
     set({
@@ -255,6 +265,7 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
       isMuted: false,
       isDeafened: false,
       wasMutedBeforeDeafen: false,
+      error: null,
       speakingUsers: {},
     });
   },

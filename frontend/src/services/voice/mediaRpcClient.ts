@@ -33,7 +33,12 @@ export class MediaRpcClient {
       };
     });
     socket.onmessage = (event) => this.receive(event.data);
-    socket.onclose = (event) => this.failAll(new Error(event.reason || 'Media connection closed'));
+    socket.onclose = (event) => {
+      if (this.socket !== socket) return;
+      this.socket = null;
+      this.stopHeartbeat();
+      this.failAll(new Error(event.reason || 'Media connection closed'), true);
+    };
     const identified = await this.request('identify', { ticket, ...identify });
     this.heartbeatTimer = setInterval(() => {
       void this.request('ping', {}, 5_000).catch(() => this.close());
@@ -68,11 +73,19 @@ export class MediaRpcClient {
   }
 
   private resetSocket(): void {
+    this.stopHeartbeat();
+    const socket = this.socket;
+    this.socket = null;
+    if (socket) {
+      socket.onclose = null;
+      socket.close(1000, 'Client leaving voice');
+    }
+    this.failAll(new Error('Media client closed'), false);
+  }
+
+  private stopHeartbeat(): void {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     this.heartbeatTimer = null;
-    this.socket?.close(1000, 'Client leaving voice');
-    this.socket = null;
-    this.failAll(new Error('Media client closed'));
   }
 
   private receive(raw: string): void {
@@ -94,12 +107,14 @@ export class MediaRpcClient {
     for (const listener of this.listeners.get(payload.type) ?? []) listener(payload);
   }
 
-  private failAll(error: Error): void {
+  private failAll(error: Error, notifyFailure: boolean): void {
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
       pending.reject(error);
     }
     this.pending.clear();
-    for (const listener of this.listeners.get('connection_failed') ?? []) listener({ message: error.message });
+    if (notifyFailure) {
+      for (const listener of this.listeners.get('connection_failed') ?? []) listener({ message: error.message });
+    }
   }
 }
