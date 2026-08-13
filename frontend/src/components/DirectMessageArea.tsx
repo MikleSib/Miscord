@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { DirectMessage, User } from '../types'
-import directMessageService from '../services/directMessageService'
 import websocketService from '../services/websocketService'
 import { appendChatFiles, MAX_CHAT_ATTACHMENTS } from '../lib/chatAttachments'
 import { resetChatComposer } from '../lib/chatComposer'
@@ -24,6 +23,7 @@ import { ru } from 'date-fns/locale'
 import { DirectMessageComposer } from './DirectMessageComposer'
 import { AttachmentDropOverlay } from './AttachmentDropOverlay'
 import { DirectMessageHeader } from './DirectMessageHeader'
+import { useDirectMessageHistory } from '../hooks/useDirectMessageHistory'
 
 interface DirectMessageAreaProps {
   friend: User
@@ -38,31 +38,36 @@ export function DirectMessageArea({
   onInitialMessageSent,
   onOpenSecret,
 }: DirectMessageAreaProps) {
-  const [messages, setMessages] = useState<DirectMessage[]>([])
+  const { user } = useAuthStore()
+  const {
+    messages,
+    setMessages,
+    skip,
+    hasMore,
+    loading: isLoading,
+    loaded: historyReady,
+    loadMore,
+  } = useDirectMessageHistory(user?.id, friend.id)
   const [newMessage, setNewMessage] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [isDraggingFiles, setIsDraggingFiles] = useState(false)
-  const { user } = useAuthStore()
   const messagesEndRef = useRef<null | HTMLDivElement>(null)
   const messagesContainerRef = useRef<null | HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null)
   const dragDepthRef = useRef(0)
-  const [skip, setSkip] = useState(0)
-  const [hasMore, setHasMore] = useState(true)
-  const [isLoading, setIsLoading] = useState(false)
   const [isSending, setIsSending] = useState(false)
   const outgoingQueue = useOutgoingMessageStore((state) => state.messages)
   const initializeOutgoingQueue = useOutgoingMessageStore((state) => state.initialize)
   const enqueueOutgoing = useOutgoingMessageStore((state) => state.enqueue)
   const acknowledgeOutgoing = useOutgoingMessageStore((state) => state.acknowledge)
-  const outgoingMessages = outgoingQueue.filter(
+  const outgoingMessages = historyReady ? outgoingQueue.filter(
     (message) =>
       message.conversation.type === 'dm' &&
       message.conversation.id === friend.id &&
       !messages.some((saved) => saved.client_nonce === message.clientNonce),
-  )
+  ) : []
   const applyFormattingShortcut = useComposerFormatting(messageInputRef, setNewMessage)
   const [lightboxItem, setLightboxItem] = useState<MediaLightboxItem | null>(null)
   const [replyingTo, setReplyingTo] = useState<DirectMessage | null>(null)
@@ -77,42 +82,10 @@ export function DirectMessageArea({
     if (user && token) void initializeOutgoingQueue(user.id, token)
   }, [user?.id, initializeOutgoingQueue])
 
-  const fetchMessages = async (loadSkip: number = 0, loadLimit: number = 30) => {
-    if (isLoading) return
-    setIsLoading(true)
-    try {
-      const messageHistory = await directMessageService.getMessages(friend.id, loadSkip, loadLimit)
-      const messagesWithReactions = messageHistory.map(msg => ({
-        ...msg,
-        reactions: msg.reactions || []
-      }));
-
-      if (loadSkip === 0) {
-        setMessages(messagesWithReactions)
-        setSkip(messagesWithReactions.length)
-        setHasMore(messagesWithReactions.length === loadLimit)
-      } else {
-        // Подгрузка старых сообщений
-        setMessages((prev) => [...messagesWithReactions, ...prev])
-        setSkip(loadSkip + messagesWithReactions.length)
-        setHasMore(messagesWithReactions.length === loadLimit)
-      }
-    } catch (error) {
-      console.error('Ошибка загрузки личных сообщений:', error)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
   useEffect(() => {
-    // Сброс состояния при смене пользователя
-    setMessages([])
-    setSkip(0)
-    setHasMore(true)
     setRateLimitUntil(null)
     setRateLimitHint(null)
     initialMessageSentRef.current = false
-    fetchMessages(0)
   }, [friend.id])
 
   useEffect(() => {
@@ -259,13 +232,15 @@ export function DirectMessageArea({
 
     const handleScroll = () => {
       if (container.scrollTop === 0 && hasMore && !isLoading) {
-        fetchMessages(skip, 30);
+        void loadMore().catch((error) => {
+          console.error('Не удалось загрузить более ранние сообщения:', error)
+        })
       }
     };
 
     container.addEventListener('scroll', handleScroll);
     return () => container.removeEventListener('scroll', handleScroll);
-  }, [skip, hasMore, isLoading, friend.id]);
+  }, [skip, hasMore, isLoading, friend.id, loadMore]);
 
   const addFiles = (incoming: File[]) => {
     const result = appendChatFiles(files, incoming)

@@ -494,8 +494,19 @@ export const useStore = create<AppState>()(
             servers: state.servers.map(server =>
               server.id === serverId ? updatedServer : server
             ),
-            currentServer: updatedServer,
-            currentServerMembers: serverDetails.members || []
+            currentServer: state.currentServer?.id === serverId
+              ? updatedServer
+              : state.currentServer,
+            currentServerMembers: state.currentServer?.id === serverId
+              ? (serverDetails.members || [])
+              : state.currentServerMembers,
+            currentChannel:
+              state.currentServer?.id === serverId && state.currentChannel
+                ? channels.find((channel) =>
+                    channel.id === state.currentChannel?.id &&
+                    channel.type === state.currentChannel?.type
+                  ) ?? state.currentChannel
+                : state.currentChannel,
           }))
         } catch (error) {
           console.error('Ошибка загрузки деталей сервера:', error)

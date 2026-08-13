@@ -4,15 +4,15 @@ import { useState, useEffect, useMemo } from 'react'
 import { Users, MessageSquare, Settings, Check, X } from 'lucide-react'
 import { User, FriendRequest } from '../types'
 import friendService from '../services/friendService'
-import directMessageService from '../services/directMessageService'
 import websocketService from '../services/websocketService'
 import { DirectMessageArea } from './DirectMessageArea'
 import { UserAvatar } from './ui/user-avatar'
-import authService from '../services/authService'
 import { consumePendingDirectMessage } from '../lib/dmNavigation'
 import { useDmNotificationStore } from '../store/dmNotificationStore'
 import { Modal } from './ui/modal'
 import { SecretDirectMessageArea } from './SecretDirectMessageArea'
+import { useAuthStore } from '../store/store'
+import { useHomeNavigationData } from '../hooks/useHomeNavigationData'
 
 type Tab = 'online' | 'all' | 'pending' | 'blocked'
 
@@ -60,17 +60,22 @@ function mergeSidebarContacts(friends: User[], dmConversations: User[]): User[] 
 
 export function HomePageContent() {
   const [activeTab, setActiveTab] = useState<Tab>('all')
-  const [friends, setFriends] = useState<User[]>([])
-  const [dmConversations, setDmConversations] = useState<User[]>([])
-  const [pendingRequests, setPendingRequests] = useState<any[]>([])
   const [isAddFriendModalOpen, setIsAddFriendModalOpen] = useState(false)
   const [friendUsername, setFriendUsername] = useState('')
   const [addFriendError, setAddFriendError] = useState('')
-  const [selectedFriend, setSelectedFriend] = useState<User | null>(null)
   const [initialMessage, setInitialMessage] = useState<string | null>(null)
   const [secretMode, setSecretMode] = useState(false)
-  
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const currentUser = useAuthStore((state) => state.user)
+  const {
+    friends,
+    dmConversations,
+    pendingRequests,
+    selectedFriend,
+    setFriends,
+    setDmConversations,
+    setPendingRequests,
+    setSelectedFriend,
+  } = useHomeNavigationData(currentUser?.id)
   const setActiveDmView = useDmNotificationStore((state) => state.setActiveView);
   const markDmViewed = useDmNotificationStore((state) => state.markViewed);
 
@@ -84,15 +89,6 @@ export function HomePageContent() {
     () => sidebarContacts.filter((contact) => contact.is_online),
     [sidebarContacts]
   )
-
-  useEffect(() => {
-    const getcurrentUser = async () => {
-      const user = await authService.getCurrentUser()
-      setCurrentUser(user)
-    }
-
-    getcurrentUser()
-  }, [])
 
   useEffect(() => { setSecretMode(false) }, [selectedFriend?.id])
 
@@ -118,7 +114,7 @@ export function HomePageContent() {
     return () => {
       window.removeEventListener('open_direct_message', openPendingDirectMessage)
     }
-  }, [markDmViewed])
+  }, [markDmViewed, setDmConversations, setFriends, setSelectedFriend])
 
   useEffect(() => {
     setActiveDmView(selectedFriend?.id ?? null)
@@ -127,22 +123,6 @@ export function HomePageContent() {
 
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [friendsData, pendingRequestsData, conversationsData] = await Promise.all([
-          friendService.getFriends(),
-          friendService.getPendingRequests(),
-          directMessageService.getConversations(),
-        ])
-        setFriends(friendsData)
-        setPendingRequests(pendingRequestsData)
-        setDmConversations(conversationsData)
-      } catch (error) {
-        console.error('Ошибка загрузки данных о друзьях:', error)
-      }
-    }
-    fetchData()
-
     const handleIncomingDm = (payload: { data?: { sender_id?: number; recipient_id?: number; timestamp?: string; author?: User } }) => {
       const message = payload?.data
       if (!message?.timestamp) return
@@ -307,7 +287,13 @@ export function HomePageContent() {
       websocketService.off('dm', handleIncomingDm);
       window.removeEventListener('user_profile_updated', handleUserProfileUpdated);
     }
-  }, [currentUser?.id])
+  }, [
+    currentUser?.id,
+    setDmConversations,
+    setFriends,
+    setPendingRequests,
+    setSelectedFriend,
+  ])
 
   const handleAddFriend = async () => {
     if (!friendUsername.trim()) return
@@ -501,6 +487,7 @@ export function HomePageContent() {
           <SecretDirectMessageArea friend={selectedFriend} onClose={() => setSecretMode(false)} />
         ) : selectedFriend ? (
           <DirectMessageArea
+            key={selectedFriend.id}
             friend={selectedFriend}
             initialMessage={initialMessage}
             onInitialMessageSent={() => setInitialMessage(null)}

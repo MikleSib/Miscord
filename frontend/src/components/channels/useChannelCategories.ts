@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect } from 'react'
 import categoryService, {
   type ChannelCategory,
   type ChannelPlacement,
@@ -9,9 +9,8 @@ import unifiedWebSocketService from '../../services/unifiedWebSocketService'
 import { GatewayEvents } from '../../lib/gatewayEvents'
 import {
   resolveCategoryLoadView,
-  type CategoriesByServer,
-  type CategoryErrorsByServer,
 } from './channelCategoryLoadState'
+import { useChannelCategoryDataStore } from '../../store/channelCategoryDataStore'
 
 interface CategoryEventPayload {
   data?: {
@@ -25,49 +24,44 @@ function sortCategories(categories: ChannelCategory[]): ChannelCategory[] {
   return [...categories].sort((a, b) => a.position - b.position || a.id - b.id)
 }
 
+const requestVersions = new Map<number, number>()
+
 export function useChannelCategories(serverId: number | null) {
-  const [categoriesByServer, setCategoriesByServer] = useState<CategoriesByServer>({})
-  const [errorsByServer, setErrorsByServer] = useState<CategoryErrorsByServer>({})
-  const requestVersionsRef = useRef(new Map<number, number>())
+  const categoriesByServer = useChannelCategoryDataStore((state) => state.categoriesByServer)
+  const errorsByServer = useChannelCategoryDataStore((state) => state.errorsByServer)
+  const updateCachedCategories = useChannelCategoryDataStore((state) => state.setCategories)
+  const updateCachedError = useChannelCategoryDataStore((state) => state.setError)
   const categoryView = resolveCategoryLoadView(serverId, categoriesByServer, errorsByServer)
 
   const setCategories = useCallback(
     (update: ChannelCategory[] | ((previous: ChannelCategory[]) => ChannelCategory[])) => {
       if (serverId == null) return
-      requestVersionsRef.current.set(serverId, (requestVersionsRef.current.get(serverId) ?? 0) + 1)
-      setCategoriesByServer((previous) => {
-        const base = previous[serverId] ?? []
-        const next = typeof update === 'function' ? update(base) : update
-        return { ...previous, [serverId]: next }
-      })
-      setErrorsByServer((previous) => ({ ...previous, [serverId]: undefined }))
+      requestVersions.set(serverId, (requestVersions.get(serverId) ?? 0) + 1)
+      updateCachedCategories(serverId, update)
     },
-    [serverId],
+    [serverId, updateCachedCategories],
   )
 
   const setCurrentError = useCallback((message: string) => {
     if (serverId == null) return
-    setErrorsByServer((previous) => ({ ...previous, [serverId]: message }))
-  }, [serverId])
+    updateCachedError(serverId, message)
+  }, [serverId, updateCachedError])
 
   const reload = useCallback(async () => {
     if (serverId == null) return
     const requestedServerId = serverId
-    const requestVersion = (requestVersionsRef.current.get(requestedServerId) ?? 0) + 1
-    requestVersionsRef.current.set(requestedServerId, requestVersion)
-    setErrorsByServer((previous) => ({ ...previous, [requestedServerId]: undefined }))
+    const requestVersion = (requestVersions.get(requestedServerId) ?? 0) + 1
+    requestVersions.set(requestedServerId, requestVersion)
+    updateCachedError(requestedServerId)
     try {
       const loaded = sortCategories(await categoryService.list(requestedServerId))
-      if (requestVersionsRef.current.get(requestedServerId) !== requestVersion) return
-      setCategoriesByServer((previous) => ({ ...previous, [requestedServerId]: loaded }))
+      if (requestVersions.get(requestedServerId) !== requestVersion) return
+      updateCachedCategories(requestedServerId, loaded)
     } catch {
-      if (requestVersionsRef.current.get(requestedServerId) !== requestVersion) return
-      setErrorsByServer((previous) => ({
-        ...previous,
-        [requestedServerId]: 'Не удалось загрузить категории',
-      }))
+      if (requestVersions.get(requestedServerId) !== requestVersion) return
+      updateCachedError(requestedServerId, 'Не удалось загрузить категории')
     }
-  }, [serverId])
+  }, [serverId, updateCachedCategories, updateCachedError])
 
   useEffect(() => {
     let cancelled = false
