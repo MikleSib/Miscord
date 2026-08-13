@@ -1,6 +1,7 @@
 'use client'
 
-import { Users, X } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Search, Users, X } from 'lucide-react'
 
 import type { User } from '../../types'
 import { UserAvatar } from '../ui/user-avatar'
@@ -39,11 +40,29 @@ export function HomeConversationSidebar({
   onOpenConversation,
   onHideConversation,
 }: HomeConversationSidebarProps) {
-  const visibleConversations = sortedConversations(conversations)
+  const [query, setQuery] = useState('')
+  const visibleConversations = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase('ru')
+    const sorted = sortedConversations(conversations)
+    if (!normalized) return sorted
+    return sorted.filter((contact) => (
+      displayName(contact).toLocaleLowerCase('ru').includes(normalized)
+      || contact.username.toLocaleLowerCase('ru').includes(normalized)
+    ))
+  }, [conversations, query])
 
   return (
     <aside className="app-sidebar home-conversation-sidebar flex h-full flex-col border-r">
       <div className="home-conversation-sidebar__top">
+        <label className="home-conversation-sidebar__search">
+          <span className="sr-only">Найти беседу</span>
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Найти или начать беседу"
+          />
+          <Search aria-hidden="true" />
+        </label>
         <button
           type="button"
           className={`home-conversation-sidebar__friends ${selectedUserId == null ? 'is-active' : ''}`}

@@ -1,13 +1,12 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
-import { Users, MessageSquare, Check, X } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { X } from 'lucide-react'
 import { User } from '../types'
 import friendService from '../services/friendService'
 import directMessageService from '../services/directMessageService'
 import websocketService from '../services/websocketService'
 import { DirectMessageArea } from './DirectMessageArea'
-import { UserAvatar } from './ui/user-avatar'
 import { consumePendingDirectMessage } from '../lib/dmNavigation'
 import { useDmNotificationStore } from '../store/dmNotificationStore'
 import { Modal } from './ui/modal'
@@ -15,15 +14,10 @@ import { SecretDirectMessageArea } from './SecretDirectMessageArea'
 import { useAuthStore } from '../store/store'
 import { useHomeNavigationData } from '../hooks/useHomeNavigationData'
 import { HomeConversationSidebar } from './home/HomeConversationSidebar'
-
-type Tab = 'online' | 'all' | 'pending' | 'blocked'
-
-function getDisplayName(user: User): string {
-  return user.display_name?.trim() || user.username
-}
+import { HomeFriendsPanel, type FriendsTab } from './home/HomeFriendsPanel'
 
 export function HomePageContent() {
-  const [activeTab, setActiveTab] = useState<Tab>('all')
+  const [activeTab, setActiveTab] = useState<FriendsTab>('online')
   const [isAddFriendModalOpen, setIsAddFriendModalOpen] = useState(false)
   const [friendUsername, setFriendUsername] = useState('')
   const [addFriendError, setAddFriendError] = useState('')
@@ -45,11 +39,6 @@ export function HomePageContent() {
   const setActiveDmView = useDmNotificationStore((state) => state.setActiveView);
   const markDmViewed = useDmNotificationStore((state) => state.markViewed);
 
-
-  const onlineContacts = useMemo(
-    () => friends.filter((contact) => contact.is_online),
-    [friends]
-  )
 
   useEffect(() => { setSecretMode(false) }, [selectedFriend?.id])
 
@@ -339,115 +328,6 @@ export function HomePageContent() {
     }
   }
 
-  const renderContactRow = (contact: User) => (
-    <div key={contact.id} className={`group flex min-h-12 items-center justify-between rounded-md px-2 transition-colors hover:bg-surface-raised ${selectedFriend?.id === contact.id ? 'bg-surface-raised' : ''}`}>
-      <button
-        type="button"
-        onClick={() => openContactChat(contact)}
-        className="flex min-w-0 flex-1 items-center rounded-md py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        aria-label={`Открыть переписку с ${getDisplayName(contact)}`}
-      >
-      <div className="flex items-center">
-        <UserAvatar user={contact} />
-        <div className="ml-3">
-          <p className="text-white">{getDisplayName(contact)}</p>
-          <p className={`text-xs ${contact.is_online ? 'text-green-400' : 'text-text-quiet'}`}>
-            {contact.is_online ? 'В сети' : contact.is_friend === false ? 'Личные сообщения' : 'Не в сети'}
-          </p>
-        </div>
-      </div>
-      </button>
-      <div className="flex items-center gap-2">
-        <button 
-          onClick={(e) => { 
-            e.stopPropagation(); 
-            openContactChat(contact); 
-          }} 
-          className="grid h-11 w-11 place-items-center rounded-md text-text-quiet outline-none hover:bg-surface-raised hover:text-white focus-visible:ring-2 focus-visible:ring-primary"
-          aria-label={`Написать ${getDisplayName(contact)}`}
-        >
-          <MessageSquare size={20} />
-        </button>
-      </div>
-    </div>
-  )
-
-  const renderContent = () => {
-    switch (activeTab) {
-      case 'online':
-        return (
-          <div className="home-friends-section">
-            <h3 className="home-dm-heading text-xs font-bold uppercase text-text-quiet mb-2">
-              В сети — {onlineContacts.length}
-            </h3>
-            {onlineContacts.length > 0 ? (
-              onlineContacts.map(renderContactRow)
-            ) : (
-              <div className="home-friends-empty text-center text-muted-foreground" role="status">
-                <Users aria-hidden="true" />
-                <p className="home-friends-empty__title">Сейчас никого нет в сети</p>
-                <p className="home-friends-empty__description">Загляните сюда позже или начните новый диалог.</p>
-              </div>
-            )}
-          </div>
-        )
-      case 'all':
-        return (
-          <div className="home-friends-section">
-            <h3 className="home-dm-heading text-xs font-bold uppercase text-text-quiet mb-2">
-              Все друзья — {friends.length}
-            </h3>
-            {friends.length > 0 ? (
-              friends.map(renderContactRow)
-            ) : (
-              <div className="home-friends-empty text-center text-muted-foreground" role="status">
-                <Users aria-hidden="true" />
-                <p className="home-friends-empty__title">Здесь пока никого нет</p>
-                <p className="home-friends-empty__description">Добавьте друга или начните новый диалог.</p>
-              </div>
-            )}
-          </div>
-        )
-      case 'pending':
-        return (
-          <div className="home-friends-section">
-            <h3 className="home-dm-heading text-xs font-bold uppercase text-text-quiet mb-2">
-              Входящие — {pendingRequests.length}
-            </h3>
-            {pendingRequests.length > 0 ? (
-               pendingRequests.filter(Boolean).map(request => (
-                <div key={request.request_id} className="flex items-center justify-between p-2 hover:bg-gray-800 rounded-md">
-                  <div className="flex items-center">
-                    <UserAvatar user={request} />
-                    <div className="ml-3">
-                      <p className="text-white">{request.username}</p>
-                      <p className="text-xs text-text-quiet">Входящий запрос в друзья</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button type="button" onClick={() => handleAcceptRequest(request.request_id!)} aria-label={`Принять запрос от ${request.username}`} className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-raised text-white hover:bg-success">
-                      <Check size={20} />
-                    </button>
-                    <button type="button" onClick={() => handleRejectRequest(request.request_id!)} aria-label={`Отклонить запрос от ${request.username}`} className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-raised text-white hover:bg-destructive">
-                      <X size={20} />
-                    </button>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="home-friends-empty text-center text-muted-foreground" role="status">
-                <Users aria-hidden="true" />
-                <p className="home-friends-empty__title">Нет ожидающих запросов</p>
-                <p className="home-friends-empty__description">Новые запросы в друзья появятся здесь.</p>
-              </div>
-            )}
-          </div>
-        )
-      default:
-        return <p className="text-center text-text-quiet mt-20">Контент для "{activeTab}" еще не реализован.</p>
-    }
-  }
-
   return (
     <div className="app-home-content flex flex-1 h-full min-w-0">
       <HomeConversationSidebar
@@ -472,30 +352,16 @@ export function HomePageContent() {
             onOpenSecret={() => setSecretMode(true)}
           />
         ) : (
-          <section className="home-friends-detail flex min-h-0 flex-1 flex-col">
-            <div className="home-friends-header flex h-12 flex-shrink-0 items-center border-b border-border px-4">
-          <div className="flex items-center">
-            <Users className="w-6 h-6 text-text-quiet mr-2" />
-            <h2 className="text-white font-semibold">Друзья</h2>
-          </div>
-            </div>
-            <nav className="home-friends-tabs flex items-center" aria-label="Разделы друзей">
-          <button type="button" aria-pressed={activeTab === 'all'} onClick={() => setActiveTab('all')} className={`home-friends-tab ${activeTab === 'all' ? 'is-active' : ''}`}>Все</button>
-          <div className="relative">
-            <button type="button" aria-pressed={activeTab === 'pending'} onClick={() => setActiveTab('pending')} className={`home-friends-tab ${activeTab === 'pending' ? 'is-active' : ''}`}>Ожидание</button>
-            {pendingRequests.length > 0 && (
-              <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center font-bold">
-                {pendingRequests.length}
-              </span>
-            )}
-          </div>
-         
-          <button type="button" onClick={() => setIsAddFriendModalOpen(true)} className="home-friends-tab home-friends-tab--add">Добавить</button>
-            </nav>
-            <div className="home-friends-list flex-1 overflow-y-auto">
-              {renderContent()}
-            </div>
-          </section>
+          <HomeFriendsPanel
+            activeTab={activeTab}
+            friends={friends}
+            pendingRequests={pendingRequests}
+            onTabChange={setActiveTab}
+            onAddFriend={() => setIsAddFriendModalOpen(true)}
+            onOpenConversation={openContactChat}
+            onAcceptRequest={(requestId) => void handleAcceptRequest(requestId)}
+            onRejectRequest={(requestId) => void handleRejectRequest(requestId)}
+          />
         )}
       </div>
 
