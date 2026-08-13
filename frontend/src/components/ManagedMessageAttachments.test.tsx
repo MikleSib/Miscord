@@ -4,7 +4,7 @@ import { ManagedMessageAttachments } from './ManagedMessageAttachments'
 
 
 describe('ManagedMessageAttachments', () => {
-  it('reserves a stable video frame without preloading every attachment', () => {
+  it('preloads video inside a stable reserved frame', () => {
     const html = renderToStaticMarkup(
       <ManagedMessageAttachments
         attachments={[{
@@ -17,9 +17,9 @@ describe('ManagedMessageAttachments', () => {
       />,
     )
 
-    expect(html).toContain('preload="none"')
+    expect(html).toContain('preload="auto"')
     expect(html).toContain('aspect-video')
     expect(html).toContain('object-contain')
-    expect(html).not.toContain('preload="metadata"')
+    expect(html).not.toContain('preload="none"')
   })
 })

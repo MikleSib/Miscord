@@ -59,7 +59,7 @@ export function ManagedMessageAttachments({ attachments }: { attachments: Manage
             <div key={item.id} className="overflow-hidden rounded-lg bg-[#1e1f22]">
               <video
                 controls
-                preload="none"
+                preload="auto"
                 playsInline
                 src={url}
                 className="aspect-video max-h-[360px] w-full bg-black object-contain"
