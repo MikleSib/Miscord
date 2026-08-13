@@ -66,6 +66,7 @@ import { ChatMessageListSkeleton } from './chat/ChatMessageListSkeleton'
 import { Permissions } from '../lib/permissions'
 import { useServerPermissions } from '../lib/serverPermissions'
 import { requestChannelSettings } from '../lib/channelSettingsEvents'
+import { MessageComposerUnavailable } from './chat/MessageComposerUnavailable'
 
 const localizedCommandName = (command: MiscordApplicationCommand) => command.name_localizations?.ru || command.name
 
@@ -90,7 +91,7 @@ export function ChatAreaView({ model }: { model: any }) {
     handleFileChange, handlePaste, handleDragEnter, handleDragOver, handleDragLeave, handleDrop,
     handleRemoveFile, updateMentionState, applyMention, applySlashCommand, applyAutocompleteChoice, parseCommandOptions,
     handleSendMessage, handleInputChange, handleInputKeyDown, handleReply, handleContextApplicationCommand, handleCancelReply,
-    handleReaction, TypingIndicator
+    handleReaction, TypingIndicator, canSendMessages, channelPermissionStatus, refreshChannelPermissions
   } = model
   const { can } = useServerPermissions(currentServer?.id ?? null)
   const isStandardTextChannel = currentChannel.type === 'text'
@@ -104,7 +105,7 @@ export function ChatAreaView({ model }: { model: any }) {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {isDraggingFiles && <AttachmentDropOverlay />}
+      {isDraggingFiles && canSendMessages && <AttachmentDropOverlay />}
       <ChatAreaHeader
         channel={currentChannel}
         serverId={currentServer?.id ?? null}
@@ -235,10 +236,12 @@ export function ChatAreaView({ model }: { model: any }) {
       <TypingIndicator />
 
       {/* Reply Input */}
-      <ReplyInput replyingTo={replyingTo} onCancelReply={handleCancelReply} />
+      {canSendMessages && (
+        <ReplyInput replyingTo={replyingTo} onCancelReply={handleCancelReply} />
+      )}
 
       {/* Message Input */}
-      {currentChannel.type === 'text' && (
+      {currentChannel.type === 'text' && canSendMessages && (
         <div className="chat-area-composer flex-shrink-0 border-t border-border/70 p-3">
           {isSlowModeActive && (
             <div className="mb-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-text-body">
@@ -378,6 +381,13 @@ export function ChatAreaView({ model }: { model: any }) {
             </div>
           </form>
         </div>
+      )}
+
+      {currentChannel.type === 'text' && !canSendMessages && (
+        <MessageComposerUnavailable
+          status={channelPermissionStatus}
+          onRetry={refreshChannelPermissions}
+        />
       )}
 
       {currentChannel.type === 'voice' && (

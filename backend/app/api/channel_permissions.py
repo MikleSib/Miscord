@@ -1,5 +1,6 @@
 """API переопределений прав текстовых и голосовых каналов."""
 
+import logging
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -8,7 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.dependencies import get_current_active_user
-from app.core.permissions import Permission, miscord_permissions_to_legacy, require_permission
+from app.core.permissions import (
+    Permission,
+    has_permission,
+    is_member,
+    miscord_permissions_to_legacy,
+    require_permission,
+)
 from app.db.database import get_db
 from app.models import (
     Channel,
@@ -30,9 +37,14 @@ from app.schemas.channel_permissions import (
     ChannelPermissionOverwriteResponse,
     ChannelPermissionOverwriteUpsert,
 )
-from app.services.channel_permissions import get_channel_overwrites
+from app.services.channel_permissions import (
+    get_channel_overwrites,
+    get_effective_channel_permissions,
+)
+from app.websocket.connection_manager import manager
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 CHANNEL_PERMISSION_GROUPS = [
     {"key": "general", "label": "Основные права канала"},
@@ -249,6 +261,22 @@ async def _ensure_manage_channels(
     await require_permission(db, server_id, user, Permission.MANAGE_CHANNELS)
 
 
+async def _notify_text_permission_change(text_channel: TextChannel) -> None:
+    """Попросить открытые клиенты пересчитать свои эффективные права."""
+    try:
+        await manager.send_to_channel(text_channel.id, {
+            "type": "channel_permissions_updated",
+            "data": {
+                "server_id": int(text_channel.channel_id),
+                "text_channel_id": int(text_channel.id),
+            },
+        })
+    except Exception:
+        # Изменение уже зафиксировано в БД: сбой realtime не должен превращать
+        # успешное сохранение прав в ложную ошибку API.
+        logger.exception("Failed to publish text channel permission update")
+
+
 @router.get("/permissions/catalog/{channel_kind}", response_model=ChannelPermissionCatalogResponse)
 async def get_channel_permission_catalog(channel_kind: Literal["text", "voice"]):
     if channel_kind == "text":
@@ -260,6 +288,29 @@ async def get_channel_permission_catalog(channel_kind: Literal["text", "voice"])
         permissions=VOICE_CHANNEL_PERMISSIONS,
         groups=CHANNEL_PERMISSION_GROUPS,
     )
+
+
+@router.get("/text/{text_channel_id}/permissions/@me")
+async def get_my_text_channel_permissions(
+    text_channel_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    text_channel = await _get_text_channel(db, text_channel_id)
+    server_id = int(text_channel.channel_id)
+    if not await is_member(db, server_id, current_user.id):
+        raise HTTPException(status_code=404, detail="Текстовый канал не найден")
+
+    permissions = await get_effective_channel_permissions(
+        db,
+        server_id,
+        current_user.id,
+        "text",
+        text_channel.id,
+    )
+    if not has_permission(permissions, Permission.VIEW_CHANNEL):
+        raise HTTPException(status_code=404, detail="Текстовый канал не найден")
+    return {"permissions": permissions}
 
 
 @router.get("/text/{text_channel_id}/permission-overwrites", response_model=ChannelPermissionOverwriteListResponse)
@@ -374,6 +425,7 @@ async def upsert_text_channel_overwrite(
         text_channel_id,
         payload,
     )
+    await _notify_text_permission_change(text_channel)
     serialized = await _serialize_overwrites(db, text_channel.channel_id, [overwrite])
     return serialized[0]
 
@@ -422,6 +474,7 @@ async def delete_text_channel_overwrite(
         )
     )
     await db.commit()
+    await _notify_text_permission_change(text_channel)
     return {"detail": "Переопределение удалено"}
 
 

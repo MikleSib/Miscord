@@ -84,15 +84,20 @@ export function useChatComposerActions({ model }: { model: any }) {
     loadMessageHistory, loadOlderMessages, ensureMessageLoaded, addMessage, updateMessageReactions, updateSingleReaction,
     deleteMessage, editMessage, pinnedMessages, pinnedIds, canManagePins, pinsError,
     setPinned, slowModeRemainingSeconds, isSlowModeActive, scrollMessagesToBottom, handleMessagesScroll, scrollToMention,
-    jumpToMessage, handleJumpToSearchResult, handleJumpToMention
+    jumpToMessage, handleJumpToSearchResult, handleJumpToMention, canSendMessages
   } = model
   const addFiles = useCallback((incoming: File[]) => {
+    if (!canSendMessages) return
     const result = appendChatFiles(files, incoming)
     setFiles(result.files)
     setAttachmentError(result.error)
-  }, [files])
+  }, [canSendMessages, files, setAttachmentError, setFiles])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canSendMessages) {
+      e.target.value = ''
+      return
+    }
     addFiles(Array.from(e.target.files || []))
     e.target.value = ''
   }
@@ -110,6 +115,7 @@ export function useChatComposerActions({ model }: { model: any }) {
   const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
     if (!e.dataTransfer.types.includes('Files')) return
     e.preventDefault()
+    if (!canSendMessages) return
     dragDepthRef.current += 1
     setIsDraggingFiles(true)
   }
@@ -117,7 +123,7 @@ export function useChatComposerActions({ model }: { model: any }) {
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     if (!e.dataTransfer.types.includes('Files')) return
     e.preventDefault()
-    e.dataTransfer.dropEffect = 'copy'
+    e.dataTransfer.dropEffect = canSendMessages ? 'copy' : 'none'
   }
 
   const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
@@ -130,6 +136,7 @@ export function useChatComposerActions({ model }: { model: any }) {
     e.preventDefault()
     dragDepthRef.current = 0
     setIsDraggingFiles(false)
+    if (!canSendMessages) return
     addFiles(Array.from(e.dataTransfer.files))
   }
 
@@ -215,6 +222,7 @@ export function useChatComposerActions({ model }: { model: any }) {
 
   const handleSendMessage = async (event: React.FormEvent) => {
     event.preventDefault()
+    if (!canSendMessages) return
     const content = messageInput.trim()
     if ((!content && files.length === 0) || !user || !currentChannel) return
 
@@ -274,6 +282,7 @@ export function useChatComposerActions({ model }: { model: any }) {
     })
   }
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    if (!canSendMessages) return
     const value = e.target.value
     const caret = e.target.selectionStart ?? value.length
     setMessageInput(value)
@@ -292,6 +301,10 @@ export function useChatComposerActions({ model }: { model: any }) {
   }
 
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!canSendMessages) {
+      e.preventDefault()
+      return
+    }
     if (applyFormattingShortcut(e)) return
     if (!mentionQuery && shortcodeAutocomplete.handleKeyDown(e)) return
     if (autocompleteChoices.length > 0) {

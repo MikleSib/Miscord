@@ -67,6 +67,7 @@ import { useShortcodeAutocomplete } from './emoji/useShortcodeAutocomplete'
 import { AttachmentDropOverlay } from './AttachmentDropOverlay'
 import { usePersistentMessageDraft } from '../hooks/usePersistentMessageDraft'
 import { messageStateService } from '../services/messageStateService'
+import { useTextChannelPermissions } from '../hooks/useTextChannelPermissions'
 
 const localizedCommandName = (command: MiscordApplicationCommand) => command.name_localizations?.ru || command.name
 
@@ -184,6 +185,10 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
 
   const channelIdForMentions =
     currentChannel?.type === 'text' ? currentChannel.id : null
+  const textChannelPermissions = useTextChannelPermissions(
+    channelIdForMentions,
+    currentServer?.id ?? null,
+  )
   const {
     pinnedMessages,
     pinnedIds,
@@ -425,9 +430,11 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     deleteMessage, editMessage, pinnedMessages, pinnedIds, canManagePins, pinsError,
     setPinned, slowModeRemainingSeconds, isSlowModeActive, scrollMessagesToBottom, handleMessagesScroll, scrollToMention,
     jumpToMessage, handleJumpToSearchResult, handleJumpToMention,
+    canSendMessages: textChannelPermissions.canSendMessages,
   } })
 
   const handleReply = (message: Message) => {
+    if (!textChannelPermissions.canSendMessages) return
     setReplyingTo(message);
   }
 
@@ -523,5 +530,8 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     handleRemoveFile, updateMentionState, applyMention, applySlashCommand, applyAutocompleteChoice, parseCommandOptions,
     handleSendMessage, handleInputChange, handleInputKeyDown, handleReply, handleContextApplicationCommand, handleCancelReply,
     handleReaction, TypingIndicator,
+    canSendMessages: textChannelPermissions.canSendMessages,
+    channelPermissionStatus: textChannelPermissions.status,
+    refreshChannelPermissions: textChannelPermissions.refresh,
   }} />
 }

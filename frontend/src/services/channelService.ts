@@ -127,6 +127,13 @@ class ChannelService {
     return response.data.permissions;
   }
 
+  async getMyTextChannelPermissions(textChannelId: number): Promise<number> {
+    const response = await api.get<{ permissions: number }>(
+      `/api/v1/channels/text/${textChannelId}/permissions/@me`,
+    );
+    return response.data.permissions;
+  }
+
   async moveVoiceMember(voiceChannelId: number, userId: number, targetChannelId: number): Promise<void> {
     await api.post(`/api/v1/channels/voice/${voiceChannelId}/members/${userId}/move`, {
       target_channel_id: targetChannelId,
