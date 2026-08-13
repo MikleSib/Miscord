@@ -16,6 +16,8 @@ from app.services.object_storage import (
 
 
 router = APIRouter()
+PUBLIC_MEDIA_DELIVERY_TTL_SECONDS = 604_800
+PUBLIC_MEDIA_CACHE_SECONDS = PUBLIC_MEDIA_DELIVERY_TTL_SECONDS - 60
 
 
 def _redirect(
@@ -43,7 +45,11 @@ def _redirect(
 async def download_public_media(storage_key: str):
     if not is_public_object_key(storage_key):
         raise HTTPException(status_code=404, detail="Media not found")
-    return _redirect(storage_key)
+    return _redirect(
+        storage_key,
+        PUBLIC_MEDIA_DELIVERY_TTL_SECONDS,
+        cache_control=f"public, max-age={PUBLIC_MEDIA_CACHE_SECONDS}, immutable",
+    )
 
 
 @router.get("/attachments/{attachment_id}/{expires}/{signature}/{filename}")
