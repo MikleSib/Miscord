@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from app.schemas.user import User as UserSchema
+from app.schemas.user import RelationshipUser
 from app.services.friend_service import get_friends, get_pending_requests
 
 
@@ -48,18 +48,20 @@ def _user(user_id: int):
     )
 
 
-def test_pending_friend_payload_includes_required_verification_timestamp():
+def test_pending_friend_payload_is_public_and_includes_request_metadata():
     sender = _user(2)
     request = SimpleNamespace(id=8, user_a=sender, created_at=sender.created_at)
 
     payload = asyncio.run(get_pending_requests(_Database([[request]]), 1))[0]
 
-    assert payload['email_verified_at'] == sender.email_verified_at
-    assert UserSchema.model_validate(payload).id == sender.id
+    assert payload['request_id'] == request.id
+    assert 'email' not in payload
+    assert RelationshipUser.model_validate(payload).id == sender.id
 
 
-def test_friend_payload_includes_required_verification_timestamp():
+def test_friend_payload_is_public_and_accepts_internal_reserved_email():
     friend = _user(2)
+    friend.email = 'fixture@accounts.invalid'
     friendship = SimpleNamespace(
         user_a_id=1,
         user_b_id=2,
@@ -70,5 +72,5 @@ def test_friend_payload_includes_required_verification_timestamp():
 
     payload = asyncio.run(get_friends(_Database([[friendship], None]), 1))[0]
 
-    assert payload['email_verified_at'] == friend.email_verified_at
-    assert UserSchema.model_validate(payload).id == friend.id
+    assert 'email' not in payload
+    assert RelationshipUser.model_validate(payload).id == friend.id

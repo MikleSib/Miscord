@@ -11,14 +11,14 @@ from app.models.direct_message import DirectMessage
 from app.models.reaction import Reaction
 from app.schemas.message import Message as MessageSchema, MessageCreate, DirectMessageSchema
 from app.schemas.reaction import ReactionToggleRequest, ReactionResponse
-from app.schemas.user import User as UserSchema
+from app.schemas.user import RelationshipUser
 from app.services import direct_message_service
 from app.websocket.connection_manager import manager
 
 router = APIRouter()
 
 
-@router.get("/conversations", response_model=List[UserSchema])
+@router.get("/conversations", response_model=List[RelationshipUser])
 async def get_dm_conversations(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

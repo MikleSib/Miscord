@@ -88,6 +88,20 @@ describe('navigation caches', () => {
       .toEqual(['cached', 'realtime'])
   })
 
+  it('keeps successful DM conversations when the friends request fails', async () => {
+    mocks.getFriends.mockRejectedValue(new Error('friends unavailable'))
+    mocks.getPendingRequests.mockResolvedValue([])
+    mocks.getConversations.mockResolvedValue([user(2, 'existing-chat')])
+
+    await useHomeNavigationStore.getState().refresh(1)
+
+    const snapshot = useHomeNavigationStore.getState().snapshots[1]
+    expect(snapshot.loaded).toBe(true)
+    expect(snapshot.refreshing).toBe(false)
+    expect(snapshot.friends).toEqual([])
+    expect(snapshot.dmConversations.map((item) => item.username)).toEqual(['existing-chat'])
+  })
+
   it('does not let DM revalidation replace cached realtime messages', async () => {
     mocks.getMessages.mockResolvedValueOnce([message(1, 'cached')])
     await useDirectMessageHistoryStore.getState().refresh(1, 2)

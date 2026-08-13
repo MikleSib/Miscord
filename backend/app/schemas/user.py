@@ -42,6 +42,13 @@ class PublicUser(BaseModel):
     class Config:
         from_attributes = True
 
+class RelationshipUser(PublicUser):
+    """Public user data enriched for friends and DM navigation."""
+
+    request_id: Optional[int] = None
+    friendship_created_at: Optional[datetime] = None
+    last_message_at: Optional[datetime] = None
+
 class User(UserBase):
     id: int
     is_active: bool

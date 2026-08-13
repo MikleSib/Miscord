@@ -58,17 +58,24 @@ export const useHomeNavigationStore = create<HomeNavigationState>((set, get) => 
     const pending = refreshes.get(userId)
     if (pending) return pending
 
-    const revision = currentSnapshot(get(), userId).revision
+    const initial = currentSnapshot(get(), userId)
     updateSnapshot(set, userId, (snapshot) => ({ ...snapshot, refreshing: true }))
-    const request = Promise.all([
+    const request = Promise.allSettled([
       friendService.getFriends(),
       friendService.getPendingRequests(),
       directMessageService.getConversations(),
-    ]).then(([friends, pendingRequests, dmConversations]) => {
+    ]).then(([friendsResult, pendingResult, conversationsResult]) => {
       updateSnapshot(set, userId, (snapshot) => {
-        if (snapshot.revision !== revision) {
-          return { ...snapshot, loaded: true, refreshing: false }
-        }
+        const friends = friendsResult.status === 'fulfilled' && snapshot.friends === initial.friends
+          ? friendsResult.value
+          : snapshot.friends
+        const pendingRequests = pendingResult.status === 'fulfilled' && snapshot.pendingRequests === initial.pendingRequests
+          ? pendingResult.value
+          : snapshot.pendingRequests
+        const dmConversations = conversationsResult.status === 'fulfilled' && snapshot.dmConversations === initial.dmConversations
+          ? conversationsResult.value
+          : snapshot.dmConversations
+
         return {
           ...snapshot,
           friends,
@@ -83,9 +90,10 @@ export const useHomeNavigationStore = create<HomeNavigationState>((set, get) => 
           refreshing: false,
         }
       })
-    }).catch((error) => {
-      updateSnapshot(set, userId, (snapshot) => ({ ...snapshot, refreshing: false }))
-      throw error
+
+      const failures = [friendsResult, pendingResult, conversationsResult]
+        .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+      if (failures.length === 3) throw failures[0].reason
     }).finally(() => {
       refreshes.delete(userId)
     })

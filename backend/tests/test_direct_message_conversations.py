@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from app.schemas.user import User as UserSchema
+from app.schemas.user import RelationshipUser
 from app.services.direct_message_service import get_conversations
 
 
@@ -22,7 +22,7 @@ class _Database:
         return _Result(self.rows)
 
 
-def test_conversation_payload_includes_required_verification_timestamp():
+def test_conversation_payload_is_public():
     now = datetime.now(timezone.utc)
     peer = SimpleNamespace(
         id=2,
@@ -40,5 +40,5 @@ def test_conversation_payload_includes_required_verification_timestamp():
 
     payload = asyncio.run(get_conversations(_Database([(peer, now)]), 1))[0]
 
-    assert payload["email_verified_at"] == now
-    assert UserSchema.model_validate(payload).id == peer.id
+    assert "email" not in payload
+    assert RelationshipUser.model_validate(payload).id == peer.id

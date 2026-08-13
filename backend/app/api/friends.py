@@ -5,7 +5,7 @@ from typing import List
 
 from app.core.dependencies import get_db
 from app.models.user import User
-from app.schemas.user import User as UserSchema
+from app.schemas.user import RelationshipUser
 from app.services import friend_service
 from app.services.friend_service import normalize_login
 from app.websocket.connection_manager import manager
@@ -16,7 +16,7 @@ from app.services.communication_safety import is_blocked_between, share_server
 
 router = APIRouter()
 
-@router.post("/friends/request", response_model=UserSchema)
+@router.post("/friends/request", response_model=RelationshipUser)
 async def send_friend_request(
     username: str = Body(..., embed=True),
     db: AsyncSession = Depends(get_db),
@@ -54,7 +54,7 @@ async def send_friend_request(
 
     # Отправляем уведомление по WebSocket
     # Добавляем request_id к объекту current_user для отправки
-    current_user_schema = UserSchema.from_orm(current_user)
+    current_user_schema = RelationshipUser.model_validate(current_user)
     current_user_schema.request_id = friend_request.id
 
     await manager.send_personal_message(
@@ -77,7 +77,7 @@ async def send_friend_request(
     return friend
 
 
-@router.get("/friends", response_model=List[UserSchema])
+@router.get("/friends", response_model=List[RelationshipUser])
 async def get_friends(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -87,7 +87,7 @@ async def get_friends(
     """
     return await friend_service.get_friends(db, user_id=current_user.id)
 
-@router.get("/friends/requests/pending", response_model=List[UserSchema])
+@router.get("/friends/requests/pending", response_model=List[RelationshipUser])
 async def get_pending_friend_requests(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -97,7 +97,7 @@ async def get_pending_friend_requests(
     """
     return await friend_service.get_pending_requests(db, user_id=current_user.id)
 
-@router.post("/friends/accept/{request_id}", response_model=UserSchema)
+@router.post("/friends/accept/{request_id}", response_model=RelationshipUser)
 async def accept_friend_request(
     request_id: int,
     db: AsyncSession = Depends(get_db),
@@ -110,7 +110,7 @@ async def accept_friend_request(
     if not friend:
         raise HTTPException(status_code=404, detail="Friend request not found or you are not the recipient.")
 
-    acceptor_schema = UserSchema.from_orm(current_user)
+    acceptor_schema = RelationshipUser.model_validate(current_user)
     await manager.send_personal_message(
         {
             "type": "friend_request_accepted",
