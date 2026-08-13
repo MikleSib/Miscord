@@ -1067,7 +1067,7 @@
   left: 0;
   height: 1px;
   content: "";
-  background: hsl(var(--border));
+  background: hsl(var(--muted-foreground) / 0.28);
   transform: translateY(-50%);
 }
 .date-divider span {
