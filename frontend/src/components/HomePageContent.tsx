@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { Users, MessageSquare, Settings, Check, X } from 'lucide-react'
-import { User, FriendRequest } from '../types'
+import { Users, MessageSquare, Check, X } from 'lucide-react'
+import { User } from '../types'
 import friendService from '../services/friendService'
+import directMessageService from '../services/directMessageService'
 import websocketService from '../services/websocketService'
 import { DirectMessageArea } from './DirectMessageArea'
 import { UserAvatar } from './ui/user-avatar'
@@ -13,49 +14,12 @@ import { Modal } from './ui/modal'
 import { SecretDirectMessageArea } from './SecretDirectMessageArea'
 import { useAuthStore } from '../store/store'
 import { useHomeNavigationData } from '../hooks/useHomeNavigationData'
+import { HomeConversationSidebar } from './home/HomeConversationSidebar'
 
 type Tab = 'online' | 'all' | 'pending' | 'blocked'
 
 function getDisplayName(user: User): string {
   return user.display_name?.trim() || user.username
-}
-
-function mergeSidebarContacts(friends: User[], dmConversations: User[]): User[] {
-  const byId = new Map<number, User>()
-
-  for (const friend of friends) {
-    byId.set(friend.id, { ...friend, is_friend: true })
-  }
-
-  for (const contact of dmConversations) {
-    const existing = byId.get(contact.id)
-    if (existing) {
-      byId.set(contact.id, {
-        ...existing,
-        ...contact,
-        is_friend: true,
-        last_message_at: contact.last_message_at ?? existing.last_message_at,
-      })
-    } else {
-      byId.set(contact.id, { ...contact, is_friend: false })
-    }
-  }
-
-  return Array.from(byId.values()).sort((a, b) => {
-    const aHasMessage = Boolean(a.last_message_at)
-    const bHasMessage = Boolean(b.last_message_at)
-
-    if (aHasMessage && bHasMessage) {
-      return new Date(b.last_message_at!).getTime() - new Date(a.last_message_at!).getTime()
-    }
-    if (aHasMessage !== bHasMessage) {
-      return aHasMessage ? -1 : 1
-    }
-
-    if (a.is_online && !b.is_online) return -1
-    if (!a.is_online && b.is_online) return 1
-    return getDisplayName(a).localeCompare(getDisplayName(b), 'ru')
-  })
 }
 
 export function HomePageContent() {
@@ -65,6 +29,8 @@ export function HomePageContent() {
   const [addFriendError, setAddFriendError] = useState('')
   const [initialMessage, setInitialMessage] = useState<string | null>(null)
   const [secretMode, setSecretMode] = useState(false)
+  const [friendsPanelOpen, setFriendsPanelOpen] = useState(false)
+  const [hidingConversationId, setHidingConversationId] = useState<number>()
   const currentUser = useAuthStore((state) => state.user)
   const {
     friends,
@@ -80,14 +46,9 @@ export function HomePageContent() {
   const markDmViewed = useDmNotificationStore((state) => state.markViewed);
 
 
-  const sidebarContacts = useMemo(
-    () => mergeSidebarContacts(friends, dmConversations),
-    [friends, dmConversations]
-  )
-
   const onlineContacts = useMemo(
-    () => sidebarContacts.filter((contact) => contact.is_online),
-    [sidebarContacts]
+    () => friends.filter((contact) => contact.is_online),
+    [friends]
   )
 
   useEffect(() => { setSecretMode(false) }, [selectedFriend?.id])
@@ -97,6 +58,7 @@ export function HomePageContent() {
       const pending = consumePendingDirectMessage()
       if (!pending) return
 
+      setFriendsPanelOpen(false)
       setSelectedFriend(pending.user)
       setInitialMessage(pending.message ?? null)
       markDmViewed(pending.user.id)
@@ -118,8 +80,10 @@ export function HomePageContent() {
 
   useEffect(() => {
     setActiveDmView(selectedFriend?.id ?? null)
-    window.dispatchEvent(new CustomEvent('miscord:dm-opened', { detail: { open: Boolean(selectedFriend) } }))
-  }, [selectedFriend?.id, setActiveDmView])
+    window.dispatchEvent(new CustomEvent('miscord:dm-opened', {
+      detail: { open: Boolean(selectedFriend) || friendsPanelOpen },
+    }))
+  }, [friendsPanelOpen, selectedFriend?.id, setActiveDmView])
 
 
   useEffect(() => {
@@ -131,6 +95,7 @@ export function HomePageContent() {
       if (!peerId) return
 
       const peerFromAuthor = message.author && message.author.id === peerId ? message.author : null
+      const peer = peerFromAuthor ?? friends.find((friend) => friend.id === peerId)
 
       const upsertContact = (prev: User[]) => {
         const existing = prev.find((contact) => contact.id === peerId)
@@ -142,8 +107,8 @@ export function HomePageContent() {
           )
         }
 
-        if (peerFromAuthor) {
-          return [{ ...peerFromAuthor, last_message_at: message.timestamp }, ...prev]
+        if (peer) {
+          return [{ ...peer, last_message_at: message.timestamp }, ...prev]
         }
 
         return prev
@@ -289,6 +254,7 @@ export function HomePageContent() {
     }
   }, [
     currentUser?.id,
+    friends,
     setDmConversations,
     setFriends,
     setPendingRequests,
@@ -339,12 +305,42 @@ export function HomePageContent() {
 
 
   const openContactChat = (contact: User) => {
+    setFriendsPanelOpen(false)
     markDmViewed(contact.id)
     setSelectedFriend(contact)
   }
 
+  const openFriends = () => {
+    setFriendsPanelOpen(true)
+    setSelectedFriend(null)
+    window.dispatchEvent(new CustomEvent('miscord:dm-opened', { detail: { open: true } }))
+  }
+
+  const hideConversation = async (contact: User) => {
+    if (hidingConversationId != null) return
+    const wasSelected = selectedFriend?.id === contact.id
+    setHidingConversationId(contact.id)
+    setDmConversations((conversations) => conversations.filter((item) => item.id !== contact.id))
+    if (wasSelected) {
+      setFriendsPanelOpen(false)
+      setSelectedFriend(null)
+    }
+
+    try {
+      await directMessageService.hideConversation(contact.id)
+    } catch (error) {
+      console.error('Не удалось скрыть диалог:', error)
+      setDmConversations((conversations) => (
+        conversations.some((item) => item.id === contact.id) ? conversations : [contact, ...conversations]
+      ))
+      if (wasSelected) setSelectedFriend((current) => current ?? contact)
+    } finally {
+      setHidingConversationId(undefined)
+    }
+  }
+
   const renderContactRow = (contact: User) => (
-    <div key={contact.id} className="group flex min-h-12 items-center justify-between rounded-md px-2 hover:bg-surface">
+    <div key={contact.id} className={`group flex min-h-12 items-center justify-between rounded-md px-2 transition-colors hover:bg-surface-raised ${selectedFriend?.id === contact.id ? 'bg-surface-raised' : ''}`}>
       <button
         type="button"
         onClick={() => openContactChat(contact)}
@@ -399,10 +395,10 @@ export function HomePageContent() {
         return (
           <div className="home-friends-section">
             <h3 className="home-dm-heading text-xs font-bold uppercase text-text-quiet mb-2">
-              Личные сообщения — {sidebarContacts.length}
+              Все друзья — {friends.length}
             </h3>
-            {sidebarContacts.length > 0 ? (
-              sidebarContacts.map(renderContactRow)
+            {friends.length > 0 ? (
+              friends.map(renderContactRow)
             ) : (
               <div className="home-friends-empty text-center text-muted-foreground" role="status">
                 <Users aria-hidden="true" />
@@ -454,34 +450,16 @@ export function HomePageContent() {
 
   return (
     <div className="app-home-content flex flex-1 h-full min-w-0">
-      {/* Friends List and Controls Sidebar */}
-      <div className="app-sidebar flex h-full flex-col border-r">
-        {/* Top bar for friends page */}
-        <div className="home-friends-header flex h-12 flex-shrink-0 items-center border-b border-border px-4">
-          <div className="flex items-center">
-            <Users className="w-6 h-6 text-text-quiet mr-2" />
-            <h2 className="text-white font-semibold">Друзья</h2>
-          </div>
-        </div>
-        <nav className="home-friends-tabs flex items-center" aria-label="Разделы друзей">
-          <button type="button" aria-pressed={activeTab === 'all'} onClick={() => setActiveTab('all')} className={`home-friends-tab ${activeTab === 'all' ? 'is-active' : ''}`}>Все</button>
-          <div className="relative">
-            <button type="button" aria-pressed={activeTab === 'pending'} onClick={() => setActiveTab('pending')} className={`home-friends-tab ${activeTab === 'pending' ? 'is-active' : ''}`}>Ожидание</button>
-            {pendingRequests.length > 0 && (
-              <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center font-bold">
-                {pendingRequests.length}
-              </span>
-            )}
-          </div>
-         
-          <button type="button" onClick={() => setIsAddFriendModalOpen(true)} className="home-friends-tab home-friends-tab--add">Добавить</button>
-        </nav>
-        <div className="home-friends-list flex-1 overflow-y-auto">
-          {renderContent()}
-        </div>
-      </div>
+      <HomeConversationSidebar
+        conversations={dmConversations}
+        pendingCount={pendingRequests.length}
+        selectedUserId={selectedFriend?.id}
+        hidingUserId={hidingConversationId}
+        onOpenFriends={openFriends}
+        onOpenConversation={openContactChat}
+        onHideConversation={(contact) => void hideConversation(contact)}
+      />
 
-      {/* Main content area */}
       <div className="app-home-detail flex h-full min-w-0 flex-1 flex-col bg-[#323339]">
         {selectedFriend && secretMode ? (
           <SecretDirectMessageArea key={selectedFriend.id} friend={selectedFriend} onClose={() => setSecretMode(false)} />
@@ -494,10 +472,30 @@ export function HomePageContent() {
             onOpenSecret={() => setSecretMode(true)}
           />
         ) : (
-          <div className="flex flex-col items-center justify-center h-full text-center text-gray-400">
-             <h3 className="text-xl font-bold text-white mb-4">Выберите друга</h3>
-             <p>Выберите друга из списка слева, чтобы начать переписку.</p>
+          <section className="home-friends-detail flex min-h-0 flex-1 flex-col">
+            <div className="home-friends-header flex h-12 flex-shrink-0 items-center border-b border-border px-4">
+          <div className="flex items-center">
+            <Users className="w-6 h-6 text-text-quiet mr-2" />
+            <h2 className="text-white font-semibold">Друзья</h2>
           </div>
+            </div>
+            <nav className="home-friends-tabs flex items-center" aria-label="Разделы друзей">
+          <button type="button" aria-pressed={activeTab === 'all'} onClick={() => setActiveTab('all')} className={`home-friends-tab ${activeTab === 'all' ? 'is-active' : ''}`}>Все</button>
+          <div className="relative">
+            <button type="button" aria-pressed={activeTab === 'pending'} onClick={() => setActiveTab('pending')} className={`home-friends-tab ${activeTab === 'pending' ? 'is-active' : ''}`}>Ожидание</button>
+            {pendingRequests.length > 0 && (
+              <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center font-bold">
+                {pendingRequests.length}
+              </span>
+            )}
+          </div>
+         
+          <button type="button" onClick={() => setIsAddFriendModalOpen(true)} className="home-friends-tab home-friends-tab--add">Добавить</button>
+            </nav>
+            <div className="home-friends-list flex-1 overflow-y-auto">
+              {renderContent()}
+            </div>
+          </section>
         )}
       </div>
 

@@ -1,9 +1,10 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, List, Optional
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, LargeBinary
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, LargeBinary, UniqueConstraint
 from sqlalchemy.orm import relationship, Mapped
 from datetime import datetime
 from app.db.database import Base
+from sqlalchemy.sql import func
 
 if TYPE_CHECKING:
     from .user import User
@@ -38,3 +39,15 @@ class DirectMessage(Base):
     
     # Самосвязь для ответов
     reply_to: Mapped[Optional["DirectMessage"]] = relationship("DirectMessage", remote_side=[id], backref="replies")
+
+
+class HiddenDmConversation(Base):
+    __tablename__ = "hidden_dm_conversations"
+    __table_args__ = (
+        UniqueConstraint("user_id", "peer_id", name="uq_hidden_dm_conversation_pair"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    peer_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    hidden_at = Column(DateTime, nullable=False, server_default=func.now())

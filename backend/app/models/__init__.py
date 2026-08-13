@@ -10,7 +10,7 @@ from .message import Message
 from .attachment import Attachment
 from .reaction import Reaction
 from .friendship import Friendship
-from .direct_message import DirectMessage
+from .direct_message import DirectMessage, HiddenDmConversation
 from .e2ee import SecretDmSession, UserE2eeDevice
 from .server_role import Role, MemberRole
 from .server_ban import ServerBan
@@ -79,6 +79,7 @@ __all__ = [
     "Reaction",
     "Friendship",
     "DirectMessage",
+    "HiddenDmConversation",
     "SecretDmSession",
     "UserE2eeDevice",
     "Role",

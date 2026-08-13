@@ -7,6 +7,10 @@ class DirectMessageService {
     return response.data
   }
 
+  async hideConversation(friendId: number): Promise<void> {
+    await api.delete(`/api/v1/dms/conversations/${friendId}`)
+  }
+
   async getMessages(friendId: number, skip: number = 0, limit: number = 30): Promise<DirectMessage[]> {
     const response = await api.get<DirectMessage[]>(`/api/v1/dms/${friendId}?skip=${skip}&limit=${limit}`)
     return response.data

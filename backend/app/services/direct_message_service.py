@@ -1,8 +1,9 @@
 ﻿from app.models import PendingChatUpload
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, func, case
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import selectinload
-from app.models.direct_message import DirectMessage
+from app.models.direct_message import DirectMessage, HiddenDmConversation
 from app.models.attachment import Attachment
 from app.models.user import User
 
@@ -120,9 +121,20 @@ async def get_conversations(db: AsyncSession, user_id: int):
         .subquery()
     )
 
+    hidden_subq = (
+        select(HiddenDmConversation.peer_id, HiddenDmConversation.hidden_at)
+        .where(HiddenDmConversation.user_id == user_id)
+        .subquery()
+    )
+
     result = await db.execute(
         select(User, conversations_subq.c.last_message_at)
         .join(conversations_subq, User.id == conversations_subq.c.peer_id)
+        .outerjoin(hidden_subq, hidden_subq.c.peer_id == User.id)
+        .where(or_(
+            hidden_subq.c.peer_id.is_(None),
+            conversations_subq.c.last_message_at > hidden_subq.c.hidden_at,
+        ))
         .order_by(conversations_subq.c.last_message_at.desc())
     )
 
@@ -144,4 +156,28 @@ async def get_conversations(db: AsyncSession, user_id: int):
         )
 
     return conversations
+
+
+async def hide_conversation(db: AsyncSession, user_id: int, peer_id: int) -> bool:
+    if user_id == peer_id:
+        return False
+
+    message_id = (await db.execute(
+        select(DirectMessage.id)
+        .where(or_(
+            (DirectMessage.sender_id == user_id) & (DirectMessage.recipient_id == peer_id),
+            (DirectMessage.sender_id == peer_id) & (DirectMessage.recipient_id == user_id),
+        ))
+        .limit(1)
+    )).scalar_one_or_none()
+    if message_id is None:
+        return False
+
+    statement = insert(HiddenDmConversation).values(user_id=user_id, peer_id=peer_id)
+    await db.execute(statement.on_conflict_do_update(
+        constraint="uq_hidden_dm_conversation_pair",
+        set_={"hidden_at": func.now()},
+    ))
+    await db.commit()
+    return True
 

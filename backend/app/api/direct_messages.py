@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, delete
 from sqlalchemy.orm import selectinload
@@ -24,6 +24,18 @@ async def get_dm_conversations(
     db: AsyncSession = Depends(get_db),
 ):
     return await direct_message_service.get_conversations(db, current_user.id)
+
+
+@router.delete("/conversations/{peer_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def hide_dm_conversation(
+    peer_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    hidden = await direct_message_service.hide_conversation(db, current_user.id, peer_id)
+    if not hidden:
+        raise HTTPException(status_code=404, detail="Диалог не найден")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{recipient_id}", response_model=List[DirectMessageSchema])
