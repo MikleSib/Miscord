@@ -87,7 +87,7 @@ export function DirectMessageTimeline({
         return (
           <div key={message.id}>
             {hasDateSeparator && (
-              <div className="direct-message-date" role="separator">
+              <div className="date-divider" role="separator">
                 <span>{formatDirectMessageDate(message.timestamp)}</span>
               </div>
             )}

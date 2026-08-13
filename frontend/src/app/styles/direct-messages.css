@@ -159,29 +159,6 @@
   line-height: 1.35rem;
 }
 
-.direct-message-date {
-  display: flex;
-  align-items: center;
-  gap: 0.625rem;
-  margin: 1.25rem 1.25rem 0.875rem;
-  color: hsl(var(--muted-foreground));
-  font-size: 0.6875rem;
-  font-weight: 650;
-  text-align: center;
-}
-
-.direct-message-date::before,
-.direct-message-date::after {
-  height: 1px;
-  flex: 1;
-  background: hsl(var(--border));
-  content: '';
-}
-
-.direct-message-date span {
-  flex: none;
-}
-
 .direct-message-entry {
   position: relative;
   display: grid;
@@ -197,7 +174,7 @@
   padding-top: 0.1875rem;
 }
 
-.direct-message-date + .direct-message-entry {
+.date-divider + .direct-message-entry {
   margin-top: 0;
 }
 

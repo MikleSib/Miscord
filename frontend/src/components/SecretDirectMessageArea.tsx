@@ -288,7 +288,7 @@ export function SecretDirectMessageArea({ friend, onClose }: { friend: User; onC
               return (
                 <div key={message.id}>
                   {startsDay && (
-                    <div className="direct-message-date" role="separator">
+                    <div className="date-divider" role="separator">
                       <span>{formatDirectMessageDate(message.timestamp)}</span>
                     </div>
                   )}
