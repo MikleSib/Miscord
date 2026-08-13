@@ -184,9 +184,6 @@ export function SecretDirectMessageArea({ friend, onClose }: { friend: User; onC
         <button onClick={() => void showSafetyCode()} className="grid h-11 w-11 place-items-center rounded-md text-text-quiet hover:bg-surface-raised hover:text-white" aria-label="Показать код безопасности" title="Код безопасности"><KeyRound className="h-5 w-5" /></button>
         <button onClick={() => void resetSession()} className="grid h-11 w-11 place-items-center rounded-md text-text-quiet hover:bg-red-500/10 hover:text-red-300" aria-label="Сбросить секретную сессию" title="Сбросить ключи"><RotateCcw className="h-5 w-5" /></button>
       </header>
-      <div className="border-b border-emerald-500/15 bg-emerald-500/5 px-4 py-2 text-xs leading-5 text-emerald-100">
-        Текст шифруется на этом устройстве. Miscord хранит только MLS-шифротекст. Вложения, ответы и реакции здесь отключены.
-      </div>
       {safetyCode && <div className="border-b border-border bg-surface-raised px-4 py-3 text-sm text-white"><span className="text-text-quiet">Сверьте код голосом:</span> <strong className="ml-2 font-mono tracking-wider">{safetyCode}</strong></div>}
       {error && <div role="alert" className="mx-4 mt-3 rounded-md border border-red-400/25 bg-red-500/10 px-3 py-2 text-sm text-red-100">{error}</div>}
       <div className="chat-scroll min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5">
@@ -210,7 +207,7 @@ export function SecretDirectMessageArea({ friend, onClose }: { friend: User; onC
             </button>
           </div>
         ) : messages.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center px-6 text-center"><LockKeyhole className="mb-4 h-10 w-10 text-emerald-400" /><h3 className="font-semibold text-white">Начните секретный чат</h3><p className="mt-2 max-w-md text-sm leading-6 text-text-quiet">Первое сообщение создаст MLS-сессию. Сервер не получит его открытый текст.</p></div>
+          <div className="flex h-full flex-col items-center justify-center px-6 text-center"><LockKeyhole className="mb-4 h-10 w-10 text-emerald-400" /><h3 className="font-semibold text-white">Начните секретный чат</h3><p className="mt-2 max-w-md text-sm leading-6 text-text-quiet">Общайтесь свободно — ваша переписка защищена, и никто посторонний не сможет её прочитать.</p></div>
         ) : messages.map((message) => {
           const own = message.sender_id === user?.id;
           return (
