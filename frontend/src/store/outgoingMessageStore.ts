@@ -234,13 +234,14 @@ function scheduleQueue() {
   const messages = [...useOutgoingMessageStore.getState().messages].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
   const seen = new Set<string>()
   for (const message of messages) {
-    const key = conversationKey(message)
-    if (seen.has(key)) continue
-    seen.add(key)
     if (
-      ownership.canProcess(message.clientNonce)
-      && (message.phase === 'queued' || message.phase === 'offline')
-    ) void processMessage(message)
+      !ownership.canProcess(message.clientNonce)
+      || (message.phase !== 'queued' && message.phase !== 'offline')
+    ) continue
+    const key = conversationKey(message)
+    if (seen.has(key) || activeConversations.has(key)) continue
+    seen.add(key)
+    void processMessage(message)
   }
 }
 

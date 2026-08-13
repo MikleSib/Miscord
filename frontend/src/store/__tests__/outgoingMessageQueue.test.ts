@@ -41,6 +41,7 @@ describe('outgoing message queue', () => {
       setTimeout,
     })
     mocks.saveOutgoingRecord.mockReset()
+    mocks.saveOutgoingRecord.mockResolvedValue(undefined)
     mocks.send.mockReset()
     mocks.send.mockReturnValue(true)
     useOutgoingMessageStore.setState({
@@ -72,5 +73,37 @@ describe('outgoing message queue', () => {
       content: 'привет',
     }))
     expect(useOutgoingMessageStore.getState().messages[0]?.phase).toBe('awaiting_ack')
+  })
+
+  it('does not let an older unconfirmed DM block a new queued message', async () => {
+    useOutgoingMessageStore.setState({
+      messages: [{
+        clientNonce: 'old-unconfirmed',
+        userId: 1,
+        conversation: { type: 'dm', id: 2 },
+        content: 'already stored by the server',
+        createdAt: '2026-08-13T10:00:00.000Z',
+        phase: 'awaiting_ack',
+        attachments: [],
+        sendAttempt: 0,
+      }],
+    })
+
+    const clientNonce = useOutgoingMessageStore.getState().enqueue({
+      userId: 1,
+      conversation: { type: 'dm', id: 2 },
+      content: 'new message',
+    })
+    await Promise.resolve()
+
+    expect(mocks.send).toHaveBeenCalledTimes(1)
+    expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'dm_message',
+      recipient_id: 2,
+      client_nonce: clientNonce,
+      content: 'new message',
+    }))
+    expect(useOutgoingMessageStore.getState().messages.find((message) => message.clientNonce === clientNonce)?.phase)
+      .toBe('awaiting_ack')
   })
 })
