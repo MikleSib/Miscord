@@ -22,7 +22,7 @@ export function bindCommunityRealtime(refreshServers: () => void) {
     useCommunityStore.getState().replaceNotification(dataOf<InboxNotification>(payload))
   })
   unifiedWebSocketService.on(GatewayEvents.NOTIFICATION_DELETE, (payload) => {
-    useCommunityStore.getState().removeNotification(Number(dataOf<{ id: number }>(payload).id))
+    useCommunityStore.getState().applyNotificationDeleted(Number(dataOf<{ id: number }>(payload).id))
   })
   unifiedWebSocketService.on(GatewayEvents.NOTIFICATION_READ_ALL, () => {
     useCommunityStore.getState().applyReadAll()

@@ -1,7 +1,7 @@
 'use client'
 
 import { Loader2, Search, UserPlus, X } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { communityApi } from '../../services/communityApi'
 import serverService from '../../services/serverService'
 import type { ServerMember } from '../../types'
@@ -22,12 +22,15 @@ export function ThreadMembersDialog({ thread, open, onClose, onChanged }: Thread
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const requestId = useRef(0)
 
   const reload = async () => {
+    const currentRequest = ++requestId.current
     const [serverResult, threadMembers] = await Promise.all([
       serverService.getMembers(thread.server_id),
       communityApi.listThreadMembers(thread.id),
     ])
+    if (currentRequest !== requestId.current) return
     setServerMembers(serverResult.members)
     setMemberIds(new Set(threadMembers.map((member) => member.user_id)))
     onChanged(threadMembers.length)
@@ -38,7 +41,11 @@ export function ThreadMembersDialog({ thread, open, onClose, onChanged }: Thread
     setQuery('')
     setError('')
     setLoading(true)
-    void reload().catch(() => setError('Не удалось загрузить участников')).finally(() => setLoading(false))
+    const currentRequest = requestId.current + 1
+    void reload()
+      .catch(() => currentRequest === requestId.current && setError('Не удалось загрузить участников'))
+      .finally(() => currentRequest === requestId.current && setLoading(false))
+    return () => { requestId.current += 1 }
   }, [open, thread.id])
 
   const candidates = useMemo(() => {

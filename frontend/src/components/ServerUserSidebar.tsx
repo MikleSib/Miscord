@@ -1,29 +1,28 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Loader2, X } from 'lucide-react';
 
 import { useStore } from '../lib/store';
 import { UserAvatar } from './ui/user-avatar';
 import { MemberProfilePopover } from './MemberProfilePopover';
-import serverService from '../services/serverService';
 import websocketService from '../services/websocketService';
 import { cn } from '../lib/utils';
 import { resolveMediaUrl } from '../lib/mediaUrl';
 import { getMemberDisplayName, groupMembersByRole } from '../lib/memberListGrouping';
-import { Role, ServerMember } from '../types';
+import { ServerMember } from '../types';
 import { useMobileNavigationStore } from '../store/mobileNavigationStore';
+import { useAuthStore } from '../store/store';
+import {
+  EMPTY_SERVER_MEMBERS,
+  serverMemberCacheKey,
+  useServerMemberCacheStore,
+} from '../store/serverMemberCacheStore';
 
 type SelectedMemberState = {
   member: ServerMember;
   anchorRect: DOMRect;
 };
-
-function patchMemberOnlineStatus(members: ServerMember[], userId: number, isOnline: boolean): ServerMember[] {
-  return members.map((member) =>
-    member.user_id === userId ? { ...member, is_online: isOnline } : member
-  );
-}
 
 function MemberRow({
   member,
@@ -76,39 +75,39 @@ function MemberRow({
 
 export function ServerUserSidebar() {
   const { currentServer } = useStore();
-  const [members, setMembers] = useState<ServerMember[]>([]);
-  const [roles, setRoles] = useState<Role[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const ownerId = useAuthStore((state) => state.user?.id);
+  const cacheKey = ownerId && currentServer
+    ? serverMemberCacheKey(ownerId, currentServer.id)
+    : '';
+  const snapshot = useServerMemberCacheStore((state) => (
+    cacheKey ? state.servers[cacheKey] ?? EMPTY_SERVER_MEMBERS : EMPTY_SERVER_MEMBERS
+  ));
+  const refreshMembers = useServerMemberCacheStore((state) => state.refresh);
+  const setMemberOnline = useServerMemberCacheStore((state) => state.setOnline);
+  const updateCachedMember = useServerMemberCacheStore((state) => state.updateMember);
+  const removeCachedMember = useServerMemberCacheStore((state) => state.removeMember);
+  const members = snapshot.members;
+  const roles = snapshot.roles;
+  const isLoading = !snapshot.loaded && snapshot.refreshing;
   const [selected, setSelected] = useState<SelectedMemberState | null>(null);
-  const loadRequestId = useRef(0);
 
   const loadMembers = useCallback(async () => {
     const serverId = currentServer?.id;
-    if (!serverId) return;
-
-    const requestId = ++loadRequestId.current;
-    setIsLoading(true);
+    if (!serverId || !ownerId) return;
     try {
-      const [membersResponse, rolesResponse] = await Promise.all([
-        serverService.getMembers(serverId),
-        serverService.getRoles(serverId),
-      ]);
-      if (requestId !== loadRequestId.current) return;
-      setMembers(membersResponse.members);
-      setRoles(rolesResponse);
+      await refreshMembers(ownerId, serverId);
     } catch (error) {
-      if (requestId !== loadRequestId.current) return;
       console.error('Ошибка загрузки участников сервера:', error);
-    } finally {
-      if (requestId === loadRequestId.current) {
-        setIsLoading(false);
-      }
     }
-  }, [currentServer?.id]);
+  }, [currentServer?.id, ownerId, refreshMembers]);
 
   useEffect(() => {
     void loadMembers();
   }, [loadMembers]);
+
+  useEffect(() => {
+    setSelected(null);
+  }, [currentServer?.id]);
 
   useEffect(() => {
     let wasConnected = websocketService.isConnected();
@@ -134,8 +133,8 @@ export function ServerUserSidebar() {
 
     const handleStatusChanged = (payload: any) => {
       const data = payload?.data || payload;
-      if (!data?.user_id) return;
-      setMembers((prev) => patchMemberOnlineStatus(prev, data.user_id, Boolean(data.is_online)));
+      if (!data?.user_id || !ownerId) return;
+      setMemberOnline(ownerId, serverId, data.user_id, Boolean(data.is_online));
     };
 
     const handleMemberJoined = (event: Event) => {
@@ -147,7 +146,7 @@ export function ServerUserSidebar() {
     const handleMemberLeft = (event: Event) => {
       const detail = (event as CustomEvent).detail || {};
       if (detail.channel_id !== serverId) return;
-      setMembers((prev) => prev.filter((member) => member.user_id !== detail.user_id));
+      if (ownerId) removeCachedMember(ownerId, serverId, detail.user_id);
       setSelected((prev) => (prev?.member.user_id === detail.user_id ? null : prev));
     };
 
@@ -174,7 +173,7 @@ export function ServerUserSidebar() {
       window.removeEventListener('server_member_joined', handleMemberJoined);
       window.removeEventListener('server_member_left', handleMemberLeft);
     };
-  }, [currentServer?.id, loadMembers]);
+  }, [currentServer?.id, loadMembers, ownerId, removeCachedMember, setMemberOnline]);
 
   const grouped = useMemo(() => groupMembersByRole(members, roles), [members, roles]);
 
@@ -183,9 +182,7 @@ export function ServerUserSidebar() {
   };
 
   const handleMemberUpdated = (updatedMember: ServerMember) => {
-    setMembers((prev) =>
-      prev.map((member) => (member.user_id === updatedMember.user_id ? updatedMember : member))
-    );
+    if (ownerId && currentServer) updateCachedMember(ownerId, currentServer.id, updatedMember);
     setSelected((prev) =>
       prev?.member.user_id === updatedMember.user_id ? { ...prev, member: updatedMember } : prev
     );

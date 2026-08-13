@@ -61,6 +61,7 @@ export function ChannelPermissionsTab({
   const [addMenuPos, setAddMenuPos] = useState<{ top: number; left: number } | null>(null)
   const addButtonRef = useRef<HTMLButtonElement>(null)
   const addMenuRef = useRef<HTMLDivElement>(null)
+  const loadRequestId = useRef(0)
 
   const everyoneRole = useMemo(
     () => roles.find((role) => role.is_default) ?? null,
@@ -68,6 +69,7 @@ export function ChannelPermissionsTab({
   )
 
   const load = useCallback(async () => {
+    const requestId = ++loadRequestId.current
     setError('')
     setIsLoading(true)
     try {
@@ -79,6 +81,7 @@ export function ChannelPermissionsTab({
           serverService.getMembers(channel.serverId),
         ])
 
+      if (requestId !== loadRequestId.current) return
       setCatalog(catalogResponse)
       setRoles(rolesResponse)
       setMembers(membersResponse.members)
@@ -102,6 +105,7 @@ export function ChannelPermissionsTab({
             deny: 0,
           }
         )
+        if (requestId !== loadRequestId.current) return
         nextOverwrites = [created, ...nextOverwrites]
       }
 
@@ -126,15 +130,18 @@ export function ChannelPermissionsTab({
           : null
       })
     } catch (loadError: any) {
-      console.error('Ошибка загрузки прав канала:', loadError)
-      setError(loadError.response?.data?.detail || 'Не удалось загрузить права доступа')
+      if (requestId === loadRequestId.current) {
+        console.error('Ошибка загрузки прав канала:', loadError)
+        setError(loadError.response?.data?.detail || 'Не удалось загрузить права доступа')
+      }
     } finally {
-      setIsLoading(false)
+      if (requestId === loadRequestId.current) setIsLoading(false)
     }
   }, [channel.id, channel.serverId, channel.type])
 
   useEffect(() => {
     void load()
+    return () => { loadRequestId.current += 1 }
   }, [load])
 
   const updateAddMenuPosition = useCallback(() => {

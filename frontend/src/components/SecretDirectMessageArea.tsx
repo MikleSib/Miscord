@@ -5,19 +5,31 @@ import { ArrowLeft, KeyRound, Loader2, LockKeyhole, RotateCcw, Send } from 'luci
 import type { User } from '../types';
 import websocketService from '../services/websocketService';
 import { secretDmApi, type SecretWireMessage } from '../services/e2ee/secretDmApi';
-import { secretDmCrypto, type DecryptedSecretMessage } from '../services/e2ee/secretDmCrypto';
+import { secretDmCrypto } from '../services/e2ee/secretDmCrypto';
 import { useAuthStore } from '../store/store';
+import {
+  EMPTY_SECRET_DM_HISTORY,
+  type DisplaySecretMessage,
+  secretDmHistoryKey,
+  useSecretDmHistoryStore,
+} from '../store/secretDmHistoryStore';
 import { UserAvatar } from './ui/user-avatar';
-
-type DisplayMessage = DecryptedSecretMessage & { pending?: boolean };
 
 export function SecretDirectMessageArea({ friend, onClose }: { friend: User; onClose: () => void }) {
   const user = useAuthStore((state) => state.user);
-  const [messages, setMessages] = useState<DisplayMessage[]>([]);
+  const historyKey = user ? secretDmHistoryKey(user.id, friend.id) : '';
+  const history = useSecretDmHistoryStore((state) => (
+    historyKey ? state.conversations[historyKey] ?? EMPTY_SECRET_DM_HISTORY : EMPTY_SECRET_DM_HISTORY
+  ));
+  const refreshHistory = useSecretDmHistoryStore((state) => state.refresh);
+  const updateMessages = useSecretDmHistoryStore((state) => state.updateMessages);
+  const setCachedPeerReady = useSecretDmHistoryStore((state) => state.setPeerReady);
+  const resetHistory = useSecretDmHistoryStore((state) => state.reset);
+  const messages = history.messages;
+  const loading = !history.loaded;
+  const peerReady = history.peerReady;
   const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
-  const [peerReady, setPeerReady] = useState<boolean | null>(null);
   const [checkingPeer, setCheckingPeer] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [safetyCode, setSafetyCode] = useState<string | null>(null);
@@ -27,30 +39,22 @@ export function SecretDirectMessageArea({ friend, onClose }: { friend: User; onC
   useEffect(() => {
     if (!user) return;
     let active = true;
-    setLoading(true);
-    setPeerReady(null);
     setError(null);
-    setMessages([]);
-    void (async () => {
-      try {
+    void refreshHistory(user.id, friend.id, async () => {
         await secretDmCrypto.initialize(user.id);
         const [wireMessages, session, peerDevice] = await Promise.all([
           secretDmApi.messages(friend.id),
           secretDmApi.session(friend.id),
           secretDmApi.peerDevice(friend.id),
         ]);
-        if (active) setPeerReady(Boolean(session || peerDevice));
-        const decrypted: DisplayMessage[] = [];
+        const decrypted: DisplaySecretMessage[] = [];
         for (const wire of wireMessages) decrypted.push(await secretDmCrypto.decrypt(friend.id, wire));
-        if (active) setMessages(decrypted);
-      } catch (cause) {
-        if (active) setError(cause instanceof Error ? cause.message : 'Не удалось открыть секретный чат');
-      } finally {
-        if (active) setLoading(false);
-      }
-    })();
+        return { messages: decrypted, peerReady: Boolean(session || peerDevice) };
+    }).catch((cause) => {
+      if (active) setError(cause instanceof Error ? cause.message : 'Не удалось открыть секретный чат');
+    });
     return () => { active = false; };
-  }, [friend.id, user?.id]);
+  }, [friend.id, refreshHistory, user?.id]);
 
   useEffect(() => {
     if (!user) return;
@@ -62,7 +66,7 @@ export function SecretDirectMessageArea({ friend, onClose }: { friend: User; onC
       )) return;
       void secretDmCrypto.decrypt(friend.id, wire).then((message) => {
         if (wire.client_nonce) pendingNonces.current.delete(wire.client_nonce);
-        setMessages((current) => {
+        updateMessages(user.id, friend.id, (current) => {
           const withoutPending = current.filter((item) => item.client_nonce !== wire.client_nonce);
           return withoutPending.some((item) => item.id === wire.id) ? withoutPending : [...withoutPending, message];
         });
@@ -72,14 +76,14 @@ export function SecretDirectMessageArea({ friend, onClose }: { friend: User; onC
     const onReset = (payload: { data?: { peer_id?: number } }) => {
       if (payload.data?.peer_id === friend.id) {
         void secretDmCrypto.forgetSession(friend.id);
-        setMessages([]);
+        resetHistory(user.id, friend.id);
         setError('Собеседник сбросил ключи. Отправьте новое сообщение, чтобы создать защищённую сессию.');
       }
     };
     const onFailure = (payload: { data?: { client_nonce?: string; message?: string } }) => {
       const nonce = payload.data?.client_nonce;
       if (!nonce || !pendingNonces.current.delete(nonce)) return;
-      setMessages((current) => current.filter((message) => message.client_nonce !== nonce));
+      updateMessages(user.id, friend.id, (current) => current.filter((message) => message.client_nonce !== nonce));
       setSending(false);
       setError(payload.data?.message || 'Сервер отклонил зашифрованное сообщение');
     };
@@ -91,7 +95,7 @@ export function SecretDirectMessageArea({ friend, onClose }: { friend: User; onC
       websocketService.off('secret_dm_session_reset', onReset);
       websocketService.off('message_send_failed', onFailure);
     };
-  }, [friend.id, user?.id]);
+  }, [friend.id, resetHistory, updateMessages, user?.id]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'auto' }); }, [messages.length]);
 
@@ -99,7 +103,7 @@ export function SecretDirectMessageArea({ friend, onClose }: { friend: User; onC
     setCheckingPeer(true);
     setError(null);
     try {
-      setPeerReady(Boolean(await secretDmApi.peerDevice(friend.id)));
+      if (user) setCachedPeerReady(user.id, friend.id, Boolean(await secretDmApi.peerDevice(friend.id)));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Не удалось проверить поддержку шифрования');
     } finally {
@@ -119,7 +123,7 @@ export function SecretDirectMessageArea({ friend, onClose }: { friend: User; onC
     try {
       const encrypted = await secretDmCrypto.encrypt(friend.id, content, clientNonce);
       const now = new Date().toISOString();
-      setMessages((current) => [...current, {
+      updateMessages(user.id, friend.id, (current) => [...current, {
         id: `pending:${clientNonce}` as unknown as number,
         client_nonce: clientNonce,
         timestamp: now,
@@ -143,7 +147,7 @@ export function SecretDirectMessageArea({ friend, onClose }: { friend: User; onC
       if (!accepted) throw new Error('Нет подключения к серверу. Сообщение не отправлено.');
     } catch (cause) {
       pendingNonces.current.delete(clientNonce);
-      setMessages((current) => current.filter((message) => message.client_nonce !== clientNonce));
+      updateMessages(user.id, friend.id, (current) => current.filter((message) => message.client_nonce !== clientNonce));
       setInput(content);
       setSending(false);
       setError(cause instanceof Error ? cause.message : 'Не удалось зашифровать сообщение');
@@ -161,7 +165,7 @@ export function SecretDirectMessageArea({ friend, onClose }: { friend: User; onC
   const resetSession = async () => {
     if (!window.confirm('Сбросить секретный чат? Старые сообщения останутся зашифрованы старыми ключами.')) return;
     await secretDmCrypto.reset(friend.id);
-    setMessages([]);
+    if (user) resetHistory(user.id, friend.id);
     setSafetyCode(null);
     setError(null);
   };

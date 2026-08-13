@@ -484,7 +484,7 @@ export function HomePageContent() {
       {/* Main content area */}
       <div className="app-home-detail flex h-full min-w-0 flex-1 flex-col bg-[#323339]">
         {selectedFriend && secretMode ? (
-          <SecretDirectMessageArea friend={selectedFriend} onClose={() => setSecretMode(false)} />
+          <SecretDirectMessageArea key={selectedFriend.id} friend={selectedFriend} onClose={() => setSecretMode(false)} />
         ) : selectedFriend ? (
           <DirectMessageArea
             key={selectedFriend.id}

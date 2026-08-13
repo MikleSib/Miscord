@@ -6,6 +6,7 @@ import { useDismissOnOutsidePointer } from '../../hooks/useDismissOnOutsidePoint
 import { useStore } from '../../lib/store'
 import { cn } from '../../lib/utils'
 import { useCommunityStore } from '../../store/communityStore'
+import { useAuthStore } from '../../store/store'
 import type { InboxNotification, NotificationType } from '../../types/community'
 import { communityApi } from '../../services/communityApi'
 
@@ -74,17 +75,24 @@ export function NotificationInbox() {
   const containerRef = useRef<HTMLDivElement>(null)
   const { selectServer, selectChannel } = useStore()
   const state = useCommunityStore()
+  const ownerId = useAuthStore((auth) => auth.user?.id ?? null)
   const close = useCallback(() => setOpen(false), [])
 
   useDismissOnOutsidePointer(containerRef, open, close)
 
   useEffect(() => {
-    void state.refreshUnreadCount()
-  }, [])
+    state.setNotificationOwner(ownerId)
+  }, [ownerId, state.setNotificationOwner])
 
   useEffect(() => {
-    if (open) void state.loadNotifications(true)
-  }, [open, state.notificationFilter])
+    if (state.notificationOwnerId != null) void state.refreshUnreadCount()
+  }, [state.notificationOwnerId, state.refreshUnreadCount])
+
+  useEffect(() => {
+    if (open && state.notificationOwnerId != null) {
+      void state.loadNotifications(true).catch(() => undefined)
+    }
+  }, [open, state.notificationFilter, state.notificationOwnerId, state.loadNotifications])
 
   const openResource = async (item: InboxNotification) => {
     if (item.server_id) await selectServer(item.server_id)

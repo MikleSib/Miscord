@@ -3,6 +3,14 @@ import { useOutgoingMessageStore } from './outgoingMessageStore';
 import { persist } from 'zustand/middleware';
 import { Server, Channel, User } from '../types';
 import websocketService from '../services/websocketService';
+import { useCommunityStore } from './communityStore';
+import { useDirectMessageHistoryStore } from './directMessageHistoryStore';
+import { useForumCacheStore } from './forumCacheStore';
+import { useHomeNavigationStore } from './homeNavigationStore';
+import { usePinnedMessageCacheStore } from './pinnedMessageCacheStore';
+import { useSecretDmHistoryStore } from './secretDmHistoryStore';
+import { useServerMemberCacheStore } from './serverMemberCacheStore';
+import { useThreadNavigationStore } from './threadNavigationStore';
 
 interface AuthState {
   user: User | null;
@@ -68,6 +76,15 @@ export const useAuthStore = create<AuthState>()(
         }
         websocketService.fullDisconnect();
         void useOutgoingMessageStore.getState().clearForLogout();
+        useCommunityStore.getState().setNotificationOwner(null);
+        useCommunityStore.getState().closeThreadPanel();
+        useDirectMessageHistoryStore.getState().clear();
+        useForumCacheStore.getState().clear();
+        useHomeNavigationStore.getState().clear();
+        usePinnedMessageCacheStore.getState().clear();
+        useSecretDmHistoryStore.getState().clear();
+        useServerMemberCacheStore.getState().clear();
+        useThreadNavigationStore.getState().clear();
         set({
           user: null,
           token: null,

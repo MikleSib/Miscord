@@ -15,16 +15,22 @@ import {
   SlidersHorizontal,
   X,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { GatewayEvents } from '../../lib/gatewayEvents'
 import { Permissions } from '../../lib/permissions'
 import { useServerPermissions } from '../../lib/serverPermissions'
 import { cn } from '../../lib/utils'
-import { communityApi } from '../../services/communityApi'
 import unifiedWebSocketService from '../../services/unifiedWebSocketService'
 import { useCommunityStore } from '../../store/communityStore'
+import { useAuthStore } from '../../store/store'
+import {
+  EMPTY_FORUM,
+  EMPTY_FORUM_POSTS,
+  forumCacheKey,
+  forumPostsKey,
+  useForumCacheStore,
+} from '../../store/forumCacheStore'
 import type { Channel } from '../../types'
-import type { Forum, ForumPostSummary } from '../../types/community'
 import { ForumPostCard } from './ForumPostCard'
 import { ForumPostComposer } from './ForumPostComposer'
 import { ForumTagManager } from './ForumTagManager'
@@ -60,8 +66,7 @@ function ForumLoading() {
 }
 
 export function ForumChannelView({ channel }: { channel: Channel }) {
-  const [forum, setForum] = useState<Forum | null>(null)
-  const [posts, setPosts] = useState<ForumPostSummary[]>([])
+  const ownerId = useAuthStore((state) => state.user?.id)
   const [query, setQuery] = useState('')
   const [selectedTags, setSelectedTags] = useState<number[]>([])
   const [layout, setLayout] = useState<ForumLayout>('list')
@@ -69,21 +74,41 @@ export function ForumChannelView({ channel }: { channel: Channel }) {
   const [includeArchived, setIncludeArchived] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [tagManagerOpen, setTagManagerOpen] = useState(false)
-  const [forumLoading, setForumLoading] = useState(true)
-  const [postsLoading, setPostsLoading] = useState(true)
   const [forumError, setForumError] = useState('')
   const [postsError, setPostsError] = useState('')
-  const requestId = useRef(0)
+  const postQuery = useMemo(() => ({
+    query: query.trim() || undefined,
+    tag_ids: selectedTags.length ? selectedTags : undefined,
+    include_archived: includeArchived,
+    sort,
+    limit: 100,
+  }), [includeArchived, query, selectedTags, sort])
+  const activeForumKey = ownerId ? forumCacheKey(ownerId, channel.id) : ''
+  const activePostKey = ownerId ? forumPostsKey(ownerId, channel.id, postQuery) : ''
+  const forumSnapshot = useForumCacheStore((state) => (
+    activeForumKey ? state.forums[activeForumKey] ?? EMPTY_FORUM : EMPTY_FORUM
+  ))
+  const postsSnapshot = useForumCacheStore((state) => (
+    activePostKey ? state.postLists[activePostKey] ?? EMPTY_FORUM_POSTS : EMPTY_FORUM_POSTS
+  ))
+  const refreshForumCache = useForumCacheStore((state) => state.refreshForum)
+  const refreshPostsCache = useForumCacheStore((state) => state.refreshPosts)
+  const updateCachedPosts = useForumCacheStore((state) => state.updatePosts)
+  const forum = forumSnapshot.forum
+  const posts = postsSnapshot.posts
+  const forumLoading = !forumSnapshot.loaded
+  const postsLoading = !postsSnapshot.loaded || postsSnapshot.refreshing
   const selectThread = useCommunityStore((state) => state.setSelectedThread)
   const { can } = useServerPermissions(channel.serverId)
   const canManage = can(Permissions.MANAGE_CHANNELS)
   const canCreate = can(Permissions.CREATE_PUBLIC_THREADS)
 
   const loadForum = useCallback(async (resetView = false) => {
+    if (!ownerId) return null
     setForumError('')
     try {
-      const value = await communityApi.getForum(channel.id)
-      setForum(value)
+      const value = await refreshForumCache(ownerId, channel.id)
+      if (!value) return null
       if (resetView) {
         const savedLayout = typeof window === 'undefined'
           ? null
@@ -96,38 +121,23 @@ export function ForumChannelView({ channel }: { channel: Channel }) {
       setForumError(reason?.response?.data?.detail || 'Не удалось загрузить форум.')
       return null
     }
-  }, [channel.id])
+  }, [channel.id, ownerId, refreshForumCache])
 
-  const loadPosts = useCallback(async (background = false) => {
-    const currentRequest = ++requestId.current
-    if (!background) setPostsLoading(true)
+  const loadPosts = useCallback(async (_background = false) => {
+    if (!ownerId) return
     setPostsError('')
     try {
-      const value = await communityApi.listForumPosts(channel.id, {
-        query: query.trim() || undefined,
-        tag_ids: selectedTags.length ? selectedTags : undefined,
-        include_archived: includeArchived,
-        sort,
-        limit: 100,
-      })
-      if (currentRequest === requestId.current) setPosts(value)
+      await refreshPostsCache(ownerId, channel.id, postQuery)
     } catch (reason: any) {
-      if (currentRequest === requestId.current) {
-        setPostsError(reason?.response?.data?.detail || 'Не удалось загрузить публикации.')
-      }
-    } finally {
-      if (currentRequest === requestId.current) setPostsLoading(false)
+      setPostsError(reason?.response?.data?.detail || 'Не удалось загрузить публикации.')
     }
-  }, [channel.id, includeArchived, query, selectedTags, sort])
+  }, [channel.id, ownerId, postQuery, refreshPostsCache])
 
   useEffect(() => {
-    setForum(null)
-    setPosts([])
     setQuery('')
     setSelectedTags([])
     setIncludeArchived(false)
-    setForumLoading(true)
-    void loadForum(true).finally(() => setForumLoading(false))
+    void loadForum(true)
   }, [channel.id, loadForum])
 
   useEffect(() => {
@@ -150,14 +160,16 @@ export function ForumChannelView({ channel }: { channel: Channel }) {
       const data = eventData<ForumMessageEvent>(payload)
       const targetId = Number(data.text_channel_id ?? data.channelId)
       if (!posts.some((post) => post.id === targetId)) return
-      setPosts((current) => applyForumMessageCreated(current, data))
+      if (!ownerId) return
+      updateCachedPosts(ownerId, channel.id, postQuery, (current) => applyForumMessageCreated(current, data))
       void loadPosts(true)
     }
     const updateDeletedReplyCount = (payload: unknown) => {
       const data = eventData<ForumMessageEvent>(payload)
       const targetId = Number(data.text_channel_id ?? data.channelId)
       if (!posts.some((post) => post.id === targetId)) return
-      setPosts((current) => applyForumMessageDeleted(current, data))
+      if (!ownerId) return
+      updateCachedPosts(ownerId, channel.id, postQuery, (current) => applyForumMessageDeleted(current, data))
       void loadPosts(true)
     }
     unifiedWebSocketService.on(GatewayEvents.THREAD_CREATE, refreshPosts)
@@ -174,7 +186,7 @@ export function ForumChannelView({ channel }: { channel: Channel }) {
       unifiedWebSocketService.off(GatewayEvents.NEW_MESSAGE, updateReplyCount)
       unifiedWebSocketService.off(GatewayEvents.MESSAGE_DELETED, updateDeletedReplyCount)
     }
-  }, [channel.id, loadForum, loadPosts, posts])
+  }, [channel.id, loadForum, loadPosts, ownerId, postQuery, posts, updateCachedPosts])
 
   const tagMap = useMemo(() => new Map(forum?.tags.map((tag) => [tag.id, tag]) || []), [forum?.tags])
   const hasFilters = Boolean(query.trim() || selectedTags.length || includeArchived)
@@ -192,7 +204,7 @@ export function ForumChannelView({ channel }: { channel: Channel }) {
   if (!forum) {
     return (
       <main className="flex min-h-0 flex-1 items-center justify-center bg-background p-6 text-center">
-        <div className="max-w-sm"><AlertCircle className="mx-auto h-8 w-8 text-red-300" /><h1 className="mt-3 font-semibold">Форум не загрузился</h1><p className="mt-1 text-sm text-text-quiet">{forumError}</p><button type="button" onClick={() => { setForumLoading(true); void loadForum(true).finally(() => setForumLoading(false)) }} className="mt-4 h-10 rounded-md bg-primary px-4 text-sm font-semibold text-white">Повторить</button></div>
+        <div className="max-w-sm"><AlertCircle className="mx-auto h-8 w-8 text-red-300" /><h1 className="mt-3 font-semibold">Форум не загрузился</h1><p className="mt-1 text-sm text-text-quiet">{forumError}</p><button type="button" onClick={() => void loadForum(true)} className="mt-4 h-10 rounded-md bg-primary px-4 text-sm font-semibold text-white">Повторить</button></div>
       </main>
     )
   }

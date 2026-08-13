@@ -1,12 +1,11 @@
 'use client'
 
 import { Archive, ChevronLeft, Lock, LogOut, MoreHorizontal, Send, Settings2, Unlock, UserPlus, Users, X } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useAuthStore } from '../../store/store'
 import { useCommunityStore } from '../../store/communityStore'
 import { Permissions } from '../../lib/permissions'
 import { useServerPermissions } from '../../lib/serverPermissions'
-import { channelApi } from '../../services/api'
 import { communityApi } from '../../services/communityApi'
 import reactionService from '../../services/reactionService'
 import unifiedWebSocketService from '../../services/unifiedWebSocketService'
@@ -15,6 +14,11 @@ import { ChatMessage } from '../ChatMessage'
 import { ThreadMembersDialog } from './ThreadMembersDialog'
 import { ThreadSettingsDialog } from './ThreadSettingsDialog'
 import { useDismissOnOutsidePointer } from '../../hooks/useDismissOnOutsidePointer'
+import {
+  EMPTY_THREAD_HISTORY,
+  threadNavigationKey,
+  useThreadNavigationStore,
+} from '../../store/threadNavigationStore'
 
 function eventData<T>(payload: any): T { return (payload?.data ?? payload) as T }
 const threadScrollPositions = new Map<number, number>()
@@ -26,9 +30,15 @@ export function ThreadPanel() {
   const pendingMessageJump = useCommunityStore((state) => state.pendingMessageJump)
   const clearMessageJump = useCommunityStore((state) => state.clearMessageJump)
   const user = useAuthStore((state) => state.user)
-  const [messages, setMessages] = useState<Message[]>([])
+  const historyKey = user && thread ? threadNavigationKey(user.id, thread.id) : ''
+  const history = useThreadNavigationStore((state) => (
+    historyKey ? state.histories[historyKey] ?? EMPTY_THREAD_HISTORY : EMPTY_THREAD_HISTORY
+  ))
+  const refreshHistory = useThreadNavigationStore((state) => state.refreshHistory)
+  const updateMessages = useThreadNavigationStore((state) => state.updateMessages)
+  const messages = history.messages
+  const loading = !history.loaded
   const [content, setContent] = useState('')
-  const [loading, setLoading] = useState(false)
   const [menu, setMenu] = useState(false)
   const [membersOpen, setMembersOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -40,17 +50,9 @@ export function ThreadPanel() {
 
   useDismissOnOutsidePointer(panelRef, Boolean(thread && !membersOpen && !settingsOpen), closePanel)
 
-  const load = useCallback(async () => {
-    if (!thread) return
-    setLoading(true)
-    try {
-      const result = await channelApi.getChannelMessages(thread.id, 50)
-      setMessages(Array.isArray(result) ? result : result.messages || [])
-    }
-    finally { setLoading(false) }
-  }, [thread?.id])
-
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    if (thread && user) void refreshHistory(user.id, thread.id).catch(() => undefined)
+  }, [refreshHistory, thread?.id, user?.id])
   useEffect(() => {
     const html = document.documentElement
     if (thread) html.dataset.miscordThread = 'open'
@@ -98,15 +100,25 @@ export function ThreadPanel() {
       const message = eventData<Message>(payload)
       const channelId = (message as any).text_channel_id ?? message.channelId
       if (channelId !== thread.id) return
-      setMessages((items) => items.some((item) => item.id === message.id) ? items : [...items, message])
+      if (!user) return
+      updateMessages(user.id, thread.id, (items) => (
+        items.some((item) => item.id === message.id) ? items : [...items, message]
+      ))
     }
     const onEdit = (payload: any) => {
       const message = eventData<Message>(payload)
-      setMessages((items) => items.map((item) => item.id === message.id ? message : item))
+      if (!user) return
+      updateMessages(user.id, thread.id, (items) => (
+        items.map((item) => item.id === message.id ? message : item)
+      ))
     }
     const onDelete = (payload: any) => {
       const data = eventData<{ message_id: number; text_channel_id: number }>(payload)
-      if (data.text_channel_id === thread.id) setMessages((items) => items.filter((item) => item.id !== data.message_id))
+      if (data.text_channel_id === thread.id && user) {
+        updateMessages(user.id, thread.id, (items) => (
+          items.filter((item) => item.id !== data.message_id)
+        ))
+      }
     }
     unifiedWebSocketService.on('new_message', onMessage)
     unifiedWebSocketService.on('message_edited', onEdit)
@@ -116,7 +128,7 @@ export function ThreadPanel() {
       unifiedWebSocketService.off('message_edited', onEdit)
       unifiedWebSocketService.off('message_deleted', onDelete)
     }
-  }, [thread?.id])
+  }, [thread?.id, updateMessages, user?.id])
 
   if (!thread) return null
   const readonly = Boolean(thread.archived_at || (thread.locked && !canManageThreads))

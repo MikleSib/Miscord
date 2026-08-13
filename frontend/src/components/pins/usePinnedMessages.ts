@@ -4,37 +4,32 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import pinService from '../../services/pinService'
 import unifiedWebSocketService from '../../services/unifiedWebSocketService'
 import { GatewayEvents } from '../../lib/gatewayEvents'
-import type { Message } from '../../types'
-
-interface PinsState {
-  messages: Message[]
-  canManage: boolean
-  limit: number
-}
-
-const EMPTY: PinsState = { messages: [], canManage: false, limit: 50 }
+import { useAuthStore } from '../../store/store'
+import {
+  EMPTY_PINNED_MESSAGES,
+  pinnedMessageCacheKey,
+  usePinnedMessageCacheStore,
+} from '../../store/pinnedMessageCacheStore'
 
 export function usePinnedMessages(textChannelId: number | null) {
-  const [state, setState] = useState<PinsState>(EMPTY)
-  const [error, setError] = useState<string | null>(null)
+  const ownerId = useAuthStore((state) => state.user?.id)
+  const key = ownerId && textChannelId != null
+    ? pinnedMessageCacheKey(ownerId, textChannelId)
+    : ''
+  const state = usePinnedMessageCacheStore((cache) => (
+    key ? cache.channels[key] ?? EMPTY_PINNED_MESSAGES : EMPTY_PINNED_MESSAGES
+  ))
+  const refresh = usePinnedMessageCacheStore((cache) => cache.refresh)
+  const [mutationError, setMutationError] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
-    if (textChannelId == null) {
-      setState(EMPTY)
-      return
-    }
-    try {
-      const data = await pinService.list(textChannelId)
-      setState({ messages: data.messages, canManage: data.can_manage, limit: data.limit })
-      setError(null)
-    } catch {
-      setError('Не удалось загрузить закреплённые сообщения')
-    }
-  }, [textChannelId])
+    if (textChannelId == null || !ownerId) return
+    setMutationError(null)
+    await refresh(ownerId, textChannelId).catch(() => undefined)
+  }, [ownerId, refresh, textChannelId])
 
   useEffect(() => {
-    setState(EMPTY)
-    setError(null)
+    setMutationError(null)
     void reload()
   }, [reload])
 
@@ -70,7 +65,7 @@ export function usePinnedMessages(textChannelId: number | null) {
       } catch (requestError) {
         const detail = (requestError as { response?: { data?: { detail?: string } } }).response?.data
           ?.detail
-        setError(typeof detail === 'string' ? detail : 'Не удалось изменить закрепление')
+        setMutationError(typeof detail === 'string' ? detail : 'Не удалось изменить закрепление')
       }
     },
     [reload, textChannelId],
@@ -81,7 +76,7 @@ export function usePinnedMessages(textChannelId: number | null) {
     pinnedIds,
     canManagePins: state.canManage,
     pinLimit: state.limit,
-    pinsError: error,
+    pinsError: mutationError ?? state.error,
     reloadPins: reload,
     setPinned,
   }
