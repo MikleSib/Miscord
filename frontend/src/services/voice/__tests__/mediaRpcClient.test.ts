@@ -5,6 +5,7 @@ import { MediaRpcClient } from '../mediaRpcClient';
 
 class FakeWebSocket {
   static readonly OPEN = 1;
+  static autoRespond = true;
   readonly sent: string[] = [];
   readyState = 0;
   onopen: (() => void) | null = null;
@@ -22,6 +23,7 @@ class FakeWebSocket {
 
   send(raw: string): void {
     this.sent.push(raw);
+    if (!FakeWebSocket.autoRespond) return;
     const payload = JSON.parse(raw);
     queueMicrotask(() => this.onmessage?.({
       data: JSON.stringify({
@@ -41,6 +43,8 @@ const instances: FakeWebSocket[] = [];
 
 afterEach(() => {
   instances.length = 0;
+  FakeWebSocket.autoRespond = true;
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -82,6 +86,21 @@ describe('MediaRpcClient', () => {
     instances[0].onclose?.({ reason: 'Media service unavailable' });
 
     expect(onFailure).toHaveBeenCalledWith({ message: 'Media service unavailable' });
+    client.close();
+  });
+
+  it('reports a heartbeat timeout as a connection failure', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    const client = new MediaRpcClient();
+    await client.connect('ws://localhost/ws/media', 'one-time-ticket');
+    const onFailure = vi.fn();
+    client.on('connection_failed', onFailure);
+    FakeWebSocket.autoRespond = false;
+
+    await vi.advanceTimersByTimeAsync(25_000);
+
+    expect(onFailure).toHaveBeenCalledWith({ message: 'ping request timed out' });
     client.close();
   });
 });

@@ -41,7 +41,10 @@ export class MediaRpcClient {
     };
     const identified = await this.request('identify', { ticket, ...identify });
     this.heartbeatTimer = setInterval(() => {
-      void this.request('ping', {}, 5_000).catch(() => this.close());
+      void this.request('ping', {}, 5_000).catch((error: unknown) => {
+        if (!this.socket) return;
+        this.closeWithFailure(error instanceof Error ? error : new Error('Media heartbeat failed'));
+      });
     }, 20_000);
     return identified;
   }
@@ -86,6 +89,17 @@ export class MediaRpcClient {
   private stopHeartbeat(): void {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     this.heartbeatTimer = null;
+  }
+
+  private closeWithFailure(error: Error): void {
+    this.stopHeartbeat();
+    const socket = this.socket;
+    this.socket = null;
+    if (socket) {
+      socket.onclose = null;
+      socket.close(1011, 'Media connection failed');
+    }
+    this.failAll(error, true);
   }
 
   private receive(raw: string): void {
