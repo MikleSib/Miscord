@@ -139,6 +139,7 @@ async def get_conversations(db: AsyncSession, user_id: int):
                 "is_online": user.is_online,
                 "created_at": user.created_at,
                 "updated_at": user.updated_at,
+                "email_verified_at": user.email_verified_at,
                 "last_message_at": last_message_at,
             }
         )
