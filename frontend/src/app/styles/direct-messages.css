@@ -151,7 +151,7 @@
   font-size: 0.9375rem;
 }
 
-.direct-message-intro span {
+.direct-message-intro__summary {
   display: block;
   margin-top: 0.625rem;
   color: hsl(var(--text-body));

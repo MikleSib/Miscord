@@ -33,7 +33,7 @@
     font-size: 1.25rem;
   }
 
-  .direct-message-intro span {
+  .direct-message-intro__summary {
     font-size: 0.8125rem;
     line-height: 1.25rem;
   }

@@ -71,7 +71,9 @@ export function DirectMessageTimeline({
         <UserAvatar user={friend} size={64} className="direct-message-intro__avatar" />
         <h2>{friendName}</h2>
         <p>@{friend.username}</p>
-        <span>Это начало вашей личной переписки с @{friend.username}.</span>
+        <span className="direct-message-intro__summary">
+          Это начало вашей личной переписки с @{friend.username}.
+        </span>
       </section>
 
       {messages.map((message, index) => {

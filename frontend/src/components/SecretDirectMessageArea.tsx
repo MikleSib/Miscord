@@ -14,6 +14,19 @@ import {
   useSecretDmHistoryStore,
 } from '../store/secretDmHistoryStore';
 import { UserAvatar } from './ui/user-avatar';
+import { formatDirectMessageDate, formatDirectMessageTime } from '../lib/directMessageTimeline';
+
+const SECRET_GROUP_WINDOW_MS = 5 * 60 * 1000;
+
+function startsSecretMessageGroup(message: DisplaySecretMessage, previous?: DisplaySecretMessage): boolean {
+  if (!previous || previous.sender_id !== message.sender_id) return true;
+  return new Date(message.timestamp).getTime() - new Date(previous.timestamp).getTime() > SECRET_GROUP_WINDOW_MS;
+}
+
+function startsSecretMessageDay(message: DisplaySecretMessage, previous?: DisplaySecretMessage): boolean {
+  if (!previous) return true;
+  return new Date(message.timestamp).toDateString() !== new Date(previous.timestamp).toDateString();
+}
 
 export function SecretDirectMessageArea({ friend, onClose }: { friend: User; onClose: () => void }) {
   const user = useAuthStore((state) => state.user);
@@ -170,61 +183,180 @@ export function SecretDirectMessageArea({ friend, onClose }: { friend: User; onC
     setError(null);
   };
 
+  const friendName = friend.display_name || friend.username;
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-[#323339]">
-      <header className="flex min-h-14 flex-shrink-0 items-center gap-2 border-b border-[#2c2d32] px-3 sm:px-4">
-        <button onClick={onClose} className="grid h-11 w-11 place-items-center rounded-md text-text-quiet hover:bg-surface-raised hover:text-white" aria-label="Вернуться в обычный чат">
-          <ArrowLeft className="h-5 w-5" />
-        </button>
-        <UserAvatar user={friend} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2"><h2 className="truncate font-semibold text-white">{friend.username}</h2><LockKeyhole className="h-4 w-4 text-emerald-400" /></div>
-          <p className="truncate text-xs text-emerald-300">Сквозное шифрование OpenMLS</p>
+    <div className="direct-message-shell secret-message-shell relative flex min-h-0 flex-1 flex-col">
+      <header className="direct-message-header secret-message-header">
+        <div className="direct-message-header__identity">
+          <button
+            type="button"
+            onClick={onClose}
+            className="secret-message-header__action"
+            aria-label="Вернуться в обычный чат"
+            title="Обычный чат"
+          >
+            <ArrowLeft aria-hidden="true" />
+          </button>
+          <span className="direct-message-header__avatar">
+            <UserAvatar user={friend} size={28} />
+            <i className={friend.is_online ? 'is-online' : undefined} aria-hidden="true" />
+          </span>
+          <span className="direct-message-header__copy">
+            <strong>{friendName}</strong>
+            <small>@{friend.username}</small>
+          </span>
+          <span className="secret-message-header__badge">
+            <LockKeyhole aria-hidden="true" />
+            Сквозное шифрование
+          </span>
         </div>
-        <button onClick={() => void showSafetyCode()} className="grid h-11 w-11 place-items-center rounded-md text-text-quiet hover:bg-surface-raised hover:text-white" aria-label="Показать код безопасности" title="Код безопасности"><KeyRound className="h-5 w-5" /></button>
-        <button onClick={() => void resetSession()} className="grid h-11 w-11 place-items-center rounded-md text-text-quiet hover:bg-red-500/10 hover:text-red-300" aria-label="Сбросить секретную сессию" title="Сбросить ключи"><RotateCcw className="h-5 w-5" /></button>
+        <div className="secret-message-header__actions">
+          <button
+            type="button"
+            onClick={() => void showSafetyCode()}
+            className="secret-message-header__action"
+            aria-label="Показать код безопасности"
+            title="Код безопасности"
+          >
+            <KeyRound aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            onClick={() => void resetSession()}
+            className="secret-message-header__action is-danger"
+            aria-label="Сбросить секретную сессию"
+            title="Сбросить ключи"
+          >
+            <RotateCcw aria-hidden="true" />
+          </button>
+        </div>
       </header>
-      {safetyCode && <div className="border-b border-border bg-surface-raised px-4 py-3 text-sm text-white"><span className="text-text-quiet">Сверьте код голосом:</span> <strong className="ml-2 font-mono tracking-wider">{safetyCode}</strong></div>}
-      {error && <div role="alert" className="mx-4 mt-3 rounded-md border border-red-400/25 bg-red-500/10 px-3 py-2 text-sm text-red-100">{error}</div>}
-      <div className="chat-scroll min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5">
+
+      {safetyCode && (
+        <div className="secret-message-safety" role="status">
+          <KeyRound aria-hidden="true" />
+          <span>Сверьте код голосом:</span>
+          <strong>{safetyCode}</strong>
+        </div>
+      )}
+      {error && <div role="alert" className="secret-message-error">{error}</div>}
+
+      <div className="direct-message-scroll chat-scroll">
         {loading ? (
-          <div className="flex h-full items-center justify-center gap-2 text-text-quiet"><Loader2 className="h-5 w-5 animate-spin" />Подготовка защищённого чата…</div>
+          <div className="secret-message-state" role="status">
+            <Loader2 className="is-spinning" aria-hidden="true" />
+            <strong>Подготавливаем защищённый чат</strong>
+            <span>Проверяем ключи этого устройства.</span>
+          </div>
         ) : peerReady === false ? (
-          <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-            <LockKeyhole className="mb-4 h-10 w-10 text-amber-300" />
-            <h3 className="font-semibold text-white">Ожидаем ключ собеседника</h3>
-            <p className="mt-2 max-w-md text-sm leading-6 text-text-quiet">
+          <div className="secret-message-state">
+            <span className="secret-message-state__icon is-waiting"><LockKeyhole aria-hidden="true" /></span>
+            <strong>Ожидаем ключ собеседника</strong>
+            <p>
               Сквозное шифрование включается автоматически при входе в Miscord. Попросите собеседника открыть приложение, затем проверьте снова.
             </p>
             <button
               type="button"
               onClick={() => void checkPeer()}
               disabled={checkingPeer}
-              className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-lg bg-primary px-4 font-semibold text-white disabled:opacity-50"
+              className="secret-message-state__button"
             >
-              {checkingPeer && <Loader2 className="h-4 w-4 animate-spin" />}
+              {checkingPeer && <Loader2 className="is-spinning" aria-hidden="true" />}
               Проверить снова
             </button>
           </div>
-        ) : messages.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center px-6 text-center"><LockKeyhole className="mb-4 h-10 w-10 text-emerald-400" /><h3 className="font-semibold text-white">Начните секретный чат</h3><p className="mt-2 max-w-md text-sm leading-6 text-text-quiet">Общайтесь свободно — ваша переписка защищена, и никто посторонний не сможет её прочитать.</p></div>
-        ) : messages.map((message) => {
-          const own = message.sender_id === user?.id;
-          return (
-            <div key={message.id} className={`mb-2 flex ${own ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[82%] rounded-xl px-3 py-2 ${own ? 'bg-primary text-white' : 'bg-surface-raised text-white'} ${message.pending ? 'opacity-65' : ''}`}>
-                {message.decryptError ? <span className="text-sm text-red-200">{message.decryptError}</span> : <p className="whitespace-pre-wrap break-words text-sm leading-5">{message.content}</p>}
-                <div className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-60"><LockKeyhole className="h-3 w-3" />{new Date(message.timestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}{message.pending && ' · отправка'}</div>
-              </div>
-            </div>
-          );
-        })}
+        ) : (
+          <div className="direct-message-timeline secret-message-timeline" role="log" aria-label={`Секретная переписка с ${friendName}`}>
+            <section className="direct-message-intro" aria-label="Начало секретной переписки">
+              <UserAvatar user={friend} size={64} className="direct-message-intro__avatar" />
+              <h2>{friendName}</h2>
+              <p>@{friend.username}</p>
+              <span className="direct-message-intro__summary secret-message-intro__summary">
+                <LockKeyhole aria-hidden="true" />
+                Сообщения защищены сквозным шифрованием.
+              </span>
+            </section>
+
+            {messages.map((message, index) => {
+              const previous = messages[index - 1];
+              const startsGroup = startsSecretMessageGroup(message, previous);
+              const startsDay = startsSecretMessageDay(message, previous);
+              const own = message.sender_id === user?.id;
+              const author = own ? user : friend;
+
+              return (
+                <div key={message.id}>
+                  {startsDay && (
+                    <div className="direct-message-date" role="separator">
+                      <span>{formatDirectMessageDate(message.timestamp)}</span>
+                    </div>
+                  )}
+                  <article className={`direct-message-entry ${startsGroup ? 'is-group-start' : 'is-grouped'}`}>
+                    <div className="direct-message-entry__avatar">
+                      {startsGroup ? (
+                        <UserAvatar user={author || undefined} size={40} />
+                      ) : (
+                        <time dateTime={message.timestamp}>{formatDirectMessageTime(message.timestamp)}</time>
+                      )}
+                    </div>
+                    <div className="direct-message-entry__body">
+                      {startsGroup && (
+                        <header>
+                          <strong>{author?.display_name || author?.username || 'Пользователь'}</strong>
+                          <time dateTime={message.timestamp}>{formatDirectMessageTime(message.timestamp)}</time>
+                          <LockKeyhole className="secret-message-entry__lock" aria-label="Зашифровано" />
+                          {message.pending && (
+                            <span className="direct-message-entry__pending">
+                              <Loader2 className="is-spinning" aria-hidden="true" /> Отправляется…
+                            </span>
+                          )}
+                        </header>
+                      )}
+                      <div className={`direct-message-entry__content ${message.pending ? 'is-pending' : ''}`}>
+                        {message.decryptError ? (
+                          <span className="secret-message-entry__error">{message.decryptError}</span>
+                        ) : (
+                          message.content
+                        )}
+                      </div>
+                    </div>
+                  </article>
+                </div>
+              );
+            })}
+          </div>
+        )}
         <div ref={bottomRef} />
       </div>
-      <form onSubmit={sendMessage} className="flex-shrink-0 border-t border-[#2c2d32] p-3 sm:p-4">
-        <div className="flex items-end gap-2 rounded-xl bg-[#393a41] p-2">
-          <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} rows={1} maxLength={5000} placeholder={peerReady === false ? 'Ожидаем ключ собеседника' : `Секретное сообщение для @${friend.username}`} className="max-h-40 min-h-11 flex-1 resize-none bg-transparent px-2 py-3 text-white outline-none placeholder:text-text-quiet" disabled={loading || sending || !peerReady} />
-          <button type="submit" disabled={!input.trim() || loading || sending || !peerReady} className="grid h-11 w-11 place-items-center rounded-lg bg-primary text-white disabled:opacity-40" aria-label="Отправить секретное сообщение">{sending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}</button>
+
+      <form onSubmit={sendMessage} className="direct-message-composer secret-message-composer">
+        {!loading && peerReady === false && (
+          <div className="direct-message-composer__notice">Отправка станет доступна, когда собеседник опубликует ключ.</div>
+        )}
+        <div className="direct-message-composer__form">
+          <div className="direct-message-composer__row">
+            <LockKeyhole className="secret-message-composer__lock" aria-hidden="true" />
+            <textarea
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  event.currentTarget.form?.requestSubmit();
+                }
+              }}
+              rows={1}
+              maxLength={5000}
+              placeholder={peerReady === false ? 'Ожидаем ключ собеседника' : `Секретное сообщение для @${friend.username}`}
+              disabled={loading || sending || !peerReady}
+            />
+            <div className="direct-message-composer__actions">
+              <button type="submit" disabled={!input.trim() || loading || sending || !peerReady} aria-label="Отправить секретное сообщение">
+                {sending ? <Loader2 className="is-spinning" aria-hidden="true" /> : <Send aria-hidden="true" />}
+              </button>
+            </div>
+          </div>
         </div>
       </form>
     </div>
