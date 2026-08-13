@@ -367,13 +367,17 @@ export const useOutgoingMessageStore = create<OutgoingState>((set, get) => ({
     }
     ownership.claim(clientNonce)
     set((state) => ({ messages: [...state.messages, message] }))
-    // Persist first: otherwise another tab may receive the broadcast before
-    // IndexedDB contains the message and permanently miss the queued record.
+    // Local delivery must not wait for IndexedDB. A blocked database upgrade
+    // or a slow transaction would otherwise leave the message in "queued"
+    // forever even though the realtime connection is already available.
+    subscribeToSocket()
+    scheduleQueue()
+    // Other tabs are notified only after persistence settles, so they never
+    // observe a broadcast before the record is available to load.
     void saveOutgoingRecord(message as unknown as PersistedOutgoingRecord)
       .catch(() => set({ persistenceWarning: 'Сообщение отправляется, но не сохранится после обновления страницы.' }))
       .finally(() => {
         broadcast?.postMessage({ type: 'changed' })
-        scheduleQueue()
       })
     return clientNonce
   },
