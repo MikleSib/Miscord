@@ -492,10 +492,10 @@ export function HomePageContent() {
             <h2 className="text-white font-semibold">Друзья</h2>
           </div>
         </div>
-        <nav className="home-friends-tabs flex items-center p-2" aria-label="Разделы друзей">
-          <button aria-pressed={activeTab === 'all'} onClick={() => setActiveTab('all')} className={`home-friends-tab ${activeTab === 'all' ? 'is-active' : ''}`}>Все</button>
+        <nav className="home-friends-tabs flex items-center" aria-label="Разделы друзей">
+          <button type="button" aria-pressed={activeTab === 'all'} onClick={() => setActiveTab('all')} className={`home-friends-tab ${activeTab === 'all' ? 'is-active' : ''}`}>Все</button>
           <div className="relative">
-            <button aria-pressed={activeTab === 'pending'} onClick={() => setActiveTab('pending')} className={`home-friends-tab ${activeTab === 'pending' ? 'is-active' : ''}`}>Ожидание</button>
+            <button type="button" aria-pressed={activeTab === 'pending'} onClick={() => setActiveTab('pending')} className={`home-friends-tab ${activeTab === 'pending' ? 'is-active' : ''}`}>Ожидание</button>
             {pendingRequests.length > 0 && (
               <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center font-bold">
                 {pendingRequests.length}
@@ -503,9 +503,9 @@ export function HomePageContent() {
             )}
           </div>
          
-          <button onClick={() => setIsAddFriendModalOpen(true)} className="home-friends-tab home-friends-tab--add">Добавить</button>
+          <button type="button" onClick={() => setIsAddFriendModalOpen(true)} className="home-friends-tab home-friends-tab--add">Добавить</button>
         </nav>
-        <div className="home-friends-list flex-1 overflow-y-auto p-2">
+        <div className="home-friends-list flex-1 overflow-y-auto">
           {renderContent()}
         </div>
       </div>

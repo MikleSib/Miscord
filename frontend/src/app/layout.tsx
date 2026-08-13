@@ -2,6 +2,7 @@
 import './styles/tokens.css'
 import './styles/base.css'
 import './styles/components.css'
+import './styles/home.css'
 import './styles/responsive.css'
 import ElectronTitleBar from '@/components/ElectronTitleBar'
 import { AccessibilityRuntime } from '@/components/AccessibilityRuntime'
