@@ -23,6 +23,7 @@ export const useStore = create<AppState>()(
       error: null,
       typingStatus: {},
       currentServerMembers: [],
+      appView: 'home',
 
       // Выбор сервера
       selectServer: async (serverId: number) => {
@@ -30,14 +31,14 @@ export const useStore = create<AppState>()(
 
         // Если serverId = 0, это означает выбор "Дома" (HomePageContent)
         if (serverId === 0) {
-          set({ currentServer: null, currentChannel: null });
+          set({ currentServer: null, currentChannel: null, appView: 'home' });
           return;
         }
 
         const server = servers.find(s => s.id === serverId);
 
         if (server) {
-          set({ currentServer: server, currentChannel: null });
+          set({ currentServer: server, currentChannel: null, appView: 'server' });
           await loadServerDetails(serverId);
           // Подгружаем персональные настройки уведомлений для этого сервера
           void import('../store/notificationSettingsStore').then(({ useNotificationSettingsStore }) => {
@@ -409,7 +410,8 @@ export const useStore = create<AppState>()(
           currentServer: null,
           currentChannel: null,
           messages: {},
-          servers: []
+          servers: [],
+          appView: 'home'
         });
       },
 
@@ -443,8 +445,12 @@ export const useStore = create<AppState>()(
             ]
           }));
           set({ servers, isLoading: false });
-          const { currentServer } = get();
-          if (currentServer) {
+          const { appView, currentServer } = get();
+          if (appView === 'home') {
+            // The network request may finish after the user has already opened Home.
+            // Never let that stale completion select the first server again.
+            set({ currentServer: null, currentChannel: null });
+          } else if (currentServer) {
             const updatedCurrentServer = servers.find(s => s.id === currentServer.id);
             if (updatedCurrentServer) {
               set({ currentServer: updatedCurrentServer });
@@ -533,8 +539,27 @@ export const useStore = create<AppState>()(
         servers: state.servers,
         currentServer: state.currentServer,
         currentChannel: state.currentChannel,
-        user: state.user
-      })
+        user: state.user,
+        appView: state.appView,
+      }),
+      version: 1,
+      migrate: (persisted) => {
+        const state = (persisted || {}) as Partial<Pick<
+          AppState,
+          'servers' | 'currentServer' | 'currentChannel' | 'user' | 'appView'
+        >>
+        return {
+          servers: state.servers ?? [],
+          currentServer: state.currentServer ?? null,
+          currentChannel: state.currentChannel ?? null,
+          user: state.user ?? null,
+          appView: state.appView === 'server' || state.appView === 'home'
+            ? state.appView
+            : state.currentServer
+              ? 'server'
+              : 'home',
+        }
+      },
     }
   )
 );

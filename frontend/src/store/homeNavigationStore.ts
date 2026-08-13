@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 
 import type { User } from '../types'
 import directMessageService from '../services/directMessageService'
@@ -52,7 +53,7 @@ function updateSnapshot(
   }))
 }
 
-export const useHomeNavigationStore = create<HomeNavigationState>((set, get) => ({
+export const useHomeNavigationStore = create<HomeNavigationState>()(persist((set, get) => ({
   snapshots: {},
   refresh: async (userId) => {
     const pending = refreshes.get(userId)
@@ -124,4 +125,15 @@ export const useHomeNavigationStore = create<HomeNavigationState>((set, get) => 
     refreshes.clear()
     set({ snapshots: {} })
   },
+}), {
+  name: 'miscord-home-navigation',
+  version: 1,
+  partialize: (state) => ({
+    snapshots: Object.fromEntries(
+      Object.entries(state.snapshots).map(([userId, snapshot]) => [userId, {
+        ...snapshot,
+        refreshing: false,
+      }]),
+    ),
+  }),
 }))

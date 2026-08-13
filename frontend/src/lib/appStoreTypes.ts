@@ -11,6 +11,7 @@ export interface AppState {
   error: string | null;
   typingStatus: { [channelId: number]: { username: string; timeoutId: NodeJS.Timeout }[] };
   currentServerMembers: User[];
+  appView: 'home' | 'server';
 
   // Действия для серверов
   selectServer: (serverId: number) => Promise<void>;
