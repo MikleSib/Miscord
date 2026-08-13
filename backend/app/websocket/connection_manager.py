@@ -1,5 +1,6 @@
 from typing import Dict, List, Set
 from fastapi import WebSocket
+from fastapi.encoders import jsonable_encoder
 import json
 import redis.asyncio as redis
 import asyncio
@@ -21,6 +22,11 @@ def _event_type(payload: dict | str) -> str:
             return "unknown"
     value = payload.get("type") if isinstance(payload, dict) else None
     return value if isinstance(value, str) and _SAFE_EVENT_TYPE.fullmatch(value) else "unknown"
+
+
+def _serialize_message(message: dict) -> str:
+    """Encode realtime payloads using the same JSON rules as FastAPI responses."""
+    return json.dumps(jsonable_encoder(message))
 
 class ConnectionManager:
     def __init__(self):
@@ -176,7 +182,7 @@ class ConnectionManager:
         print(f"[WS] Sending event type={_event_type(message)} to user {user_id}")
         if self.redis_client:
             channel = f"user:{user_id}"
-            await self.redis_client.publish(channel, json.dumps(message))
+            await self.redis_client.publish(channel, _serialize_message(message))
             print(f"[WS] Сообщение опубликовано в Redis канал {channel}")
         else:
             # Fallback для локальной разработки без Redis
@@ -189,21 +195,21 @@ class ConnectionManager:
         if self.redis_client:
             channel = f"channel:{channel_id}"
             print(f"[ConnectionManager] Публикуем в Redis канал: {channel}")
-            await self.redis_client.publish(channel, json.dumps(message))
+            await self.redis_client.publish(channel, _serialize_message(message))
         else:
             # Fallback для локальной разработки без Redis
             print(f"[ConnectionManager] Redis недоступен, отправка локально")
-            await self._send_to_channel_str(channel_id, json.dumps(message))
+            await self._send_to_channel_str(channel_id, _serialize_message(message))
 
     async def send_to_voice_channel(self, channel_id: int, message: dict):
         if self.redis_client:
-            await self.redis_client.publish(f"voice:{channel_id}", json.dumps(message))
+            await self.redis_client.publish(f"voice:{channel_id}", _serialize_message(message))
         else:
-            await self._send_to_voice_channel_str(channel_id, json.dumps(message))
+            await self._send_to_voice_channel_str(channel_id, _serialize_message(message))
 
     async def send_to_user(self, user_id: int, message: dict):
         """Отправка сообщения-словаря конкретному пользователю (локально)."""
-        await self._send_to_user_str(user_id, json.dumps(message))
+        await self._send_to_user_str(user_id, _serialize_message(message))
 
     async def _send_to_user_str(self, user_id: int, message_str: str):
         """Отправляет строковое сообщение всем сессиям пользователя на этом инстансе."""
@@ -257,7 +263,7 @@ class ConnectionManager:
 
     async def broadcast(self, message: dict):
         """Рассылка всем пользователям на всех инстансах (если есть Redis)."""
-        message_str = json.dumps(message)
+        message_str = _serialize_message(message)
         
         if self.redis_client:
             # Публикуем в специальный broadcast канал Redis
