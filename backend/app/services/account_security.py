@@ -17,7 +17,7 @@ from app.core.config import settings
 from app.core.security import get_password_hash
 from app.models.account_security import AccountChallenge, UserTwoFactor
 from app.models.user import User
-from app.services.registration_email import registration_mailer
+from app.services.registration_email import MailDeliveryError, registration_mailer
 from app.services.user_sessions import revoke_all_sessions
 
 
@@ -129,7 +129,15 @@ async def start_challenge(
     challenge.code_digest = _digest(challenge.id, code)
     await db.commit()
     purpose = "Сброс пароля" if type == "password_reset" else "Подтверждение новой почты"
-    await registration_mailer.send_security_code(email, code, purpose, 10)
+    try:
+        await registration_mailer.send_security_code(email, code, purpose, 10)
+    except MailDeliveryError as exc:
+        await db.delete(challenge)
+        await db.commit()
+        raise AccountSecurityError(
+            503,
+            "Не удалось отправить письмо. Проверьте адрес и попробуйте немного позже.",
+        ) from exc
     return challenge.id
 
 

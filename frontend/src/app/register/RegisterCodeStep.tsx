@@ -81,7 +81,7 @@ export default function RegisterCodeStep({
       </p>
 
       {error && (
-        <div className="mt-5 rounded-lg border border-destructive/35 bg-destructive/10 px-3.5 py-3 text-sm text-red-300" role="alert">
+        <div className="auth-alert auth-alert--error mt-5" role="alert">
           {error}
         </div>
       )}
@@ -89,11 +89,11 @@ export default function RegisterCodeStep({
       <form onSubmit={onVerify} className="mt-6 grid gap-4">
         <label className="auth-field">
           <span className="text-sm font-medium">Код подтверждения</span>
-          <span className="auth-input-wrap px-4">
+          <span className="auth-input-wrap auth-code-wrap">
             <KeyRound className="h-4 w-4 flex-none text-muted-foreground" />
             <input
               autoFocus
-              className="auth-input text-center text-2xl font-bold tracking-[0.42em] tabular-nums"
+              className="auth-input auth-code-input"
               name="verification-code"
               inputMode="numeric"
               autoComplete="one-time-code"

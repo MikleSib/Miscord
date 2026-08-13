@@ -92,7 +92,7 @@ async def login(
     if not user or user.is_bot or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
+            detail="Неверный логин или пароль",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -125,7 +125,7 @@ async def refresh_access_token(
     rotated = await rotate_session(db, request)
     if rotated is None:
         clear_refresh_cookie(response)
-        raise HTTPException(status_code=401, detail="Refresh session is invalid or expired")
+        raise HTTPException(status_code=401, detail="Сессия истекла. Войдите снова")
     _user, access_token, refresh_cookie = rotated
     set_refresh_cookie(response, refresh_cookie)
     return {"access_token": access_token, "token_type": "bearer"}
@@ -176,7 +176,7 @@ async def delete_session(
     db: AsyncSession = Depends(get_db),
 ):
     if not await revoke_session(db, session_id, current_user.id):
-        raise HTTPException(status_code=404, detail="Session not found")
+        raise HTTPException(status_code=404, detail="Сессия не найдена")
 
 
 @router.post("/sessions/revoke-all")

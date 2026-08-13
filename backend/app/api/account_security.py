@@ -79,9 +79,12 @@ async def start_password_reset(
     user = (await db.execute(select(User).where(func.lower(User.email) == email))).scalar_one_or_none()
     challenge_id = str(uuid.uuid4())
     if user and not user.is_bot:
-        challenge_id = await start_challenge(
-            db, type="password_reset", email=email, user_id=user.id,
-        )
+        try:
+            challenge_id = await start_challenge(
+                db, type="password_reset", email=email, user_id=user.id,
+            )
+        except AccountSecurityError as exc:
+            raise _error(exc) from exc
     return {
         "challenge_id": challenge_id,
         "message": "Если аккаунт существует, код отправлен на указанную почту.",

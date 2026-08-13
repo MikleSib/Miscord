@@ -37,7 +37,7 @@ async def _register_without_email_verification(
         select(User.id).where(or_(User.username == payload.username, User.email == payload.email))
     )
     if existing.scalar_one_or_none() is not None:
-        raise HTTPException(status_code=400, detail="Username or email already registered")
+        raise HTTPException(status_code=400, detail="Аккаунт с такой почтой или логином уже существует")
     db.add(User(
         username=payload.username,
         email=payload.email,
@@ -71,7 +71,7 @@ async def verify(
 ):
     rate_limit_auth(request, "register_verify", limit=20, window=600)
     if not settings.EMAIL_VERIFICATION_ENABLED:
-        raise HTTPException(status_code=404, detail="Email verification is not enabled")
+        raise HTTPException(status_code=404, detail="Подтверждение почты временно недоступно")
     try:
         return await verify_registration(db, payload.challenge_id, payload.code)
     except RegistrationError as exc:
@@ -86,7 +86,7 @@ async def resend(
 ):
     rate_limit_auth(request, "register_resend", limit=5, window=600)
     if not settings.EMAIL_VERIFICATION_ENABLED:
-        raise HTTPException(status_code=404, detail="Email verification is not enabled")
+        raise HTTPException(status_code=404, detail="Подтверждение почты временно недоступно")
     try:
         return await resend_registration_code(db, payload.challenge_id)
     except RegistrationError as exc:

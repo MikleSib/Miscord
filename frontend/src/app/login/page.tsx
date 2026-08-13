@@ -3,10 +3,12 @@
 import { FormEvent, Suspense, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { ArrowRight, Eye, EyeOff, Loader2, LockKeyhole, Mail, MessagesSquare, ShieldCheck, User } from 'lucide-react'
+import { ArrowRight, Eye, EyeOff, Loader2, LockKeyhole, MessagesSquare, ShieldCheck, User } from 'lucide-react'
 import { useAuthStore } from '../../store/store'
 import { useStore } from '../../lib/store'
+import { authErrorMessage } from '../../lib/authError'
 import authService from '../../services/authService'
+import PasswordResetFlow from './PasswordResetFlow'
 
 /** Разрешаем только внутренние пути вида `/invite/abc`, без внешних URL. */
 function safeRedirectPath(value: string | null): string {
@@ -32,8 +34,7 @@ function LoginPageContent() {
   const [formData, setFormData] = useState({ username: '', password: '', otp: '' })
   const [needsTwoFactor, setNeedsTwoFactor] = useState(false)
   const [resetOpen, setResetOpen] = useState(false)
-  const [reset, setReset] = useState({ email: '', challengeId: '', code: '', password: '' })
-  const [resetMessage, setResetMessage] = useState('')
+  const [resetSuccess, setResetSuccess] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [isCheckingSession, setIsCheckingSession] = useState(true)
 
@@ -82,31 +83,8 @@ function LoginPageContent() {
         setNeedsTwoFactor(true)
         loginFailure('Введите код приложения-аутентификатора или резервный код.')
       } else {
-        loginFailure(typeof detail === 'string' ? detail : detail?.message || 'Не удалось войти. Проверьте логин и пароль.')
+        loginFailure(authErrorMessage(requestError, 'Не удалось войти. Проверьте логин и пароль.'))
       }
-    }
-  }
-
-  const startReset = async () => {
-    setResetMessage('')
-    try {
-      const result = await authService.startPasswordReset(reset.email)
-      setReset((current) => ({ ...current, challengeId: result.challenge_id }))
-      setResetMessage(result.message)
-    } catch {
-      setResetMessage('Не удалось отправить код. Попробуйте позже.')
-    }
-  }
-
-  const finishReset = async () => {
-    setResetMessage('')
-    try {
-      await authService.finishPasswordReset(reset.challengeId, reset.code, reset.password)
-      setResetOpen(false)
-      setReset({ email: '', challengeId: '', code: '', password: '' })
-      setResetMessage('Пароль изменён. Теперь войдите с новым паролем.')
-    } catch (error: any) {
-      setResetMessage(error.response?.data?.detail || 'Не удалось изменить пароль.')
     }
   }
 
@@ -134,21 +112,32 @@ function LoginPageContent() {
           </div>
         </section>
 
-        <section className="auth-card" aria-labelledby="login-title">
+        <section className={`auth-card ${resetOpen ? 'auth-card--reset' : ''}`} aria-labelledby="login-title">
           <div className="mb-8 md:hidden">
             <div className="auth-brand-mark">
               <img src="/image.svg" alt="Логотип Miscord" className="h-8 w-8 object-contain" />
             </div>
           </div>
 
+          {resetOpen ? (
+            <PasswordResetFlow
+              onBack={() => setResetOpen(false)}
+              onComplete={(message) => {
+                setResetSuccess(message)
+                setResetOpen(false)
+              }}
+            />
+          ) : <>
           <div>
             <p className="text-sm font-semibold text-primary">С возвращением</p>
             <h2 id="login-title" className="mt-2 text-3xl font-bold tracking-[-0.03em]">Войдите в Miscord</h2>
             <p className="mt-2 text-sm text-muted-foreground">Продолжите общение в своих каналах.</p>
           </div>
 
+          {resetSuccess && <div className="auth-alert auth-alert--success mt-6" role="status">{resetSuccess}</div>}
+
           {error && (
-            <div className="mt-6 rounded-lg border border-destructive/35 bg-destructive/10 px-3.5 py-3 text-sm text-red-300" role="alert">
+            <div className="auth-alert auth-alert--error mt-6" role="alert">
               {error}
             </div>
           )}
@@ -179,8 +168,10 @@ function LoginPageContent() {
                   <input
                     className="auth-input"
                     name="otp"
-                    inputMode="numeric"
+                    inputMode="text"
                     autoComplete="one-time-code"
+                    autoCapitalize="characters"
+                    spellCheck={false}
                     required
                     value={formData.otp}
                     onChange={(event) => setFormData((current) => ({ ...current, otp: event.target.value }))}
@@ -206,7 +197,7 @@ function LoginPageContent() {
                 />
                 <button
                   type="button"
-                  className="rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground"
+                  className="auth-password-toggle"
                   onClick={() => setShowPassword((visible) => !visible)}
                   aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
                 >
@@ -233,65 +224,14 @@ function LoginPageContent() {
           <button
             type="button"
             className="mt-4 text-sm font-semibold text-primary hover:underline hover:underline-offset-4"
-            onClick={() => setResetOpen((open) => !open)}
+            onClick={() => {
+              clearError()
+              setResetSuccess('')
+              setResetOpen(true)
+            }}
           >
             Забыли пароль?
           </button>
-
-          {resetOpen && (
-            <div className="mt-5 border-t border-border pt-5">
-              <h3 className="text-base font-semibold">Восстановление доступа</h3>
-              <p className="mt-1 text-sm text-muted-foreground">Получите код на подтверждённую почту аккаунта.</p>
-              <div className="mt-4 grid gap-3">
-                <label className="auth-input-wrap">
-                  <Mail className="h-4 w-4 flex-none" />
-                  <input
-                    className="auth-input"
-                    type="email"
-                    name="password-reset-email"
-                    autoComplete="off"
-                    autoCapitalize="none"
-                    spellCheck={false}
-                    value={reset.email}
-                    onChange={(event) => setReset((current) => ({ ...current, email: event.target.value }))}
-                    placeholder="Почта"
-                  />
-                </label>
-                {!reset.challengeId ? (
-                  <button type="button" className="auth-submit" onClick={() => void startReset()} disabled={!reset.email}>Отправить код</button>
-                ) : (
-                  <>
-                    <input
-                      className="auth-input-wrap h-11 bg-background px-3"
-                      type="text"
-                      name="password-reset-code"
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      pattern="[0-9]*"
-                      maxLength={6}
-                      value={reset.code}
-                      onChange={(event) => setReset((current) => ({
-                        ...current,
-                        code: event.target.value.replace(/\D/g, '').slice(0, 6),
-                      }))}
-                      placeholder="Код из письма"
-                    />
-                    <input
-                      className="auth-input-wrap h-11 bg-background px-3"
-                      type="password"
-                      name="password-reset-new-password"
-                      autoComplete="new-password"
-                      value={reset.password}
-                      onChange={(event) => setReset((current) => ({ ...current, password: event.target.value }))}
-                      placeholder="Новый пароль"
-                    />
-                    <button type="button" className="auth-submit" onClick={() => void finishReset()} disabled={reset.code.length < 6 || reset.password.length < 8}>Изменить пароль</button>
-                  </>
-                )}
-                {resetMessage && <p className="text-sm text-muted-foreground" role="status">{resetMessage}</p>}
-              </div>
-            </div>
-          )}
 
           <p className="mt-6 text-sm text-muted-foreground">
             Нет аккаунта?{' '}
@@ -299,6 +239,7 @@ function LoginPageContent() {
               Создать аккаунт
             </Link>
           </p>
+          </>}
         </section>
       </div>
     </main>

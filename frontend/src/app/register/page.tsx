@@ -15,6 +15,7 @@ import {
   Radio,
 } from 'lucide-react'
 import { useAuthStore } from '../../store/store'
+import { authErrorMessage } from '../../lib/authError'
 import authService from '../../services/authService'
 import { RegisterData, RegistrationChallenge } from '../../types'
 import RegisterCodeStep from './RegisterCodeStep'
@@ -68,8 +69,8 @@ export default function RegisterPage() {
     event.preventDefault()
     clearError()
 
-    if (formData.username.trim().length < 3) {
-      setValidationError('Имя пользователя должно содержать минимум 3 символа.')
+    if (formData.username.trim().length < 2) {
+      setValidationError('Имя пользователя должно содержать минимум 2 символа.')
       return
     }
     if (formData.password.length < 8) {
@@ -94,7 +95,7 @@ export default function RegisterPage() {
       setChallenge(nextChallenge)
       registerSuccess()
     } catch (requestError: any) {
-      registerFailure(requestError.response?.data?.detail || requestError.message || 'Не удалось создать аккаунт.')
+      registerFailure(authErrorMessage(requestError, 'Не удалось создать аккаунт.'))
     }
   }
 
@@ -109,7 +110,7 @@ export default function RegisterPage() {
       setVerified(true)
       window.setTimeout(() => router.replace('/login'), 1100)
     } catch (requestError: any) {
-      registerFailure(requestError.response?.data?.detail || requestError.message || 'Не удалось проверить код.')
+      registerFailure(authErrorMessage(requestError, 'Не удалось проверить код.'))
     }
   }
 
@@ -123,7 +124,7 @@ export default function RegisterPage() {
       setVerificationCode('')
       registerSuccess()
     } catch (requestError: any) {
-      registerFailure(requestError.response?.data?.detail || requestError.message || 'Не удалось отправить новый код.')
+      registerFailure(authErrorMessage(requestError, 'Не удалось отправить новый код.'))
     }
   }
 
@@ -136,7 +137,7 @@ export default function RegisterPage() {
   const passwordButton = (visible: boolean, toggle: () => void, label: string) => (
     <button
       type="button"
-      className="rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground"
+      className="auth-password-toggle"
       onClick={toggle}
       aria-label={label}
     >
@@ -145,7 +146,7 @@ export default function RegisterPage() {
   )
 
   return (
-    <main className="auth-shell py-5">
+    <main className="auth-shell">
       <div className="auth-layout">
         <section className="auth-story" aria-label="О регистрации в Miscord">
           <div>
@@ -169,6 +170,11 @@ export default function RegisterPage() {
         </section>
 
         <section className="auth-card" aria-labelledby="register-title">
+          <div className="mb-8 md:hidden">
+            <div className="auth-brand-mark">
+              <img src="/image.svg" alt="Логотип Miscord" className="h-8 w-8 object-contain" />
+            </div>
+          </div>
           {challenge ? (
             <RegisterCodeStep
               challenge={challenge}
@@ -193,7 +199,7 @@ export default function RegisterPage() {
           </div>
 
           {(error || validationError) && (
-            <div className="mt-5 rounded-lg border border-destructive/35 bg-destructive/10 px-3.5 py-3 text-sm text-red-300" role="alert">
+            <div className="auth-alert auth-alert--error mt-5" role="alert">
               {error || validationError}
             </div>
           )}
