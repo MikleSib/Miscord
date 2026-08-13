@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import DirectMessage, SecretDmSession, UserE2eeDevice
 from app.services.communication_safety import can_send_dm
 from app.services.rate_limit import enforce_message_antispam, rate_limit_payload
+from app.services.datetime_serializer import utc_isoformat
 from app.websocket.unified_dm import send_message_failure
 
 
@@ -118,7 +119,7 @@ async def handle_secret_dm_message(user, message_data: dict, db: AsyncSession, m
     db.add(message)
     await db.commit()
     await db.refresh(message)
-    timestamp = message.timestamp.isoformat()
+    timestamp = utc_isoformat(message.timestamp)
     payload = {
         "type": "secret_dm",
         "data": {

@@ -1,20 +1,10 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import timezone
 from typing import Any
 
 from app.services.attachment_storage import attachment_url
-
-
-def _utc_isoformat(value) -> str | None:
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    else:
-        value = value.astimezone(timezone.utc)
-    return value.isoformat()
+from app.services.datetime_serializer import utc_isoformat
 
 
 def serialize_author(message) -> dict[str, Any]:
@@ -74,12 +64,12 @@ def serialize_channel_message(message, *, include_reply: bool = True) -> dict[st
         "text_channel_id": message.text_channel_id,
         "channelId": message.text_channel_id,
         "content": message.content,
-        "timestamp": _utc_isoformat(message.timestamp),
+        "timestamp": utc_isoformat(message.timestamp),
         "is_edited": message.is_edited,
         "is_deleted": message.is_deleted,
         "reply_to_id": message.reply_to_id,
         "pinned": bool(getattr(message, "pinned", False)),
-        "pinned_at": _utc_isoformat(getattr(message, "pinned_at", None)),
+        "pinned_at": utc_isoformat(getattr(message, "pinned_at", None)),
         "author": serialize_author(message),
         "attachments": serialized_attachments,
         "reactions": [],

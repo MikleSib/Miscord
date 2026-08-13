@@ -7,6 +7,7 @@ from app.models import DirectMessage, PendingChatUpload, User
 from app.services import direct_message_service
 from app.services.rate_limit import enforce_message_antispam, rate_limit_payload
 from app.services.communication_safety import can_send_dm
+from app.services.datetime_serializer import utc_isoformat
 
 
 async def send_message_failure(
@@ -141,7 +142,7 @@ async def handle_dm_message(
         "id": db_message.id,
         "client_nonce": db_message.client_nonce,
         "content": db_message.content,
-        "timestamp": db_message.timestamp,
+        "timestamp": utc_isoformat(db_message.timestamp),
         "sender_id": db_message.sender_id,
         "recipient_id": db_message.recipient_id,
         "author": {
@@ -164,7 +165,7 @@ async def handle_dm_message(
         "reply_to": None if not db_message.reply_to else {
             "id": db_message.reply_to.id,
             "content": db_message.reply_to.content,
-            "timestamp": db_message.reply_to.timestamp,
+            "timestamp": utc_isoformat(db_message.reply_to.timestamp),
             "sender_id": db_message.reply_to.sender_id,
             "recipient_id": db_message.reply_to.recipient_id,
         },
