@@ -14,6 +14,9 @@ export const metadata: Metadata = {
   },
   description: 'Общайтесь в текстовых и голосовых каналах, созванивайтесь и делитесь экраном.',
   applicationName: 'Miscord',
+  verification: {
+    yandex: '1548d8145354948f',
+  },
 }
 
 export const viewport: Viewport = {
