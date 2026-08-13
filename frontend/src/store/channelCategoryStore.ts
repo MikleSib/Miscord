@@ -10,6 +10,9 @@ interface CollapsedCategoriesState {
 
 const key = (serverId: number, categoryId: number) => `${serverId}:${categoryId}`
 
+export const migrateCollapsedCategories = (persisted: unknown) =>
+  persisted as Partial<CollapsedCategoriesState>
+
 export const useChannelCategoryStore = create<CollapsedCategoriesState>()(
   persist(
     (set, get) => ({
@@ -30,6 +33,7 @@ export const useChannelCategoryStore = create<CollapsedCategoriesState>()(
     {
       name: 'miscord-collapsed-categories',
       version: 1,
+      migrate: migrateCollapsedCategories,
     },
   ),
 )

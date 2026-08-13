@@ -20,6 +20,12 @@ interface HotkeyState {
   setSuspended: (suspended: boolean) => void
 }
 
+export const migrateHotkeys = (persisted: unknown) => ({
+  bindings: Array.isArray((persisted as Partial<HotkeyState> | null)?.bindings)
+    ? (persisted as Partial<HotkeyState>).bindings!
+    : [],
+})
+
 export const useHotkeyStore = create<HotkeyState>()(
   persist(
     (set) => ({
@@ -57,6 +63,7 @@ export const useHotkeyStore = create<HotkeyState>()(
     {
       name: 'miscord-hotkeys',
       version: 1,
+      migrate: migrateHotkeys,
       partialize: (state) => ({ bindings: state.bindings }),
     },
   ),

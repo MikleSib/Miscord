@@ -8,6 +8,13 @@ interface SoundSettingsState {
   isEnabled: (id: SoundEventId) => boolean
 }
 
+export const migrateSoundSettings = (persisted: unknown) => ({
+  enabled: {
+    ...DEFAULT_SOUND_PREFERENCES,
+    ...((persisted as Partial<SoundSettingsState> | null)?.enabled ?? {}),
+  },
+})
+
 export const useSoundSettingsStore = create<SoundSettingsState>()(
   persist(
     (set, get) => ({
@@ -20,6 +27,7 @@ export const useSoundSettingsStore = create<SoundSettingsState>()(
     {
       name: 'miscord-sound-settings',
       version: 1,
+      migrate: migrateSoundSettings,
       partialize: (state) => ({ enabled: state.enabled }),
       merge: (persisted, current) => ({
         ...current,

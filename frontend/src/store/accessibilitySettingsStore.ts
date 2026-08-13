@@ -31,6 +31,9 @@ function nearest(value: number, allowed: readonly number[]): number {
   )
 }
 
+export const migrateAccessibilitySettings = (persisted: unknown) =>
+  persisted as Partial<AccessibilitySettingsState>
+
 export const useAccessibilitySettingsStore = create<AccessibilitySettingsState>()(
   persist(
     (set) => ({
@@ -49,6 +52,10 @@ export const useAccessibilitySettingsStore = create<AccessibilitySettingsState>(
       setMessageGroupSpacing: (value) => set({ messageGroupSpacing: nearest(value, MESSAGE_GROUP_SPACING) }),
       setZoomLevel: (value) => set({ zoomLevel: nearest(value, ZOOM_LEVELS) }),
     }),
-    { name: 'miscord-accessibility-settings', version: 1 },
+    {
+      name: 'miscord-accessibility-settings',
+      version: 1,
+      migrate: migrateAccessibilitySettings,
+    },
   ),
 )
