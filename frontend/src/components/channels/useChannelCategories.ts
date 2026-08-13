@@ -111,12 +111,14 @@ export function useChannelCategories(serverId: number | null) {
 
   const createCategory = useCallback(
     async (name: string) => {
-      if (serverId == null || !name.trim()) return
+      if (serverId == null || !name.trim()) return false
       try {
         const created = await categoryService.create(serverId, name.trim())
         setCategories((previous) => sortCategories([...previous, created]))
+        return true
       } catch {
         setCurrentError('Не удалось создать категорию')
+        return false
       }
     },
     [serverId, setCategories, setCurrentError],

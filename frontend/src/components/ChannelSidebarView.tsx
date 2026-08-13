@@ -43,6 +43,7 @@ import { VoiceParticipantList } from './channels/VoiceParticipantList'
 import { VoiceParticipantContextMenu } from './voice/VoiceParticipantContextMenu'
 import { useKeepVoiceChannelVisible } from './channels/useKeepVoiceChannelVisible'
 import { ChannelListLoading } from './channels/ChannelListLoading'
+import { CreateCategoryDialog } from './channels/CreateCategoryDialog'
 
 export function ChannelSidebarView({ model }: { model: any }) {
   const {
@@ -66,6 +67,7 @@ export function ChannelSidebarView({ model }: { model: any }) {
     handleDeleteCategory, handleCreateCategory, groupListProps
   } = model
   const channelScrollRef = useRef<HTMLDivElement>(null)
+  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false)
   useKeepVoiceChannelVisible(channelScrollRef, currentVoiceChannelId)
 
   return (
@@ -151,7 +153,7 @@ export function ChannelSidebarView({ model }: { model: any }) {
                       <button
                         type="button"
                         aria-label="Создать категорию"
-                        onClick={handleCreateCategory}
+                        onClick={() => setCategoryDialogOpen(true)}
                         className="rounded p-0.5 text-muted-foreground transition hover:bg-secondary/60 hover:text-foreground"
                       >
                         <FolderPlus className="h-4 w-4" />
@@ -430,6 +432,12 @@ export function ChannelSidebarView({ model }: { model: any }) {
           createChannelInitialType === 'voice' ? 'Голосовые каналы' : 'Текстовые каналы'
         }
         onCreated={handleChannelCreated}
+      />
+
+      <CreateCategoryDialog
+        open={categoryDialogOpen}
+        onClose={() => setCategoryDialogOpen(false)}
+        onSubmit={handleCreateCategory}
       />
 
       <VoiceParticipantContextMenu

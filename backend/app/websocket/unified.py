@@ -23,7 +23,9 @@ async def websocket_unified_endpoint(
             raw_identify = await asyncio.wait_for(websocket.receive_text(), timeout=10.0)
             identify = json.loads(raw_identify)
             token = identify.get("token") if isinstance(identify, dict) and identify.get("type") == "identify" else None
-        except (asyncio.TimeoutError, json.JSONDecodeError, WebSocketDisconnect):
+        except WebSocketDisconnect:
+            return
+        except (asyncio.TimeoutError, json.JSONDecodeError):
             token = None
         if not isinstance(token, str) or not token:
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Identify required")
@@ -452,6 +454,20 @@ async def handle_chat_message(
         )
     if getattr(text_channel, "kind", "text") in {"public_thread", "private_thread", "forum_post"}:
         text_channel.last_message_at = datetime.now(timezone.utc)
+        if text_channel.kind == "forum_post" and text_channel.parent_id:
+            from app.services.realtime_events import enqueue_realtime_event
+            enqueue_realtime_event(
+                db,
+                event_type="THREAD_UPDATE",
+                data={
+                    "id": text_channel.id,
+                    "server_id": text_channel.channel_id,
+                    "parent_id": text_channel.parent_id,
+                    "last_message_at": text_channel.last_message_at.isoformat(),
+                },
+                topic="server",
+                target_id=text_channel.channel_id,
+            )
     for pending in pending_uploads:
         await db.delete(pending)
     await db.commit()

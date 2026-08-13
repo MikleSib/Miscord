@@ -88,6 +88,7 @@ async def get_friends(db: AsyncSession, user_id: int):
             "is_online": friend.is_online,
             "created_at": friend.created_at,
             "updated_at": friend.updated_at,
+            "email_verified_at": friend.email_verified_at,
             "friendship_created_at": friendship.created_at,
             "last_message_at": last_message_at,
         }
@@ -123,6 +124,7 @@ async def get_pending_requests(db: AsyncSession, user_id: int):
                 "is_online": user.is_online,
                 "created_at": user.created_at,
                 "updated_at": user.updated_at,
+                "email_verified_at": user.email_verified_at,
                 "request_id": req.id,
                 "friendship_created_at": req.created_at,
                 "last_message_at": None,

@@ -11,8 +11,8 @@ export function useDismissOnOutsidePointer<T extends HTMLElement>(
     if (!open) return
 
     const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target
-      if (!(target instanceof Node) || containerRef.current?.contains(target)) return
+      const container = containerRef.current
+      if (!container || event.composedPath().includes(container)) return
       onDismiss()
     }
 
@@ -20,11 +20,11 @@ export function useDismissOnOutsidePointer<T extends HTMLElement>(
       if (event.key === 'Escape') onDismiss()
     }
 
-    document.addEventListener('pointerdown', handlePointerDown)
-    document.addEventListener('keydown', handleKeyDown)
+    document.addEventListener('pointerdown', handlePointerDown, true)
+    document.addEventListener('keydown', handleKeyDown, true)
     return () => {
-      document.removeEventListener('pointerdown', handlePointerDown)
-      document.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('pointerdown', handlePointerDown, true)
+      document.removeEventListener('keydown', handleKeyDown, true)
     }
   }, [containerRef, onDismiss, open])
 }

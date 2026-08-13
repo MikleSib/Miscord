@@ -28,6 +28,8 @@ import { messageStateService } from '@/services/messageStateService'
 import { useChannelUnreadStore } from '@/store/channelUnreadStore'
 import { useScreenShareToasts } from '@/features/app/useScreenShareToasts'
 import { useCapabilities } from '@/features/capabilities/capabilities'
+import { resolveMemberSidebarVisibility, useMobileNavigationStore } from '@/store/mobileNavigationStore'
+import { useResponsiveLayout } from '@/hooks/useResponsiveLayout'
 
 const SettingsModal = dynamic(() => import('@/components/SettingsModal'), { ssr: false })
 const MobileExperience = dynamic(
@@ -80,6 +82,9 @@ export default function HomePage() {
   const { currentVoiceChannelId } = useVoiceStore()
   const [isMounted, setIsMounted] = useState(false)
   const [showUserSidebar, setShowUserSidebar] = useState(true)
+  const memberDrawerOpen = useMobileNavigationStore((state) => state.memberDrawerOpen)
+  const viewport = useResponsiveLayout()
+  const membersVisible = resolveMemberSidebarVisibility(viewport, showUserSidebar, memberDrawerOpen)
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false)
   const [settingsInitialTab, setSettingsInitialTab] = useState<UserSettingsTab>('profile')
   const userDockRef = useUserDockClearance()
@@ -206,18 +211,18 @@ export default function HomePage() {
       {currentServer ? (
         <>
           {capabilities.screenShare && currentVoiceChannelId && <ScreenShareVideoPool />}
-          {capabilities.screenShare && currentVoiceChannelId && <ScreenShareViewerHost showMemberSidebar={showUserSidebar} />}
+          {capabilities.screenShare && currentVoiceChannelId && <ScreenShareViewerHost showMemberSidebar={membersVisible} />}
           {capabilities.screenShare && currentVoiceChannelId && <ScreenSharePickerModal />}
           <div className="app-mobile-channels relative z-40">
             <ChannelSidebar />
           </div>
           <div className="app-mobile-chat flex min-w-0 flex-1 flex-col">
             <div className="flex min-h-0 min-w-0 flex-1">
-              <div className="flex min-w-0 flex-1">{capabilities.forums && currentChannel?.kind === 'forum' ? <ForumChannelView channel={currentChannel} /> : <ChatArea showUserSidebar={showUserSidebar} setShowUserSidebar={setShowUserSidebar} />}</div>
+              <div className="flex min-w-0 flex-1">{capabilities.forums && currentChannel?.kind === 'forum' ? <ForumChannelView channel={currentChannel} /> : <ChatArea showUserSidebar={membersVisible} setShowUserSidebar={setShowUserSidebar} />}</div>
               {capabilities.threads && <ThreadPanel />}
             </div>
           </div>
-          {showUserSidebar && (
+          {membersVisible && (
             <div className="app-mobile-members flex h-full">
               <ServerUserSidebar />
             </div>

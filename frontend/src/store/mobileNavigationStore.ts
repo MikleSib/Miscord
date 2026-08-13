@@ -54,3 +54,10 @@ export function isMobileNavigationSnapshot(value: unknown): value is MobileNavig
   )
 }
 
+export function resolveMemberSidebarVisibility(
+  viewport: 'phone' | 'tablet' | 'compact-desktop' | 'desktop',
+  desktopPreference: boolean,
+  mobileDrawerOpen: boolean,
+): boolean {
+  return viewport === 'phone' || viewport === 'tablet' ? mobileDrawerOpen : desktopPreference
+}

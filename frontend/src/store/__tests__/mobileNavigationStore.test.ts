@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { useMobileNavigationStore } from '../mobileNavigationStore'
+import { resolveMemberSidebarVisibility, useMobileNavigationStore } from '../mobileNavigationStore'
 
 describe('mobileNavigationStore', () => {
   beforeEach(() => useMobileNavigationStore.getState().reset())
@@ -38,5 +38,11 @@ describe('mobileNavigationStore', () => {
       pane: 'root',
       homeDetailOpen: false,
     })
+  })
+
+  it('uses the drawer as the single source of truth on mobile', () => {
+    expect(resolveMemberSidebarVisibility('phone', true, false)).toBe(false)
+    expect(resolveMemberSidebarVisibility('tablet', false, true)).toBe(true)
+    expect(resolveMemberSidebarVisibility('desktop', true, false)).toBe(true)
   })
 })

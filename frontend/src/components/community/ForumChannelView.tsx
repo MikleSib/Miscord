@@ -28,14 +28,24 @@ import type { Forum, ForumPostSummary } from '../../types/community'
 import { ForumPostCard } from './ForumPostCard'
 import { ForumPostComposer } from './ForumPostComposer'
 import { ForumTagManager } from './ForumTagManager'
+import { applyForumMessageCreated, applyForumMessageDeleted } from './forumPostRealtime'
 
 type ForumLayout = 'list' | 'gallery'
 type ForumSort = 'latest_activity' | 'created_at'
 
-function eventData<T>(payload: T | { data: T }): T {
+function eventData<T>(payload: unknown): T {
   return payload && typeof payload === 'object' && 'data' in payload
     ? (payload as { data: T }).data
     : payload as T
+}
+
+interface ForumMessageEvent {
+  id?: number
+  message_id?: number
+  channelId?: number
+  text_channel_id?: number
+  timestamp?: string
+  created_at?: string
 }
 
 function ForumLoading() {
@@ -127,24 +137,42 @@ export function ForumChannelView({ channel }: { channel: Channel }) {
 
   useEffect(() => {
     const refreshPosts = (payload: unknown) => {
-      const data = eventData<{ id?: number; parent_id?: number }>(payload as any)
+      const data = eventData<{ id?: number; parent_id?: number }>(payload)
       if (data.parent_id === channel.id || posts.some((post) => post.id === Number(data.id))) {
         void loadPosts(true)
       }
     }
     const refreshForum = (payload: unknown) => {
-      const data = eventData<{ id?: number }>(payload as any)
+      const data = eventData<{ id?: number }>(payload)
       if (Number(data.id) === channel.id) void loadForum()
+    }
+    const updateReplyCount = (payload: unknown) => {
+      const data = eventData<ForumMessageEvent>(payload)
+      const targetId = Number(data.text_channel_id ?? data.channelId)
+      if (!posts.some((post) => post.id === targetId)) return
+      setPosts((current) => applyForumMessageCreated(current, data))
+      void loadPosts(true)
+    }
+    const updateDeletedReplyCount = (payload: unknown) => {
+      const data = eventData<ForumMessageEvent>(payload)
+      const targetId = Number(data.text_channel_id ?? data.channelId)
+      if (!posts.some((post) => post.id === targetId)) return
+      setPosts((current) => applyForumMessageDeleted(current, data))
+      void loadPosts(true)
     }
     unifiedWebSocketService.on(GatewayEvents.THREAD_CREATE, refreshPosts)
     unifiedWebSocketService.on(GatewayEvents.THREAD_UPDATE, refreshPosts)
     unifiedWebSocketService.on(GatewayEvents.THREAD_DELETE, refreshPosts)
     unifiedWebSocketService.on(GatewayEvents.FORUM_UPDATE, refreshForum)
+    unifiedWebSocketService.on(GatewayEvents.NEW_MESSAGE, updateReplyCount)
+    unifiedWebSocketService.on(GatewayEvents.MESSAGE_DELETED, updateDeletedReplyCount)
     return () => {
       unifiedWebSocketService.off(GatewayEvents.THREAD_CREATE, refreshPosts)
       unifiedWebSocketService.off(GatewayEvents.THREAD_UPDATE, refreshPosts)
       unifiedWebSocketService.off(GatewayEvents.THREAD_DELETE, refreshPosts)
       unifiedWebSocketService.off(GatewayEvents.FORUM_UPDATE, refreshForum)
+      unifiedWebSocketService.off(GatewayEvents.NEW_MESSAGE, updateReplyCount)
+      unifiedWebSocketService.off(GatewayEvents.MESSAGE_DELETED, updateDeletedReplyCount)
     }
   }, [channel.id, loadForum, loadPosts, posts])
 

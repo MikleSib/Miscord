@@ -524,10 +524,7 @@ export function ChannelSidebar() {
     void deleteCategory(categoryId)
   }
 
-  const handleCreateCategory = () => {
-    const name = window.prompt('Название категории')
-    if (name?.trim()) void createCategory(name)
-  }
+  const handleCreateCategory = (name: string) => createCategory(name)
 
   /** Общие пропсы для обоих списков каналов: текстового и голосового. */
   const groupListProps = {
