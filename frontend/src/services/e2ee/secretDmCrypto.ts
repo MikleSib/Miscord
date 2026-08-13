@@ -1,5 +1,11 @@
 import axios from 'axios';
-import { secretDmApi, type E2eeDevice, type SecretSession, type SecretWireMessage } from './secretDmApi';
+import {
+  requirePeerDevice,
+  secretDmApi,
+  type E2eeDevice,
+  type SecretSession,
+  type SecretWireMessage,
+} from './secretDmApi';
 import { loadSecretPlaintext, loadSecretState, saveSecretPlaintext, saveSecretState } from './secretDmStorage';
 import { base64ToBytes, bytesToBase64, loadMlsModule } from '../voice/e2ee/mlsRuntime';
 import type { MlsGroup, MlsIdentity, MlsModule, MlsProvider } from '../voice/e2ee/mlsTypes';
@@ -33,12 +39,13 @@ function apiMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'End-to-end encryption failed';
 }
 
-class SecretDmCrypto {
+export class SecretDmCrypto {
   private userId: number | null = null;
   private module: MlsModule | null = null;
   private provider: MlsProvider | null = null;
   private identity: MlsIdentity | null = null;
   private state: PersistedState | null = null;
+  private devicePublished = false;
   private sessions = new Map<number, ActiveSession>();
   private tail: Promise<void> = Promise.resolve();
 
@@ -56,13 +63,17 @@ class SecretDmCrypto {
     this.identity = null;
     this.provider = null;
     this.state = null;
+    this.devicePublished = false;
     this.module = null;
     this.userId = null;
   }
 
   async initialize(userId: number): Promise<void> {
     return this.run(async () => {
-      if (this.userId === userId && this.provider && this.identity) return;
+      if (this.userId === userId && this.provider && this.identity) {
+        if (!this.devicePublished) await this.publishFreshKeyPackage();
+        return;
+      }
       this.dispose();
       this.userId = userId;
       const module = await loadMlsModule();
@@ -126,6 +137,7 @@ class SecretDmCrypto {
       signature_public_key: bytesToBase64(identity.signature_public_key()),
     });
     await this.persist();
+    this.devicePublished = true;
   }
 
   async refreshKeyPackage(userId: number): Promise<void> {
@@ -199,7 +211,7 @@ class SecretDmCrypto {
     if (cached) return cached;
     const existing = await secretDmApi.session(peerId);
     if (existing) return this.openExisting(peerId, existing);
-    return this.createSession(peerId, await secretDmApi.peerDevice(peerId));
+    return this.createSession(peerId, requirePeerDevice(await secretDmApi.peerDevice(peerId)));
   }
 
   encrypt(peerId: number, plaintext: string, clientNonce: string): Promise<{
@@ -252,7 +264,7 @@ class SecretDmCrypto {
     return this.run(async () => {
       const { identity } = this.requireReady();
       const session = await this.ensureSession(peerId);
-      const peer = await secretDmApi.peerDevice(peerId);
+      const peer = requirePeerDevice(await secretDmApi.peerDevice(peerId));
       const keys = [bytesToBase64(identity.signature_public_key()), peer.signature_public_key].sort();
       const material = `${session.descriptor.session_id}:${keys.join(':')}`;
       const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(material)));

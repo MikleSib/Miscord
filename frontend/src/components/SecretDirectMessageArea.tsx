@@ -17,6 +17,8 @@ export function SecretDirectMessageArea({ friend, onClose }: { friend: User; onC
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [peerReady, setPeerReady] = useState<boolean | null>(null);
+  const [checkingPeer, setCheckingPeer] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [safetyCode, setSafetyCode] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -26,12 +28,18 @@ export function SecretDirectMessageArea({ friend, onClose }: { friend: User; onC
     if (!user) return;
     let active = true;
     setLoading(true);
+    setPeerReady(null);
     setError(null);
     setMessages([]);
     void (async () => {
       try {
         await secretDmCrypto.initialize(user.id);
-        const wireMessages = await secretDmApi.messages(friend.id);
+        const [wireMessages, session, peerDevice] = await Promise.all([
+          secretDmApi.messages(friend.id),
+          secretDmApi.session(friend.id),
+          secretDmApi.peerDevice(friend.id),
+        ]);
+        if (active) setPeerReady(Boolean(session || peerDevice));
         const decrypted: DisplayMessage[] = [];
         for (const wire of wireMessages) decrypted.push(await secretDmCrypto.decrypt(friend.id, wire));
         if (active) setMessages(decrypted);
@@ -87,10 +95,22 @@ export function SecretDirectMessageArea({ friend, onClose }: { friend: User; onC
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'auto' }); }, [messages.length]);
 
+  const checkPeer = async () => {
+    setCheckingPeer(true);
+    setError(null);
+    try {
+      setPeerReady(Boolean(await secretDmApi.peerDevice(friend.id)));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Не удалось проверить поддержку шифрования');
+    } finally {
+      setCheckingPeer(false);
+    }
+  };
+
   const sendMessage = async (event: FormEvent) => {
     event.preventDefault();
     const content = input.trim();
-    if (!content || !user || sending) return;
+    if (!content || !user || sending || !peerReady) return;
     const clientNonce = crypto.randomUUID();
     pendingNonces.current.add(clientNonce);
     setInput('');
@@ -168,6 +188,23 @@ export function SecretDirectMessageArea({ friend, onClose }: { friend: User; onC
       <div className="chat-scroll min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5">
         {loading ? (
           <div className="flex h-full items-center justify-center gap-2 text-text-quiet"><Loader2 className="h-5 w-5 animate-spin" />Подготовка защищённого чата…</div>
+        ) : peerReady === false ? (
+          <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+            <LockKeyhole className="mb-4 h-10 w-10 text-amber-300" />
+            <h3 className="font-semibold text-white">Ожидаем ключ собеседника</h3>
+            <p className="mt-2 max-w-md text-sm leading-6 text-text-quiet">
+              Сквозное шифрование включается автоматически при входе в Miscord. Попросите собеседника открыть приложение, затем проверьте снова.
+            </p>
+            <button
+              type="button"
+              onClick={() => void checkPeer()}
+              disabled={checkingPeer}
+              className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-lg bg-primary px-4 font-semibold text-white disabled:opacity-50"
+            >
+              {checkingPeer && <Loader2 className="h-4 w-4 animate-spin" />}
+              Проверить снова
+            </button>
+          </div>
         ) : messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center px-6 text-center"><LockKeyhole className="mb-4 h-10 w-10 text-emerald-400" /><h3 className="font-semibold text-white">Начните секретный чат</h3><p className="mt-2 max-w-md text-sm leading-6 text-text-quiet">Первое сообщение создаст MLS-сессию. Сервер не получит его открытый текст.</p></div>
         ) : messages.map((message) => {
@@ -185,8 +222,8 @@ export function SecretDirectMessageArea({ friend, onClose }: { friend: User; onC
       </div>
       <form onSubmit={sendMessage} className="flex-shrink-0 border-t border-[#2c2d32] p-3 sm:p-4">
         <div className="flex items-end gap-2 rounded-xl bg-[#393a41] p-2">
-          <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} rows={1} maxLength={5000} placeholder={`Секретное сообщение для @${friend.username}`} className="max-h-40 min-h-11 flex-1 resize-none bg-transparent px-2 py-3 text-white outline-none placeholder:text-text-quiet" disabled={loading || sending} />
-          <button type="submit" disabled={!input.trim() || loading || sending} className="grid h-11 w-11 place-items-center rounded-lg bg-primary text-white disabled:opacity-40" aria-label="Отправить секретное сообщение">{sending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}</button>
+          <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} rows={1} maxLength={5000} placeholder={peerReady === false ? 'Ожидаем ключ собеседника' : `Секретное сообщение для @${friend.username}`} className="max-h-40 min-h-11 flex-1 resize-none bg-transparent px-2 py-3 text-white outline-none placeholder:text-text-quiet" disabled={loading || sending || !peerReady} />
+          <button type="submit" disabled={!input.trim() || loading || sending || !peerReady} className="grid h-11 w-11 place-items-center rounded-lg bg-primary text-white disabled:opacity-40" aria-label="Отправить секретное сообщение">{sending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}</button>
         </div>
       </form>
     </div>

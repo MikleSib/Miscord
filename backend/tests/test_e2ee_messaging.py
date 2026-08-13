@@ -6,6 +6,7 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
+from app.api import e2ee_dms
 from app.api.e2ee_dms import _decode_b64, _pair, _uuid
 from app.models import DirectMessage
 from app.schemas.e2ee import E2eeDeviceRegister, SecretDmSessionCreate
@@ -70,3 +71,17 @@ async def test_regular_dm_history_excludes_secret_ciphertext() -> None:
     assert await direct_message_service.get_messages(db, 1, 2) == []
     statement = db.execute.await_args.args[0]
     assert "direct_messages.encryption_version" in str(statement)
+
+
+@pytest.mark.asyncio
+async def test_missing_peer_device_is_a_normal_unavailable_state(monkeypatch) -> None:
+    allowed = AsyncMock()
+    current_device = AsyncMock(return_value=None)
+    monkeypatch.setattr(e2ee_dms, "_allowed", allowed)
+    monkeypatch.setattr(e2ee_dms, "_current_device", current_device)
+
+    current = SimpleNamespace(id=1)
+    db = SimpleNamespace()
+    assert await e2ee_dms.get_peer_device(2, current=current, db=db) is None
+    allowed.assert_awaited_once()
+    current_device.assert_awaited_once_with(db, 2)

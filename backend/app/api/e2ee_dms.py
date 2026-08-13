@@ -114,7 +114,7 @@ async def get_own_device(current: User = Depends(get_current_user), db: AsyncSes
     return _device_response(device) if device else None
 
 
-@router.get("/users/{peer_id}/device", response_model=E2eeDeviceResponse)
+@router.get("/users/{peer_id}/device", response_model=E2eeDeviceResponse | None)
 async def get_peer_device(
     peer_id: int,
     current: User = Depends(get_current_user),
@@ -122,9 +122,7 @@ async def get_peer_device(
 ):
     await _allowed(db, current, peer_id)
     device = await _current_device(db, peer_id)
-    if not device:
-        raise HTTPException(status_code=409, detail="Recipient has not enabled end-to-end encryption")
-    return _device_response(device)
+    return _device_response(device) if device else None
 
 
 async def _active_session(db: AsyncSession, first: int, second: int) -> SecretDmSession | None:

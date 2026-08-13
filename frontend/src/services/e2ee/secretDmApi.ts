@@ -31,6 +31,18 @@ export interface SecretWireMessage {
   sender_device_id: string;
 }
 
+export class PeerEncryptionUnavailableError extends Error {
+  constructor() {
+    super('Собеседник ещё не активировал сквозное шифрование. Оно включится автоматически после его следующего входа в Miscord.');
+    this.name = 'PeerEncryptionUnavailableError';
+  }
+}
+
+export function requirePeerDevice(device: E2eeDevice | null): E2eeDevice {
+  if (!device) throw new PeerEncryptionUnavailableError();
+  return device;
+}
+
 export const secretDmApi = {
   registerDevice: (payload: {
     device_id: string;
@@ -38,7 +50,7 @@ export const secretDmApi = {
     key_package: string;
     signature_public_key: string;
   }) => api.put<E2eeDevice>('/api/v1/e2ee/devices/@me', payload).then((response) => response.data),
-  peerDevice: (peerId: number) => api.get<E2eeDevice>(`/api/v1/e2ee/users/${peerId}/device`).then((response) => response.data),
+  peerDevice: (peerId: number) => api.get<E2eeDevice | null>(`/api/v1/e2ee/users/${peerId}/device`).then((response) => response.data),
   session: (peerId: number) => api.get<SecretSession | null>(`/api/v1/e2ee/dms/${peerId}/session`).then((response) => response.data),
   createSession: (peerId: number, payload: {
     session_id: string;

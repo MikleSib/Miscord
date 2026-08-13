@@ -13,7 +13,6 @@ import { consumePendingDirectMessage } from '../lib/dmNavigation'
 import { useDmNotificationStore } from '../store/dmNotificationStore'
 import { Modal } from './ui/modal'
 import { SecretDirectMessageArea } from './SecretDirectMessageArea'
-import { secretDmCrypto } from '../services/e2ee/secretDmCrypto'
 
 type Tab = 'online' | 'all' | 'pending' | 'blocked'
 
@@ -94,20 +93,6 @@ export function HomePageContent() {
 
     getcurrentUser()
   }, [])
-
-  useEffect(() => {
-    if (!currentUser) return
-    const userId = currentUser.id
-    void secretDmCrypto.initialize(userId).catch(() => undefined)
-    return () => { void secretDmCrypto.close(userId) }
-  }, [currentUser?.id])
-
-  useEffect(() => {
-    if (!currentUser) return
-    const refresh = () => { void secretDmCrypto.refreshKeyPackage(currentUser.id).catch(() => undefined) }
-    websocketService.on('secret_dm_session', refresh)
-    return () => websocketService.off('secret_dm_session', refresh)
-  }, [currentUser?.id])
 
   useEffect(() => { setSecretMode(false) }, [selectedFriend?.id])
 

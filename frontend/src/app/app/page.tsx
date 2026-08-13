@@ -30,6 +30,7 @@ import { useScreenShareToasts } from '@/features/app/useScreenShareToasts'
 import { useCapabilities } from '@/features/capabilities/capabilities'
 import { resolveMemberSidebarVisibility, useMobileNavigationStore } from '@/store/mobileNavigationStore'
 import { useResponsiveLayout } from '@/hooks/useResponsiveLayout'
+import { bindSecretDmBootstrap } from '@/services/e2ee/secretDmBootstrap'
 
 const SettingsModal = dynamic(() => import('@/components/SettingsModal'), { ssr: false })
 const MobileExperience = dynamic(
@@ -80,6 +81,7 @@ export default function HomePage() {
     setUser: setStoreUser
   } = useStore()
   const { currentVoiceChannelId } = useVoiceStore()
+  const encryptionUserId = token ? authUser?.id : undefined
   const [isMounted, setIsMounted] = useState(false)
   const [showUserSidebar, setShowUserSidebar] = useState(true)
   const memberDrawerOpen = useMobileNavigationStore((state) => state.memberDrawerOpen)
@@ -102,6 +104,11 @@ export default function HomePage() {
   useEffect(() => {
     setIsMounted(true)
   }, [])
+
+  useEffect(() => {
+    if (!encryptionUserId) return
+    return bindSecretDmBootstrap(encryptionUserId)
+  }, [encryptionUserId])
 
   useEffect(() => {
     if (!isMounted) return
