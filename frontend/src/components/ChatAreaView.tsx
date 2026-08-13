@@ -354,7 +354,7 @@ export function ChatAreaView({ model }: { model: any }) {
                   replyingTo
                     ? `Ответ пользователю ${replyingTo.author.username}...`
                     : viewport === 'phone'
-                      ? `Написать в #${currentChannel.name}`
+                      ? `Сообщение #${currentChannel.name}`
                       : `Написать в #${currentChannel.name} · / — команда · @ — упомянуть`
                 }
                 className="chat-area-composer__input min-w-0 flex-1 bg-transparent text-sm outline-none"
