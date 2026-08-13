@@ -1,0 +1,97 @@
+@media (max-width: 767px) {
+  .direct-message-header {
+    min-height: var(--mobile-header-height);
+    flex-basis: var(--mobile-header-height);
+    padding-right: max(0.75rem, var(--safe-area-right));
+    padding-left: calc(var(--safe-area-left) + 3.5rem);
+  }
+
+  .direct-message-header__copy small {
+    display: none;
+  }
+
+  .direct-message-header__secret {
+    width: 2.75rem;
+    min-height: 2.75rem;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .direct-message-intro {
+    grid-template-columns: 3.5rem minmax(0, 1fr);
+    column-gap: 0.75rem;
+    margin: 0 0.75rem;
+    padding: 1.5rem 0 1.25rem;
+  }
+
+  .direct-message-intro__avatar {
+    width: 3.5rem !important;
+    height: 3.5rem !important;
+  }
+
+  .direct-message-intro h2 {
+    font-size: 1.25rem;
+  }
+
+  .direct-message-intro span {
+    font-size: 0.8125rem;
+    line-height: 1.25rem;
+  }
+
+  .direct-message-entry {
+    grid-template-columns: 2.25rem minmax(0, 1fr);
+    column-gap: 0.625rem;
+    padding-right: 0.75rem;
+    padding-left: 0.75rem;
+    content-visibility: auto;
+    contain-intrinsic-size: 4.5rem;
+  }
+
+  .direct-message-entry__avatar > :not(time) {
+    width: 2.25rem !important;
+    height: 2.25rem !important;
+  }
+
+  .direct-message-entry__avatar > time {
+    display: none;
+  }
+
+  .direct-message-actions {
+    top: -1.125rem;
+    right: 0.5rem;
+  }
+
+  .direct-message-actions button {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  .direct-message-date {
+    margin-right: 0.75rem;
+    margin-left: 0.75rem;
+  }
+
+  .direct-message-composer {
+    padding: 0.625rem max(0.75rem, var(--safe-area-right)) max(0.625rem, var(--safe-area-bottom)) max(0.75rem, var(--safe-area-left));
+  }
+
+  .direct-message-composer__actions button,
+  .direct-message-composer__attach {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  .direct-message-shell > .direct-message-scroll > article.group {
+    padding-right: 0.75rem;
+    padding-left: 0.75rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .direct-message-actions,
+  .direct-message-entry,
+  .direct-message-header__secret,
+  .direct-message-composer__form {
+    transition: none;
+  }
+}
