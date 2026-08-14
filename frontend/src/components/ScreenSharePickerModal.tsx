@@ -185,9 +185,9 @@ export function ScreenSharePickerModal() {
   if (!isOpen) return null;
 
   return (
-    <div className="miscord-responsive-modal fixed inset-0 z-[200] flex items-center justify-center bg-black/70 p-4">
-      <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="screen-share-picker-title" className="miscord-responsive-modal-card flex max-h-[min(720px,calc(100vh-2rem))] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-2xl outline-none">
-        <div className="flex items-center justify-between border-b border-[#3e3f45] px-4 py-3">
+    <div className="screen-share-picker miscord-responsive-modal fixed inset-0 z-[200] flex items-center justify-center bg-black/70 p-4">
+      <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="screen-share-picker-title" className="screen-share-picker__card miscord-responsive-modal-card flex max-h-[min(720px,calc(100vh-2rem))] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-2xl outline-none">
+        <div className="screen-share-picker__header flex items-center justify-between border-b border-[#3e3f45] px-4 py-3">
           <div>
             <h2 id="screen-share-picker-title" className="text-lg font-semibold text-foreground">Выберите, что транслировать</h2>
             <p className="text-xs text-[#949ba4]">
@@ -206,7 +206,7 @@ export function ScreenSharePickerModal() {
           </button>
         </div>
 
-        <div className="flex gap-1 border-b border-[#3e3f45] px-3 pt-2">
+        <div className="screen-share-picker__tabs flex gap-1 border-b border-[#3e3f45] px-3 pt-2">
           {TABS.map((tab) => (
             <button
               key={tab.id}
@@ -234,7 +234,7 @@ export function ScreenSharePickerModal() {
           )}
         </div>
 
-        <div className="min-h-[320px] flex-1 overflow-y-auto p-4">
+        <div className="screen-share-picker__content min-h-[320px] flex-1 overflow-y-auto p-4">
           {error && (
             <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
               {error}
@@ -294,8 +294,8 @@ export function ScreenSharePickerModal() {
           )}
         </div>
 
-        <div className="relative z-10 flex items-center justify-between gap-3 overflow-visible border-t border-[#3e3f45] bg-[#2b2d31] px-4 py-3">
-          <div className="flex items-center gap-3 overflow-visible">
+        <div className="screen-share-picker__footer relative z-10 flex items-center justify-between gap-3 overflow-visible border-t border-[#3e3f45] bg-[#2b2d31] px-4 py-3">
+          <div className="screen-share-picker__quality flex items-center gap-3 overflow-visible">
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-[#f2f3f5]">
                 {PRESET_LABELS[preset]}
@@ -307,7 +307,7 @@ export function ScreenSharePickerModal() {
             <StreamModeMenu disabled={isStarting} placement="top-left" />
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="screen-share-picker__actions flex items-center gap-2">
             <button
               type="button"
               onClick={close}

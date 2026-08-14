@@ -1,0 +1,227 @@
+/* Mobile overlays: each flow owns the viewport instead of scaling a desktop modal. */
+
+@media (max-width: 767px) {
+  .miscord-settings-dialog {
+    padding: 0 !important;
+  }
+
+  .miscord-settings-dialog > .miscord-responsive-modal-card {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    max-width: none !important;
+    height: var(--app-visual-height, 100dvh) !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  .miscord-settings-dialog .miscord-settings-sidebar {
+    display: flex !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    border-right: 0 !important;
+  }
+
+  .miscord-settings-dialog[data-mobile-detail='open'] .miscord-settings-sidebar {
+    display: none !important;
+  }
+
+  .miscord-settings-dialog .server-settings-nav-header {
+    min-height: calc(64px + env(safe-area-inset-top));
+    padding: calc(12px + env(safe-area-inset-top)) 16px 12px !important;
+    align-items: center;
+    background: hsl(var(--background));
+  }
+
+  .miscord-settings-dialog .server-settings-nav-close {
+    display: grid !important;
+  }
+
+  .miscord-settings-dialog .miscord-settings-sidebar nav {
+    padding: 10px 12px 16px !important;
+    overscroll-behavior: contain;
+  }
+
+  .miscord-settings-dialog .miscord-settings-sidebar nav button,
+  .miscord-settings-dialog .miscord-settings-sidebar > div:last-child button {
+    min-height: 48px;
+    border-radius: 10px;
+    font-size: 1rem;
+  }
+
+  .miscord-settings-dialog .miscord-settings-sidebar > div:last-child {
+    padding: 8px 12px max(10px, env(safe-area-inset-bottom)) !important;
+    background: hsl(var(--secondary));
+  }
+
+  .miscord-settings-dialog .miscord-settings-detail {
+    display: none !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .miscord-settings-dialog[data-mobile-detail='open'] .miscord-settings-detail {
+    display: flex !important;
+  }
+
+  .miscord-settings-dialog .miscord-settings-header {
+    min-height: calc(56px + env(safe-area-inset-top));
+    height: auto !important;
+    padding: env(safe-area-inset-top) 8px 0 !important;
+    background: hsl(var(--background));
+  }
+
+  .miscord-settings-dialog .miscord-settings-header h1 {
+    font-size: 1.0625rem;
+  }
+
+  .miscord-settings-dialog .server-settings-detail > .min-h-0 {
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .invite-people-modal {
+    align-items: flex-end !important;
+    padding: 0 !important;
+  }
+
+  .invite-people-modal .invite-people-card {
+    position: relative !important;
+    inset: auto !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: calc(var(--app-visual-height, 100dvh) - 16px) !important;
+    border-radius: 18px 18px 0 0 !important;
+    overflow-y: auto !important;
+  }
+
+  .invite-people-header {
+    padding: 20px 20px 8px !important;
+  }
+
+  .invite-people-header h2 {
+    font-size: 1.25rem;
+    line-height: 1.35;
+  }
+
+  .invite-people-body {
+    padding: 12px 20px max(24px, calc(16px + env(safe-area-inset-bottom))) !important;
+  }
+
+  .invite-people-link,
+  .invite-people-copy {
+    min-height: 48px;
+  }
+
+  .screen-share-picker {
+    padding: 0 !important;
+  }
+
+  .screen-share-picker .screen-share-picker__card {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    max-width: none !important;
+    height: var(--app-visual-height, 100dvh) !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  .screen-share-picker__header {
+    flex: none;
+    padding: calc(10px + env(safe-area-inset-top)) 10px 10px 16px !important;
+  }
+
+  .screen-share-picker__header > div {
+    min-width: 0;
+  }
+
+  .screen-share-picker__header h2 {
+    font-size: 1.25rem;
+    line-height: 1.3;
+  }
+
+  .screen-share-picker__header p {
+    margin-top: 3px;
+    line-height: 1.35;
+  }
+
+  .screen-share-picker__tabs {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    flex: none;
+    padding: 4px 8px 0 !important;
+  }
+
+  .screen-share-picker__tabs > button {
+    min-width: 0;
+    min-height: 48px;
+    padding: 10px 4px !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .screen-share-picker__tabs > button:last-child:not(:nth-child(3)) {
+    display: none;
+  }
+
+  .screen-share-picker__content {
+    min-height: 0 !important;
+    padding: 16px !important;
+    overscroll-behavior: contain;
+  }
+
+  .screen-share-picker__footer {
+    display: flex !important;
+    flex: none;
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 12px !important;
+    padding: 12px 16px max(12px, env(safe-area-inset-bottom)) !important;
+  }
+
+  .screen-share-picker__quality {
+    justify-content: space-between;
+  }
+
+  .screen-share-picker__actions {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    width: 100%;
+  }
+
+  .screen-share-picker__actions button {
+    width: 100%;
+    min-width: 0;
+    min-height: 48px;
+    padding-inline: 12px !important;
+  }
+}
+
+@media (max-width: 420px) {
+  .invite-people-link-row {
+    flex-direction: column;
+  }
+
+  .invite-people-copy {
+    width: 100%;
+  }
+
+  .screen-share-picker__header h2 {
+    font-size: 1.125rem;
+  }
+}

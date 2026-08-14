@@ -190,13 +190,23 @@ export function ServerSettingsModal({ isOpen, onClose, server, onServerUpdate }:
       <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="server-settings-title" className="miscord-responsive-modal-card relative flex w-full max-w-5xl h-[680px] max-h-[92vh] overflow-hidden rounded-xl border border-border bg-background shadow-2xl outline-none">
         {/* Sidebar */}
         <div className="miscord-settings-sidebar flex w-60 flex-none flex-col border-r border-border bg-secondary">
-          <div className="border-b border-border px-4 py-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Настройки сервера
-            </p>
-            <h2 className="mt-1 truncate text-base font-semibold" title={server.name}>
-              {server.name}
-            </h2>
+          <div className="server-settings-nav-header flex items-start justify-between gap-3 border-b border-border px-4 py-4">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Настройки сервера
+              </p>
+              <h2 className="mt-1 truncate text-base font-semibold" title={server.name}>
+                {server.name}
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={closeModal}
+              aria-label="Закрыть настройки"
+              className="server-settings-nav-close hidden h-11 w-11 flex-none place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <X className="h-5 w-5" />
+            </button>
           </div>
 
           <nav className="scrollbar-thin flex-1 space-y-1 overflow-y-auto p-2">

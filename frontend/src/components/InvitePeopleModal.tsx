@@ -83,7 +83,7 @@ export function InvitePeopleModal({ isOpen, onClose, server }: InvitePeopleModal
 
   return createPortal(
     <div
-      className="miscord-responsive-modal fixed inset-0 flex items-center justify-center bg-black/70 p-4"
+      className="invite-people-modal miscord-responsive-modal fixed inset-0 flex items-center justify-center bg-black/70 p-4"
       style={{ zIndex: MODAL_Z_INDEX }}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose()
@@ -95,9 +95,9 @@ export function InvitePeopleModal({ isOpen, onClose, server }: InvitePeopleModal
         role="dialog"
         aria-modal="true"
         aria-labelledby="invite-people-title"
-        className="miscord-responsive-modal-card w-full max-w-md overflow-hidden rounded-lg bg-surface-raised shadow-2xl outline-none"
+        className="invite-people-card miscord-responsive-modal-card w-full max-w-md overflow-hidden rounded-lg bg-surface-raised shadow-2xl outline-none"
       >
-        <div className="flex items-start justify-between px-4 pb-2 pt-4">
+        <div className="invite-people-header flex items-start justify-between px-4 pb-2 pt-4">
           <div className="min-w-0 pr-3">
             <h2 id="invite-people-title" className="text-xl font-bold text-white">
               Пригласить друзей на {server.name}
@@ -116,7 +116,7 @@ export function InvitePeopleModal({ isOpen, onClose, server }: InvitePeopleModal
           </button>
         </div>
 
-        <div className="px-4 pb-5 pt-3">
+        <div className="invite-people-body px-4 pb-5 pt-3">
           {error && (
             <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
               {error}
@@ -127,8 +127,8 @@ export function InvitePeopleModal({ isOpen, onClose, server }: InvitePeopleModal
             Ссылка-приглашение
           </p>
 
-          <div className="flex items-stretch gap-2">
-            <div className="flex min-w-0 flex-1 items-center rounded-md bg-[#1e1f22] px-3 py-2.5">
+          <div className="invite-people-link-row flex items-stretch gap-2">
+            <div className="invite-people-link flex min-w-0 flex-1 items-center rounded-md bg-[#1e1f22] px-3 py-2.5">
               {isLoading ? (
                 <span className="inline-flex items-center gap-2 text-sm text-[#949ba4]">
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -142,7 +142,7 @@ export function InvitePeopleModal({ isOpen, onClose, server }: InvitePeopleModal
               type="button"
               disabled={!link || isLoading}
               onClick={() => void handleCopy()}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-[#5865f2] px-4 text-sm font-semibold text-white transition hover:bg-[#4752c4] disabled:cursor-not-allowed disabled:opacity-50"
+              className="invite-people-copy inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md bg-[#5865f2] px-4 text-sm font-semibold text-white transition hover:bg-[#4752c4] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {copied ? (
                 <>
