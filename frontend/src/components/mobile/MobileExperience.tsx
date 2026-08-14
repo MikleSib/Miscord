@@ -85,7 +85,7 @@ export function MobileExperience() {
     previousChannelRef.current = currentChannel ? `${currentChannel.type}:${currentChannel.id}` : null
 
     const initial: Partial<MobileNavigationSnapshot> = currentServer
-      ? { rootTab: 'servers', pane: currentChannel?.type === 'text' ? 'chat' : 'channels' }
+      ? { rootTab: 'servers', pane: currentChannel?.type === 'text' || currentChannel?.kind === 'stage' ? 'chat' : 'channels' }
       : { rootTab: 'messages', pane: 'root', homeDetailOpen: false }
     commitNavigation(initial, 'replace')
   }, [commitNavigation, currentChannel, currentServer, isNarrow])
@@ -105,7 +105,7 @@ export function MobileExperience() {
   }, [commitNavigation, currentServer?.id, isNarrow])
 
   useEffect(() => {
-    if (!isNarrow || !initializedRef.current || currentChannel?.type !== 'text') return
+    if (!isNarrow || !initializedRef.current || (currentChannel?.type !== 'text' && currentChannel?.kind !== 'stage')) return
     const nextChannel = `${currentChannel.type}:${currentChannel.id}`
     if (previousChannelRef.current === nextChannel) return
     previousChannelRef.current = nextChannel
@@ -219,7 +219,7 @@ export function MobileExperience() {
         </button>
       )}
 
-      {isNarrow && currentServer && currentChannel?.kind !== 'forum' && navigation.pane === 'chat' && !navigation.memberDrawerOpen && (
+      {isNarrow && currentServer && !['forum', 'stage'].includes(currentChannel?.kind || '') && navigation.pane === 'chat' && !navigation.memberDrawerOpen && (
         <button
           type="button"
           className="miscord-mobile-members-button"

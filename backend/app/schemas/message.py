@@ -28,6 +28,8 @@ class Message(BaseModel):
     attachments: List[AttachmentSchema] = []
     reactions: List["ReactionResponse"] = []
     reply_to: Optional["Message"] = None
+    sticker_items: list[dict] = []
+    gif: Optional[dict] = None
 
     @field_serializer('timestamp')
     def serialize_timestamp(self, dt: datetime) -> str:
@@ -54,6 +56,8 @@ class DirectMessageSchema(BaseModel):
     text_channel_id: Optional[int] = None
     is_edited: Optional[bool] = False
     is_deleted: Optional[bool] = False
+    sticker_items: list[dict] = []
+    gif: Optional[dict] = None
     
     @field_serializer('timestamp')
     def serialize_timestamp(self, dt: datetime) -> str:

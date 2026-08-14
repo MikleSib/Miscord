@@ -42,6 +42,7 @@ def create_media_ticket(
     server_deaf: bool = False,
     can_speak: bool = True,
     can_stream: bool = False,
+    stage_role: str | None = None,
 ) -> tuple[str, str]:
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(seconds=settings.VOICE_MEDIA_TICKET_TTL_SECONDS)
@@ -69,8 +70,39 @@ def create_media_ticket(
         "can_speak": can_speak,
         "can_stream": can_stream,
     }
+    if stage_role is not None:
+        payload["stage_role"] = stage_role
     if application_id is not None:
         payload["application_id"] = application_id
     if guild_id is not None:
         payload["guild_id"] = guild_id
+    return jwt.encode(payload, _signing_secret(), algorithm="HS256"), jti
+
+
+def create_soundboard_ticket(
+    *,
+    user_id: int,
+    channel_id: int,
+    session_id: str,
+    sound_id: int,
+    duration_ms: int,
+) -> tuple[str, str]:
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(seconds=20)
+    jti = secrets.token_urlsafe(24)
+    payload: dict[str, Any] = {
+        "iss": "miscord-api-v1",
+        "aud": settings.VOICE_MEDIA_AUDIENCE,
+        "sub": str(user_id),
+        "iat": int(now.timestamp()),
+        "nbf": int(now.timestamp()),
+        "exp": int(expires_at.timestamp()),
+        "jti": jti,
+        "protocol_version": 1,
+        "purpose": "soundboard",
+        "channel_id": channel_id,
+        "session_id": session_id,
+        "sound_id": sound_id,
+        "duration_ms": duration_ms,
+    }
     return jwt.encode(payload, _signing_secret(), algorithm="HS256"), jti

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Hash, MessageSquare, Volume2, ChevronDown, Settings, Plus, FolderPlus, Mic, MicOff, Headphones, PhoneOff, VolumeX, Monitor, MonitorOff, UserX, UserCheck, Shield, Volume1, LogOut, Copy, UserPlus, Bell, Search } from 'lucide-react'
+import { Hash, MessageSquare, Radio, Volume2, ChevronDown, Settings, Plus, FolderPlus, Mic, MicOff, Headphones, PhoneOff, VolumeX, Monitor, MonitorOff, UserX, UserCheck, Shield, Volume1, LogOut, Copy, UserPlus, Bell, Search } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { useVoiceStore } from '../store/slices/voiceSlice'
 import { useAuthStore } from '../store/store'
@@ -318,10 +318,13 @@ export function ChannelSidebarView({ model }: { model: any }) {
                         onClick={() => handleChannelClick(channel)}
                         disabled={isConnecting && currentVoiceChannelId !== channel.id}
                       >
-                        <Volume2 className={cn(
+                        {channel.kind === 'stage' ? <Radio className={cn(
                           "w-4 h-4 shrink-0",
                           currentVoiceChannelId === channel.id && "text-green-400"
-                        )} />
+                        )} /> : <Volume2 className={cn(
+                          "w-4 h-4 shrink-0",
+                          currentVoiceChannelId === channel.id && "text-green-400"
+                        )} />}
                         <span className={cn(
                           "min-w-0 flex-1 truncate text-left",
                           currentVoiceChannelId === channel.id && "text-green-400"

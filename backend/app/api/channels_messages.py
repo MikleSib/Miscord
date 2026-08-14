@@ -93,6 +93,9 @@ async def get_voice_channel_members(
             "server_muted": bool(presence_by_user.get(user.id, {}).get("server_muted", False)),
             "server_deafened": bool(presence_by_user.get(user.id, {}).get("server_deafened", False)),
             "is_sharing_screen": user.id in sharing_user_ids,
+            "stage_role": voice_user.stage_role,
+            "stage_suppressed": bool(voice_user.stage_suppressed),
+            "requested_to_speak_at": voice_user.requested_to_speak_at,
         }
         for voice_user, user in voice_members
     ]
@@ -140,6 +143,8 @@ async def get_channel_messages(
     # Разворачиваем порядок (старые сообщения сначала)
     messages = list(reversed(messages))
     normalized_polls = {}
+    from app.services.message_media import serialize_message_media
+    media_by_message = await serialize_message_media(db, message_ids=[message.id for message in messages])
     if messages:
         poll_rows = (await db.execute(select(Poll).where(Poll.message_id.in_([message.id for message in messages])))).scalars().all()
         normalized_polls = {poll.message_id: poll for poll in poll_rows}
@@ -250,6 +255,7 @@ async def get_channel_messages(
             },
             "poll": await serialize_poll(db, normalized_polls[msg.id], current_user.id)
             if msg.id in normalized_polls else msg.poll,
+            **media_by_message.get(msg.id, {"sticker_items": [], "gif": None}),
         }
         message_list.append(message_dict)
 

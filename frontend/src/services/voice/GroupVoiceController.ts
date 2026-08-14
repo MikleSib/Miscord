@@ -15,6 +15,8 @@ import { GroupVoiceOutputSwitch } from './groupVoiceOutputSwitch';
 import { attachScreenMedia, GroupVoiceScreenLifecycle, removeScreenMedia, type StartScreenShareOptions } from './groupVoiceScreen';
 import { buildGroupVoiceProcessingConfig } from './groupVoiceProcessing';
 import { GroupVoiceActivityGate } from './groupVoiceActivityGate';
+import { attachGroupVoiceAudio } from './groupVoiceRemoteAudio';
+import { participantsWithSelf } from './groupVoiceParticipants';
 import { SfuTransport } from './sfuTransport';
 import type { RemoteMedia, VoiceCallbacks, VoiceJoinedPayload, VoiceParticipant } from './types';
 import { VoiceLifecycle, type AssertCurrentVoiceLifecycle } from './voiceLifecycle';
@@ -80,11 +82,6 @@ export class GroupVoiceController {
       : snapshot;
     this.applyRuntimeSettings(this.settings);
     this.currentChannelId = channelId;
-    const microphone = this.prepareMicrophone(assertCurrent).then(
-      (input) => ({ ok: true as const, input }),
-      (error) => ({ ok: false as const, error }),
-    );
-
     try {
       await unifiedWebSocketService.waitUntilReady(); assertCurrent();
       unifiedWebSocketService.joinVoiceChannel(channelId, this.isMuted, this.isDeafened);
@@ -92,35 +89,33 @@ export class GroupVoiceController {
       const payload = await joined;
       assertCurrent();
 
-      this.participants = new Map(payload.participants.map((item) => [item.user_id, item]));
-      this.callbacks.signalingJoined?.(payload.participants);
-      this.callbacks.participantsReceived?.(payload.participants);
+      const joinedParticipants = participantsWithSelf(payload, useAuthStore.getState().user);
+      this.participants = new Map(joinedParticipants.map((item) => [item.user_id, item]));
+      this.callbacks.signalingJoined?.(joinedParticipants);
+      this.callbacks.participantsReceived?.(joinedParticipants);
       for (const participant of payload.participants) {
         if (participant.is_sharing_screen) this.updateScreenShareState(participant.user_id, true, participant);
       }
-
-      const result = await microphone;
-      if (!result.ok) throw result.error;
+      const receiveOnly = payload.self.stage_role === 'audience';
+      const input = receiveOnly ? null : await this.prepareMicrophone(assertCurrent);
       assertCurrent();
-
       this.transport = this.createTransport();
-      const initiallyGated = this.isTransportGated();
-      audioProcessingService.setMuted(this.monitor.active ? false : this.isTransmitGated());
+      const initiallyGated = receiveOnly || this.isTransportGated();
+      if (!receiveOnly) audioProcessingService.setMuted(this.monitor.active ? false : this.isTransmitGated());
       await this.transport.setMicrophoneMuted(initiallyGated);
       await this.transport.setDeafened(this.isDeafened);
       await this.transport.connect(
         payload.transport.ws_url, payload.transport.ticket,
-        result.input.track, initiallyGated,
+        input?.track, initiallyGated,
         { userId: payload.self.user_id, sessionId: payload.session_id },
       );
       assertCurrent();
       await this.transport.setDeafened(this.isDeafened);
-      await this.reconcileJoiningInput(assertCurrent);
+      if (!receiveOnly) await this.reconcileJoiningInput(assertCurrent);
       await this.applyTransmitGate();
-      await this.reconcileJoiningInput(assertCurrent);
+      if (!receiveOnly) await this.reconcileJoiningInput(assertCurrent);
       this.inputState.joining = false;
     } catch (error) {
-      await microphone;
       await this.cleanupMedia();
       if (this.currentChannelId === channelId) unifiedWebSocketService.leaveVoiceChannel(channelId);
       this.currentChannelId = null;
@@ -313,6 +308,10 @@ export class GroupVoiceController {
     unifiedWebSocketService.startScreenShare(channelId);
     playScreenShareSound('start');
     return true;
+  }
+  async playSoundboard(track: MediaStreamTrack, ticket: string): Promise<() => Promise<void>> {
+    if (!this.transport) throw new Error('Сначала подключитесь к голосовому каналу.');
+    return this.transport.playSoundboard(track, ticket);
   }
   stopScreenShare(): void { this.screenLifecycle.invalidate(); void this.stopScreenShareNow(); }
 
@@ -509,17 +508,12 @@ export class GroupVoiceController {
   };
 
   private attachRemoteMedia(media: RemoteMedia): void {
-    if (media.source === 'microphone' || media.source === 'screen-audio') {
-      const key = `${media.userId}:${media.source}`;
-      const audio = this.audioElements.get(key) ?? document.createElement('audio');
-      audio.id = `remote-audio-${media.userId}-${media.source}`;
-      audio.autoplay = true;
-      audio.srcObject = media.stream;
-      audio.volume = (this.participantVolumes.get(media.userId) ?? 1) * this.settings.outputVolume / 100;
-      this.audioElements.set(key, audio);
-      void this.setOutputDevice(this.settings.outputDeviceId).catch(() => undefined);
-      void audio.play().catch(() => undefined);
-    }
+    attachGroupVoiceAudio({
+      media, elements: this.audioElements,
+      participantVolume: this.participantVolumes.get(media.userId) ?? 1,
+      outputVolume: this.settings.outputVolume,
+      applyOutputDevice: () => { void this.setOutputDevice(this.settings.outputDeviceId).catch(() => undefined); },
+    });
     if (media.source.startsWith('screen-')) attachScreenMedia(this.screenTracks, media.userId, media.stream);
     this.callbacks.remoteStream?.(media.userId, this.transport?.getRemoteStream(media.userId) ?? media.stream);
     this.callbacks.remoteMedia?.(media);

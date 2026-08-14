@@ -6,6 +6,7 @@ import unifiedWebSocketService from '../services/unifiedWebSocketService'
 import { useChatStore } from './chatStore'
 import { applyOutgoingMessageAck } from './outgoingMessageAck'
 import { OutgoingMessageOwnership } from './outgoingMessageOwnership'
+import type { MessageGif } from '../types'
 
 export type OutgoingPhase = 'queued' | 'uploading' | 'processing' | 'sending' | 'awaiting_ack' | 'offline' | 'failed'
 export type OutgoingAttachmentPhase = 'queued' | 'uploading' | 'processing' | 'uploaded' | 'failed'
@@ -25,6 +26,8 @@ export interface OutgoingMessage {
   conversation: { type: 'channel' | 'dm'; id: number }
   content: string
   replyToId?: number
+  stickerIds?: number[]
+  gif?: MessageGif
   createdAt: string
   phase: OutgoingPhase
   attachments: OutgoingAttachment[]
@@ -37,7 +40,7 @@ interface OutgoingState {
   initializedUserId: number | null
   persistenceWarning: string | null
   initialize: (userId: number, token: string) => Promise<void>
-  enqueue: (input: { userId: number; conversation: OutgoingMessage['conversation']; content: string; files?: File[]; replyToId?: number }) => string
+  enqueue: (input: { userId: number; conversation: OutgoingMessage['conversation']; content: string; files?: File[]; replyToId?: number; stickerIds?: number[]; gif?: MessageGif }) => string
   retry: (clientNonce: string) => void
   cancel: (clientNonce: string) => Promise<void>
   acknowledge: (clientNonce?: string | null) => void
@@ -108,6 +111,8 @@ function sendPayload(message: OutgoingMessage): boolean {
     content: message.content,
     attachment_upload_ids: message.attachments.map((item) => item.uploadId).filter(Boolean),
     reply_to_id: message.replyToId,
+    sticker_ids: message.stickerIds,
+    gif: message.gif,
   }
   return unifiedWebSocketService.send(message.conversation.type === 'channel'
     ? { type: 'chat_message', text_channel_id: message.conversation.id, ...base }
@@ -353,7 +358,7 @@ export const useOutgoingMessageStore = create<OutgoingState>((set, get) => ({
     acquireLeadership(userId)
     scheduleQueue()
   },
-  enqueue: ({ userId, conversation, content, files = [], replyToId }) => {
+  enqueue: ({ userId, conversation, content, files = [], replyToId, stickerIds, gif }) => {
     const clientNonce = crypto.randomUUID()
     const message: OutgoingMessage = {
       clientNonce,
@@ -361,6 +366,8 @@ export const useOutgoingMessageStore = create<OutgoingState>((set, get) => ({
       conversation,
       content,
       replyToId,
+      stickerIds,
+      gif,
       createdAt: new Date().toISOString(),
       phase: navigator.onLine ? 'queued' : 'offline',
       attachments: files.map((file) => ({ localId: crypto.randomUUID(), file, progress: 0, phase: 'queued' })),

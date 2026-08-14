@@ -227,6 +227,10 @@ export function ChannelSidebar() {
 
   const handleChannelClick = async (channel: any) => {
     if (channel.type === 'voice') {
+      if (channel.kind === 'stage') {
+        selectChannel(channel.id, 'voice');
+        return;
+      }
       if (isConnecting) return
       // Уже в этом голосовом — текстовый канал не трогаем
       if (currentVoiceChannelId === channel.id) {
@@ -271,6 +275,9 @@ export function ChannelSidebar() {
         server_muted: Boolean(member.server_muted),
         server_deafened: Boolean(member.server_deafened),
         is_bot: Boolean(member.is_bot),
+        stage_role: member.stage_role,
+        stage_suppressed: member.stage_suppressed,
+        requested_to_speak_at: member.requested_to_speak_at,
       };
     };
 
@@ -303,6 +310,9 @@ export function ChannelSidebar() {
         server_muted: Boolean(participant.server_muted),
         server_deafened: Boolean(participant.server_deafened),
         is_bot: Boolean(participant.is_bot),
+        stage_role: participant.stage_role,
+        stage_suppressed: participant.stage_suppressed,
+        requested_to_speak_at: participant.requested_to_speak_at,
       });
     }
 
@@ -317,6 +327,9 @@ export function ChannelSidebar() {
         server_muted: false,
         server_deafened: false,
         is_bot: false,
+        stage_role: undefined,
+        stage_suppressed: undefined,
+        requested_to_speak_at: undefined,
       });
     } else if (user && byId.has(user.id)) {
       // Свои mute/deafen — из актуального voice store

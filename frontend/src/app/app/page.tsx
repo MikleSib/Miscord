@@ -31,6 +31,7 @@ import { useCapabilities } from '@/features/capabilities/capabilities'
 import { resolveMemberSidebarVisibility, useMobileNavigationStore } from '@/store/mobileNavigationStore'
 import { useResponsiveLayout } from '@/hooks/useResponsiveLayout'
 import { bindSecretDmBootstrap } from '@/services/e2ee/secretDmBootstrap'
+import { StageChannelView } from '@/components/stage/StageChannelView'
 
 const SettingsModal = dynamic(() => import('@/components/SettingsModal'), { ssr: false })
 const MobileExperience = dynamic(
@@ -225,7 +226,7 @@ export default function HomePage() {
           </div>
           <div className="app-mobile-chat flex min-w-0 flex-1 flex-col">
             <div className="flex min-h-0 min-w-0 flex-1">
-              <div className="flex min-w-0 flex-1">{capabilities.forums && currentChannel?.kind === 'forum' ? <ForumChannelView channel={currentChannel} /> : <ChatArea showUserSidebar={membersVisible} setShowUserSidebar={setShowUserSidebar} />}</div>
+              <div className="flex min-w-0 flex-1">{capabilities.stageChannels && currentChannel?.kind === 'stage' ? <StageChannelView channel={currentChannel} /> : capabilities.forums && currentChannel?.kind === 'forum' ? <ForumChannelView channel={currentChannel} /> : <ChatArea showUserSidebar={membersVisible} setShowUserSidebar={setShowUserSidebar} />}</div>
               {capabilities.threads && <ThreadPanel />}
             </div>
           </div>

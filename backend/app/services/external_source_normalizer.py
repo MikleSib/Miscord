@@ -145,9 +145,7 @@ def normalize_source_guild(source: dict[str, Any]) -> tuple[dict[str, Any], list
             if item_type == 5 and "Каналы объявлений преобразованы в текстовые" not in warnings:
                 warnings.append("Каналы объявлений преобразованы в текстовые")
         elif item_type in VOICE_TYPES:
-            target_type = "voice"
-            if item_type == 13 and "Сценические каналы преобразованы в голосовые" not in warnings:
-                warnings.append("Сценические каналы преобразованы в голосовые")
+            target_type = "stage" if item_type == 13 else "voice"
         elif item_type in FORUM_TYPES:
             target_type = "forum"
             if item_type == 16 and "Медиа-каналы преобразованы в Forum" not in warnings:
@@ -168,10 +166,10 @@ def normalize_source_guild(source: dict[str, Any]) -> tuple[dict[str, Any], list
             "position": _integer(item.get("position")),
             "slow_mode_seconds": max(0, _integer(item.get("rate_limit_per_user"))),
         }
-        if target_type == "voice":
+        if target_type in {"voice", "stage"}:
             channel.update({
                 "bitrate": max(8, min(96, _integer(item.get("bitrate"), 64000) // 1000)),
-                "max_users": max(0, min(99, _integer(item.get("user_limit")))),
+                "max_users": max(0, min(100, _integer(item.get("user_limit")))),
                 "video_quality": "720p" if _integer(item.get("video_quality_mode")) == 2 else "auto",
             })
         elif target_type == "forum":

@@ -62,6 +62,8 @@ import type { SearchResultMessage } from '../services/searchService'
 import { EmojiAutocomplete } from './emoji/EmojiAutocomplete'
 import { useShortcodeAutocomplete } from './emoji/useShortcodeAutocomplete'
 import { AttachmentDropOverlay } from './AttachmentDropOverlay'
+import { insertEmojiAtCaret } from '../lib/emoji'
+import type { MessageGif } from '../types'
 
 const localizedCommandName = (command: MiscordApplicationCommand) => command.name_localizations?.ru || command.name
 
@@ -281,6 +283,25 @@ export function useChatComposerActions({ model }: { model: any }) {
       replyToId,
     })
   }
+  const handleExpressionEmoji = (token: string) => {
+    const input = messageInputRef.current
+    const value = input?.value ?? messageInput
+    const next = insertEmojiAtCaret(value, input?.selectionStart ?? value.length, input?.selectionEnd ?? value.length, token)
+    setMessageInput(next.value)
+    requestAnimationFrame(() => {
+      messageInputRef.current?.focus()
+      messageInputRef.current?.setSelectionRange(next.caret, next.caret)
+    })
+  }
+  const sendExpressionMedia = (selection: { stickerIds?: number[]; gif?: MessageGif }) => {
+    if (!canSendMessages || !user || !currentChannel) return
+    enqueueOutgoing({
+      userId: user.id,
+      conversation: { type: 'channel', id: currentChannel.id },
+      content: '',
+      ...selection,
+    })
+  }
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (!canSendMessages) return
     const value = e.target.value
@@ -384,6 +405,6 @@ export function useChatComposerActions({ model }: { model: any }) {
     addFiles, handleFileChange, handlePaste, handleDragEnter, handleDragOver,
     handleDragLeave, handleDrop, handleRemoveFile, updateMentionState, applyMention,
     applySlashCommand, applyAutocompleteChoice, parseCommandOptions, handleSendMessage, handleInputChange,
-    handleInputKeyDown,
+    handleInputKeyDown, handleExpressionEmoji, sendExpressionMedia,
   }
 }

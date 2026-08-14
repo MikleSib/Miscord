@@ -48,7 +48,7 @@ class FakeProducer extends EventEmitter {
   readonly appData: Record<string, unknown>;
   closed = false;
 
-  constructor(readonly id: string, source: 'microphone' | 'screen-video' | 'screen-audio') {
+  constructor(readonly id: string, source: 'microphone' | 'screen-video' | 'screen-audio' | 'soundboard') {
     super();
     this.kind = source === 'screen-video' ? 'video' : 'audio';
     this.appData = { source };
@@ -127,7 +127,7 @@ describe('Room SFU limits', () => {
   it('uses the minimum supported audio observer interval as a fallback', async () => {
     const room = await Room.create(500, 'epoch-1');
     expect(routers[0]!.createAudioLevelObserver).toHaveBeenCalledWith({
-      maxEntries: 4,
+      maxEntries: 8,
       threshold: -80,
       interval: AUDIO_LEVEL_OBSERVER_INTERVAL_MS,
     });
@@ -252,6 +252,18 @@ describe('Room SFU limits', () => {
 
     const audio = new FakeProducer('screen-audio-0', 'screen-audio');
     await expect(room.addProducer(peers[0]!, {} as never, audio as never, 'screen-audio')).resolves.toBeUndefined();
+    room.close();
+  });
+
+  it('allows at most two simultaneous soundboard producers per room', async () => {
+    const room = await Room.create(500, 'epoch-1');
+    const peers = [addPeer(room, 0), addPeer(room, 1), addPeer(room, 2)];
+    await room.addProducer(peers[0]!, {} as never, new FakeProducer('sound-0', 'soundboard') as never, 'soundboard');
+    await room.addProducer(peers[1]!, {} as never, new FakeProducer('sound-1', 'soundboard') as never, 'soundboard');
+    const rejected = new FakeProducer('sound-2', 'soundboard');
+    await expect(room.addProducer(peers[2]!, {} as never, rejected as never, 'soundboard'))
+      .rejects.toThrow('Soundboard capacity reached');
+    expect(rejected.closed).toBe(true);
     room.close();
   });
 

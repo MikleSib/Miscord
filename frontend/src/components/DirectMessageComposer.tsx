@@ -5,6 +5,7 @@ import { MAX_CHAT_ATTACHMENTS } from '../lib/chatAttachments'
 import { resizeChatComposer } from '../lib/chatComposer'
 import { PendingAttachmentPreview } from './PendingAttachmentPreview'
 import { ComposerEmojiButton } from './emoji/ComposerEmojiButton'
+import { ExpressionComposerButton } from './media/ExpressionComposerButton'
 
 export function DirectMessageComposer({ model }: { model: any }) {
   const {
@@ -12,7 +13,7 @@ export function DirectMessageComposer({ model }: { model: any }) {
     attachmentError, replyingTo, friend, handleCancelReply, files,
     handleRemoveFile, fileInputRef, handleFileChange, isSending,
     messageInputRef, newMessage, setNewMessage, handlePaste,
-    applyFormattingShortcut,
+    applyFormattingShortcut, handleExpressionEmoji, sendExpressionMedia,
   } = model
   return (
       <div className="direct-message-composer">
@@ -101,6 +102,12 @@ export function DirectMessageComposer({ model }: { model: any }) {
                 inputRef={messageInputRef}
                 setValue={setNewMessage}
                 disabled={isSending || isRateLimited}
+              />
+              <ExpressionComposerButton
+                disabled={isSending || isRateLimited}
+                onEmoji={handleExpressionEmoji}
+                onSticker={(id) => sendExpressionMedia({ stickerIds: [id] })}
+                onGif={(gif) => sendExpressionMedia({ gif })}
               />
               <button
                 type="submit"

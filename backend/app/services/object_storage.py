@@ -152,6 +152,20 @@ async def put_file(
         raise ObjectStorageError("Failed to upload object") from exc
 
 
+async def download_file(storage_key: str, path: Path) -> None:
+    if not object_storage_enabled():
+        raise ObjectStorageError("S3 object storage is disabled")
+    try:
+        await asyncio.to_thread(
+            _client().download_file,
+            settings.S3_BUCKET,
+            full_object_key(storage_key),
+            str(path),
+        )
+    except (BotoCoreError, ClientError, OSError) as exc:
+        raise ObjectStorageError("Failed to download object") from exc
+
+
 async def delete_object(storage_key: str | None) -> None:
     if not storage_key or not object_storage_enabled():
         return

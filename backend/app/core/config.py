@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     INBOX_ENABLED: bool = False
     SERVER_TEMPLATES_ENABLED: bool = False
     SERVER_IMPORTS_ENABLED: bool = True
+    EXPRESSIONS_ENABLED: bool = True
+    SOUNDBOARD_ENABLED: bool = True
+    STAGE_CHANNELS_ENABLED: bool = True
+    STAGE_EMPTY_TIMEOUT_SECONDS: int = 300
+    GIPHY_API_KEY: str = ""
+    GIPHY_RATING: str = "pg"
     OUTBOX_POLL_INTERVAL_SECONDS: float = 0.25
     OUTBOX_BATCH_SIZE: int = 100
 

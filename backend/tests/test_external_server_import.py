@@ -62,14 +62,14 @@ def test_normalizer_maps_structure_and_materializes_category_permissions() -> No
     assert [role["name"] for role in definition["roles"]] == ["@everyone", "Mods"]
     assert definition["roles"][1]["color"] == "#23a55a"
     assert definition["categories"] == [{"key": "category:10", "name": "Private", "position": 0}]
-    assert [channel["type"] for channel in definition["channels"]] == ["text", "voice", "forum"]
+    assert [channel["type"] for channel in definition["channels"]] == ["text", "stage", "forum"]
     assert definition["channels"][1]["bitrate"] == 96
     assert definition["channels"][2]["forum"]["require_tag"] is True
     assert definition["channels"][2]["forum"]["default_layout"] == "gallery"
     staff_overwrites = [item for item in definition["overwrites"] if item["channel_key"] == "text:11"]
     assert {item["target_role_key"] for item in staff_overwrites} == {"everyone", "role:2"}
     assert any("Персональные права" in warning for warning in warnings)
-    assert any("Сценические" in warning for warning in warnings)
+    assert not any("Сценические" in warning for warning in warnings)
 
 
 def test_external_import_routes_are_v1_only() -> None:

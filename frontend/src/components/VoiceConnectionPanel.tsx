@@ -19,17 +19,21 @@ import { useScreenSharePickerStore } from '../store/screenSharePickerStore';
 import { Switch } from './ui/switch';
 import { Tooltip } from './ui/tooltip';
 import { useVoiceEncryptionStore } from '../store/voiceEncryptionStore';
+import { SoundboardPanel } from './voice/SoundboardPanel';
+import { useAuthStore } from '../store/store';
 
 export function VoiceConnectionPanel() {
   const {
     isConnected,
     isConnecting,
     currentVoiceChannelId,
+    participants,
     error,
     disconnectFromVoiceChannel,
     setError,
   } = useVoiceStore();
   const { currentServer } = useStore();
+  const currentUser = useAuthStore((state) => state.user);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [screenShareError, setScreenShareError] = useState<string | null>(null);
   const [isNoisePanelOpen, setIsNoisePanelOpen] = useState(false);
@@ -55,6 +59,8 @@ export function VoiceConnectionPanel() {
       ),
     [currentServer, currentVoiceChannelId]
   );
+  const stageAudience = currentChannel?.kind === 'stage'
+    && participants.find((participant) => participant.user_id === currentUser?.id)?.stage_role === 'audience';
 
   useEffect(() => {
     const updateScreenShareStatus = () => {
@@ -255,7 +261,8 @@ export function VoiceConnectionPanel() {
       )}
 
       <div className="user-dock__voice-actions">
-        <Tooltip content={isScreenSharing ? 'Остановить демонстрацию' : 'Демонстрация экрана'}>
+        {currentServer && <SoundboardPanel serverId={currentServer.id} channelId={currentVoiceChannelId} disabled={!isConnected || stageAudience} />}
+        {currentChannel?.kind !== 'stage' && <Tooltip content={isScreenSharing ? 'Остановить демонстрацию' : 'Демонстрация экрана'}>
           <button
             type="button"
             onClick={handleToggleScreenShare}
@@ -266,7 +273,7 @@ export function VoiceConnectionPanel() {
           >
             {isScreenSharing ? <ScreenShareOff className="h-[18px] w-[18px]" /> : <ScreenShare className="h-[18px] w-[18px]" />}
           </button>
-        </Tooltip>
+        </Tooltip>}
       </div>
     </section>
   );

@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import json
 import secrets
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import WebSocket
 from sqlalchemy import and_, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import User, VoiceChannel, VoiceChannelUser
+from app.models import StageInstance, StageSpeakerGrant, StageSpeakerRequest, User, VoiceChannel, VoiceChannelUser
+from app.core.permissions import Permission
 from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
 from app.services.channel_access import get_voice_channel_capabilities, user_can_access_voice_channel
 from app.services.media_ticket import create_media_ticket, media_ws_url
@@ -100,6 +102,9 @@ def public_participant(payload: dict[str, Any]) -> dict[str, Any]:
         "is_sharing_screen": bool(payload.get("is_sharing_screen")),
         "is_bot": bool(payload.get("is_bot")),
         "connection_id": payload.get("session_id"),
+        "stage_role": payload.get("stage_role"),
+        "stage_suppressed": bool(payload.get("stage_suppressed")),
+        "requested_to_speak_at": payload.get("requested_to_speak_at"),
     }
 
 
@@ -139,10 +144,32 @@ async def join_voice(
             silent=int(existing["channel_id"]) == channel_id,
         )
 
+    stage_role = "audience"
+    if channel.kind == "stage":
+        active_stage = await db.scalar(select(StageInstance).where(
+            StageInstance.channel_id == channel_id,
+            StageInstance.status == "active",
+        ))
+        if not active_stage:
+            await websocket.send_text(json.dumps({"type": "error", "code": "stage_not_active"}))
+            return None, None
+        if permissions & int(Permission.MANAGE_CHANNELS | Permission.MUTE_MEMBERS):
+            stage_role = "moderator"
+        else:
+            grant = await db.scalar(select(StageSpeakerGrant).where(
+                StageSpeakerGrant.stage_instance_id == active_stage.id,
+                StageSpeakerGrant.user_id == user.id,
+            ))
+            if grant:
+                stage_role = grant.role
+        can_speak = bool(can_speak and stage_role != "audience")
+        can_stream = False
+
     active_count = await db.scalar(
         select(func.count(VoiceChannelUser.id)).where(VoiceChannelUser.voice_channel_id == channel_id)
     )
-    if int(channel.max_users or 0) > 0 and int(active_count or 0) >= int(channel.max_users):
+    channel_limit = 100 if channel.kind == "stage" else int(channel.max_users or 0)
+    if channel_limit > 0 and int(active_count or 0) >= channel_limit:
         await websocket.send_text(json.dumps({"type": "error", "code": "voice_channel_full"}))
         return None, None
 
@@ -156,7 +183,11 @@ async def join_voice(
         user_id=user.id,
         is_muted=is_muted,
         is_deafened=is_deafened,
+        stage_role=stage_role,
+        stage_suppressed=stage_role == "audience",
     ))
+    if channel.kind == "stage":
+        active_stage.empty_since = None
     await db.commit()
 
     old = local_connections.get(channel_id, {}).get(user.id)
@@ -199,6 +230,8 @@ async def join_voice(
         "permissions": permissions,
         "can_speak": can_speak,
         "can_stream": can_stream,
+        "stage_role": stage_role,
+        "stage_suppressed": stage_role == "audience",
     }
     await voice_presence.register(presence)
     participants = [
@@ -220,6 +253,7 @@ async def join_voice(
         server_deaf=False,
         can_speak=can_speak,
         can_stream=can_stream,
+        stage_role=stage_role if channel.kind == "stage" else None,
     )
     await websocket.send_text(json.dumps({
         "type": "voice_joined",
@@ -229,7 +263,13 @@ async def join_voice(
         "session_id": session_id,
         "room_epoch": room_epoch,
         "participants": participants,
-        "self": {"user_id": user.id, "is_muted": is_muted, "is_deafened": is_deafened},
+        "self": {
+            "user_id": user.id,
+            "is_muted": is_muted,
+            "is_deafened": is_deafened,
+            "stage_role": stage_role,
+            "stage_suppressed": stage_role == "audience",
+        },
         "transport": {"mode": "sfu", "ws_url": media_ws_url(), "ticket": ticket},
     }))
     await broadcast_voice(manager, channel_id, {
@@ -289,6 +329,25 @@ async def leave_voice(
         and_(VoiceChannelUser.voice_channel_id == channel_id, VoiceChannelUser.user_id == user.id)
     ))
     channel = await db.get(VoiceChannel, channel_id)
+    await db.flush()
+    if channel and channel.kind == "stage":
+        active_stage_id = await db.scalar(select(StageInstance.id).where(
+            StageInstance.channel_id == channel_id, StageInstance.status == "active"
+        ))
+        if active_stage_id:
+            await db.execute(delete(StageSpeakerRequest).where(
+                StageSpeakerRequest.stage_instance_id == active_stage_id,
+                StageSpeakerRequest.user_id == user.id,
+            ))
+        remaining = await db.scalar(select(func.count(VoiceChannelUser.id)).where(
+            VoiceChannelUser.voice_channel_id == channel_id
+        ))
+        if int(remaining or 0) == 0:
+            stage = await db.scalar(select(StageInstance).where(
+                StageInstance.channel_id == channel_id, StageInstance.status == "active"
+            ))
+            if stage:
+                stage.empty_since = datetime.now(timezone.utc)
     await db.commit()
     if channel:
         await dispatch_voice_state(
@@ -405,6 +464,10 @@ async def refresh_ticket(
     permissions, can_speak, can_stream = await get_voice_channel_capabilities(db, user, channel)
     if not permissions:
         return
+    stage_role = presence.get("stage_role") if channel.kind == "stage" else None
+    if stage_role == "audience":
+        can_speak = False
+        can_stream = False
     await voice_presence.update(
         session_id, permissions=permissions, can_speak=can_speak, can_stream=can_stream,
     )
@@ -422,6 +485,7 @@ async def refresh_ticket(
         server_deaf=bool(presence.get("server_deafened", False)),
         can_speak=can_speak,
         can_stream=can_stream,
+        stage_role=stage_role,
     )
     await websocket.send_text(json.dumps({
         "type": "voice_media_ticket_refresh",

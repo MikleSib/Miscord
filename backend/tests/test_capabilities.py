@@ -9,6 +9,10 @@ def test_capabilities_follow_runtime_feature_flags(monkeypatch):
     monkeypatch.setattr(settings, "INBOX_ENABLED", False)
     monkeypatch.setattr(settings, "SERVER_TEMPLATES_ENABLED", True)
     monkeypatch.setattr(settings, "BOT_PLATFORM_ENABLED", False)
+    monkeypatch.setattr(settings, "EXPRESSIONS_ENABLED", True)
+    monkeypatch.setattr(settings, "GIPHY_API_KEY", "browser-key")
+    monkeypatch.setattr(settings, "SOUNDBOARD_ENABLED", True)
+    monkeypatch.setattr(settings, "STAGE_CHANNELS_ENABLED", True)
 
     payload = capabilities_payload()
 
@@ -21,3 +25,8 @@ def test_capabilities_follow_runtime_feature_flags(monkeypatch):
     assert payload["bot_platform"] is False
     assert payload["voice"] is True
     assert payload["screen_share"] is True
+    assert payload["custom_emoji"] is True
+    assert payload["stickers"] is True
+    assert payload["gifs"] is True
+    assert payload["soundboard"] is True
+    assert payload["stage_channels"] is True

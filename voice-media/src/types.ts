@@ -1,6 +1,6 @@
 import type { RtpCapabilities, RtpParameters, DtlsParameters, MediaKind } from 'mediasoup/types';
 
-export type MediaSource = 'microphone' | 'screen-video' | 'screen-audio';
+export type MediaSource = 'microphone' | 'screen-video' | 'screen-audio' | 'soundboard';
 
 export interface MediaClaims {
   sub: string;
@@ -18,6 +18,7 @@ export interface MediaClaims {
   server_deaf?: boolean;
   can_speak?: boolean;
   can_stream?: boolean;
+  stage_role?: 'audience' | 'speaker' | 'moderator';
   application_id?: number;
   guild_id?: number;
   protocol_version: number;
@@ -39,6 +40,7 @@ export interface RpcRequest {
   spatial_layer?: number;
   temporal_layer?: number;
   speaking?: boolean;
+  playback_ticket?: string;
   e2ee?: {
     protocol_version: number;
     credential_id: string;
@@ -51,6 +53,17 @@ export interface RpcRequest {
   welcome?: string;
   ratchet_tree?: string;
   bot_envelopes?: unknown[];
+}
+
+export interface SoundboardClaims {
+  sub: string;
+  jti: string;
+  channel_id: number;
+  session_id: string;
+  purpose: 'soundboard';
+  sound_id: number;
+  duration_ms: number;
+  protocol_version: number;
 }
 
 export interface ProducerDescriptor {

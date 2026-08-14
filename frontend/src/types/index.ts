@@ -205,7 +205,7 @@ export interface Channel {
   id: number;
   name: string;
   type: 'text' | 'voice';
-  kind?: 'text' | 'forum' | 'public_thread' | 'private_thread' | 'forum_post';
+  kind?: 'text' | 'forum' | 'public_thread' | 'private_thread' | 'forum_post' | 'voice' | 'stage';
   parent_id?: number | null;
   serverId: number;
   position?: number;
@@ -214,6 +214,33 @@ export interface Channel {
   max_users?: number; // Для голосовых каналов, 0 = без лимита
   bitrate?: number; // кбит/с, 8–96
   video_quality?: 'auto' | '720p';
+}
+
+export interface ServerExpression {
+  id: number;
+  server_id: number;
+  creator_id?: number | null;
+  kind: 'emoji' | 'sticker' | 'sound';
+  name: string;
+  description?: string | null;
+  file_url: string;
+  content_type: string;
+  size_bytes?: number;
+  width?: number | null;
+  height?: number | null;
+  duration_ms?: number | null;
+  animated: boolean;
+  available: boolean;
+}
+
+export interface MessageGif {
+  provider: 'giphy';
+  id: string;
+  url: string;
+  preview_url?: string | null;
+  title?: string | null;
+  width?: number | null;
+  height?: number | null;
 }
 
 export interface Attachment {
@@ -271,6 +298,8 @@ export interface Message {
   application_id?: string | null;
   interaction_metadata?: Record<string, any> | null;
   ephemeral?: boolean;
+  sticker_items?: ServerExpression[];
+  gif?: MessageGif | null;
 }
 
 export interface DirectMessage {
@@ -283,6 +312,8 @@ export interface DirectMessage {
   author?: User; // Данные автора (могут прийти с сервера)
   attachments?: Attachment[];
   reactions?: Reaction[];
+  sticker_items?: ServerExpression[];
+  gif?: MessageGif | null;
   isPending?: boolean; // Статус отправки
   tempId?: string; // Временный ID для отслеживания pending сообщений
 }
@@ -375,6 +406,9 @@ export interface VoiceUser {
   server_muted?: boolean;
   server_deafened?: boolean;
   is_bot?: boolean;
+  stage_role?: 'audience' | 'speaker' | 'moderator';
+  stage_suppressed?: boolean;
+  requested_to_speak_at?: string | null;
 }
 
 export interface FullTextChannel {

@@ -5,13 +5,17 @@ import logging
 import time
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 
 from app.core.config import settings
 from app.db.database import AsyncSessionLocal
-from app.models import Message, Poll, TextChannel
+from app.models import (
+    Message, Poll, StageInstance, StageSpeakerGrant,
+    StageSpeakerRequest, TextChannel, VoiceChannelUser,
+)
 from app.services.realtime_events import enqueue_realtime_event
 from app.core.metrics import record_background_job
+from app.services.stage_runtime import disconnect_stage_participants
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +57,7 @@ class CommunityJobs:
         now = datetime.now(timezone.utc)
         polls_closed = 0
         threads_archived = 0
+        ended_stage_channels: list[int] = []
         async with AsyncSessionLocal() as db:
             if settings.POLLS_ENABLED:
                 polls = list((await db.execute(
@@ -102,7 +107,40 @@ class CommunityJobs:
                         target_id=thread.channel_id,
                     )
                     threads_archived += 1
+
+            if settings.STAGE_CHANNELS_ENABLED:
+                stages = list((await db.execute(
+                    select(StageInstance).where(
+                        StageInstance.status == "active",
+                        StageInstance.empty_since.is_not(None),
+                        StageInstance.empty_since <= now - timedelta(seconds=settings.STAGE_EMPTY_TIMEOUT_SECONDS),
+                    ).limit(100).with_for_update(skip_locked=True)
+                )).scalars().all())
+                for stage in stages:
+                    members = await db.scalar(select(func.count(VoiceChannelUser.id)).where(
+                        VoiceChannelUser.voice_channel_id == stage.channel_id
+                    ))
+                    if int(members or 0) > 0:
+                        stage.empty_since = None
+                        continue
+                    stage.status = "ended"
+                    stage.ended_at = now
+                    stage.empty_since = None
+                    await db.execute(delete(StageSpeakerRequest).where(
+                        StageSpeakerRequest.stage_instance_id == stage.id
+                    ))
+                    await db.execute(delete(StageSpeakerGrant).where(
+                        StageSpeakerGrant.stage_instance_id == stage.id
+                    ))
+                    enqueue_realtime_event(
+                        db, event_type="STAGE_INSTANCE_DELETE",
+                        data={"id": stage.id, "channel_id": stage.channel_id, "server_id": stage.server_id},
+                        topic="server", target_id=stage.server_id,
+                    )
+                    ended_stage_channels.append(stage.channel_id)
             await db.commit()
+        for channel_id in ended_stage_channels:
+            await disconnect_stage_participants(channel_id)
         return polls_closed, threads_archived
 
 

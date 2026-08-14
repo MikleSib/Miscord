@@ -6,6 +6,8 @@ from sqlalchemy.orm import selectinload
 from app.models.direct_message import DirectMessage, HiddenDmConversation
 from app.models.attachment import Attachment
 from app.models.user import User
+from app.schemas.expressions import GifSelection
+from app.services.message_media import attach_message_media, serialize_message_media
 
 
 class DirectMessageReplyError(ValueError):
@@ -45,7 +47,13 @@ async def get_messages(db: AsyncSession, user1_id: int, user2_id: int, skip: int
     )
     messages = result.scalars().all()
     # РЎРѕСЂС‚РёСЂСѓРµРј СЃРѕРѕР±С‰РµРЅРёСЏ РїРѕ РІСЂРµРјРµРЅРё РІ РІРѕР·СЂР°СЃС‚Р°СЋС‰РµРј РїРѕСЂСЏРґРєРµ РґР»СЏ РїСЂР°РІРёР»СЊРЅРѕРіРѕ РѕС‚РѕР±СЂР°Р¶РµРЅРёСЏ
-    return sorted(messages, key=lambda x: x.timestamp)
+    messages = sorted(messages, key=lambda x: x.timestamp)
+    media = await serialize_message_media(db, dm_message_ids=[item.id for item in messages])
+    for item in messages:
+        state = media.get(item.id, {"sticker_items": [], "gif": None})
+        item.sticker_items = state["sticker_items"]
+        item.gif = state["gif"]
+    return messages
 
 async def create_message(
     db: AsyncSession,
@@ -56,6 +64,8 @@ async def create_message(
     reply_to_id: int = None,
     client_nonce: str = None,
     pending_uploads: list[PendingChatUpload] = None,
+    sticker_ids: list[int] | None = None,
+    gif: GifSelection | None = None,
 ):
     await require_reply_in_conversation(db, reply_to_id, sender_id, recipient_id)
     db_message = DirectMessage(
@@ -83,6 +93,15 @@ async def create_message(
         await db.delete(pending)
 
     db.add(db_message)
+    await db.flush()
+    await attach_message_media(
+        db,
+        dm_message_id=db_message.id,
+        sticker_ids=sticker_ids,
+        gif=gif,
+        sender_id=sender_id,
+        recipient_id=recipient_id,
+    )
     await db.commit()
     await db.refresh(db_message)
     

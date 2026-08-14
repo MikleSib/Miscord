@@ -10,7 +10,7 @@ import { formatMessageTime, formatMessageFullTime } from '../lib/utils'
 import { messageService } from '../services/messageService'
 import { useChatStore } from '../store/chatStore'
 import { MediaLightbox, MediaLightboxItem } from './MediaLightbox'
-import { MessageContent } from './MessageContent'
+import { MessageMedia, RichMessageContent } from './media/MessageMedia'
 import { MessageLinkEmbeds } from './MessageLinkEmbeds'
 import { RichMessageEmbeds } from './RichMessageEmbeds'
 import { ManagedMessageAttachments } from './ManagedMessageAttachments'
@@ -384,7 +384,7 @@ export function ChatMessage({
         ) : (
           <>
             {message.content && (
-              <MessageContent
+              <RichMessageContent
                 content={message.content}
                 currentUserId={currentUser?.id}
                 resolveMentionLabel={mentionLabel}
@@ -406,6 +406,7 @@ export function ChatMessage({
               })}
             />
             <ManagedMessageAttachments attachments={message.attachments || []} />
+            <MessageMedia stickers={message.sticker_items} gif={message.gif} />
             <ApplicationMessageComponents message={message} />
             {message.poll && <MessagePoll initialPoll={message.poll} canClose={message.author.id === currentUser?.id} />}
           </>

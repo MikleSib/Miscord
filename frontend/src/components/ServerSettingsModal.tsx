@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { LucideIcon } from 'lucide-react'
-import { Ban, CalendarDays, ChevronLeft, ClipboardCheck, CopyPlus, Flag, Info, Link2, LogOut, ScrollText, Shield, ShieldCheck, Trash2, Users, X } from 'lucide-react'
+import { Ban, CalendarDays, ChevronLeft, ClipboardCheck, CopyPlus, Flag, Info, Link2, LogOut, ScrollText, Shield, ShieldCheck, Shapes, Trash2, Users, X } from 'lucide-react'
 
 import { Server } from '../types'
 import channelService from '../services/channelService'
@@ -28,6 +28,7 @@ import { ServerReportsTab } from './server-settings/ServerReportsTab'
 import { useMobileSettingsDetail } from '../hooks/useMobileSettingsDetail'
 import { useModalFocusTrap } from '../hooks/useModalFocusTrap'
 import { useCapabilities } from '../features/capabilities/capabilities'
+import { ServerExpressionsTab } from './server-settings/ServerExpressionsTab'
 
 interface ServerSettingsModalProps {
   isOpen: boolean
@@ -36,7 +37,7 @@ interface ServerSettingsModalProps {
   onServerUpdate: (updatedServer: Server) => void
 }
 
-type TabId = 'overview' | 'members' | 'roles' | 'bots' | 'templates' | 'onboarding' | 'events' | 'automod' | 'reports' | 'invites' | 'bans' | 'audit'
+type TabId = 'overview' | 'members' | 'roles' | 'bots' | 'templates' | 'expressions' | 'onboarding' | 'events' | 'automod' | 'reports' | 'invites' | 'bans' | 'audit'
 
 interface TabItem {
   id: TabId
@@ -48,6 +49,7 @@ interface TabItem {
 }
 
 const TABS: TabItem[] = [
+  { id: 'expressions', label: 'Emoji и стикеры', icon: Shapes, group: 'community', permission: Permissions.MANAGE_GUILD_EXPRESSIONS },
   { id: 'onboarding', label: 'Onboarding', icon: ClipboardCheck, group: 'community', permission: Permissions.MANAGE_SERVER },
   { id: 'events', label: 'События', icon: CalendarDays, group: 'community' },
   { id: 'templates', label: 'Шаблоны', icon: CopyPlus, group: 'users', permission: Permissions.ADMINISTRATOR },
@@ -106,9 +108,10 @@ export function ServerSettingsModal({ isOpen, onClose, server, onServerUpdate }:
     () => TABS.filter((tab) => {
       if (tab.id === 'templates' && !capabilities.serverTemplates) return false
       if (tab.id === 'bots' && !capabilities.botPlatform) return false
+      if (tab.id === 'expressions' && !capabilities.customEmoji && !capabilities.stickers && !capabilities.soundboard) return false
       return tab.permission === undefined || can(tab.permission)
     }),
-    [can, capabilities.botPlatform, capabilities.serverTemplates]
+    [can, capabilities.botPlatform, capabilities.customEmoji, capabilities.serverTemplates, capabilities.soundboard, capabilities.stickers]
   )
 
   useEffect(() => {
@@ -288,6 +291,7 @@ export function ServerSettingsModal({ isOpen, onClose, server, onServerUpdate }:
             {activeTab === 'roles' && <ServerRolesTab server={server} />}
             {activeTab === 'bots' && <ServerBotsTab server={server} />}
             {activeTab === 'templates' && <ServerTemplatesTab server={server} />}
+            {activeTab === 'expressions' && <ServerExpressionsTab server={server} />}
             {activeTab === 'onboarding' && <ServerOnboardingTab server={server} />}
             {activeTab === 'events' && <ServerEventsTab server={server} />}
               {activeTab === 'automod' && <ServerAutoModTab server={server} />}

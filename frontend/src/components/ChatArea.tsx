@@ -410,7 +410,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     addFiles, handleFileChange, handlePaste, handleDragEnter, handleDragOver,
     handleDragLeave, handleDrop, handleRemoveFile, updateMentionState, applyMention,
     applySlashCommand, applyAutocompleteChoice, parseCommandOptions, handleSendMessage, handleInputChange,
-    handleInputKeyDown,
+    handleInputKeyDown, handleExpressionEmoji, sendExpressionMedia,
   } = useChatComposerActions({ model: {
     messageInput, setMessageInput, showPinnedPanel, setShowPinnedPanel, files, setFiles,
     attachmentError, setAttachmentError, isDraggingFiles, setIsDraggingFiles, isLoading, setIsLoading,
@@ -529,7 +529,7 @@ export function ChatArea({ showUserSidebar, setShowUserSidebar }: { showUserSide
     handleFileChange, handlePaste, handleDragEnter, handleDragOver, handleDragLeave, handleDrop,
     handleRemoveFile, updateMentionState, applyMention, applySlashCommand, applyAutocompleteChoice, parseCommandOptions,
     handleSendMessage, handleInputChange, handleInputKeyDown, handleReply, handleContextApplicationCommand, handleCancelReply,
-    handleReaction, TypingIndicator,
+    handleReaction, TypingIndicator, handleExpressionEmoji, sendExpressionMedia,
     canSendMessages: textChannelPermissions.canSendMessages,
     channelPermissionStatus: textChannelPermissions.status,
     refreshChannelPermissions: textChannelPermissions.refresh,

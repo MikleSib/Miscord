@@ -8,6 +8,8 @@ from app.services import direct_message_service
 from app.services.rate_limit import enforce_message_antispam, rate_limit_payload
 from app.services.communication_safety import can_send_dm
 from app.services.datetime_serializer import utc_isoformat
+from app.schemas.expressions import GifSelection
+from app.services.message_media import serialize_message_media
 
 
 async def send_message_failure(
@@ -48,8 +50,15 @@ async def handle_dm_message(
     ))
     client_nonce = message_data.get("client_nonce")
     reply_to_id = message_data.get("reply_to_id")
+    sticker_ids = list(dict.fromkeys(int(item) for item in (message_data.get("sticker_ids") or [])))
+    gif_data = message_data.get("gif")
+    try:
+        gif_selection = GifSelection.model_validate(gif_data) if gif_data else None
+    except Exception:
+        await send_message_failure(user.id, client_nonce, "invalid_gif", "Выбранный GIF недоступен.")
+        return
 
-    if (not content and not attachments and not upload_ids) or not recipient_id:
+    if (not content and not attachments and not upload_ids and not sticker_ids and gif_selection is None) or not recipient_id:
         await send_message_failure(
             user.id, client_nonce, "invalid_message",
             "Получатель или содержимое сообщения не указаны.",
@@ -131,11 +140,17 @@ async def handle_dm_message(
             reply_to_id=reply_to_id,
             client_nonce=client_nonce,
             pending_uploads=pending_uploads,
+            sticker_ids=sticker_ids,
+            gif=gif_selection,
         )
     except direct_message_service.DirectMessageReplyError:
         await send_message_failure(
             user.id, client_nonce, "invalid_reply", "Сообщение для ответа не найдено в этом диалоге.",
         )
+        return
+    except ValueError as exc:
+        await db.rollback()
+        await send_message_failure(user.id, client_nonce, "invalid_sticker", str(exc))
         return
     author = await db.get(User, user.id)
     message_dict = {
@@ -170,6 +185,8 @@ async def handle_dm_message(
             "recipient_id": db_message.reply_to.recipient_id,
         },
     }
+    media = await serialize_message_media(db, dm_message_ids=[db_message.id])
+    message_dict.update(media.get(db_message.id, {"sticker_items": [], "gif": None}))
     payload = {"type": "dm", "data": message_dict}
     await manager.send_personal_message(payload, recipient_id)
     await manager.send_personal_message(payload, user.id)

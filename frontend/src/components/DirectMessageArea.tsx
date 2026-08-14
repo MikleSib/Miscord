@@ -16,6 +16,8 @@ import { AttachmentDropOverlay } from './AttachmentDropOverlay'
 import { DirectMessageHeader } from './DirectMessageHeader'
 import { DirectMessageTimeline } from './DirectMessageTimeline'
 import { useDirectMessageHistory } from '../hooks/useDirectMessageHistory'
+import { insertEmojiAtCaret } from '../lib/emoji'
+import type { MessageGif } from '../types'
 
 interface DirectMessageAreaProps {
   friend: User
@@ -302,6 +304,20 @@ export function DirectMessageArea({
     if (fileInputRef.current) fileInputRef.current.value = ''
     await sendMessageContent(content, queuedFiles)
   }
+  const handleExpressionEmoji = (token: string) => {
+    const input = messageInputRef.current
+    const value = input?.value ?? newMessage
+    const next = insertEmojiAtCaret(value, input?.selectionStart ?? value.length, input?.selectionEnd ?? value.length, token)
+    setNewMessage(next.value)
+    requestAnimationFrame(() => {
+      messageInputRef.current?.focus()
+      messageInputRef.current?.setSelectionRange(next.caret, next.caret)
+    })
+  }
+  const sendExpressionMedia = (selection: { stickerIds?: number[]; gif?: MessageGif }) => {
+    if (!user || isRateLimited) return
+    enqueueOutgoing({ userId: user.id, conversation: { type: 'dm', id: friend.id }, content: '', ...selection })
+  }
   const handleDeletePendingMessage = (tempId: string) => {
     setMessages((prev) => prev.filter(m => m.tempId !== tempId));
   }
@@ -438,6 +454,7 @@ export function DirectMessageArea({
         attachmentError, replyingTo, friend, handleCancelReply, files,
         handleRemoveFile, fileInputRef, handleFileChange, isSending,
         messageInputRef, newMessage, setNewMessage, handlePaste, applyFormattingShortcut,
+        handleExpressionEmoji, sendExpressionMedia,
       }} />
 
       <MediaLightbox item={lightboxItem} onClose={() => setLightboxItem(null)} />

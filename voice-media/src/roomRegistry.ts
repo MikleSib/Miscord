@@ -41,7 +41,7 @@ export class RoomRegistry {
 
   async moderateSession(
     sessionId: string,
-    command: { server_muted?: boolean; server_deafened?: boolean; disconnect?: boolean },
+    command: { server_muted?: boolean; server_deafened?: boolean; disconnect?: boolean; stage_role?: 'audience' | 'speaker' | 'moderator' },
   ): Promise<boolean> {
     for (const room of this.rooms.values()) {
       if (await room.moderatePeer(sessionId, command)) return true;

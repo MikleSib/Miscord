@@ -1,7 +1,7 @@
 from jose import jwt
 
 from app.core.config import settings
-from app.services.media_ticket import create_media_ticket, media_ws_url
+from app.services.media_ticket import create_media_ticket, create_soundboard_ticket, media_ws_url
 
 
 def test_media_ticket_is_v1_and_scoped_to_one_session():
@@ -31,3 +31,20 @@ def test_media_ticket_is_v1_and_scoped_to_one_session():
 def test_media_gateway_url_has_no_ticket_query_parameter():
     assert "ticket=" not in media_ws_url()
     assert media_ws_url().endswith("/ws/media")
+
+
+def test_soundboard_ticket_is_short_lived_and_scoped_to_one_sound():
+    token, jti = create_soundboard_ticket(
+        user_id=10, channel_id=20, session_id="session-1", sound_id=30, duration_ms=1250,
+    )
+    payload = jwt.decode(
+        token,
+        settings.VOICE_MEDIA_JWT_SECRET or settings.SECRET_KEY,
+        algorithms=["HS256"], audience=settings.VOICE_MEDIA_AUDIENCE, issuer="miscord-api-v1",
+    )
+    assert payload["purpose"] == "soundboard"
+    assert payload["jti"] == jti
+    assert payload["session_id"] == "session-1"
+    assert payload["sound_id"] == 30
+    assert payload["duration_ms"] == 1250
+    assert payload["exp"] - payload["iat"] == 20

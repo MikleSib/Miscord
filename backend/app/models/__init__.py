@@ -20,6 +20,8 @@ from .channel_permission import ChannelPermissionOverwrite, ChannelKind, Overwri
 from .notification_settings import ChannelNotificationOverride, ServerNotificationSettings
 from .webhook import Webhook
 from .pending_chat_upload import PendingChatUpload
+from .media_features import MessageMedia, ServerExpression
+from .stage import StageInstance, StageSpeakerGrant, StageSpeakerRequest
 from .community import (
     ForumPostTag,
     ForumSettings,
@@ -94,6 +96,11 @@ __all__ = [
     "ChannelNotificationOverride",
     "Webhook",
     "PendingChatUpload",
+    "MessageMedia",
+    "ServerExpression",
+    "StageInstance",
+    "StageSpeakerGrant",
+    "StageSpeakerRequest",
     "ThreadMember",
     "ForumSettings",
     "ForumTag",

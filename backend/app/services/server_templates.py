@@ -95,7 +95,7 @@ async def snapshot_server(db: AsyncSession, server: Channel) -> dict[str, Any]:
         channel_keys[("voice", item.id)] = key
         channels.append({
             "key": key,
-            "type": "voice",
+            "type": "stage" if item.kind == "stage" else "voice",
             "name": item.name,
             "category_key": category_keys.get(item.category_id),
             "position": item.position,
@@ -204,15 +204,16 @@ async def instantiate_template(
     for item in definition.get("channels", []):
         item_type = str(item.get("type") or "text")
         category_id = category_ids.get(str(item.get("category_key")))
-        if item_type == "voice":
+        if item_type in {"voice", "stage"}:
             channel = VoiceChannel(
                 channel_id=server.id,
                 name=str(item.get("name") or "Голосовой")[:100],
                 category_id=category_id,
                 position=int(item.get("position") or 0),
                 bitrate=max(8, min(96, int(item.get("bitrate") or 64))),
-                max_users=max(0, min(99, int(item.get("max_users") or 0))),
+                max_users=max(0, min(100, int(item.get("max_users") or 0))),
                 video_quality=item.get("video_quality") if item.get("video_quality") in {"auto", "720p"} else "auto",
+                kind=item_type,
             )
             kind = "voice"
         else:

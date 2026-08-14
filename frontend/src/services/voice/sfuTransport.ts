@@ -39,7 +39,7 @@ export class SfuTransport {
   async connect(
     url: string,
     ticket: string,
-    microphoneTrack: MediaStreamTrack,
+    microphoneTrack?: MediaStreamTrack,
     initiallyMuted = false,
     e2eeContext?: { userId: number; sessionId: string },
   ): Promise<void> {
@@ -63,8 +63,19 @@ export class SfuTransport {
     }
     await this.device.load({ routerRtpCapabilities: identified.router_rtp_capabilities });
     this.bindNotifications();
-    this.sendTransport = await this.createTransport('send');
+    if (microphoneTrack) this.sendTransport = await this.createTransport('send');
     this.recvTransport = await this.createTransport('recv');
+    if (microphoneTrack) await this.produceMicrophone(microphoneTrack);
+    for (const descriptor of identified.producers as ProducerDescriptor[]) {
+      this.producerDirectory.set(descriptor.producer_id, descriptor);
+      if (descriptor.source === 'microphone' || descriptor.source === 'soundboard') {
+        await this.consume(descriptor);
+      }
+    }
+  }
+
+  private async produceMicrophone(microphoneTrack: MediaStreamTrack): Promise<void> {
+    if (!this.sendTransport) throw new Error('Send transport is unavailable');
     try {
       microphoneTrack.contentHint = 'speech';
     } catch {
@@ -101,10 +112,28 @@ export class SfuTransport {
       producerTrack.enabled = true;
       await gate;
     } else producerTrack.enabled = true;
-    for (const descriptor of identified.producers as ProducerDescriptor[]) {
-      this.producerDirectory.set(descriptor.producer_id, descriptor);
-      if (descriptor.source === 'microphone') await this.consume(descriptor);
-    }
+  }
+
+  async playSoundboard(track: MediaStreamTrack, playbackTicket: string): Promise<() => Promise<void>> {
+    if (!this.sendTransport) throw new Error('Soundboard is unavailable in receive-only mode');
+    const producer = await this.sendTransport.produce({
+      track,
+      stopTracks: false,
+      encodings: [{ maxBitrate: 96_000 }],
+      codecOptions: {
+        opusStereo: false,
+        opusDtx: false,
+        opusFec: true,
+        opusMaxAverageBitrate: 96_000,
+        opusPtime: 20,
+      },
+      appData: { source: 'soundboard', playbackTicket },
+    });
+    this.e2ee?.protectSender(producer.rtpSender, 'soundboard');
+    return async () => {
+      producer.close();
+      await this.rpc.request('close_producer', { producer_id: producer.id }).catch(() => undefined);
+    };
   }
 
   onRemoteMedia(handler: RemoteMediaHandler): void {
@@ -334,6 +363,7 @@ export class SfuTransport {
           kind,
           rtp_parameters: rtpParameters,
           source: appData.source,
+          playback_ticket: appData.playbackTicket,
         }).then((result) => callback({ id: result.producer_id })).catch(errback);
       });
     }
@@ -348,6 +378,7 @@ export class SfuTransport {
       this.producerDirectory.set(descriptor.producer_id, descriptor);
       if (
         descriptor.source === 'microphone'
+        || descriptor.source === 'soundboard'
         || (descriptor.source.startsWith('screen-') && this.requestedScreenUsers.has(descriptor.user_id))
       ) void this.consume(descriptor);
     });

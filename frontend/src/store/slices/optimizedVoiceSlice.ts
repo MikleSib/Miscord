@@ -111,6 +111,9 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
           server_muted: participant.server_muted ?? false,
           server_deafened: participant.server_deafened ?? false,
           is_bot: participant.is_bot ?? false,
+          stage_role: participant.stage_role,
+          stage_suppressed: participant.stage_suppressed,
+          requested_to_speak_at: participant.requested_to_speak_at,
         });
       });
 
@@ -139,6 +142,9 @@ export const useOptimizedVoiceStore = create<VoiceState>((set, get) => ({
           server_muted: p.server_muted ?? false,
           server_deafened: p.server_deafened ?? false,
           is_bot: p.is_bot ?? false,
+          stage_role: p.stage_role,
+          stage_suppressed: p.stage_suppressed,
+          requested_to_speak_at: p.requested_to_speak_at,
         }));
 
         // Добавляем текущего пользователя если его нет в списке

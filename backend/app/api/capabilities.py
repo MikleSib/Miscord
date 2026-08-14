@@ -22,6 +22,11 @@ def capabilities_payload() -> dict:
         "email_verification": settings.EMAIL_VERIFICATION_ENABLED,
         "voice": True,
         "screen_share": True,
+        "custom_emoji": settings.EXPRESSIONS_ENABLED,
+        "stickers": settings.EXPRESSIONS_ENABLED,
+        "gifs": bool(settings.GIPHY_API_KEY),
+        "soundboard": settings.SOUNDBOARD_ENABLED,
+        "stage_channels": settings.STAGE_CHANNELS_ENABLED,
     }
 
 

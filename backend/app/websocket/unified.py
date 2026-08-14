@@ -2,6 +2,8 @@
 
 from .unified_support import *  # noqa: F401,F403
 from app.services.message_delivery import load_message_for_delivery, message_ack_payload
+from app.schemas.expressions import GifSelection
+from app.services.message_media import attach_message_media
 from app.core.metrics import record_voice_join
 from time import perf_counter
 
@@ -299,6 +301,13 @@ async def handle_chat_message(
     client_nonce = message_data.get("client_nonce")
     reply_to_id = message_data.get("reply_to_id")
     poll_data = message_data.get("poll")
+    sticker_ids = list(dict.fromkeys(int(item) for item in (message_data.get("sticker_ids") or [])))
+    gif_data = message_data.get("gif")
+    try:
+        gif_selection = GifSelection.model_validate(gif_data) if gif_data else None
+    except Exception:
+        await send_message_failure(user.id, client_nonce, "invalid_gif", "Выбранный GIF недоступен")
+        return
 
     if client_nonce is not None and (not isinstance(client_nonce, str) or len(client_nonce) > 64):
         return
@@ -358,7 +367,7 @@ async def handle_chat_message(
             return
         await require_poll_permission(db, text_channel, user)
 
-    if not content and not attachments and poll_payload is None:
+    if not content and not attachments and poll_payload is None and not sticker_ids and gif_selection is None:
         await send_message_failure(user.id, client_nonce, "empty_message", "Сообщение не содержит текста или файлов")
         return
 
@@ -445,6 +454,18 @@ async def handle_chat_message(
 
     db.add(db_message)
     await db.flush()
+    try:
+        await attach_message_media(
+            db,
+            message_id=db_message.id,
+            sticker_ids=sticker_ids,
+            gif=gif_selection,
+            server_id=text_channel.channel_id,
+        )
+    except ValueError as exc:
+        await db.rollback()
+        await send_message_failure(user.id, client_nonce, "invalid_sticker", str(exc))
+        return
     if poll_payload is not None:
         await create_poll_for_message(
             db,

@@ -1,4 +1,4 @@
-export type MediaSource = 'microphone' | 'screen-video' | 'screen-audio';
+export type MediaSource = 'microphone' | 'screen-video' | 'screen-audio' | 'soundboard';
 
 export interface VoiceParticipant {
   user_id: number;
@@ -11,6 +11,9 @@ export interface VoiceParticipant {
   server_deafened?: boolean;
   is_sharing_screen?: boolean;
   is_bot?: boolean;
+  stage_role?: 'audience' | 'speaker' | 'moderator';
+  stage_suppressed?: boolean;
+  requested_to_speak_at?: string | null;
 }
 
 export interface VoiceJoinedPayload {
@@ -20,7 +23,13 @@ export interface VoiceJoinedPayload {
   session_id: string;
   room_epoch: string;
   participants: VoiceParticipant[];
-  self: { user_id: number; is_muted: boolean; is_deafened: boolean };
+  self: {
+    user_id: number;
+    is_muted: boolean;
+    is_deafened: boolean;
+    stage_role?: 'audience' | 'speaker' | 'moderator';
+    stage_suppressed?: boolean;
+  };
   transport: { mode: 'sfu'; ws_url: string; ticket: string };
 }
 

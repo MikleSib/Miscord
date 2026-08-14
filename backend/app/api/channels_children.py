@@ -70,10 +70,13 @@ async def create_voice_channel(
 ):
     """Создание голосового канала (право «Управлять каналами»)"""
     await require_permission(db, channel_id, current_user, Permission.MANAGE_CHANNELS)
+    if channel_data.kind == "stage" and not settings.STAGE_CHANNELS_ENABLED:
+        raise HTTPException(status_code=404, detail="Stage-каналы отключены")
 
     # Создание голосового канала
     new_voice_channel = VoiceChannel(
         name=channel_data.name,
+        kind=channel_data.kind,
         channel_id=channel_id,
         position=channel_data.position,
         category_id=await _validated_category_id(db, channel_id, channel_data.category_id),
@@ -94,6 +97,7 @@ async def create_voice_channel(
                 "id": new_voice_channel.id,
                 "name": new_voice_channel.name,
                 "type": "voice",
+                "kind": new_voice_channel.kind,
                 "position": new_voice_channel.position,
                 "max_users": new_voice_channel.max_users,
                 "bitrate": new_voice_channel.bitrate,
@@ -116,7 +120,7 @@ async def create_voice_channel(
         target_type="channel",
         target_id=new_voice_channel.id,
         target_name=new_voice_channel.name,
-        changes={"kind": "voice"},
+        changes={"kind": new_voice_channel.kind},
     )
     await bot_event_dispatcher.dispatch_guild_event(
         db, channel_id, "CHANNEL_CREATE", miscord_channel(new_voice_channel, guild_id=channel_id, overwrites=[])
@@ -263,6 +267,7 @@ async def update_voice_channel(
                 "max_users": voice_channel.max_users,
                 "bitrate": voice_channel.bitrate,
                 "video_quality": voice_channel.video_quality,
+                "kind": voice_channel.kind,
                 "updated_by": {
                     "id": current_user.id,
                     "username": current_user.display_name or current_user.username

@@ -1,5 +1,4 @@
 import { EventEmitter } from 'node:events';
-
 import type {
   AudioLevelObserver,
   Consumer,
@@ -11,7 +10,6 @@ import type {
   WebRtcTransport,
 } from 'mediasoup/types';
 import type WebSocket from 'ws';
-
 import { ActivityRefreshQueue } from './activityRefreshQueue.js';
 import { config } from './config.js';
 import { ConsumerPauseCoordinator } from './consumerPauseCoordinator.js';
@@ -20,7 +18,6 @@ import { metrics } from './metrics.js';
 import { RoomE2ee } from './roomE2ee.js';
 import type { MediaClaims, MediaSource, ProducerDescriptor } from './types.js';
 import { workerPool } from './workerPool.js';
-
 export interface Peer {
   claims: MediaClaims;
   socket: WebSocket;
@@ -33,17 +30,14 @@ export interface Peer {
   serverDeafened: boolean;
   e2eeCredentialId?: string;
 }
-
 function notify(socket: WebSocket, type: string, data: Record<string, unknown>): void {
   if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type, ...data }));
 }
-
 export const ACTIVE_SPEAKER_HANGOVER_MS = 1_800;
 export const AUDIO_LEVEL_OBSERVER_INTERVAL_MS = 250;
 export const EXTERNAL_SPEAKING_HINT_TTL_MS = 750;
 export const EXTERNAL_SPEAKING_HINT_BACKOFF_MS = 3_000;
 export const ACTIVITY_TRANSITION_RETRY_MS = 100;
-
 export class Room extends EventEmitter {
   readonly channelId: number;
   readonly epoch: string;
@@ -70,7 +64,6 @@ export class Room extends EventEmitter {
   private microphoneGateEnabled = false;
   private closed = false;
   private onEmptyCallback?: () => void;
-
   private constructor(
     channelId: number,
     epoch: string,
@@ -112,12 +105,11 @@ export class Room extends EventEmitter {
     });
     metrics.rooms.inc();
   }
-
   static async create(channelId: number, epoch: string): Promise<Room> {
     const { router, webRtcServer, workerPid } = await workerPool.createRouter();
     try {
       const observer = await router.createAudioLevelObserver({
-        maxEntries: config.maxActiveSpeakers,
+        maxEntries: 8,
         threshold: -80,
         interval: AUDIO_LEVEL_OBSERVER_INTERVAL_MS,
       });
@@ -127,11 +119,9 @@ export class Room extends EventEmitter {
       throw error;
     }
   }
-
   onEmpty(callback: () => void): void {
     this.onEmptyCallback = callback;
   }
-
   addPeer(claims: MediaClaims, socket: WebSocket): Peer {
     const old = this.peers.get(claims.session_id);
     if (old) {
@@ -153,15 +143,12 @@ export class Room extends EventEmitter {
     metrics.peers.inc();
     return peer;
   }
-
   isCurrentPeer(peer: Peer): boolean {
     return this.peers.get(peer.claims.session_id) === peer;
   }
-
   isEmpty(): boolean {
     return this.peers.size === 0 && this.directTransports.size === 0;
   }
-
   descriptors(excludeSessionId?: string): ProducerDescriptor[] {
     const result: ProducerDescriptor[] = [];
     for (const [sessionId, peer] of this.peers) {
@@ -178,14 +165,15 @@ export class Room extends EventEmitter {
     }
     return result;
   }
-
   producerOwner(producerId: string): Peer | undefined {
     for (const peer of this.peers.values()) {
       if (peer.producers.has(producerId)) return peer;
     }
     return undefined;
   }
-
+  activeSourceCount(source: MediaSource): number {
+    return [...this.peers.values()].filter((peer) => peer.sourceProducers.has(source)).length;
+  }
   broadcast(type: string, data: Record<string, unknown>, excludeSessionId?: string): void {
     for (const [sessionId, peer] of this.peers) {
       if (sessionId !== excludeSessionId && !peer.claims.is_bot) notify(peer.socket, type, data);
@@ -234,7 +222,6 @@ export class Room extends EventEmitter {
     metrics.transports.inc();
     return transport;
   }
-
   async addProducer(peer: Peer, transport: Transport, producer: Producer, source: MediaSource): Promise<void> {
     if (!this.isCurrentPeer(peer)) {
       producer.close();
@@ -250,6 +237,10 @@ export class Room extends EventEmitter {
     if (peer.sourceProducers.has(source)) {
       producer.close();
       throw new Error(`${source} producer already exists`);
+    }
+    if (source === 'soundboard' && this.activeSourceCount('soundboard') >= 2) {
+      producer.close();
+      throw new Error('Soundboard capacity reached');
     }
     if (source.startsWith('screen-')) {
       const screenPeers = new Set(
@@ -372,7 +363,7 @@ export class Room extends EventEmitter {
 
   async moderatePeer(
     sessionId: string,
-    command: { server_muted?: boolean; server_deafened?: boolean; disconnect?: boolean },
+    command: { server_muted?: boolean; server_deafened?: boolean; disconnect?: boolean; stage_role?: 'audience' | 'speaker' | 'moderator' },
   ): Promise<boolean> {
     const peer = this.peers.get(sessionId);
     if (!peer) return false;
@@ -390,6 +381,17 @@ export class Room extends EventEmitter {
       await Promise.all([...peer.consumers.values()]
         .filter((consumer) => consumer.kind === 'audio')
         .map((consumer) => this.consumerPauses.setServerPaused(consumer, peer.serverDeafened)));
+    }
+    if (command.stage_role) {
+      peer.claims.stage_role = command.stage_role;
+      peer.claims.can_speak = command.stage_role !== 'audience';
+      if (command.stage_role === 'audience') {
+        for (const source of ['microphone', 'soundboard'] as const) {
+          const producerId = peer.sourceProducers.get(source);
+          peer.producers.get(producerId ?? '')?.close();
+        }
+      }
+      notify(peer.socket, 'stage_role_changed', { stage_role: command.stage_role });
     }
     notify(peer.socket, 'moderation_state', {
       server_muted: peer.serverMuted,
@@ -471,7 +473,7 @@ export class Room extends EventEmitter {
       ...this.observedMicrophones,
     ])]
       .filter((producerId) => microphoneIdSet.has(producerId))
-      .slice(0, config.maxActiveSpeakers);
+      .slice(0, this.activeSpeakerLimit());
     this.activeMicrophones = new Set(active);
     const users = [...this.activeMicrophones].map((producerId) => {
       const peer = this.producerOwner(producerId);
@@ -479,7 +481,7 @@ export class Room extends EventEmitter {
     }).filter((value): value is number => value !== null);
     if (emitActiveSpeakers) this.broadcast('active_speakers', { user_ids: users });
 
-    if (microphoneIds.length <= config.maxActiveSpeakers) {
+    if (microphoneIds.length <= this.activeSpeakerLimit()) {
       this.microphoneGateEnabled = false;
       this.selectedMicrophones = microphoneIdSet;
     } else {
@@ -527,7 +529,7 @@ export class Room extends EventEmitter {
     const activeSet = new Set(activeIds);
     const next = new Set<string>();
     const append = (producerId: string) => {
-      if (next.size < config.maxActiveSpeakers && microphoneIds.includes(producerId)) next.add(producerId);
+      if (next.size < this.activeSpeakerLimit() && microphoneIds.includes(producerId)) next.add(producerId);
     };
 
     if (priorityProducerId && activeSet.has(priorityProducerId)) append(priorityProducerId);
@@ -544,6 +546,10 @@ export class Room extends EventEmitter {
     for (const producerId of this.selectedMicrophones) append(producerId);
     for (const producerId of microphoneIds) append(producerId);
     this.selectedMicrophones = next;
+  }
+
+  private activeSpeakerLimit(): number {
+    return [...this.peers.values()].some((peer) => peer.claims.stage_role) ? 8 : config.maxActiveSpeakers;
   }
 
   private dropExpiredExternalHints(now: number): void {

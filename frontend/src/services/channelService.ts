@@ -24,6 +24,7 @@ export interface CreateVoiceChannelRequest {
   max_users?: number;
   bitrate?: number;
   video_quality?: 'auto' | '720p';
+  kind?: 'voice' | 'stage';
 }
 
 export interface UpdateServerRequest {
@@ -178,6 +179,7 @@ class ChannelService {
       max_users?: number
       bitrate?: number
       video_quality?: 'auto' | '720p'
+      kind?: 'voice' | 'stage'
     }
   ): Promise<any> {
     const response = await api.put(`/api/v1/channels/voice/${voiceChannelId}`, data);

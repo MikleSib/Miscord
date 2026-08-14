@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y \
     g++ \
     libpq-dev \
     pkg-config \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements-dev.txt .

@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Any, Optional
 from urllib.parse import urlsplit
 
@@ -6,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.permissions import Permission, has_permission
-from app.models import BotInstall, VoiceChannel, VoiceChannelUser
+from app.models import BotInstall, StageInstance, StageSpeakerGrant, VoiceChannel, VoiceChannelUser
 from app.services.bot_event_dispatcher import dispatcher as bot_event_dispatcher
 from app.services.bot_security import BotPrincipal
 from app.services.bot_voice_sessions import registry as bot_voice_sessions
@@ -76,16 +77,54 @@ async def handle_voice_state_update(
         VoiceChannelUser.voice_channel_id == channel_id,
         VoiceChannelUser.user_id != principal.bot_user.id,
     ))
+    channel_limit = 100 if voice_channel.kind == "stage" else int(voice_channel.max_users or 0)
     if (
-        int(voice_channel.max_users or 0) > 0
-        and int(active_count or 0) >= int(voice_channel.max_users)
+        channel_limit > 0
+        and int(active_count or 0) >= channel_limit
         and not has_permission(permissions, Permission.MOVE_MEMBERS)
     ):
         return
+    can_speak = has_permission(permissions, Permission.SPEAK)
+    stage_role: str | None = None
+    if voice_channel.kind == "stage":
+        stage = await db.scalar(select(StageInstance).where(
+            StageInstance.channel_id == channel_id,
+            StageInstance.status == "active",
+        ))
+        if stage is None:
+            return
+        if has_permission(permissions, Permission.MUTE_MEMBERS):
+            stage_role = "moderator"
+        else:
+            grant = await db.scalar(select(StageSpeakerGrant).where(
+                StageSpeakerGrant.stage_instance_id == stage.id,
+                StageSpeakerGrant.user_id == principal.bot_user.id,
+            ))
+            stage_role = grant.role if grant else "audience"
+        if stage_role == "audience":
+            can_speak = False
+
     await _connect(
         db, principal, state, guild_id, channel_id, data,
-        can_speak=has_permission(permissions, Permission.SPEAK),
+        can_speak=can_speak,
+        stage_role=stage_role,
     )
+
+
+async def _mark_stage_empty_if_needed(db: AsyncSession, channel_id: int) -> None:
+    channel = await db.get(VoiceChannel, channel_id)
+    if channel is None or channel.kind != "stage":
+        return
+    remaining = await db.scalar(select(func.count(VoiceChannelUser.id)).where(
+        VoiceChannelUser.voice_channel_id == channel_id,
+    ))
+    if int(remaining or 0) == 0:
+        stage = await db.scalar(select(StageInstance).where(
+            StageInstance.channel_id == channel_id,
+            StageInstance.status == "active",
+        ))
+        if stage is not None:
+            stage.empty_since = datetime.now(timezone.utc)
 
 
 async def _disconnect(
@@ -107,6 +146,8 @@ async def _disconnect(
             VoiceChannelUser.voice_channel_id == existing.channel_id,
             VoiceChannelUser.user_id == principal.bot_user.id,
         ))
+        await db.flush()
+        await _mark_stage_empty_if_needed(db, existing.channel_id)
         await db.commit()
         await broadcast_voice(manager, existing.channel_id, {
             "type": "user_left_voice",
@@ -183,6 +224,7 @@ async def _connect(
     data: dict[str, Any],
     *,
     can_speak: bool,
+    stage_role: str | None,
 ) -> None:
     replaced = await bot_voice_sessions.get_for_application_guild(
         principal.application.id, guild_id,
@@ -203,12 +245,24 @@ async def _connect(
     await db.execute(delete(VoiceChannelUser).where(
         VoiceChannelUser.user_id == principal.bot_user.id,
     ))
+    await db.flush()
+    if replaced is not None and replaced.channel_id != channel_id:
+        await _mark_stage_empty_if_needed(db, replaced.channel_id)
     db.add(VoiceChannelUser(
         voice_channel_id=channel_id,
         user_id=principal.bot_user.id,
         is_muted=voice_session.self_mute,
         is_deafened=voice_session.self_deaf,
+        stage_role=stage_role or "audience",
+        stage_suppressed=stage_role == "audience",
     ))
+    if stage_role is not None:
+        stage = await db.scalar(select(StageInstance).where(
+            StageInstance.channel_id == channel_id,
+            StageInstance.status == "active",
+        ))
+        if stage is not None:
+            stage.empty_since = None
     await db.commit()
     username = principal.bot_user.display_name or principal.bot_user.username
     await voice_presence.register({
@@ -226,6 +280,8 @@ async def _connect(
         "is_deafened": voice_session.self_deaf,
         "is_sharing_screen": False,
         "is_bot": True,
+        "stage_role": stage_role,
+        "stage_suppressed": stage_role == "audience",
     })
     voice_token, _ = create_media_ticket(
         user_id=principal.bot_user.id,
@@ -241,6 +297,7 @@ async def _connect(
         self_mute=voice_session.self_mute,
         self_deaf=voice_session.self_deaf,
         can_speak=can_speak,
+        stage_role=stage_role,
     )
     await broadcast_voice(manager, channel_id, {
         "type": "user_joined_voice",
@@ -253,6 +310,8 @@ async def _connect(
         "is_deafened": voice_session.self_deaf,
         "is_bot": True,
         "connection_id": voice_session.session_id,
+        "stage_role": stage_role,
+        "stage_suppressed": stage_role == "audience",
     })
     await bot_event_dispatcher.send_to_session(state, "VOICE_STATE_UPDATE", miscord_voice_state(
         guild_id=guild_id,

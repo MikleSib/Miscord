@@ -81,7 +81,7 @@ export async function applySpeakingHint(room: Room, peer: Peer, request: RpcRequ
 }
 
 export function requireCanProduceSource(peer: Peer, source: MediaSource): void {
-  if ((source === 'microphone' || source === 'screen-audio') && peer.claims.can_speak !== true) {
+  if ((source === 'microphone' || source === 'screen-audio' || source === 'soundboard') && peer.claims.can_speak !== true) {
     throw new Error('SPEAK permission required');
   }
   if ((source === 'screen-video' || source === 'screen-audio') && peer.claims.can_stream !== true) {
@@ -245,9 +245,21 @@ export class MediaGateway {
       case 'produce': {
         if (!request.kind || !request.rtp_parameters || !request.source) throw new Error('Producer data is incomplete');
         const source = request.source as MediaSource;
-        if (!['microphone', 'screen-video', 'screen-audio'].includes(source)) throw new Error('Invalid media source');
-        if ((source === 'microphone' || source === 'screen-audio') && request.kind !== 'audio') throw new Error('Audio source required');
+        if (!['microphone', 'screen-video', 'screen-audio', 'soundboard'].includes(source)) throw new Error('Invalid media source');
+        if ((source === 'microphone' || source === 'screen-audio' || source === 'soundboard') && request.kind !== 'audio') throw new Error('Audio source required');
         if (source === 'screen-video' && request.kind !== 'video') throw new Error('Video source required');
+        let soundDurationMs: number | undefined;
+        if (source === 'soundboard') {
+          if (!request.playback_ticket) throw new Error('Soundboard playback ticket required');
+          const playback = await ticketVerifier.verifySoundboard(request.playback_ticket);
+          if (
+            Number(playback.sub) !== Number(peer.claims.sub)
+            || playback.channel_id !== room.channelId
+            || playback.session_id !== peer.claims.session_id
+          ) throw new Error('Soundboard playback ticket does not match this session');
+          if (room.activeSourceCount('soundboard') >= 2) throw new Error('Soundboard capacity reached');
+          soundDurationMs = playback.duration_ms;
+        }
         requireCanProduceSource(peer, source);
         requireSourceAvailable(peer, source);
         const transport = requireTransport(peer, request.transport_id);
@@ -258,6 +270,11 @@ export class MediaGateway {
           appData: { source, userId: Number(peer.claims.sub), sessionId: peer.claims.session_id },
         });
         await room.addProducer(peer, transport, producer, source);
+        if (soundDurationMs) {
+          const timer = setTimeout(() => producer.close(), soundDurationMs + 500);
+          producer.on('@close', () => clearTimeout(timer));
+          producer.on('transportclose', () => clearTimeout(timer));
+        }
         reply(socket, request, { producer_id: producer.id });
         return;
       }

@@ -123,6 +123,10 @@ class LazyVoiceController {
     return this.ready().then((instance) => instance.startScreenShare(options));
   }
 
+  playSoundboard(track: MediaStreamTrack, ticket: string): Promise<() => Promise<void>> {
+    return this.ready().then((instance) => instance.playSoundboard(track, ticket));
+  }
+
   stopScreenShare(): void {
     void this.ready().then((instance) => instance.stopScreenShare());
   }

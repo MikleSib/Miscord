@@ -17,6 +17,11 @@ export interface ProductCapabilities {
   emailVerification: boolean;
   voice: boolean;
   screenShare: boolean;
+  customEmoji: boolean;
+  stickers: boolean;
+  gifs: boolean;
+  soundboard: boolean;
+  stageChannels: boolean;
 }
 
 interface CapabilitiesContextValue extends ProductCapabilities {
@@ -37,6 +42,11 @@ export const CONSERVATIVE_CAPABILITIES: ProductCapabilities = {
   emailVerification: false,
   voice: true,
   screenShare: true,
+  customEmoji: false,
+  stickers: false,
+  gifs: false,
+  soundboard: false,
+  stageChannels: false,
 };
 
 type CapabilityResponse = Record<string, unknown>;
@@ -59,6 +69,11 @@ export function normalizeCapabilities(payload: CapabilityResponse): ProductCapab
     emailVerification: enabled('email_verification'),
     voice: enabled('voice', true),
     screenShare: enabled('screen_share', true),
+    customEmoji: enabled('custom_emoji'),
+    stickers: enabled('stickers'),
+    gifs: enabled('gifs'),
+    soundboard: enabled('soundboard'),
+    stageChannels: enabled('stage_channels'),
   };
 }
 

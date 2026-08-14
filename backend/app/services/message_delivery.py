@@ -8,6 +8,7 @@ from app.models import Message, Reaction
 from app.models.community import Poll
 from app.services.message_serializer import serialize_channel_message
 from app.services.polls import serialize_poll
+from app.services.message_media import serialize_message_media
 
 
 async def load_message_for_delivery(
@@ -31,6 +32,8 @@ async def load_message_for_delivery(
     poll = await db.scalar(select(Poll).where(Poll.message_id == message.id))
     if poll is not None:
         payload["poll"] = await serialize_poll(db, poll, viewer_id)
+    media = await serialize_message_media(db, message_ids=[message.id])
+    payload.update(media.get(message.id, {"sticker_items": [], "gif": None}))
     return message, payload
 
 

@@ -33,6 +33,7 @@ class TextChannelCreate(TextChannelBase):
 
 class VoiceChannelBase(BaseModel):
     name: str
+    kind: str = "voice"
     position: int = 0
     category_id: Optional[int] = None
     max_users: int = 0  # 0 = без лимита
@@ -42,8 +43,8 @@ class VoiceChannelBase(BaseModel):
     @field_validator("max_users")
     @classmethod
     def validate_base_max_users(cls, value: int) -> int:
-        if value < 0 or value > 99:
-            raise ValueError("Лимит пользователей должен быть от 0 до 99")
+        if value < 0 or value > 100:
+            raise ValueError("Лимит пользователей должен быть от 0 до 100")
         return value
 
     @field_validator("bitrate")
@@ -58,6 +59,13 @@ class VoiceChannelBase(BaseModel):
     def validate_base_video_quality(cls, value: str) -> str:
         if value not in {"auto", "720p"}:
             raise ValueError("Качество видео: auto или 720p")
+        return value
+
+    @field_validator("kind")
+    @classmethod
+    def validate_kind(cls, value: str) -> str:
+        if value not in {"voice", "stage"}:
+            raise ValueError("Тип голосового канала: voice или stage")
         return value
 
 class VoiceChannelCreate(VoiceChannelBase):
@@ -80,6 +88,7 @@ class TextChannelUpdate(BaseModel):
 
 class VoiceChannelUpdate(BaseModel):
     name: Optional[str] = None
+    kind: Optional[str] = None
     position: Optional[int] = None
     category_id: Optional[int] = None
     max_users: Optional[int] = None
@@ -91,8 +100,8 @@ class VoiceChannelUpdate(BaseModel):
     def validate_max_users(cls, value: Optional[int]) -> Optional[int]:
         if value is None:
             return value
-        if value < 0 or value > 99:
-            raise ValueError("Лимит пользователей должен быть от 0 до 99")
+        if value < 0 or value > 100:
+            raise ValueError("Лимит пользователей должен быть от 0 до 100")
         return value
 
     @field_validator("bitrate")
@@ -111,6 +120,13 @@ class VoiceChannelUpdate(BaseModel):
             return value
         if value not in {"auto", "720p"}:
             raise ValueError("Качество видео: auto или 720p")
+        return value
+
+    @field_validator("kind")
+    @classmethod
+    def validate_kind(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and value not in {"voice", "stage"}:
+            raise ValueError("Тип голосового канала: voice или stage")
         return value
 
 class TextChannel(TextChannelBase):

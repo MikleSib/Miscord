@@ -12,7 +12,7 @@ import type { DirectMessage, User } from '../types'
 import { EmojiPickerPopover } from './emoji/EmojiPickerPopover'
 import { ManagedMessageAttachments } from './ManagedMessageAttachments'
 import { MessageAttachmentGallery } from './MessageAttachmentGallery'
-import { MessageContent } from './MessageContent'
+import { MessageMedia, RichMessageContent } from './media/MessageMedia'
 import { MessageLinkEmbeds } from './MessageLinkEmbeds'
 import { UserAvatar } from './ui/user-avatar'
 
@@ -122,7 +122,7 @@ export function DirectMessageTimeline({
 
                 {message.content && (
                   <div className={`direct-message-entry__content ${pending ? 'is-pending' : ''}`}>
-                    <MessageContent
+                    <RichMessageContent
                       content={message.content}
                       currentUserId={currentUser?.id}
                       resolveMentionLabel={(id) => (
@@ -146,6 +146,8 @@ export function DirectMessageTimeline({
                     <ManagedMessageAttachments attachments={message.attachments} />
                   </div>
                 )}
+
+                <MessageMedia stickers={message.sticker_items} gif={message.gif} />
 
                 {message.reactions && message.reactions.length > 0 && (
                   <div className="direct-message-reactions">

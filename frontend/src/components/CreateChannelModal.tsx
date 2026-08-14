@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
-import { Hash, Lock, MessageSquare, Volume2, X } from 'lucide-react'
+import { Hash, Lock, MessageSquare, Radio, Volume2, X } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { Permissions } from '../lib/permissions'
 import channelService from '../services/channelService'
@@ -11,8 +11,9 @@ import type { ChannelCategory } from '../services/categoryService'
 import { Switch } from './ui/switch'
 import { Modal } from './ui/modal'
 import { communityApi } from '../services/communityApi'
+import { useCapabilities } from '../features/capabilities/capabilities'
 
-type ChannelCreateType = 'text' | 'voice' | 'forum'
+type ChannelCreateType = 'text' | 'voice' | 'stage' | 'forum'
 
 interface CreateChannelModalProps {
   isOpen: boolean
@@ -51,6 +52,12 @@ const TYPE_OPTIONS: Array<{
     description: 'Создайте площадку для обсуждений',
     icon: <MessageSquare className="h-6 w-6" />,
   },
+  {
+    id: 'stage',
+    label: 'Сцена',
+    description: 'Проводите выступления с ведущими, слушателями и очередью желающих выступить',
+    icon: <Radio className="h-6 w-6" />,
+  },
 ]
 
 function slugifyChannelName(value: string) {
@@ -70,6 +77,7 @@ export function CreateChannelModal({
   initialCategoryId = null,
   onCreated,
 }: CreateChannelModalProps) {
+  const capabilities = useCapabilities()
   const [channelType, setChannelType] = useState<ChannelCreateType>(initialType)
   const [channelName, setChannelName] = useState('')
   const [categoryId, setCategoryId] = useState<number | null>(initialCategoryId)
@@ -137,7 +145,7 @@ export function CreateChannelModal({
           category_id: response.category_id ?? categoryId,
           slow_mode_seconds: response.slow_mode_seconds ?? 0,
         }
-      } else if (channelType === 'voice') {
+      } else if (channelType === 'voice' || channelType === 'stage') {
         const response = await channelService.createVoiceChannel(serverId, {
           name,
           position: 0,
@@ -145,6 +153,7 @@ export function CreateChannelModal({
           max_users: 0,
           bitrate: 64,
           video_quality: 'auto',
+          kind: channelType,
         })
         created = {
           id: response.id,
@@ -156,6 +165,7 @@ export function CreateChannelModal({
           max_users: response.max_users ?? 0,
           bitrate: response.bitrate ?? 64,
           video_quality: response.video_quality === '720p' ? '720p' : 'auto',
+          kind: channelType,
         }
       } else {
         const response = await communityApi.createForum(serverId, {
@@ -193,7 +203,7 @@ export function CreateChannelModal({
 
   if (!isOpen) return null
 
-  const namePrefix = channelType === 'voice' ? 'voice' : channelType === 'forum' ? 'forum' : 'text'
+  const namePrefix = channelType === 'voice' ? 'voice' : channelType === 'stage' ? 'stage' : channelType === 'forum' ? 'forum' : 'text'
 
   return (
     <Modal
@@ -236,7 +246,7 @@ export function CreateChannelModal({
               Тип канала
             </p>
             <div className="space-y-2">
-              {TYPE_OPTIONS.map((option) => {
+              {TYPE_OPTIONS.filter((option) => option.id !== 'stage' || capabilities.stageChannels).map((option) => {
                 const selected = channelType === option.id
                 return (
                   <button
@@ -291,7 +301,7 @@ export function CreateChannelModal({
             </label>
             <div className="relative">
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                {channelType === 'voice' ? <Volume2 className="h-4 w-4" /> : channelType === 'forum' ? <MessageSquare className="h-4 w-4" /> : <Hash className="h-4 w-4" />}
+                {channelType === 'voice' ? <Volume2 className="h-4 w-4" /> : channelType === 'stage' ? <Radio className="h-4 w-4" /> : channelType === 'forum' ? <MessageSquare className="h-4 w-4" /> : <Hash className="h-4 w-4" />}
               </span>
               <input
                 id="create-channel-name"

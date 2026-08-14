@@ -15,7 +15,7 @@ from sqlalchemy import delete, text, update
 from app.core.config import settings
 from app.core.metrics import record_http, refresh_runtime_gauges, route_label
 from app.db.database import engine
-from app.api import account_security, auth, registration, capabilities, channels, channel_categories, channel_permissions, community_forums, community_imports, community_notifications, community_polls, community_templates, community_threads, e2ee_dms, message_pins, message_search, message_state, safety, server_features, servers, uploads, reactions, friends, direct_messages, embeds, webhooks, attachment_files, bot_apps, bot_platform, bot_client, bot_oauth, miscord_api, miscord_gateway, miscord_interactions
+from app.api import account_security, auth, registration, capabilities, channels, channel_categories, channel_permissions, community_forums, community_imports, community_notifications, community_polls, community_templates, community_threads, e2ee_dms, expressions, stage_channels, message_pins, message_search, message_state, safety, server_features, servers, uploads, reactions, friends, direct_messages, embeds, webhooks, attachment_files, bot_apps, bot_platform, bot_client, bot_oauth, miscord_api, miscord_gateway, miscord_interactions
 from app.core.miscord_errors import MiscordAPIError
 from app.services.webhook_rate_limit import Bucket, consume, rate_headers
 from app.websocket.connection_manager import manager
@@ -245,6 +245,8 @@ app.include_router(community_polls.router, prefix="/api/v1", tags=["polls"])
 app.include_router(community_notifications.router, prefix="/api/v1", tags=["notifications"])
 app.include_router(community_templates.router, prefix="/api/v1", tags=["server-templates"])
 app.include_router(community_imports.router, prefix="/api/v1", tags=["server-imports"])
+app.include_router(expressions.router, prefix="/api/v1", tags=["expressions"])
+app.include_router(stage_channels.router, prefix="/api/v1", tags=["stage-channels"])
 app.include_router(safety.router, prefix="/api/v1", tags=["safety"])
 app.include_router(server_features.router, prefix="/api/v1", tags=["server-features"])
 app.include_router(message_state.router, prefix="/api/v1", tags=["message-state"])

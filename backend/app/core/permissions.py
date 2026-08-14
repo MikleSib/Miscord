@@ -122,6 +122,10 @@ DEFAULT_PERMISSIONS = int(
     | Permission.SPEAK
     | Permission.STREAM
     | Permission.USE_VAD
+    | Permission.USE_EXTERNAL_EMOJIS
+    | Permission.USE_EXTERNAL_STICKERS
+    | Permission.USE_SOUNDBOARD
+    | Permission.REQUEST_TO_SPEAK
 )
 
 # Метаданные для фронтенда: ключ, подпись, описание, группа
@@ -183,6 +187,20 @@ PERMISSION_CATALOG = [
         "group": "text",
     },
     {
+        "key": "USE_EXTERNAL_EMOJIS",
+        "value": int(Permission.USE_EXTERNAL_EMOJIS),
+        "label": "Использовать внешние emoji",
+        "description": "Использовать emoji с других серверов в сообщениях.",
+        "group": "text",
+    },
+    {
+        "key": "USE_EXTERNAL_STICKERS",
+        "value": int(Permission.USE_EXTERNAL_STICKERS),
+        "label": "Использовать внешние стикеры",
+        "description": "Отправлять стикеры с других серверов.",
+        "group": "text",
+    },
+    {
         "key": "PIN_MESSAGES",
         "value": int(Permission.PIN_MESSAGES),
         "label": "Закреплять сообщения",
@@ -230,6 +248,34 @@ PERMISSION_CATALOG = [
         "label": "Отключать микрофон",
         "description": "Заглушать участников в голосовых каналах.",
         "group": "voice",
+    },
+    {
+        "key": "REQUEST_TO_SPEAK",
+        "value": int(Permission.REQUEST_TO_SPEAK),
+        "label": "Просить слово",
+        "description": "Поднимать руку и просить выйти на сцену.",
+        "group": "voice",
+    },
+    {
+        "key": "USE_SOUNDBOARD",
+        "value": int(Permission.USE_SOUNDBOARD),
+        "label": "Использовать звуковую панель",
+        "description": "Запускать звуки сервера в голосовых и Stage-каналах.",
+        "group": "voice",
+    },
+    {
+        "key": "MANAGE_GUILD_EXPRESSIONS",
+        "value": int(Permission.MANAGE_GUILD_EXPRESSIONS),
+        "label": "Управлять emoji и стикерами",
+        "description": "Добавлять, переименовывать и удалять медианаборы сервера.",
+        "group": "general",
+    },
+    {
+        "key": "CREATE_GUILD_EXPRESSIONS",
+        "value": int(Permission.CREATE_GUILD_EXPRESSIONS),
+        "label": "Создавать emoji, стикеры и звуки",
+        "description": "Добавлять новые элементы в медианаборы сервера.",
+        "group": "general",
     },
     {
         "key": "DEAFEN_MEMBERS",

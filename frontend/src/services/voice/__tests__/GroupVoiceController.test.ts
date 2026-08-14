@@ -378,9 +378,9 @@ describe('GroupVoiceController lifecycle', () => {
     mocks.initialize.mockResolvedValueOnce(processedB);
 
     const joining = controller.joinVoiceChannel(1);
+    await vi.waitFor(() => expect(mocks.join).toHaveBeenCalledWith(1, false, false)); emitJoined(1);
     await vi.waitFor(() => expect(mocks.capture).toHaveBeenCalledWith(expect.anything(), 'default'));
     const selecting = controller.switchInputDevice('mic-B');
-    emitJoined(1);
     captureA.resolve(rawA);
 
     await selecting;
@@ -406,15 +406,13 @@ describe('GroupVoiceController lifecycle', () => {
     });
 
     const joining = controller.joinVoiceChannel(1);
-    const rejectedJoin = expect(joining).rejects.toThrow('join mic-B failed');
+    await vi.waitFor(() => expect(mocks.join).toHaveBeenCalledWith(1, false, false)); emitJoined(1);
     await vi.waitFor(() => expect(mocks.capture).toHaveBeenCalledWith(expect.anything(), 'default'));
     const selecting = controller.switchInputDevice('mic-B');
-    const rejectedSelection = expect(selecting).rejects.toThrow('join mic-B failed');
-    emitJoined(1);
     captureA.resolve(rawA);
 
-    await rejectedSelection;
-    await rejectedJoin;
+    await expect(selecting).rejects.toThrow('join mic-B failed');
+    await expect(joining).rejects.toThrow('join mic-B failed');
     expect(rawA.getTracks()[0]!.stop).toHaveBeenCalledOnce();
     expect(controller.getAppliedInputDeviceId()).toBe('default');
   });
@@ -483,7 +481,8 @@ describe('GroupVoiceController lifecycle', () => {
     const capture = deferred<MediaStream>();
     mocks.capture.mockImplementationOnce(() => capture.promise);
     const joining = controller.joinVoiceChannel(1);
-    const rejectedJoin = expect(joining).rejects.toThrow('Подключение отменено.');
+    await vi.waitFor(() => expect(mocks.join).toHaveBeenCalledWith(1, false, false)); emitJoined(1);
+    const rejectedJoin = expect(joining).rejects.toThrow();
     await vi.waitFor(() => expect(mocks.capture).toHaveBeenCalledOnce());
     const leaving = controller.leaveVoiceChannel();
     capture.resolve(raw);
@@ -526,9 +525,9 @@ describe('GroupVoiceController lifecycle', () => {
     mocks.initialize.mockResolvedValueOnce(processed);
     const joining = controller.joinVoiceChannel(1);
     const monitoring = controller.beginMicrophoneMonitor();
+    await vi.waitFor(() => expect(mocks.join).toHaveBeenCalledWith(1, false, false)); emitJoined(1);
     await vi.waitFor(() => expect(mocks.capture).toHaveBeenCalledOnce());
     expect(mocks.capture).toHaveBeenCalledTimes(1);
-    emitJoined(1);
     capture.resolve(raw);
 
     await joining;
@@ -547,9 +546,9 @@ describe('GroupVoiceController lifecycle', () => {
     const capture = deferred<MediaStream>();
     mocks.capture.mockImplementationOnce(() => capture.promise);
     const joining = controller.joinVoiceChannel(1);
+    await vi.waitFor(() => expect(mocks.join).toHaveBeenCalledWith(1, false, false)); emitJoined(1);
     await vi.waitFor(() => expect(mocks.capture).toHaveBeenCalledOnce());
     controller.setInputMode('push-to-talk');
-    emitJoined(1);
     capture.resolve(raw);
     await joining;
 

@@ -67,6 +67,7 @@ import { Permissions } from '../lib/permissions'
 import { useServerPermissions } from '../lib/serverPermissions'
 import { requestChannelSettings } from '../lib/channelSettingsEvents'
 import { MessageComposerUnavailable } from './chat/MessageComposerUnavailable'
+import { ExpressionComposerButton } from './media/ExpressionComposerButton'
 
 const localizedCommandName = (command: MiscordApplicationCommand) => command.name_localizations?.ru || command.name
 
@@ -91,7 +92,8 @@ export function ChatAreaView({ model }: { model: any }) {
     handleFileChange, handlePaste, handleDragEnter, handleDragOver, handleDragLeave, handleDrop,
     handleRemoveFile, updateMentionState, applyMention, applySlashCommand, applyAutocompleteChoice, parseCommandOptions,
     handleSendMessage, handleInputChange, handleInputKeyDown, handleReply, handleContextApplicationCommand, handleCancelReply,
-    handleReaction, TypingIndicator, canSendMessages, channelPermissionStatus, refreshChannelPermissions
+    handleReaction, TypingIndicator, canSendMessages, channelPermissionStatus, refreshChannelPermissions,
+    handleExpressionEmoji, sendExpressionMedia
   } = model
   const { can } = useServerPermissions(currentServer?.id ?? null)
   const isStandardTextChannel = currentChannel.type === 'text'
@@ -366,6 +368,13 @@ export function ChatAreaView({ model }: { model: any }) {
                 setValue={setMessageInput}
                 disabled={isLoading || isSlowModeActive}
                 className="mr-1"
+              />
+              <ExpressionComposerButton
+                serverId={currentServer?.id}
+                disabled={isLoading || isSlowModeActive}
+                onEmoji={handleExpressionEmoji}
+                onSticker={(id) => sendExpressionMedia({ stickerIds: [id] })}
+                onGif={(gif) => sendExpressionMedia({ gif })}
               />
               <PollComposerButton channelId={currentChannel.id} disabled={isLoading || isSlowModeActive} />
               <Button

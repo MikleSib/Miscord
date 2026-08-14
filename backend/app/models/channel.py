@@ -83,6 +83,7 @@ class VoiceChannel(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
+    kind = Column(String(16), nullable=False, default="voice", server_default="voice", index=True)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False)
     category_id = Column(Integer, ForeignKey("channel_categories.id", ondelete="SET NULL"), nullable=True, index=True)
     position = Column(Integer, default=0)
@@ -120,6 +121,9 @@ class VoiceChannelUser(Base):
     joined_at = Column(DateTime(timezone=True), server_default=func.now())
     is_muted = Column(Boolean, default=False)
     is_deafened = Column(Boolean, default=False)
+    stage_role = Column(String(16), nullable=False, default="audience", server_default="audience")
+    stage_suppressed = Column(Boolean, nullable=False, default=False, server_default="false")
+    requested_to_speak_at = Column(DateTime(timezone=True), nullable=True)
 
     # Отношения
     voice_channel = relationship("VoiceChannel", back_populates="active_users")

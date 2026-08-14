@@ -53,7 +53,11 @@ def miscord_role(role, *, guild_id: int | None = None) -> dict[str, Any]:
 
 
 def miscord_channel(channel, *, guild_id: int, overwrites: list[Any] | None = None) -> dict[str, Any]:
-    channel_type = 0 if channel.__class__.__name__ == "TextChannel" else 2
+    channel_type = (
+        0 if channel.__class__.__name__ == "TextChannel"
+        else 13 if getattr(channel, "kind", "voice") == "stage"
+        else 2
+    )
     payload: dict[str, Any] = {
         "id": str(channel.id),
         "type": channel_type,

@@ -55,6 +55,7 @@ async function start(): Promise<void> {
         server_muted?: boolean;
         server_deafened?: boolean;
         disconnect?: boolean;
+        stage_role?: 'audience' | 'speaker' | 'moderator';
       };
       if (command.session_id) void rooms.moderateSession(command.session_id, command).catch(() => undefined);
     } catch {
