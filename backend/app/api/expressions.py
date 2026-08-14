@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +17,7 @@ from app.services.media_ticket import create_soundboard_ticket
 from app.services.voice_presence import voice_presence
 from app.services.channel_permissions import get_effective_channel_permissions
 from app.services.expression_media import InvalidExpressionMedia, inspect_and_normalize_expression
+from app.services.object_storage import ObjectStorageError, download_bytes
 
 
 router = APIRouter()
@@ -105,6 +106,36 @@ async def get_expression(
     return _response(item)
 
 
+@router.get("/expressions/{expression_id}/audio")
+async def get_expression_audio(
+    expression_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Serve short Soundboard audio from the Miscord origin for Web Audio."""
+    item = await db.scalar(select(ServerExpression).where(
+        ServerExpression.id == expression_id,
+        ServerExpression.kind == "sound",
+        ServerExpression.available.is_(True),
+    ))
+    if item is None:
+        raise HTTPException(status_code=404, detail="Звук не найден")
+    await require_membership(db, int(item.server_id), current_user)
+    try:
+        content, stored_type = await download_bytes(item.storage_key)
+    except ObjectStorageError as exc:
+        raise HTTPException(status_code=503, detail="Хранилище звуков временно недоступно") from exc
+    return Response(
+        content=content,
+        media_type=item.content_type or stored_type or "audio/ogg",
+        headers={
+            "Cache-Control": "private, max-age=86400",
+            "Content-Length": str(len(content)),
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @router.post(
     "/servers/{server_id}/expressions",
     response_model=ExpressionResponse,
@@ -160,6 +191,8 @@ async def create_expression(
         kind=payload.kind,
         name=payload.name,
         description=payload.description,
+        emoji=payload.emoji if payload.kind == "sound" else None,
+        volume=payload.volume if payload.kind == "sound" else 100,
         storage_key=upload.storage_key,
         file_url=upload.file_url,
         content_type=upload.content_type,

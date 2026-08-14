@@ -14,6 +14,8 @@ class ExpressionCreate(BaseModel):
     name: str = Field(min_length=2, max_length=64)
     upload_id: str = Field(min_length=8, max_length=64)
     description: str | None = Field(default=None, max_length=160)
+    emoji: str | None = Field(default=None, max_length=64)
+    volume: int = Field(default=100, ge=0, le=100)
     width: int | None = Field(default=None, ge=1, le=4096)
     height: int | None = Field(default=None, ge=1, le=4096)
     duration_ms: int | None = Field(default=None, ge=1, le=5000)
@@ -30,6 +32,8 @@ class ExpressionCreate(BaseModel):
 class ExpressionUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=64)
     description: str | None = Field(default=None, max_length=160)
+    emoji: str | None = Field(default=None, max_length=64)
+    volume: int | None = Field(default=None, ge=0, le=100)
 
     @field_validator("name")
     @classmethod
@@ -46,6 +50,8 @@ class ExpressionResponse(BaseModel):
     kind: ExpressionKind
     name: str
     description: str | None
+    emoji: str | None
+    volume: int
     file_url: str
     content_type: str
     size_bytes: int

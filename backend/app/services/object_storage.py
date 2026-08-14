@@ -166,6 +166,28 @@ async def download_file(storage_key: str, path: Path) -> None:
         raise ObjectStorageError("Failed to download object") from exc
 
 
+def _download_bytes(storage_key: str) -> tuple[bytes, str]:
+    response = _client().get_object(
+        Bucket=settings.S3_BUCKET,
+        Key=full_object_key(storage_key),
+    )
+    body = response["Body"]
+    try:
+        return body.read(), str(response.get("ContentType") or "application/octet-stream")
+    finally:
+        body.close()
+
+
+async def download_bytes(storage_key: str) -> tuple[bytes, str]:
+    """Download a small object without exposing a cross-origin delivery URL."""
+    if not object_storage_enabled():
+        raise ObjectStorageError("S3 object storage is disabled")
+    try:
+        return await asyncio.to_thread(_download_bytes, storage_key)
+    except (BotoCoreError, ClientError, OSError, KeyError) as exc:
+        raise ObjectStorageError("Failed to download object") from exc
+
+
 async def delete_object(storage_key: str | None) -> None:
     if not storage_key or not object_storage_enabled():
         return

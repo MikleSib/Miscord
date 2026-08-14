@@ -8,8 +8,14 @@ export interface GiphyConfig {
   rating: string
 }
 
+export interface ExpressionCreateOptions {
+  emoji?: string | null
+  volume?: number
+}
+
 class ExpressionService {
   private readonly cache = new Map<number, ServerExpression>()
+  private readonly soundCache = new Map<number, ArrayBuffer>()
 
   async list(serverId?: number, kind?: ServerExpression['kind']): Promise<ServerExpression[]> {
     const path = serverId ? `/api/v1/servers/${serverId}/expressions` : '/api/v1/users/@me/expressions'
@@ -26,13 +32,24 @@ class ExpressionService {
     return item
   }
 
-  async create(serverId: number, kind: ServerExpression['kind'], name: string, file: File): Promise<ServerExpression> {
+  async create(
+    serverId: number,
+    kind: ServerExpression['kind'],
+    name: string,
+    file: File,
+    options: ExpressionCreateOptions = {},
+  ): Promise<ServerExpression> {
     const upload = await uploadService.uploadFile(file)
     let duration_ms: number | undefined
     if (kind === 'sound') duration_ms = await audioDuration(file)
     try {
       const item = (await api.post<ServerExpression>(`/api/v1/servers/${serverId}/expressions`, {
-        kind, name, upload_id: upload.upload_id, duration_ms,
+        kind,
+        name,
+        upload_id: upload.upload_id,
+        duration_ms,
+        emoji: options.emoji || null,
+        volume: options.volume ?? 100,
       })).data
       this.cache.set(item.id, item)
       return item
@@ -45,6 +62,7 @@ class ExpressionService {
   async remove(serverId: number, id: number): Promise<void> {
     await api.delete(`/api/v1/servers/${serverId}/expressions/${id}`)
     this.cache.delete(id)
+    this.soundCache.delete(id)
   }
 
   async giphyConfig(): Promise<GiphyConfig> {
@@ -74,6 +92,16 @@ class ExpressionService {
 
   async soundboardTicket(channelId: number, soundId: number): Promise<{ ticket: string; sound: ServerExpression }> {
     return (await api.post(`/api/v1/voice/${channelId}/soundboard/${soundId}/ticket`)).data
+  }
+
+  async soundAudio(soundId: number): Promise<ArrayBuffer> {
+    const cached = this.soundCache.get(soundId)
+    if (cached) return cached.slice(0)
+    const response = await api.get<ArrayBuffer>(`/api/v1/expressions/${soundId}/audio`, {
+      responseType: 'arraybuffer',
+    })
+    this.soundCache.set(soundId, response.data)
+    return response.data.slice(0)
   }
 }
 

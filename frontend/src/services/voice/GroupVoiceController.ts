@@ -20,6 +20,7 @@ import { participantsWithSelf } from './groupVoiceParticipants';
 import { SfuTransport } from './sfuTransport';
 import type { RemoteMedia, VoiceCallbacks, VoiceJoinedPayload, VoiceParticipant } from './types';
 import { VoiceLifecycle, type AssertCurrentVoiceLifecycle } from './voiceLifecycle';
+import { voiceJoinErrorMessage } from './voiceJoinErrors';
 const clamp = (value: number, min = 0, max = 1) => Math.min(max, Math.max(min, value));
 export class GroupVoiceController {
   private transport: SfuTransport | null = null;
@@ -413,7 +414,7 @@ export class GroupVoiceController {
       if (this.isScreenSharing && localUserId === Number(data.streamer_id)) playScreenShareSound('join');
     });
     unifiedWebSocketService.on('error', (data: { code?: string; message?: string }) => {
-      if (this.joinWaiter.isPending) this.joinWaiter.reject(new Error(data.message || 'Не удалось войти в голосовой канал.'));
+      if (this.joinWaiter.isPending) this.joinWaiter.reject(new Error(voiceJoinErrorMessage(data)));
     });
   }
 

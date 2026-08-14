@@ -17,6 +17,21 @@ def test_expression_names_are_normalized_for_create_and_update() -> None:
         ExpressionUpdate(name="bad/name")
 
 
+def test_sound_expression_accepts_emoji_and_bounded_volume() -> None:
+    created = ExpressionCreate(
+        kind="sound",
+        name=" Air Horn ",
+        upload_id="upload-123",
+        emoji="📣",
+        volume=72,
+    )
+    assert created.name == "air_horn"
+    assert created.emoji == "📣"
+    assert created.volume == 72
+    with pytest.raises(ValidationError):
+        ExpressionCreate(kind="sound", name="loud", upload_id="upload-123", volume=101)
+
+
 def test_expression_image_uses_verified_dimensions(tmp_path: Path) -> None:
     source = tmp_path / "emoji.png"
     Image.new("RGBA", (128, 96), (255, 0, 0, 255)).save(source)

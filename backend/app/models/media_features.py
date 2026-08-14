@@ -22,6 +22,7 @@ class ServerExpression(Base):
     __tablename__ = "server_expressions"
     __table_args__ = (
         CheckConstraint("kind IN ('emoji', 'sticker', 'sound')", name="ck_server_expressions_kind"),
+        CheckConstraint("volume >= 0 AND volume <= 100", name="ck_server_expressions_volume"),
         Index(
             "uq_available_server_expression_name",
             "server_id", "kind", "name",
@@ -36,6 +37,8 @@ class ServerExpression(Base):
     kind = Column(String(16), nullable=False, index=True)
     name = Column(String(64), nullable=False)
     description = Column(String(160), nullable=True)
+    emoji = Column(String(64), nullable=True)
+    volume = Column(Integer, nullable=False, default=100, server_default="100")
     storage_key = Column(String(512), nullable=False, unique=True)
     file_url = Column(String(2048), nullable=False)
     content_type = Column(String(128), nullable=False)

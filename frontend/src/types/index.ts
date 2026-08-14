@@ -223,6 +223,8 @@ export interface ServerExpression {
   kind: 'emoji' | 'sticker' | 'sound';
   name: string;
   description?: string | null;
+  emoji?: string | null;
+  volume: number;
   file_url: string;
   content_type: string;
   size_bytes?: number;

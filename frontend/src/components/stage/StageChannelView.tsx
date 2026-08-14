@@ -38,7 +38,7 @@ function Participant({ participant, canModerate, onRole }: {
 export function StageChannelView({ channel }: { channel: Channel }) {
   const server = useStore((state) => state.currentServer)
   const user = useAuthStore((state) => state.user)
-  const { can } = useServerPermissions(server?.id)
+  const { can, isLoaded: permissionsLoaded } = useServerPermissions(server?.id)
   const { participants, currentVoiceChannelId, isConnected, isConnecting, connectToVoiceChannel, disconnectFromVoiceChannel, updateParticipant } = useVoiceStore()
   const [stage, setStage] = useState<StageInstance | null>(null)
   const [requests, setRequests] = useState<StageRequest[]>([])
@@ -101,10 +101,16 @@ export function StageChannelView({ channel }: { channel: Channel }) {
       <Radio className="mx-auto h-10 w-10 text-primary" />
       <h1 className="mt-4 text-2xl font-bold">{channel.name}</h1>
       <p className="mt-2 text-sm text-text-muted">Сцена пока не запущена.</p>
-      {canManage && <form className="mt-5 flex gap-2" onSubmit={(event) => { event.preventDefault(); void run(async () => { await stageService.create(channel.id, topic); setTopic('') }) }}>
+      {!permissionsLoaded && <p className="mt-4 text-sm text-text-quiet">Проверяем права доступа…</p>}
+      {permissionsLoaded && canManage && <form className="mt-5 flex flex-col gap-2 sm:flex-row" onSubmit={(event) => { event.preventDefault(); void run(async () => {
+        await stageService.create(channel.id, topic)
+        setTopic('')
+        await connectToVoiceChannel(channel.id)
+      }) }}>
         <input value={topic} onChange={(event) => setTopic(event.target.value)} maxLength={120} required className="min-w-0 flex-1 rounded-lg border border-border bg-input px-3 py-2.5" placeholder="Тема сцены" />
-        <button disabled={busy} className="rounded-lg bg-primary px-4 font-semibold text-primary-foreground">Начать</button>
+        <button disabled={busy} className="rounded-lg bg-primary px-4 py-2.5 font-semibold text-primary-foreground">{busy ? 'Запускаем…' : 'Запустить Stage и войти'}</button>
       </form>}
+      {permissionsLoaded && !canManage && <p className="mt-4 text-sm text-text-muted">Сцена ещё не началась. Подключение станет доступно после запуска модератором.</p>}
       {error && <p className="mt-3 text-sm text-red-300" role="alert">{error}</p>}
     </section>
   </main>
