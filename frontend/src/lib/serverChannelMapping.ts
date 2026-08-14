@@ -33,6 +33,7 @@ export function mapServerChannel(
     return {
       ...common,
       type: 'voice',
+      kind: raw.kind ?? 'voice',
       max_users: raw.max_users ?? 0,
       bitrate: raw.bitrate ?? 64,
       video_quality: raw.video_quality === '720p' ? '720p' : 'auto',

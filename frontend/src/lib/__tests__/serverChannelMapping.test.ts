@@ -13,4 +13,14 @@ describe('server channel mapping', () => {
   it('normalizes a missing category to null', () => {
     expect(mapServerChannel(8, { id: 9, name: 'voice' }, 'voice').category_id).toBeNull()
   })
+
+  it('preserves Stage kind during cached and network server synchronization', () => {
+    const stage = mapServerChannel(
+      8,
+      { id: 17, name: 'town-hall', type: 'voice', kind: 'stage' },
+      'voice',
+    )
+    expect(stage.kind).toBe('stage')
+    expect(mapServerChannel(8, { id: 18, name: 'voice' }, 'voice').kind).toBe('voice')
+  })
 })
