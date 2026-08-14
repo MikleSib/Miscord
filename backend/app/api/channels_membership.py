@@ -1,6 +1,7 @@
 """Bounded route group extracted from channels_servers.py."""
 
 from .channels_shared import *  # noqa: F401,F403
+from app.services.channel_serialization import voice_channel_payload
 
 router = APIRouter()
 
@@ -106,19 +107,7 @@ async def get_channel_details(
                 "slow_mode_seconds": tc.slow_mode_seconds,
             }
             for tc in text_channels
-        ] + [
-            {
-                "id": vc.id,
-                "name": vc.name,
-                "type": "voice",
-                "position": vc.position,
-                "category_id": vc.category_id,
-                "max_users": vc.max_users,
-                "bitrate": int(getattr(vc, "bitrate", 64) or 64),
-                "video_quality": getattr(vc, "video_quality", None) or "auto",
-            }
-            for vc in voice_channels
-        ],
+        ] + [voice_channel_payload(vc) for vc in voice_channels],
         "members": [
             {
                 "id": member.id,

@@ -18,6 +18,7 @@ from app.models import (
 from app.services.server_events import notify_server, notify_users
 from app.services.bot_event_dispatcher import INTENT_GUILD_MEMBERS, dispatcher as bot_event_dispatcher
 from app.services.miscord_serializers import miscord_user
+from app.services.channel_serialization import voice_channel_payload
 
 
 def serialize_member_user(user: User, *, nickname: Optional[str] = None) -> dict:
@@ -83,13 +84,7 @@ async def build_server_payload(db: AsyncSession, server_id: int) -> Optional[dic
             for tc in sorted(filter_visible_text_channels(server.text_channels), key=lambda item: item.position)
         ],
         "voice_channels": [
-            {
-                "id": vc.id,
-                "name": vc.name,
-                "position": vc.position,
-                "max_users": vc.max_users,
-                "created_at": vc.created_at.isoformat() if vc.created_at else None,
-            }
+            voice_channel_payload(vc)
             for vc in sorted(server.voice_channels, key=lambda item: item.position)
         ],
         "members_count": len(server.members),

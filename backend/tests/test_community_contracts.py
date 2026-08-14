@@ -15,6 +15,7 @@ from app.services.polls import is_poll_closed
 from app.services.server_templates import builtin_templates
 from app.services import thread_access
 from app.services.forum_post_serializer import _preview
+from app.services.channel_serialization import voice_channel_payload
 
 
 def test_thread_contract_accepts_only_supported_archive_windows() -> None:
@@ -96,3 +97,20 @@ def test_legacy_human_websockets_are_not_registered() -> None:
     assert "/ws/unified" in paths
     assert "/ws/chat/{text_channel_id}" not in paths
     assert "/ws/notifications" not in paths
+
+
+def test_stage_kind_survives_server_channel_serialization() -> None:
+    channel = SimpleNamespace(
+        id=17,
+        name="Town hall",
+        kind="stage",
+        position=2,
+        category_id=4,
+        max_users=0,
+        bitrate=96,
+        video_quality="auto",
+        created_at=None,
+    )
+    payload = voice_channel_payload(channel)
+    assert payload["type"] == "voice"
+    assert payload["kind"] == "stage"
