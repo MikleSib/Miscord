@@ -5,10 +5,8 @@ PUBLIC_URL="${MISCORD_PUBLIC_URL:-https://miscord.ru}"
 SMOKE_URL="${MISCORD_SMOKE_URL:-$PUBLIC_URL}"
 GATEWAY_URL="${MISCORD_GATEWAY_URL:-$PUBLIC_URL}"
 ROOT="${MISCORD_ROOT:-$(git rev-parse --show-toplevel)}"
-COMPOSE=(docker compose)
-if [[ -n "${COMPOSE_PROJECT_NAME:-}" ]]; then
-  COMPOSE+=(-p "$COMPOSE_PROJECT_NAME")
-fi
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-miscord-source}"
+COMPOSE=(docker compose -p "$COMPOSE_PROJECT_NAME")
 
 if (( $# == 0 )); then
   echo "usage: safe_deploy.sh <backend|frontend|voice-media|nginx> [...]" >&2
@@ -143,12 +141,35 @@ else
 fi
 
 echo "[7/7] checking public frontend, OAuth, API health, and Gateways"
-root_code=$(curl -sS -o /dev/null --max-time 15 -w '%{http_code}' "$SMOKE_URL/")
-oauth_code=$(curl -sS -L -o /dev/null --max-time 15 -w '%{http_code}' "$SMOKE_URL/oauth2/authorize")
-api_code=$(curl -sS -o /dev/null --max-time 15 -w '%{http_code}' "$SMOKE_URL/api/v1/health")
-[[ "$root_code" =~ ^[23][0-9][0-9]$ ]] || { echo "public root returned $root_code" >&2; exit 1; }
-[[ "$oauth_code" == "200" ]] || { echo "public OAuth authorize page returned $oauth_code" >&2; exit 1; }
-[[ "$api_code" == "200" ]] || { echo "public API health returned $api_code" >&2; exit 1; }
+probe_http() {
+  local url=$1 expected=$2 follow=${3:-false} deadline=$((SECONDS + 45)) code="000"
+  local curl_args=(-sS -o /dev/null --max-time 15 -w '%{http_code}')
+  [[ "$follow" == "true" ]] && curl_args+=(-L)
+  while (( SECONDS < deadline )); do
+    code=$(curl "${curl_args[@]}" "$url" 2>/dev/null || true)
+    code=${code:-000}
+    if [[ "$code" =~ $expected ]]; then
+      printf '%s' "$code"
+      return 0
+    fi
+    sleep 2
+  done
+  printf '%s' "$code"
+  return 1
+}
+
+if ! root_code=$(probe_http "$SMOKE_URL/" '^[23][0-9][0-9]$'); then
+  echo "public root returned $root_code after retries" >&2
+  exit 1
+fi
+if ! oauth_code=$(probe_http "$SMOKE_URL/oauth2/authorize" '^200$' true); then
+  echo "public OAuth authorize page returned $oauth_code after retries" >&2
+  exit 1
+fi
+if ! api_code=$(probe_http "$SMOKE_URL/api/v1/health" '^200$'); then
+  echo "public API health returned $api_code after retries" >&2
+  exit 1
+fi
 
 gateway_host=$(python3 -c 'import sys; from urllib.parse import urlparse; print(urlparse(sys.argv[1]).hostname or "")' "$GATEWAY_URL")
 if [[ -z "$gateway_host" ]]; then

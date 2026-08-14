@@ -11,7 +11,7 @@ Treat validation as part of the requested Miscord change. Never report a deploym
 
 - Repository branch: `new-4`
 - Production checkout: `/home/pc/Miscord-source`
-- Compose project: `miscord`
+- Compose project: `miscord-source`
 - Public URL: `https://miscord.ru`
 - Data services: `postgres`, `redis`, attachment/S3 data
 
